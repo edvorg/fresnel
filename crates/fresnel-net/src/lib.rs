@@ -5,6 +5,7 @@
 //! start a background task, which each crate above it uses.
 
 mod changes;
+mod channel;
 mod clock;
 mod connect;
 pub mod credential;
@@ -13,8 +14,12 @@ mod error;
 mod process;
 mod signal;
 pub mod task;
+#[cfg(test)]
+mod testing;
 
 pub use changes::Changes;
+pub use channel::group::GroupStatus;
+pub use channel::{ChannelSettings, ChannelState, ChannelStatus};
 pub use clock::WallClock;
 pub use connect::{ConnectSettings, ConnectStatus, Endpoint};
 pub use error::{ErrorClass, NetError};
