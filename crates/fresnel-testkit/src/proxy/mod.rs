@@ -106,7 +106,8 @@ impl FaultProxy {
     }
 
     /// Closes all open connections with a TCP reset. A connection that opens after the return
-    /// is not in danger.
+    /// is not in danger. On macOS, the call first waits until each peer took its bytes, for
+    /// 2 seconds at most for each socket.
     pub async fn reset_all(&self) {
         let request = self.shared.request_reset();
         let mut done = self.shared.resets_done.subscribe();

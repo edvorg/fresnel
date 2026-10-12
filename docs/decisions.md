@@ -129,8 +129,8 @@ test sets each body and sends each watch event.
 
 ## The fault proxy waits before a reset
 
-On the loopback of macOS, a TCP reset can be lost when data is on the way: 3 of 400 resets in
-a test. The client then sees a silent connection, which is a different fault. Thus the proxy
-stops the data, waits until the peer acknowledged all bytes, and then closes with a reset. The
-proxy also delays each byte with no limit of the data rate, so a far cluster does not look
-slower than it is.
+On the loopback of macOS, a TCP reset can be lost when data is on the way: 11 of 200 resets
+in a test. The client then sees a silent connection, a different fault. Thus the proxy stops
+the data, waits until the peer acknowledged all bytes, 2 seconds at most, and closes with a
+reset. The proxy also delays each byte with no limit of the data rate, so a far cluster does
+not look slower than it is.

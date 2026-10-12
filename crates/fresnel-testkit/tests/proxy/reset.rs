@@ -103,6 +103,31 @@ async fn reset_all_at_the_moment_of_a_connect_gives_a_reset_and_counts_it() {
     }
 }
 
+/// A client that does not read never acknowledges the bytes that the proxy holds for it.
+/// The reset must not wait for them with no end.
+#[tokio::test]
+async fn reset_all_reaches_a_client_that_does_not_read() {
+    let bed = Bed::start().await;
+    let (mut client, mut server) = bed.pair().await;
+    let chunk = vec![7_u8; 1024 * 1024];
+    // Until the queue of the proxy and each socket buffer are full: the proxy then holds
+    // bytes that the client did not take.
+    while matches!(timeout(QUIET, server.write_all(&chunk)).await, Ok(Ok(()))) {}
+    in_time(bed.proxy.reset_all()).await;
+
+    let mut buffer = vec![0_u8; 64 * 1024];
+    let end = in_time(async {
+        loop {
+            match client.read(&mut buffer).await {
+                Ok(1..) => {}
+                end => return end,
+            }
+        }
+    })
+    .await;
+    assert!(is_reset(&end), "the client reads the bytes that it has and then the reset: {end:?}");
+}
+
 /// With high load, the timer of `ResetEach` can end while the runtime does not run. The
 /// test then changes the mode before the task of the proxy sees its timer. No reset must
 /// follow the change.

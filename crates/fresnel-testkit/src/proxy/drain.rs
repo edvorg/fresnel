@@ -2,8 +2,9 @@
 //!
 //! The reset is a close with linger 0. On the loopback of macOS, such a reset can be lost
 //! when bytes of the proxy are still on the way. The peer then waits with no end, which is a
-//! different fault. Measured with no wait: 3 of 400 resets during a transfer were lost.
-//! Thus the proxy first waits until the peer acknowledged all bytes.
+//! different fault. Measured with no wait: 3 of 400 resets during a transfer were lost in
+//! one run, and 11 of 200 in a second run. Thus the proxy first waits until the peer
+//! acknowledged all bytes.
 
 use std::io;
 use std::time::Duration;
