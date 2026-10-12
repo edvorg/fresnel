@@ -182,7 +182,7 @@ async fn a_reporter_that_panics_does_not_stop_the_task() {
 }
 
 #[test]
-fn a_thread_with_no_runtime_starts_a_task_and_a_stopped_runtime_gives_a_final_state() {
+fn a_thread_with_no_runtime_starts_a_task_and_a_stopped_runtime_gives_each_task_a_final_state() {
     let runtime =
         tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true).build().expect("a runtime");
     let tasks = Tasks::new(runtime.handle().clone(), |_: TaskReport| {});
@@ -193,4 +193,9 @@ fn a_thread_with_no_runtime_starts_a_task_and_a_stopped_runtime_gives_a_final_st
 
     drop(runtime);
     assert_eq!(status(&tasks, &handle).state, TaskState::Ended(End::Stopped));
+
+    let (run_sender, _runs) = unbounded_channel();
+    let late = tasks.start(TaskName::new("late"), Restart::Always(BACKOFF), counted_runs(run_sender, false));
+    let late = status(&tasks, &late);
+    assert_eq!((late.state, late.runs), (TaskState::Ended(End::Stopped), 0), "no runtime, so no run");
 }

@@ -9,16 +9,23 @@ use std::time::Duration;
 use futures_util::FutureExt as _;
 use tokio::time::{Instant, sleep};
 
-use super::registry::Registry;
 use super::report::TaskReport;
 use super::status::{End, TaskId, TaskName, TaskState};
 use super::{Restart, Shared};
 
+/// The supervisor of one task. Its drop gives the task a final state for each end that the
+/// loop does not handle: a runtime that stops, also before the first run.
 pub(super) struct Supervisor {
     pub(super) shared: Arc<Shared>,
     pub(super) id: TaskId,
     pub(super) name: TaskName,
     pub(super) restart: Restart,
+}
+
+impl Drop for Supervisor {
+    fn drop(&mut self) {
+        self.shared.registry.supervisor_gone(self.id);
+    }
 }
 
 impl Supervisor {
@@ -31,7 +38,6 @@ impl Supervisor {
         E: Display,
     {
         let registry = &self.shared.registry;
-        let _final_state = FinalState { registry, id: self.id };
         let mut early_ends = 0_u32;
         loop {
             registry.run_started(self.id);
@@ -78,18 +84,5 @@ fn panic_message(panic: &(dyn Any + Send)) -> String {
         message.clone()
     } else {
         "a panic without a text".to_owned()
-    }
-}
-
-/// Gives the task a final state when its supervisor goes away for a cause that the loop does
-/// not handle, for example a runtime that stops.
-struct FinalState<'a> {
-    registry: &'a Registry,
-    id: TaskId,
-}
-
-impl Drop for FinalState<'_> {
-    fn drop(&mut self) {
-        self.registry.supervisor_gone(self.id);
     }
 }

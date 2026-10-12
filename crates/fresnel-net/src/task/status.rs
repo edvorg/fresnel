@@ -48,7 +48,7 @@ pub enum End {
     Failed(String),
     /// The body panicked with this message.
     Panicked(String),
-    /// The runtime stopped while the task was alive.
+    /// The runtime stopped. The task cannot run again.
     Stopped,
 }
 
