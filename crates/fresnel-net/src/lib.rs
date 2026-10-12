@@ -6,6 +6,7 @@
 
 mod changes;
 mod clock;
+mod connect;
 pub mod credential;
 pub mod env;
 mod error;
@@ -15,5 +16,6 @@ pub mod task;
 
 pub use changes::Changes;
 pub use clock::WallClock;
+pub use connect::{ConnectSettings, ConnectStatus, Endpoint};
 pub use error::{ErrorClass, NetError};
 pub use signal::{Cause, Listener, Signal};
