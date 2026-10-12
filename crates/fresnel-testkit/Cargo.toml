@@ -11,14 +11,22 @@ repository.workspace = true
 fastrand.workspace = true
 fresnel-net.workspace = true
 socket2.workspace = true
-tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
 
 # The size of the send buffer of a socket, for the reset of the fault proxy.
 [target.'cfg(target_vendor = "apple")'.dependencies]
 libc.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
+bytes.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["client", "http1", "http2"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+rustls.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+tokio-rustls.workspace = true
 
 [lints]
 workspace = true

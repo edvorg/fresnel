@@ -8,6 +8,10 @@ use std::io;
 pub struct KitError(String);
 
 impl KitError {
+    pub(crate) fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
     /// An error with the step that failed before its cause.
     pub(crate) fn because(step: impl Display, cause: impl Display) -> Self {
         Self(format!("{step}: {cause}"))

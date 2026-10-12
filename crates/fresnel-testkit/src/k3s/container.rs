@@ -1,0 +1,94 @@
+//! The k3s container of one test cluster.
+
+use std::net::Ipv4Addr;
+use std::time::Duration;
+
+use tokio::time::{Instant, sleep};
+
+use super::docker::{docker, docker_blocking};
+use super::network::Network;
+use crate::KitError;
+
+/// The image of the tests. The API version of `k8s-openapi` in the workspace fits it.
+const IMAGE: &str = "rancher/k3s:v1.33.5-k3s1";
+/// The port of the kube-apiserver in the container. k3s binds it to 127.0.0.1 by default.
+const API_PORT: u16 = 6444;
+const READY_LIMIT: Duration = Duration::from_secs(180);
+const READY_STEP: Duration = Duration::from_millis(250);
+/// Without a limit, `kubectl` can wait with no end for a server that starts.
+const READY_REQUEST_LIMIT: &str = "--request-timeout=5s";
+/// The seconds that Docker waits for the end of k3s before it kills the process.
+const STOP_SECONDS: &str = "3";
+
+/// A k3s container. Its drop removes it with its volumes.
+pub(super) struct Container {
+    pub(super) name: String,
+}
+
+impl Container {
+    /// Starts k3s and publishes its kube-apiserver on `host_port` of 127.0.0.1.
+    ///
+    /// The supervisor port 6443 gets no published port, so no test can use it by mistake.
+    /// The parts of k3s that no test needs are off, which makes the start faster.
+    /// k3s runs its own container runtime, which needs the mode `--privileged`.
+    pub(super) async fn run(name: &str, network: &Network, host_port: u16) -> Result<Self, KitError> {
+        // Docker can create a container and then fail to start it. The drop removes it.
+        let container = Self { name: name.to_owned() };
+        let address = network.address.to_string();
+        let publish = format!("{}:{host_port}:{API_PORT}", Ipv4Addr::LOCALHOST);
+        let run = ["run", "--detach", "--privileged", "--name", name, "--network", name, "--ip", &address];
+        let k3s = [
+            "server",
+            "--disable=traefik",
+            "--disable=servicelb",
+            "--disable=metrics-server",
+            // Docker can publish the port only when the server listens on the container address.
+            "--kube-apiserver-arg=bind-address=0.0.0.0",
+        ];
+        docker(&[&run[..], &["--publish", &publish, IMAGE], &k3s[..]].concat()).await?;
+        Ok(container)
+    }
+
+    /// Runs a program in the container and gives its output.
+    pub(super) async fn exec(&self, program: &[&str]) -> Result<String, KitError> {
+        docker(&[&["exec", &self.name], program].concat()).await
+    }
+
+    /// Waits until the API server reports that it is ready. Docker gives no signal for
+    /// this, so the helper asks again.
+    pub(super) async fn wait_ready(&self) -> Result<(), KitError> {
+        let limit = Instant::now() + READY_LIMIT;
+        loop {
+            match self.exec(&["kubectl", "get", "--raw", "/readyz", READY_REQUEST_LIMIT]).await {
+                Ok(_) => return Ok(()),
+                Err(error) if Instant::now() >= limit => {
+                    let step = format!("{}: the API server is not ready after {READY_LIMIT:?}", self.name);
+                    return Err(KitError::because(step, error));
+                }
+                Err(_not_ready_yet) => sleep(READY_STEP).await,
+            }
+        }
+    }
+
+    pub(super) async fn restart(&self) -> Result<(), KitError> {
+        docker(&["restart", "--time", STOP_SECONDS, &self.name]).await?;
+        self.wait_ready().await
+    }
+
+    pub(super) async fn stop(&self) -> Result<(), KitError> {
+        docker(&["stop", "--time", STOP_SECONDS, &self.name]).await.map(drop)
+    }
+
+    pub(super) async fn start_again(&self) -> Result<(), KitError> {
+        docker(&["start", &self.name]).await?;
+        self.wait_ready().await
+    }
+}
+
+impl Drop for Container {
+    fn drop(&mut self) {
+        if let Err(error) = docker_blocking(&["rm", "--force", "--volumes", &self.name]) {
+            eprintln!("fresnel-testkit: {error}");
+        }
+    }
+}

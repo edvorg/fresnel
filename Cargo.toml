@@ -22,11 +22,17 @@ tokio = { version = "1.53", default-features = false }
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 fastrand = "2.5"
 hyper = { version = "1.12", default-features = false }
+hyper-util = { version = "0.1.21", default-features = false }
+http = "1.4"
+http-body-util = "0.1.5"
+bytes = "1.10"
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 
 # Only the test kit and tests use these.
 socket2 = "0.6.1"
 libc = "0.2.180"
+base64 = "0.22.1"
 
 # Exact pin: `fresnel-net` replaces the transport of kube. Each kube upgrade needs a review of
 # `cluster/gateway.rs` in `fresnel-core`. Only `fresnel-core` and the programs can use kube.
