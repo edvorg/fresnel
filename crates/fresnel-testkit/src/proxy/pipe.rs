@@ -22,6 +22,9 @@ const CHUNK_BYTES: usize = 64 * 1024;
 /// The bytes that one direction holds between its reader and its writer. With latency, this
 /// is the data on the way. The reader waits when the queue is full.
 const QUEUE_BYTES: usize = 64 * 1024 * 1024;
+/// The smallest part of the queue that one chunk takes. A chunk needs memory for more than
+/// its bytes, so chunks of one byte would have no useful limit without this.
+const CHUNK_COST: usize = 1024;
 
 /// What the faults of the proxy mean for one connection.
 #[derive(Clone, Copy)]
@@ -53,6 +56,11 @@ impl<'a> Gate<'a> {
     }
 }
 
+/// The part of the queue that a chunk of `count` bytes takes.
+fn queue_cost(count: usize) -> u32 {
+    u32::try_from(count.max(CHUNK_COST)).unwrap_or(u32::MAX)
+}
+
 /// Bytes on the way to the writer. The permit gives their part of the queue back at the drop.
 struct Chunk<'a> {
     due: Instant,
@@ -64,9 +72,10 @@ struct Chunk<'a> {
 /// Returns at the end of data, or with the first error of a socket.
 pub(super) async fn pipe(mut from: ReadHalf<'_>, mut to: WriteHalf<'_>, gate: Gate<'_>) -> io::Result<()> {
     let space = Semaphore::new(QUEUE_BYTES);
-    // The queue has no limit for the count of chunks. `space` limits their bytes.
+    // The channel has no limit of its own. `space` limits the bytes and the count of chunks.
     let (queue, mut on_the_way) = mpsc::unbounded_channel::<Chunk<'_>>();
     let read = async {
+        // The reader owns the sender. Its end closes the queue, and the writer sends the end of data.
         let queue = queue;
         let mut buffer = vec![0_u8; CHUNK_BYTES];
         loop {
@@ -79,7 +88,7 @@ pub(super) async fn pipe(mut from: ReadHalf<'_>, mut to: WriteHalf<'_>, gate: Ga
                 }
             };
             let due = Instant::now() + gate.latency();
-            let Ok(permit) = space.acquire_many(u32::try_from(count).unwrap_or(u32::MAX)).await else {
+            let Ok(permit) = space.acquire_many(queue_cost(count)).await else {
                 return Ok(());
             };
             let bytes = buffer[..count].to_vec();
@@ -99,4 +108,14 @@ pub(super) async fn pipe(mut from: ReadHalf<'_>, mut to: WriteHalf<'_>, gate: Ga
         to.shutdown().await
     };
     tokio::try_join!(read, write).map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_small_chunk_takes_the_smallest_cost_and_a_full_chunk_its_bytes() {
+        assert_eq!((queue_cost(1), queue_cost(CHUNK_BYTES)), (1024, 65_536));
+    }
 }
