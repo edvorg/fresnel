@@ -13,6 +13,8 @@ use super::{Bed, QUIET};
 
 const PODS: &str = "/api/v1/pods";
 const NODES: &str = "/api/v1/nodes";
+/// The events that the server holds for a watch stream that is behind.
+const HELD_EVENTS: usize = 4096;
 
 #[tokio::test]
 async fn a_watch_stream_gets_the_events_of_its_path_until_the_server_ends_it() {
@@ -43,6 +45,37 @@ async fn a_watch_stream_that_the_client_drops_is_not_open() {
     bed.counters_when(|counters| counters.open_watches == 1).await;
     drop(pods);
     bed.counters_when(|counters| counters.open_watches == 0).await;
+}
+
+/// A test that sends events in a loop gives the server no time to send them. The server
+/// holds a fixed count. With more, the stream ends, and a counter must show the loss.
+#[tokio::test]
+async fn a_watch_stream_that_is_too_far_behind_ends_and_shows_in_the_counters() {
+    let bed = Bed::start().await;
+    let mut connection = bed.http2().await;
+    let mut pods = connection.get("/api/v1/pods?watch=true").await.into_body();
+    bed.counters_when(|counters| counters.open_watches == 1).await;
+
+    for _ in 0..HELD_EVENTS {
+        bed.server.send_event(PODS, "{}");
+    }
+    let mut lines = 0;
+    while lines < HELD_EVENTS {
+        lines += next_line(&mut pods).await.expect("the stream is open").lines().count();
+    }
+    assert_eq!((lines, bed.server.counters().dropped_watches), (HELD_EVENTS, 0), "a burst at the limit arrives");
+
+    for _ in 0..=HELD_EVENTS {
+        bed.server.send_event(PODS, "{}");
+    }
+    assert_eq!(next_line(&mut pods).await, None, "one event more ends the stream");
+    let counters = bed.counters_when(|counters| counters.open_watches == 0).await;
+    assert_eq!((counters.dropped_watches, counters.broken), (1, 0));
+
+    let mut again = connection.get("/api/v1/pods?watch=true").await.into_body();
+    bed.counters_when(|counters| counters.open_watches == 1).await;
+    assert_eq!(bed.server.send_event(PODS, r#"{"type":"BOOKMARK"}"#), 1);
+    assert_eq!(next_line(&mut again).await.as_deref(), Some("{\"type\":\"BOOKMARK\"}\n"), "a new watch works");
 }
 
 #[tokio::test]

@@ -50,6 +50,8 @@ pub struct FakeCounters {
     pub unanswered: u64,
     /// Watch streams that are open now.
     pub open_watches: u64,
+    /// Watch streams that the server ended because they were more than 4096 events behind.
+    pub dropped_watches: u64,
     /// Connections that changed to a raw stream after HTTP 101.
     pub upgrades: u64,
 }
@@ -101,6 +103,9 @@ impl FakeApiServer {
 
     /// Sends one event line to each open watch stream of `path`. Returns the count of open
     /// watch streams of all paths. With 0, nobody got the event.
+    ///
+    /// The server sends the line later, when its task runs. It holds 4096 events for each
+    /// stream. A stream that is more behind ends, and the counter `dropped_watches` shows it.
     pub fn send_event(&self, path: &str, json_line: &str) -> usize {
         let line = format!("{json_line}\n").into();
         self.shared.feed.send(Feed::Event { path: path.into(), line }).unwrap_or(0)

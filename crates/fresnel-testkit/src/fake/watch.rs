@@ -7,13 +7,14 @@ use bytes::Bytes;
 use futures_util::stream;
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::Frame;
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::{self, error::RecvError};
 
 use super::answer::Body;
 use super::state::Shared;
 
 /// The events that one watch stream can be behind. A stream that is more behind ends, and
-/// its client must start a new watch, as after a close by a real server.
+/// its client must start a new watch, as after a close by a real server. The counter
+/// `dropped_watches` shows such an end.
 pub(super) const FEED_EVENTS: usize = 4096;
 
 /// What a test sends to the open watch streams.
@@ -50,7 +51,11 @@ pub(super) fn body(shared: &Arc<Shared>, path: &str) -> Body {
                     return Some((Ok::<_, Infallible>(Frame::data(line)), watch));
                 }
                 Ok(Feed::Event { .. }) => {}
-                Ok(Feed::End) | Err(_) => return None,
+                Ok(Feed::End) | Err(RecvError::Closed) => return None,
+                Err(RecvError::Lagged(_)) => {
+                    watch.shared.count(|counters| counters.dropped_watches += 1);
+                    return None;
+                }
             }
         }
     });
