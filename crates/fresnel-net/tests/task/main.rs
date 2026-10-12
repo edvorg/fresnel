@@ -1,9 +1,11 @@
 //! The task start function: each end of a run gives a state, a report and, if asked, a restart.
 //!
-//! Time is paused in each test. A pause of the backoff thus costs no real time, and a wait
-//! for a signal that cannot arrive ends at once with a failure.
+//! Time is paused in the tests of this file and of `faults`. A pause of the backoff thus costs
+//! no real time, and a wait for a signal that cannot arrive ends at once with a failure.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
+
+mod faults;
 
 use std::convert::Infallible;
 use std::fmt::Display;
