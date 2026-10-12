@@ -1,0 +1,44 @@
+#!/bin/sh
+# A credential plugin for the tests of fresnel-net.
+#
+# FAKE_PLUGIN_STATE is a folder. The plugin writes there:
+#   runs       one line for each run
+#   pid        its process id
+#   child      the process id of the process that it started (mode "hang")
+#   exec-info  the input that the app gave
+# The file "mode" in that folder selects what a run does: ok (default), hang, fail,
+# helper (it leaves a process that holds its output pipes) or flood (too much output).
+# FAKE_PLUGIN_TOKEN is the start of the token. The number of the run is its end.
+
+state="${FAKE_PLUGIN_STATE:?the test sets the state folder}"
+echo run >> "$state/runs"
+echo $$ > "$state/pid"
+printf '%s' "$KUBERNETES_EXEC_INFO" > "$state/exec-info"
+run=$(wc -l < "$state/runs" | tr -d ' ')
+mode=$(cat "$state/mode" 2>/dev/null || echo ok)
+
+case "$mode" in
+ok)
+    printf '{"apiVersion":"client.authentication.k8s.io/v1beta1","kind":"ExecCredential","status":{"token":"%s-%s"}}\n' \
+        "${FAKE_PLUGIN_TOKEN:-token}" "$run"
+    ;;
+hang)
+    echo "fake-plugin: waiting for a login that never comes (secret-text-of-the-plugin)" >&2
+    sleep 600 &
+    echo $! > "$state/child"
+    wait
+    ;;
+fail)
+    echo "Error: access token is required (secret-text-of-the-plugin)" >&2
+    exit 7
+    ;;
+helper)
+    sleep 600 &
+    echo $! > "$state/child"
+    printf '{"kind":"ExecCredential","status":{"token":"%s-%s"}}\n' "${FAKE_PLUGIN_TOKEN:-token}" "$run"
+    ;;
+flood)
+    head -c 2097152 /dev/zero | tr '\0' 'x' >&2
+    printf '{"kind":"ExecCredential","status":{"token":"%s-%s"}}\n' "${FAKE_PLUGIN_TOKEN:-token}" "$run"
+    ;;
+esac

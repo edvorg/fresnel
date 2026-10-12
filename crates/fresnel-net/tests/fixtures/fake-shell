@@ -1,0 +1,35 @@
+#!/bin/sh
+# A login shell for the tests of fresnel-net. The app calls it as a shell:
+#   fake-shell -l -i -c <script>
+# FAKE_SHELL_MODE selects what the "profile" of the shell does before the script runs.
+# FAKE_SHELL_STATE is a folder for the process id of a process that the profile starts.
+
+case "${FAKE_SHELL_MODE:-ok}" in
+ok)
+    # A profile prints text and sets values. One value has a newline.
+    echo "Welcome to the profile"
+    PATH="/profile/bin:$PATH"
+    PROFILE_VALUE="line one
+line two"
+    export PATH PROFILE_VALUE
+    ;;
+hang)
+    echo "the profile waits for a key (secret-text-of-the-profile)" >&2
+    sleep 600
+    ;;
+no-dump)
+    # As a profile that ends with `exec fish`: the script of the app never runs.
+    echo "the profile started some other program" >&2
+    exit 3
+    ;;
+slow-end)
+    # The profile leaves a process, and the shell waits a long time at its end.
+    PATH="/profile/bin:$PATH"
+    export PATH
+    sleep 600 &
+    echo $! > "$FAKE_SHELL_STATE/child"
+    trap 'sleep 600' EXIT
+    ;;
+esac
+
+eval "$4"
