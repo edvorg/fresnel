@@ -10,6 +10,7 @@ mod channel;
 mod clock;
 mod connect;
 pub mod credential;
+pub mod detect;
 pub mod env;
 mod error;
 mod process;
