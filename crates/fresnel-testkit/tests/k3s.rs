@@ -111,3 +111,27 @@ async fn the_helper_gives_the_kube_apiserver_and_keeps_its_address_and_removes_t
     assert_eq!(docker(&["network", "ls", "--quiet", "--filter", &filter]), "", "the network is gone");
     assert!(!folder.exists(), "the kubeconfig files are gone");
 }
+
+/// The plan asks for two clusters in each operation test. The helper must run two at one time.
+#[tokio::test]
+#[ignore = "needs k3s in Docker"]
+async fn two_clusters_run_at_the_same_time_and_a_lost_container_is_an_error_at_once() {
+    let (first, second) = tokio::join!(K3s::start("first"), K3s::start("second"));
+    let (first, second) = (first.expect("k3s starts"), second.expect("k3s starts"));
+    assert_ne!(first.api_addr(), second.api_addr());
+    assert_ne!(container_address(&first), container_address(&second));
+    first.kubectl(&["create", "namespace", "only-first"]).await.expect("kubectl works");
+    assert_eq!(ask(&first, "/api/v1/namespaces/only-first").await.0, 200);
+    assert_eq!(ask(&second, "/api/v1/namespaces/only-first").await.0, 404, "the clusters share no data");
+
+    // The worst case for the cleanup: something outside the test removed the container.
+    let name = first.name().to_owned();
+    docker(&["rm", "--force", "--volumes", &name]);
+    let error = in_time(first.kubectl(&["get", "namespaces"])).await.expect_err("no container").to_string();
+    assert!(error.contains("No such container"), "{error}");
+    assert!(in_time(first.restart()).await.is_err());
+    drop(first);
+    let filter = format!("name={name}");
+    assert_eq!(docker(&["network", "ls", "--quiet", "--filter", &filter]), "", "the network is gone");
+    assert_eq!(ask(&second, "/version").await.0, 200, "the second cluster works");
+}
