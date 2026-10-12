@@ -115,6 +115,22 @@ finds the rule that applies.
 ## Fault tests on a real kube-apiserver
 
 The tests run on k3s in Docker through a fault proxy that makes held connections, silent
-connections, resets and latency. The test kit reaches the kube-apiserver port of k3s (6444),
-not the published supervisor port (6443). The supervisor serves the same API with other HTTP/2
-settings: a stream limit of 250 in place of 100, and no close of an idle connection.
+connections, resets and latency. The test kit publishes only the kube-apiserver port of k3s
+(6444), not the supervisor port (6443). The supervisor serves the same API with other HTTP/2
+settings: a stream limit of 250 in place of 100, and no close of an idle connection. The
+container has a fixed address, because k3s does not start again with a new one.
+
+## A fake API server on real sockets
+
+k3s cannot refuse a token for a time, send GOAWAY on order or give no answer to one path. The
+fake API server of the test kit makes these faults. It uses real sockets with TLS, HTTP/2 and
+HTTP/1.1, so the app runs its real network code against it. It is not a Kubernetes server: a
+test sets each body and sends each watch event.
+
+## The fault proxy waits before a reset
+
+On the loopback of macOS, a TCP reset can be lost when data is on the way: 3 of 400 resets in
+a test. The client then sees a silent connection, which is a different fault. Thus the proxy
+stops the data, waits until the peer acknowledged all bytes, and then closes with a reset. The
+proxy also delays each byte with no limit of the data rate, so a far cluster does not look
+slower than it is.

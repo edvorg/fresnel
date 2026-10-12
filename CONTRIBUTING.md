@@ -54,6 +54,11 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
 - A test must be able to fail. Break the code one time and see the failure.
 - A test waits for a signal of the code, never for a fixed time. For a timer, use paused time:
   `#[tokio::test(start_paused = true)]`.
+- A test on real sockets uses real time, because paused time does not wait for a socket. It
+  waits for a counter of the test kit with `wait_for`. Only a check that nothing arrives waits
+  a short fixed time.
+- A fault that k3s cannot make on order comes from `FakeApiServer`. A network fault comes
+  from a `FaultProxy` before the server.
 - A UI test uses `egui_kittest` and opens no window.
 - A test that needs k3s or Docker has the attribute `#[ignore = "needs k3s in Docker"]`.
   `cargo test --workspace -- --ignored` runs these tests. CI runs them on Linux.
@@ -62,9 +67,10 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
 
 Rules for a cluster test:
 
-- The image is `rancher/k3s:v1.33.5-k3s1`.
-- The name of the container starts with `fresnel-test-`. The test removes its container.
-- The test reaches the kube-apiserver port of k3s, not the supervisor port.
+- The test starts its cluster with `fresnel_testkit::K3s::start`. The helper uses the image
+  `rancher/k3s:v1.33.5-k3s1` and publishes only the kube-apiserver port, not the supervisor port.
+- The drop of the helper removes the container. After a stopped test run,
+  `docker ps --all --filter name=fresnel-test-` shows what is left.
 - No test uses a real cluster or the kubeconfig of the user.
 - Test data comes from the test cluster. No object from a real cluster goes into the repository.
 

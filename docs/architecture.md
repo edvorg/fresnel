@@ -98,9 +98,27 @@ xtask
 4. **Repaint.** A store requests a repaint when it changes. One notifier limits these repaints.
 5. **Memory.** The UI thread never frees a large old snapshot.
 
+## Test kit
+
+`fresnel-testkit` has three parts. Each part runs in the test process and stops at its drop.
+
+- `FaultProxy`: a TCP proxy before a server. Its modes are pass, hold of new connections,
+  freeze, latency and a reset each period. Two calls reset all connections and make the open
+  connections silent.
+- `K3s`: k3s in Docker with a fixed address in its own Docker network. It gives a kubeconfig
+  file and the address of the kube-apiserver, and it can restart the cluster.
+- `FakeApiServer`: a local server with TLS, HTTP/2, HTTP/1.1, watch streams and the HTTP 101
+  upgrade. Its scripted faults are no answer, HTTP 401, HTTP 429, GOAWAY and a low stream limit.
+
+A fault test of the app puts a `FaultProxy` before `K3s` or before `FakeApiServer`. The proxy
+and the fake server have counters and a `wait_for` call, so that a test waits for a signal and
+not for a fixed time.
+
 ## Tests
 
 - **Unit tests** run with no network. A test of a timer uses paused time.
+- **Socket tests** use the fake API server and the fault proxy on 127.0.0.1. They need no
+  Docker and run with the unit tests. Real sockets need real time.
 - **UI tests** drive the views through `egui_kittest` with no window.
 - **Cluster tests** use k3s in Docker through the fault proxy. They have the attribute
   `#[ignore]`, and `cargo test --workspace -- --ignored` runs them.

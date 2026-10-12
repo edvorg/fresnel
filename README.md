@@ -6,8 +6,9 @@ that looks current.
 
 ## Status
 
-The work is in milestone M0 (connect). The repository has the workspace, the lints, CI and the
-function that starts each background task. The network layer and the first window come next.
+The work is in milestone M0 (connect). The repository has the workspace, the lints, CI, the
+function that starts each background task and the test kit. The network layer and the first
+window come next.
 
 ## Build and test
 
