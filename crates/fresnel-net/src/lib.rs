@@ -19,6 +19,7 @@ pub mod task;
 #[cfg(test)]
 mod testing;
 mod throttle;
+mod upgrade;
 
 pub use body::ResponseBody;
 pub use changes::Changes;
@@ -30,3 +31,4 @@ pub use error::{ErrorClass, NetError};
 pub use request::{Limits, RequestKind};
 pub use signal::{Cause, Listener, Signal};
 pub use throttle::{ThrottleSettings, ThrottleStatus};
+pub use upgrade::{UpgradeSettings, UpgradeStatus, WarmGuard};
