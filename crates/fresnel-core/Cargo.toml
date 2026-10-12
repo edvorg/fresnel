@@ -1,0 +1,14 @@
+[package]
+name = "fresnel-core"
+description = "The domain of fresnel: clusters, stores, search and operations"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+fresnel-net.workspace = true
+
+[lints]
+workspace = true

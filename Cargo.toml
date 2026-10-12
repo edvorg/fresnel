@@ -1,0 +1,59 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+repository = "https://github.com/edvorg/fresnel"
+
+# The one version table. A crate takes a dependency with `workspace = true`.
+# An exact pin (`=`) has a comment that gives its reason.
+[workspace.dependencies]
+fresnel-core = { path = "crates/fresnel-core" }
+fresnel-net = { path = "crates/fresnel-net" }
+fresnel-testkit = { path = "crates/fresnel-testkit" }
+fresnel-ui = { path = "crates/fresnel-ui" }
+
+# Runtime and transport. rustls uses ring, so the build needs no C compiler setup.
+tokio = { version = "1.53", default-features = false }
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
+fastrand = "2.5"
+hyper = { version = "1.12", default-features = false }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+
+# Exact pin: `fresnel-net` replaces the transport of kube. Each kube upgrade needs a review of
+# `cluster/gateway.rs` in `fresnel-core`. Only `fresnel-core` and the programs can use kube.
+kube = { version = "=4.2.0", default-features = false, features = ["client"] }
+# `v1_33` is the API version of the k3s image of the tests.
+k8s-openapi = { version = "0.28.0", features = ["v1_33"] }
+
+# The egui crates change together. One upgrade moves all of them.
+egui = { version = "0.36.2", default-features = false, features = ["default_fonts"] }
+eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "x11", "wayland"] }
+egui_kittest = { version = "0.36.2", features = ["wgpu"] }
+
+# The one lint table. A crate takes it with `[lints] workspace = true`.
+# CI makes each warning an error.
+[workspace.lints.rust]
+unused_must_use = "deny"
+# An item is private to its crate unless `lib.rs` exports it.
+unreachable_pub = "deny"
+
+[workspace.lints.clippy]
+# An ignored result or an ignored future hides an error.
+let_underscore_must_use = "deny"
+let_underscore_future = "deny"
+unused_result_ok = "deny"
+# A panic in a library stops a task. Return the error.
+unwrap_used = "deny"
+expect_used = "deny"
+# Each exception to a lint gives its reason.
+allow_attributes_without_reason = "deny"
+undocumented_unsafe_blocks = "deny"
+# No unfinished code in the repository.
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"

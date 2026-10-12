@@ -1,0 +1,4 @@
+# A test can stop with a panic. Library code cannot.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-indexing-slicing-in-tests = true
