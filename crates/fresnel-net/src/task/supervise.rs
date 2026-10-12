@@ -29,9 +29,24 @@ impl Drop for Supervisor {
 }
 
 impl Supervisor {
-    /// Runs the task until its final end. The state changes before the report, so a reader of
-    /// the report always finds the new state.
-    pub(super) async fn run<B, F, E>(self, mut body: B)
+    /// Runs the task until its final end.
+    ///
+    /// The start function drops the join result of this future. Thus a panic of the supervisor
+    /// itself, for example in a runtime with no timer, also gets a final state and a report here.
+    pub(super) async fn run<B, F, E>(self, body: B)
+    where
+        B: FnMut() -> F,
+        F: Future<Output = Result<(), E>>,
+        E: Display,
+    {
+        if let Err(panic) = AssertUnwindSafe(self.run_and_restart(body)).catch_unwind().await {
+            self.end(End::Panicked(panic_message(panic.as_ref())));
+        }
+    }
+
+    /// The loop of runs and pauses. The state changes before the report, so a reader of the
+    /// report always finds the new state.
+    async fn run_and_restart<B, F, E>(&self, mut body: B)
     where
         B: FnMut() -> F,
         F: Future<Output = Result<(), E>>,
@@ -44,9 +59,7 @@ impl Supervisor {
             let started = Instant::now();
             let end = run_once(&mut body).await;
             let Restart::Always(backoff) = self.restart else {
-                registry.run_ended(self.id, TaskState::Ended(end.clone()));
-                self.report(end, None);
-                return;
+                return self.end(end);
             };
             early_ends = if started.elapsed() >= backoff.reset_after { 1 } else { early_ends.saturating_add(1) };
             let pause = backoff.pause(early_ends, fastrand::u32(..));
@@ -54,6 +67,12 @@ impl Supervisor {
             self.report(end, Some(pause));
             sleep(pause).await;
         }
+    }
+
+    /// Records the final state of the task, then reports it.
+    fn end(&self, end: End) {
+        self.shared.registry.run_ended(self.id, TaskState::Ended(end.clone()));
+        self.report(end, None);
     }
 
     fn report(&self, end: End, restart_in: Option<Duration>) {

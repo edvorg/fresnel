@@ -2,10 +2,12 @@
 //!
 //! Time is paused in the tests of this file and of `faults`. A pause of the backoff thus costs
 //! no real time, and a wait for a signal that cannot arrive ends at once with a failure.
+//! The tests of `threads` use worker threads and real time.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 mod faults;
+mod threads;
 
 use std::convert::Infallible;
 use std::fmt::Display;

@@ -48,7 +48,8 @@ struct Shared {
 }
 
 impl Tasks {
-    /// `runtime` runs the tasks. Its timer must be on, because a restart waits on it.
+    /// `runtime` runs the tasks. Its timer must be on, because a restart waits on it. With no
+    /// timer, the first restart ends the task with a panic as its final state.
     /// `reporter` takes one report for each run that ends.
     pub fn new(runtime: Handle, reporter: impl Reporter) -> Self {
         let shared =

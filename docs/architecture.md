@@ -83,6 +83,8 @@ xtask
 - The caller owns a `TaskHandle`. The task stops when the handle drops.
 - Code of the caller cannot stop the supervisor: it catches a panic of the body and a panic
   of the reporter.
+- A fault of the supervisor itself, for example a runtime with no timer, ends the task with a
+  final state and a report.
 
 ## Contract between the UI and the core
 

@@ -46,7 +46,8 @@ pub enum End {
     Done,
     /// The body returned this error.
     Failed(String),
-    /// The body panicked with this message.
+    /// The body panicked with this message. A panic of the supervisor itself gives this end
+    /// too, and the task then does not run again.
     Panicked(String),
     /// The runtime stopped. The task cannot run again.
     Stopped,
