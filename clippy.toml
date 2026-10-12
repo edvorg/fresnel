@@ -1,3 +1,12 @@
+# Design rule 9: one function starts all background tasks and watches them.
+# A task that starts in a different way has no name, no visible state and no restart.
+disallowed-methods = [
+    { path = "tokio::task::spawn", reason = "start the task with `fresnel_net::task::Tasks::start`" },
+    { path = "tokio::task::spawn_local", reason = "start the task with `fresnel_net::task::Tasks::start`" },
+    { path = "tokio::runtime::Handle::spawn", reason = "start the task with `fresnel_net::task::Tasks::start`" },
+    { path = "tokio::runtime::Runtime::spawn", reason = "start the task with `fresnel_net::task::Tasks::start`" },
+]
+
 # A test can stop with a panic. Library code cannot.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true

@@ -1,11 +1,19 @@
 [package]
 name = "fresnel-net"
-description = "The connection layer of fresnel"
+description = "The connection layer of fresnel, and the function that starts each background task"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 repository.workspace = true
+
+[dependencies]
+fastrand.workspace = true
+futures-util.workspace = true
+tokio = { workspace = true, features = ["rt", "time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "sync", "test-util"] }
 
 [lints]
 workspace = true

@@ -36,7 +36,7 @@ eframe = { version = "0.36.2", default-features = false, features = ["accesskit"
 egui_kittest = { version = "0.36.2", features = ["wgpu"] }
 
 # The one lint table. A crate takes it with `[lints] workspace = true`.
-# CI makes each warning an error.
+# CI makes each warning an error. `clippy.toml` holds the list for `disallowed_methods`.
 [workspace.lints.rust]
 unused_must_use = "deny"
 # An item is private to its crate unless `lib.rs` exports it.
@@ -50,6 +50,8 @@ unused_result_ok = "deny"
 # A panic in a library stops a task. Return the error.
 unwrap_used = "deny"
 expect_used = "deny"
+# Direct calls of `tokio::spawn`: see `clippy.toml`.
+disallowed_methods = "deny"
 # Each exception to a lint gives its reason.
 allow_attributes_without_reason = "deny"
 undocumented_unsafe_blocks = "deny"
@@ -57,3 +59,10 @@ undocumented_unsafe_blocks = "deny"
 todo = "deny"
 unimplemented = "deny"
 dbg_macro = "deny"
+
+# The task start function turns a panic into a state and a restart. That needs unwinding.
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"
