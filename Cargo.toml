@@ -24,13 +24,25 @@ fastrand = "2.5"
 hyper = { version = "1.12", default-features = false }
 hyper-util = { version = "0.1.21", default-features = false }
 http = "1.4"
+http-body = "1.1"
 http-body-util = "0.1.5"
 bytes = "1.10"
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
+tower-service = "0.3.3"
+socket2 = "0.6.1"
+
+# The parts of `fresnel-net` around the connections.
+# gzip of list and GET responses, with the Rust backend of flate2.
+flate2 = "1.1"
+# The answer of the credential plugin is JSON with an RFC 3339 time.
+serde_json = "1.0.150"
+jiff = { version = "0.2.38", default-features = false, features = ["std"] }
+# A new session and a kill of the process group for each child process, the login shell of
+# the user and the interface addresses.
+nix = { version = "0.30.1", default-features = false, features = ["net", "process", "signal", "user"] }
 
 # Only the test kit and tests use these.
-socket2 = "0.6.1"
 libc = "0.2.180"
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }
 base64 = "0.22.1"

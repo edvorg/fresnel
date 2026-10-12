@@ -33,7 +33,7 @@ impl Backoff {
     /// `sample` is a random number. Jitter keeps tasks that failed for one cause from a restart
     /// at the same instant. The function has no path that can panic, because a panic here would
     /// stop the supervisor of a task.
-    pub(super) fn pause(&self, early_ends: u32, sample: u32) -> Duration {
+    pub(crate) fn pause(&self, early_ends: u32, sample: u32) -> Duration {
         let doublings = early_ends.saturating_sub(1).min(31);
         let base = self.first.saturating_mul(1 << doublings).min(self.max);
         let cut_percent = sample % (u32::from(self.jitter_percent.min(100)) + 1);

@@ -1,6 +1,6 @@
 [package]
 name = "fresnel-net"
-description = "The connection layer of fresnel, and the function that starts each background task"
+description = "The connection layer of fresnel: channels, the credential plugin and the task start function"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,12 +8,29 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
+bytes.workspace = true
 fastrand.workspace = true
+flate2.workspace = true
 futures-util.workspace = true
-tokio = { workspace = true, features = ["rt", "time"] }
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["client", "http1", "http2"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+jiff.workspace = true
+nix.workspace = true
+rustls.workspace = true
+serde_json.workspace = true
+socket2.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
+tokio-rustls.workspace = true
+tower-service.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "test-util"] }
+base64.workspace = true
+fresnel-testkit.workspace = true
+hyper = { workspace = true, features = ["server"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
 
 [lints]
 workspace = true
