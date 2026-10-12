@@ -24,6 +24,10 @@ fastrand = "2.5"
 hyper = { version = "1.12", default-features = false }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 
+# Only the test kit and tests use these.
+socket2 = "0.6.1"
+libc = "0.2.180"
+
 # Exact pin: `fresnel-net` replaces the transport of kube. Each kube upgrade needs a review of
 # `cluster/gateway.rs` in `fresnel-core`. Only `fresnel-core` and the programs can use kube.
 kube = { version = "=4.2.0", default-features = false, features = ["client"] }
