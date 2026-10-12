@@ -112,7 +112,8 @@ xtask
 
 A fault test of the app puts a `FaultProxy` before `K3s` or before `FakeApiServer`. The proxy
 and the fake server have counters and a `wait_for` call, so that a test waits for a signal and
-not for a fixed time.
+not for a fixed time. A task of the kit that ends is a fault of the test equipment: the kit
+prints one line for it, and `task_failures` gives the list.
 
 ## Tests
 

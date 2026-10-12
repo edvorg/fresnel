@@ -37,6 +37,8 @@ impl Background {
         let reporter = {
             let ends = Arc::clone(&ends);
             move |report: TaskReport| {
+                // A test that stops at a time limit never reads the list. Its output shows this line.
+                eprintln!("fresnel-testkit: {report}");
                 let mut ends = ends.lock().unwrap_or_else(PoisonError::into_inner);
                 if ends.first.len() < KEPT_REPORTS {
                     ends.first.push(report.to_string());
