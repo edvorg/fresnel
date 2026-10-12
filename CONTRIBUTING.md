@@ -22,8 +22,8 @@ CI runs the same commands on macOS and Linux. The file `rust-toolchain.toml` pin
 - A doc comment gives the reason for the code. Keep each comment short.
 - The repository has no dead code and no `todo!`.
 - Library code returns an error. It has no `unwrap` and no `expect`.
-- Do not ignore a result. `let _ =` and `.ok();` do not compile. A variable that only holds
-  `is_err()` hides the error in the same way.
+- Do not ignore a result. `let _ =` and `.ok();` do not compile. No lint finds `_ = result;`,
+  `drop(result)` or a variable that only holds `is_err()`. They hide the error in the same way.
 - In `fresnel-ui`, read a slice or a text with `get`, not with an index.
 - An `#[allow]` or an `#[expect]` gives its `reason`.
 

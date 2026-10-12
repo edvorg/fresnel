@@ -67,13 +67,13 @@ impl fmt::Display for End {
 /// The state of a task that the UI shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TaskState {
-    /// A run is in progress.
+    /// A run is in progress. With 0 runs in the status, the first run did not start yet.
     Running,
     /// The last run ended with `last`. The next run starts after `pause`.
     Backoff {
         /// The end of the last run.
         last: End,
-        /// The count of runs in sequence that ended early.
+        /// The count of ends in sequence. The end of a long run starts the count again at 1.
         early_ends: u32,
         /// The pause from the state change to the next run.
         pause: Duration,

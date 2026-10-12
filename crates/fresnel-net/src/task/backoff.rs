@@ -28,7 +28,7 @@ impl Default for Backoff {
 }
 
 impl Backoff {
-    /// The pause after `early_ends` runs in sequence that ended early.
+    /// The pause after `early_ends` ends in sequence. The end of a long run counts as 1.
     ///
     /// `sample` is a random number. Jitter keeps tasks that failed for one cause from a restart
     /// at the same instant. The function has no path that can panic, because a panic here would
