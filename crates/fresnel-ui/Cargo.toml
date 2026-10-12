@@ -10,5 +10,9 @@ repository.workspace = true
 [dependencies]
 fresnel-core.workspace = true
 
+[dev-dependencies]
+egui.workspace = true
+egui_kittest.workspace = true
+
 [lints]
 workspace = true
