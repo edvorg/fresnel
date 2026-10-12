@@ -2,7 +2,7 @@
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use tokio::net::TcpListener;
@@ -28,11 +28,21 @@ pub(super) struct Shared {
 }
 
 /// What the driver decided for one new connection.
+///
+/// The connection counts as open until this value drops. The task of the connection owns
+/// it, so the count is also correct after an abort or a panic of that task.
 pub(super) struct Admission {
     /// The number of the connection in the sequence of accepts.
     pub(super) number: u64,
     /// The time with no answer before the proxy connects to the server.
     pub(super) wait: Duration,
+    pub(super) shared: Arc<Shared>,
+}
+
+impl Drop for Admission {
+    fn drop(&mut self) {
+        self.shared.count(|counters| counters.open = counters.open.saturating_sub(1));
+    }
 }
 
 impl Shared {
@@ -49,8 +59,8 @@ impl Shared {
         }
     }
 
-    /// Counts a new connection and decides its wait from the mode.
-    pub(super) fn admit(&self) -> Admission {
+    /// Counts a new connection as open and decides its wait from the mode.
+    pub(super) fn admit(self: &Arc<Self>) -> Admission {
         let mode = *self.mode.borrow();
         let (wait, held) = match mode {
             ProxyMode::HoldNew { probability, min, max } => self.draw_hold(probability, min, max),
@@ -62,9 +72,10 @@ impl Shared {
         self.count(|counters| {
             number = counters.accepted;
             counters.accepted += 1;
+            counters.open += 1;
             counters.held += u64::from(held);
         });
-        Admission { number, wait }
+        Admission { number, wait, shared: Arc::clone(self) }
     }
 
     fn draw_hold(&self, probability: f64, min: Duration, max: Duration) -> (Duration, bool) {

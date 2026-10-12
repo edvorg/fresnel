@@ -26,17 +26,16 @@ pub(super) async fn run(shared: Arc<Shared>) -> io::Result<()> {
         tokio::select! {
             accepted = shared.listener.accept() => {
                 let (client, _) = accepted?;
-                let admission = shared.admit();
-                connections.spawn(relay::serve(Arc::clone(&shared), client, admission, reset_order.subscribe()));
+                connections.spawn(relay::serve(client, shared.admit(), reset_order.subscribe()));
             }
             Some(ended) = connections.join_next() => connection_end(ended)?,
             Ok(()) = resets_asked.changed() => {
                 let request = *resets_asked.borrow_and_update();
-                reset_all(&shared, &reset_order, &mut connections).await?;
+                reset_all(&reset_order, &mut connections).await?;
                 shared.resets_done.send_replace(request);
             }
             () = wait_for(timed_reset) => {
-                reset_all(&shared, &reset_order, &mut connections).await?;
+                reset_all(&reset_order, &mut connections).await?;
                 timed_reset = next_timed_reset(*mode.borrow());
             }
             Ok(()) = mode.changed() => timed_reset = next_timed_reset(*mode.borrow_and_update()),
@@ -46,13 +45,12 @@ pub(super) async fn run(shared: Arc<Shared>) -> io::Result<()> {
 
 /// Gives each connection task the order to reset its sockets, and waits for the end of each
 /// one. The proxy accepts no connection in this time, so no new connection gets the order.
-async fn reset_all(shared: &Shared, reset_order: &watch::Sender<u64>, connections: &mut JoinSet<()>) -> io::Result<()> {
-    let open = shared.counters.borrow().open;
+/// Each task counts its own reset.
+async fn reset_all(reset_order: &watch::Sender<u64>, connections: &mut JoinSet<()>) -> io::Result<()> {
     reset_order.send_modify(|order| *order += 1);
     while let Some(ended) = connections.join_next().await {
         connection_end(ended)?;
     }
-    shared.count(|counters| counters.reset += open);
     Ok(())
 }
 

@@ -1,7 +1,6 @@
 //! One connection of the proxy: the wait, the connect to the server and the two directions.
 
 use std::io;
-use std::sync::Arc;
 use std::time::Duration;
 
 use socket2::SockRef;
@@ -11,7 +10,7 @@ use tokio::time::sleep;
 
 use super::drain::drain;
 use super::pipe::{Gate, pipe};
-use super::state::{Admission, Shared};
+use super::state::Admission;
 
 /// The sockets of one connection. Each one closes with a reset when it drops, until it
 /// sent its end of data. Thus each end that is not clean gives the two peers an error.
@@ -20,28 +19,38 @@ struct Sockets {
     server: Option<TcpStream>,
 }
 
+/// How a connection ended with no error of a socket.
+enum End {
+    /// The two sides closed, or the server did not accept the connect.
+    Closed,
+    /// A reset order of the driver.
+    Reset,
+}
+
 /// Serves one client connection until the two sides closed, an error, or a reset order.
-pub(super) async fn serve(
-    shared: Arc<Shared>,
-    client: TcpStream,
-    admission: Admission,
-    mut reset_order: watch::Receiver<u64>,
-) {
-    shared.count(|counters| counters.open += 1);
-    let mut sockets = Sockets { client, server: None };
-    let ended = tokio::select! {
-        carried = relay(&shared, &mut sockets, admission) => carried,
-        Ok(()) = reset_order.changed() => sockets.drain().await,
-    };
-    shared.count(|counters| {
-        counters.open = counters.open.saturating_sub(1);
-        counters.broken += u64::from(ended.is_err());
+pub(super) async fn serve(client: TcpStream, admission: Admission, reset_order: watch::Receiver<u64>) {
+    let ended = until_end(client, &admission, reset_order).await;
+    admission.shared.count(|counters| match ended {
+        Ok(End::Closed) => {}
+        Ok(End::Reset) => counters.reset += 1,
+        Err(_socket_error) => counters.broken += 1,
     });
 }
 
-async fn relay(shared: &Shared, sockets: &mut Sockets, admission: Admission) -> io::Result<()> {
+/// The sockets close when this function returns. Thus a counter changes after the close.
+async fn until_end(client: TcpStream, admission: &Admission, mut reset_order: watch::Receiver<u64>) -> io::Result<End> {
+    // Before the first wait: a reset order can come before the relay ran one time.
+    reset_on_close(&client)?;
+    let mut sockets = Sockets { client, server: None };
+    tokio::select! {
+        carried = relay(&mut sockets, admission) => carried.map(|()| End::Closed),
+        Ok(()) = reset_order.changed() => sockets.drain().await.map(|()| End::Reset),
+    }
+}
+
+async fn relay(sockets: &mut Sockets, admission: &Admission) -> io::Result<()> {
+    let shared = &admission.shared;
     let gate = Gate::new(shared, admission.number);
-    reset_on_close(&sockets.client)?;
     sleep(admission.wait).await;
     gate.pass().await;
     let Ok(connected) = TcpStream::connect(shared.upstream).await else {

@@ -161,3 +161,31 @@ async fn a_server_that_is_down_gives_the_client_a_reset_and_shows_in_the_counter
     assert_eq!(counters, ProxyCounters { accepted: 1, refused: 1, ..ProxyCounters::default() });
     assert_eq!(proxy.task_failures(), Vec::<String>::new());
 }
+
+/// A client that leaves at the moment of its connect is the fault of that one connection.
+#[tokio::test]
+async fn clients_that_reset_at_once_do_not_harm_an_open_connection() {
+    let bed = Bed::start().await;
+    let (mut client, mut server) = bed.pair().await;
+    for _ in 0..100 {
+        let leaving = bed.connect().await;
+        socket2::SockRef::from(&leaving).set_linger(Some(Duration::ZERO)).expect("linger");
+    }
+    let counters = in_time(bed.proxy.wait_for(|counters| counters.accepted == 101 && counters.open == 1)).await;
+    assert_eq!(counters.reset, 0, "the proxy reset no connection");
+    client.write_all(b"alive").await.expect("write");
+    assert_eq!(receive(&mut server, 5).await, b"alive");
+}
+
+#[tokio::test]
+async fn the_drop_of_the_proxy_resets_its_connections_and_closes_its_port() {
+    let upstream = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.expect("a free port");
+    let proxy = FaultProxy::start(upstream.local_addr().expect("an address")).await.expect("a proxy");
+    let addr = proxy.addr();
+    let mut client = in_time(TcpStream::connect(addr)).await.expect("the proxy accepts");
+    let mut server = in_time(upstream.accept()).await.expect("a connection of the proxy").0;
+
+    drop(proxy);
+    assert!(is_reset(&end_of(&mut client).await) && is_reset(&end_of(&mut server).await));
+    assert!(in_time(TcpStream::connect(addr)).await.is_err(), "the port closed with the last task of the proxy");
+}

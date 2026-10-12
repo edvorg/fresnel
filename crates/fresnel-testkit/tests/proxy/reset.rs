@@ -78,3 +78,23 @@ async fn reset_each_resets_all_connections_again_and_again_until_the_mode_change
     assert!(QUIET > period, "the quiet time is longer than one period");
     assert!(is_quiet(&mut client).await && is_quiet(&mut server).await, "no reset after the mode change");
 }
+
+/// The order can come before the task of a new connection ran one time. Such a connection
+/// must close with a reset, not with an end of data, and the counter must show it.
+#[tokio::test]
+async fn reset_all_at_the_moment_of_a_connect_gives_a_reset_and_counts_it() {
+    let bed = Bed::start().await;
+    for round in 0..40 {
+        let mut client = bed.connect().await;
+        // A reset can be complete before the proxy takes the connection. The next one gets it.
+        in_time(async {
+            while bed.proxy.counters().reset == round {
+                bed.proxy.reset_all().await;
+            }
+        })
+        .await;
+        assert!(is_reset(&end_of(&mut client).await), "round {round}: a reset and not an end of data");
+        let counters = bed.proxy.counters();
+        assert_eq!((counters.reset, counters.open), (round + 1, 0), "round {round}");
+    }
+}
