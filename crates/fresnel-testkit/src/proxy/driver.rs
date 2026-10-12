@@ -35,7 +35,10 @@ pub(super) async fn run(shared: Arc<Shared>) -> io::Result<()> {
                 shared.resets_done.send_replace(request);
             }
             () = wait_for(timed_reset) => {
-                reset_all(&reset_order, &mut connections).await?;
+                // The mode can change after the timer ended and before this task runs.
+                if matches!(*mode.borrow(), ProxyMode::ResetEach(_)) {
+                    reset_all(&reset_order, &mut connections).await?;
+                }
                 timed_reset = next_timed_reset(*mode.borrow());
             }
             Ok(()) = mode.changed() => timed_reset = next_timed_reset(*mode.borrow_and_update()),

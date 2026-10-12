@@ -1,9 +1,13 @@
 //! The reset of all connections: one time on the order of a test, and again and again.
 
+use std::net::Ipv4Addr;
+use std::pin::pin;
 use std::time::{Duration, Instant};
 
 use fresnel_testkit::ProxyMode;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::task::yield_now;
 use tokio::time::timeout;
 
 use super::{Bed, LIMIT, QUIET, end_of, in_time, is_quiet, is_reset, receive};
@@ -96,5 +100,37 @@ async fn reset_all_at_the_moment_of_a_connect_gives_a_reset_and_counts_it() {
         assert!(is_reset(&end_of(&mut client).await), "round {round}: a reset and not an end of data");
         let counters = bed.proxy.counters();
         assert_eq!((counters.reset, counters.open), (round + 1, 0), "round {round}");
+    }
+}
+
+/// With high load, the timer of `ResetEach` can end while the runtime does not run. The
+/// test then changes the mode before the task of the proxy sees its timer. No reset must
+/// follow the change.
+#[tokio::test]
+async fn reset_each_makes_no_reset_after_the_mode_change_when_its_timer_ended_first() {
+    let period = Duration::from_millis(30);
+    let bed = Bed::start().await;
+    // A socket outside the proxy. Its bytes wake the test before the timer wakes the proxy.
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.expect("a free port");
+    let wake = TcpStream::connect(listener.local_addr().expect("an address")).await.expect("the connect");
+    let mut woken = listener.accept().await.expect("a connection").0;
+    for round in 0..20 {
+        let _open = bed.pair().await;
+        let mut byte = [0_u8; 1];
+        let mut read = pin!(woken.read(&mut byte));
+        assert!(timeout(Duration::from_millis(1), &mut read).await.is_err(), "the read waits for the socket");
+        bed.proxy.set(ProxyMode::ResetEach(period));
+        // The task of the proxy runs: it reads the mode and starts its timer.
+        yield_now().await;
+        wake.try_write(b"x").expect("the kernel takes the byte");
+        // The thread of the runtime is busy while the timer ends.
+        std::thread::sleep(period * 4 / 3);
+        in_time(read).await.expect("the byte arrives");
+
+        let resets = bed.proxy.counters().reset;
+        bed.proxy.set(ProxyMode::Pass);
+        // The proxy accepts this connection after it read the mode and its timer.
+        let _later = bed.pair().await;
+        assert_eq!(bed.proxy.counters().reset, resets, "round {round}: a reset after the mode change");
     }
 }
