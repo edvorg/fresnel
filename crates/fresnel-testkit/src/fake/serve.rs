@@ -20,7 +20,7 @@ use tokio::task::JoinSet;
 use tokio_rustls::server::TlsStream;
 
 use super::answer::answer;
-use super::state::Shared;
+use super::state::{Connection, Shared};
 use crate::background::connection_end;
 
 type Io = TokioIo<TlsStream<TcpStream>>;
@@ -33,8 +33,7 @@ pub(super) async fn run(shared: Arc<Shared>) -> io::Result<()> {
         tokio::select! {
             accepted = shared.listener.accept() => {
                 let (tcp, _) = accepted?;
-                let number = shared.count_connection();
-                connections.spawn(serve(Arc::clone(&shared), tcp, number));
+                connections.spawn(serve(tcp, shared.admit()));
             }
             Some(ended) = connections.join_next() => connection_end(ended)?,
         }
@@ -43,13 +42,9 @@ pub(super) async fn run(shared: Arc<Shared>) -> io::Result<()> {
 
 /// Serves one connection. An error here is most often the client: a reset or a bad
 /// handshake. Thus it is a count and not a fault of the kit.
-async fn serve(shared: Arc<Shared>, tcp: TcpStream, number: u64) {
-    shared.count(|counters| counters.open_connections += 1);
-    let ended = serve_protocol(&shared, tcp, number).await;
-    shared.count(|counters| {
-        counters.open_connections = counters.open_connections.saturating_sub(1);
-        counters.broken += u64::from(ended.is_err());
-    });
+async fn serve(tcp: TcpStream, connection: Connection) {
+    let ended = serve_protocol(&connection.shared, tcp, connection.number).await;
+    connection.shared.count(|counters| counters.broken += u64::from(ended.is_err()));
 }
 
 /// The client selects the protocol in the TLS handshake. A client with no selection gets

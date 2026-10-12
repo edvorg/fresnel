@@ -1,7 +1,7 @@
 //! The state that the handle, the driver and the connections of one fake server share.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use bytes::Bytes;
 use tokio::net::TcpListener;
@@ -29,6 +29,22 @@ pub(super) struct Shared {
     script: Mutex<Script>,
 }
 
+/// One connection in the counters.
+///
+/// The connection counts as open until this value drops. The task of the connection owns
+/// it, so the count is also correct after an abort or a panic of that task.
+pub(super) struct Connection {
+    /// The number of the connection in the sequence of accepts.
+    pub(super) number: u64,
+    pub(super) shared: Arc<Shared>,
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.shared.count(|counters| counters.open_connections = counters.open_connections.saturating_sub(1));
+    }
+}
+
 /// What the test set, and what the server saw.
 #[derive(Default)]
 struct Script {
@@ -54,14 +70,15 @@ impl Shared {
         self.counters.send_modify(change);
     }
 
-    /// Counts a new connection and gives its number.
-    pub(super) fn count_connection(&self) -> u64 {
+    /// Counts a new connection as open and gives it its number.
+    pub(super) fn admit(self: &Arc<Self>) -> Connection {
         let mut number = 0;
         self.count(|counters| {
             number = counters.connections;
             counters.connections += 1;
+            counters.open_connections += 1;
         });
-        number
+        Connection { number, shared: Arc::clone(self) }
     }
 
     pub(super) fn add_fault(&self, fault: Fault) {
