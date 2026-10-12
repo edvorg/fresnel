@@ -6,6 +6,7 @@
 
 mod changes;
 mod clock;
+pub mod credential;
 pub mod env;
 mod error;
 mod process;
