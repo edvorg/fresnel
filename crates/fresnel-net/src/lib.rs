@@ -6,7 +6,9 @@
 
 mod changes;
 mod clock;
+pub mod env;
 mod error;
+mod process;
 mod signal;
 pub mod task;
 
