@@ -110,6 +110,6 @@ xtask
 ## Guards
 
 - `Cargo.toml` holds the one lint table and the one version table of the workspace.
-- `clippy.toml` refuses a direct `tokio::spawn`.
+- `clippy.toml` refuses a direct `tokio::spawn` and a direct `std::thread::spawn`.
 - `fresnel-ui` refuses index access without a check.
 - `cargo xtask check-sizes` checks the limits of the documents and the source files.

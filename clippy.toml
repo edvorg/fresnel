@@ -5,6 +5,9 @@ disallowed-methods = [
     { path = "tokio::task::spawn_local", reason = "start the task with `fresnel_net::task::Tasks::start`" },
     { path = "tokio::runtime::Handle::spawn", reason = "start the task with `fresnel_net::task::Tasks::start`" },
     { path = "tokio::runtime::Runtime::spawn", reason = "start the task with `fresnel_net::task::Tasks::start`" },
+    # A thread is a background task too. `std::thread::scope` is permitted: it joins each thread.
+    { path = "std::thread::spawn", reason = "a thread needs a state and a report: add its start function to `fresnel_net::task`" },
+    { path = "std::thread::Builder::spawn", reason = "a thread needs a state and a report: add its start function to `fresnel_net::task`" },
 ]
 
 # A test can stop with a panic. Library code cannot.
