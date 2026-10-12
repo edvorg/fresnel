@@ -32,6 +32,7 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 # Only the test kit and tests use these.
 socket2 = "0.6.1"
 libc = "0.2.180"
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }
 base64 = "0.22.1"
 
 # Exact pin: `fresnel-net` replaces the transport of kube. Each kube upgrade needs a review of

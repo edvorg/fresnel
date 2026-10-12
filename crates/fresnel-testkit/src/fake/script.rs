@@ -1,0 +1,80 @@
+//! The scripted faults of the fake server: which requests a fault takes, and what they get.
+
+use std::time::Duration;
+
+use tokio::time::Instant;
+
+use super::seen::SeenRequest;
+
+/// One scripted fault. With no condition, it takes each request.
+///
+/// ```
+/// use std::time::Duration;
+/// use fresnel_testkit::Fault;
+///
+/// // The metrics API refuses the token for 2 seconds. Each other path works.
+/// let fault = Fault::unauthorized().on_path("/apis/metrics.k8s.io/").for_time(Duration::from_secs(2));
+/// ```
+#[derive(Clone, Debug)]
+pub struct Fault {
+    pub(super) answer: FaultAnswer,
+    path: Option<String>,
+    token: Option<String>,
+    until: Option<Instant>,
+}
+
+/// What a request gets in place of its normal answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FaultAnswer {
+    Nothing,
+    Unauthorized,
+    TooManyRequests { retry_after_seconds: u64 },
+}
+
+impl Fault {
+    /// The request gets no answer. Its stream stays open until the client ends it.
+    pub fn no_answer() -> Self {
+        Self::new(FaultAnswer::Nothing)
+    }
+
+    /// The request gets HTTP 401, as from a server that refuses the token.
+    pub fn unauthorized() -> Self {
+        Self::new(FaultAnswer::Unauthorized)
+    }
+
+    /// The request gets HTTP 429 with the header `Retry-After` in full seconds.
+    pub fn too_many_requests(retry_after: Duration) -> Self {
+        Self::new(FaultAnswer::TooManyRequests { retry_after_seconds: retry_after.as_secs() })
+    }
+
+    fn new(answer: FaultAnswer) -> Self {
+        Self { answer, path: None, token: None, until: None }
+    }
+
+    /// Only requests whose path starts with `prefix`.
+    #[must_use]
+    pub fn on_path(mut self, prefix: impl Into<String>) -> Self {
+        self.path = Some(prefix.into());
+        self
+    }
+
+    /// Only requests with this bearer token. A client with a new token then gets its answer.
+    #[must_use]
+    pub fn for_token(mut self, token: impl Into<String>) -> Self {
+        self.token = Some(token.into());
+        self
+    }
+
+    /// Only for this time, from this call. Then the fault ends by itself.
+    #[must_use]
+    pub fn for_time(mut self, time: Duration) -> Self {
+        self.until = Some(Instant::now() + time);
+        self
+    }
+
+    pub(super) fn takes(&self, request: &SeenRequest, now: Instant) -> bool {
+        self.path.as_ref().is_none_or(|prefix| request.uri.path().starts_with(prefix.as_str()))
+            && self.token.as_ref().is_none_or(|token| request.bearer() == Some(token.as_str()))
+            && self.until.is_none_or(|until| now < until)
+    }
+}
