@@ -7,8 +7,8 @@ that looks current.
 ## Status
 
 The work is in milestone M0 (connect). The repository has the workspace, the lints, CI, the
-function that starts each background task and the test kit. The network layer and the first
-window come next.
+function that starts each background task, the test kit and the network layer `fresnel-net`.
+The `doctor` command and the first window come next.
 
 ## Build and test
 
@@ -25,7 +25,8 @@ On Linux, the UI tests need the package `mesa-vulkan-drivers`.
 
 ## Layout
 
-- `crates/fresnel-net`: connections, and the function that starts each background task.
+- `crates/fresnel-net`: connections, the credential plugin, and the function that starts each
+  background task.
 - `crates/fresnel-core`: the domain. Clusters, stores, search and operations.
 - `crates/fresnel-ui`: the egui widgets and views.
 - `crates/fresnel`: the desktop program.

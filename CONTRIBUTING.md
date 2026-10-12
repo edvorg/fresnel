@@ -49,6 +49,13 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
 - A worker thread needs its own start function in `fresnel_net::task`, with a state and a
   report. `std::thread::scope` is permitted, because it joins each thread.
 
+## Requests
+
+- A request to `fresnel_net::Cluster` carries a `RequestKind` as its extension. The kind sets
+  the connection and the time limits. A request with no kind is refused.
+- An error text that can go to a log has no text of a child process. Put that text in
+  `detail()`, as `PluginError` does.
+
 ## Tests
 
 - A test must be able to fail. Break the code one time and see the failure.
@@ -59,6 +66,8 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
   a short fixed time.
 - A fault that k3s cannot make on order comes from `FakeApiServer`. A network fault comes
   from a `FaultProxy` before the server.
+- A time limit of `fresnel-net` gets a unit test with paused time on the server in memory
+  (`src/testing.rs`), and the test asserts the exact time.
 - A UI test uses `egui_kittest` and opens no window.
 - A test that needs k3s or Docker has the attribute `#[ignore = "needs k3s in Docker"]`.
   `cargo test --workspace -- --ignored` runs these tests. CI runs them on Linux.

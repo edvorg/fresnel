@@ -134,3 +134,82 @@ in a test. The client then sees a silent connection, a different fault. Thus the
 the data, waits until the peer acknowledged all bytes, 2 seconds at most, and closes with a
 reset. The proxy also delays each byte with no limit of the data rate, so a far cluster does
 not look slower than it is.
+
+## A request carries its kind
+
+The caller sets a `RequestKind` on each request: get, list page, watch, log stream, write or
+upgrade. The kind selects the connection, the time limits and gzip. The prototype read the
+kind from the text of the URL. A change of that text could send a watch to the request
+channel with no error. A request with no kind is refused, so a new call site cannot forget it.
+
+## A channel connects by itself
+
+A channel connects at its start and again after each loss. In the prototype, a channel waited
+for a request, and the first request came from a watch after its own backoff. After 7 resets
+in one minute, the recovery took 7.8 seconds. Now a loss counts one time, in the channel, and
+a connection that was live for 2 seconds connects again with no pause. Eight resets each
+recover in about 20 ms.
+
+## Live means that a request got an answer
+
+A channel is live only after the answer to a request, most often its own light request. An
+API server that starts can accept a connection and close it. In the prototype, the state then
+showed live 4 times for 10 ms each. The light request also proves the token after a second
+HTTP 401, keeps an idle connection open, and tests a connection after a wake.
+
+## The hedge delay follows the connect time
+
+The hedged connect covers TCP and TLS, because a held connection can stop before the first
+byte of the server. The delay is 1.5 times the typical connect time of the cluster, between
+150 ms and 1 second. A fixed 300 ms started two attempts for each connect to a server with a
+round trip of 250 ms. A cluster with no measured time gets 200 ms and 5 attempts.
+
+## A proof before the state "refused"
+
+After a second HTTP 401, one small request to a path that each user can read proves the
+token. If it passes, the HTTP 401 goes to its caller and nothing else changes. In the
+prototype, one path with a broken trust setup stopped all requests of the cluster for 60
+seconds. A proof counts for 30 seconds, so a path that refuses each token costs one small
+request each 30 seconds.
+
+## A request waits 2 seconds for the plugin
+
+A request waits 2 seconds at most for a plugin run. Then it fails with the credential state
+as its error. The plugin has a limit of 20 seconds, and a read has 10. Without the short
+wait, each request would fail with its own time limit, and the cause would not show.
+
+## The text of the plugin stays out of each log
+
+The plugin and the login shell write text for the user, and that text can hold a secret.
+`Display` and `Debug` of their errors show the failure type only. The text is in `detail()`,
+which the UI reads. Thus a log line or a journal entry cannot get the text by mistake.
+`fresnel-net` writes no log.
+
+## A warm upgrade connection gets a test
+
+An idle HTTP/1.1 connection has no ping. In the prototype, two exec calls on silent warm
+connections each failed after 10 seconds. Now a warm connection answers a light request
+before its use, with a limit of 1 second. One failed test drops the full warm set, and the
+request uses a new connection. A wake and a network change also drop the set.
+
+## The login shell starts from the process environment
+
+The login shell runs one time, with the environment of the process as its start. Its profile
+then decides which values stay, as in a terminal. The resolve returns when the dump is
+complete, and it kills the process group: a profile can end slowly or leave a process. Fixed
+folders such as `/opt/homebrew/bin` always go to the end of `PATH`.
+
+## hyper runs inside the task of the channel
+
+hyper gives the socket loop and the future of each request to an executor. The executor of
+`fresnel-net` hands them to the task of the channel. Thus no task starts outside the start
+function, and the drop of a connection ends each of its streams. After GOAWAY, the task keeps
+the old connection until its open streams end.
+
+## The stream budget fits into the windows
+
+The windows are fixed: an adaptive window lets one body that nobody reads stop each other
+stream. The stream budget is the smaller of 70 percent of the server limit and the count of
+stream windows that fit into the connection window. In the prototype, 70 unread bodies of
+1 MiB stopped a channel with a window of 64 MiB, and its state stayed live.
+

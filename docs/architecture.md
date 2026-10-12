@@ -86,6 +86,33 @@ xtask
 - A fault of the supervisor itself, for example a runtime with no timer, ends the task with a
   final state and a report.
 
+## Network layer
+
+`fresnel_net::Cluster` is one value for each cluster. It owns the connections, runs the
+credential plugin and gives a tower service. A request carries a `RequestKind`; the kind
+selects the connection, the time limits and gzip.
+
+```text
+request -> time limit -> throttle (HTTP 429) -> token and HTTP 401 rule -> lane of the kind
+lane: watches | requests | logs  (HTTP/2 channels)      upgrade (HTTP/1.1, warm set)
+new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
+```
+
+- **Channel**: one HTTP/2 connection with its own task. The task connects at the start and
+  after each loss, sends a ping each 10 s, and sends a light request each 30 s when no stream
+  is open. The state is live only after a request got an answer.
+- **Group**: the channels of one purpose. At 70 percent of the stream limit of the server,
+  one more connection opens, to a maximum of 3. Then a request waits, and the state shows it.
+- **Hedged connect**: one more attempt starts after 1.5 connect times, and the first attempt
+  that completes TCP and TLS wins.
+- **Credential**: one task runs the plugin, one run at a time. A request waits 2 s at most.
+  After a second HTTP 401, one small request proves the token.
+- **Upgrade client**: exec, attach and port forward. A warm connection gets a test before use.
+- **Signal**: a wake, a network change and "retry now" raise the one signal of a cluster. It
+  ends each retry delay, and each channel tests its connection with a limit of 3 s.
+- **State**: `Cluster::status` gives a copy of each state. `Cluster::changes` tells when to
+  read again. The text of the plugin is only in `detail()`, never in `Display` or `Debug`.
+
 ## Contract between the UI and the core
 
 1. **State.** One type publishes each state. The UI gets a copy, never a lock that can stop a
@@ -117,7 +144,8 @@ prints one line for it, and `task_failures` gives the list.
 
 ## Tests
 
-- **Unit tests** run with no network. A test of a timer uses paused time.
+- **Unit tests** run with no network. A test of a timer uses paused time. The tests of
+  `fresnel-net` for a time limit use an HTTP/2 server on pipes in memory, so each time is exact.
 - **Socket tests** use the fake API server and the fault proxy on 127.0.0.1. They need no
   Docker and run with the unit tests. Real sockets need real time.
 - **UI tests** drive the views through `egui_kittest` with no window.
