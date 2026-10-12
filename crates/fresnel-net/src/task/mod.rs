@@ -110,9 +110,11 @@ impl TaskHandle {
 }
 
 impl Drop for TaskHandle {
+    /// The state goes first. If the stop went first, a reader on a different thread could see
+    /// the stopped supervisor as a task with the final state "stopped".
     fn drop(&mut self) {
-        self.supervisor.abort();
         self.shared.registry.remove(self.id);
+        self.supervisor.abort();
     }
 }
 
