@@ -131,7 +131,8 @@ impl Registry {
     }
 
     /// Stores the result of a connect that started from `access`. A connect reads the
-    /// certificate files with no lock, so the list can change before this step.
+    /// certificate files with no lock of the list, so a new load of the kubeconfig files can
+    /// change the entry before this step.
     fn keep(
         &self,
         id: &ClusterId,

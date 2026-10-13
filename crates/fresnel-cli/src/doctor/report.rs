@@ -166,7 +166,8 @@ pub(super) struct Connects {
 #[derive(Debug, Serialize)]
 pub(super) struct Session {
     pub(super) credential: Option<Credential>,
-    /// From the connect until each channel had an answer. `None`: not in the limit.
+    /// From the connect until each channel had an answer. `None`: not in the limit, or no
+    /// wait because the cluster has no token.
     pub(super) live_ms: Option<f64>,
     pub(super) channels: Vec<Channel>,
     /// `SETTINGS_MAX_CONCURRENT_STREAMS` of the server.

@@ -41,8 +41,9 @@ pub(super) async fn measure(registry: &Registry, id: &ClusterId, limits: &Limits
 async fn examine(link: &Link, started: Instant, limits: &Limits) -> Session {
     let settled = until(link, limits.credential, credential_settled).await;
     let credential = credential(&settled.unwrap_or_else(|| link.net.status()), started);
-    // With no token, no channel can prove its connection, and a request fails with the
-    // state of the credential. The wait for the channels would only cost its limit.
+    // With no token, a request fails with the state of the credential, and a
+    // kube-apiserver ends each connection that sent a request. The wait for the channels
+    // would only cost its limit.
     let has_token = credential.as_ref().is_none_or(|credential| credential.first_token_ms.is_some());
     let live = if has_token { until(link, LIVE_LIMIT, all_live).await } else { None };
     let live_ms = live.as_ref().map(|_| ms(started.elapsed()));
