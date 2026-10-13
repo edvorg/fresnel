@@ -5,13 +5,30 @@
 //! columns, the search text and the actions of a kind come with the views.
 //!
 //! - `list`: the one list. `object`: what a store reads of an object.
+//! - `health`: the health value of an object. One file for each tier A kind has the rule
+//!   of the kind, and `pod` has also the status text of a pod.
 
+mod cron_job;
+mod daemon_set;
+mod deployment;
+mod endpoint_slice;
+mod event;
+mod health;
+mod job;
 mod list;
+mod namespace;
+mod node;
 mod object;
+mod pod;
+mod replica_set;
+mod service;
+mod stateful_set;
 
+pub use health::{Assess, ObjectHealth};
 pub use list::Kind;
 pub(crate) use list::{Visitor, each_store};
 pub use object::{Meta, Object};
+pub use pod::PodStatus;
 
 /// How much data of a kind the app keeps (plan section 9).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -56,8 +73,8 @@ impl KindInfo {
 }
 
 /// The object type of a tier A kind. A reader asks for the store of a kind with this type,
-/// so the type of the objects and the kind cannot differ.
-pub trait Full: Object {
+/// so the type of the objects and the kind cannot differ. Each such type has a health value.
+pub trait Full: Object + Assess {
     /// The kind of the type.
     const KIND: Kind;
 }

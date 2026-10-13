@@ -14,6 +14,8 @@
 pub mod app;
 pub mod cluster;
 mod error;
+#[cfg(test)]
+mod fixture;
 pub mod journal;
 pub mod kinds;
 pub mod kubeconfig;
