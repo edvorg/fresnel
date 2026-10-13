@@ -8,7 +8,7 @@ use egui_kittest::kittest::Queryable as _;
 use fresnel_core::net::task::End;
 
 use super::{Bed, objects};
-use crate::testing::LIMIT;
+use crate::testing::{LIMIT, QUIET};
 use crate::widgets::table::Act;
 
 /// Defect A1 of the prototype: with snapshots faster than the sort, the table showed
@@ -180,9 +180,19 @@ fn a_table_at_rest_has_no_rows_and_no_selection_and_its_next_frame_asks_for_rows
     bed.window.step();
     assert_eq!(bed.started(), 3, "the frame asks the worker for the rows again");
     assert!(bed.window.query_by_label("The rows are computed…").is_some(), "no empty table before the rows");
+
+    // The computation of these rows is in progress at a second rest. The request leaves
+    // the mailbox, so the result has no reader: it must not come back as rows.
+    bed.window.state_mut().table.rest();
+    bed.release.send(()).expect("the worker waits at the gate");
+    assert!(bed.woken.recv_timeout(QUIET).is_err(), "no result of a request from before the rest");
+    assert!(bed.window.state().table.rows().is_none());
+
+    bed.set(&objects(1..=4));
+    assert_eq!(bed.started(), 4);
     bed.finish();
     bed.window.step();
-    assert_eq!((bed.shown().len(), bed.progress().as_str()), (3, "Current"));
+    assert_eq!((bed.shown().len(), bed.progress().as_str()), (4, "Current"));
 }
 
 /// A second fault during the recovery: the user sets a new filter in the pause after a

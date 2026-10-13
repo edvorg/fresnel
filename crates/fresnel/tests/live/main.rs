@@ -257,9 +257,17 @@ fn a_slow_cluster_has_no_mark_and_a_second_silence_during_the_recovery_keeps_eac
     // at the timeout of a watch. The store stays live for the round trip of the renewal.
     fra.proxy.set(slow);
     for renewal in 1..=3 {
-        // A watch that the server ends in its first second is a fault for the app.
         no_mark_for(&mut window, Duration::from_millis(2500), "a slow cluster is live");
-        assert!(fra.server.end_watches() > 0, "renewal {renewal}: the watch of the pods is open");
+        // A bookmark shows that the watch works. The app takes the end of a watch that
+        // gave no data in its first second as a fault, and a slow test machine must not
+        // make that case.
+        let version = 7 + renewal;
+        let bookmark = serde_json::json!({
+            "type": "BOOKMARK",
+            "object": {"kind": "Pod", "apiVersion": "v1", "metadata": {"resourceVersion": version.to_string()}},
+        });
+        assert!(fra.server.send_event(PODS, &bookmark.to_string()) > 0, "renewal {renewal}: the watch is open");
+        assert!(fra.server.end_watches() > 0, "renewal {renewal}: the server ends the watch");
     }
     no_mark_for(&mut window, Duration::from_millis(2500), "the last renewal");
 
