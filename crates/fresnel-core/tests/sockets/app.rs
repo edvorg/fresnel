@@ -6,9 +6,11 @@
 //!
 //! - `start`: the start and the stop. `commands`: the selection and "Retry now".
 //! - `network`: a network that goes away and comes back.
+//! - `faults`: a login shell that hangs, and a panic of the task of the core.
 //! - `slow_disk`: a read of a kubeconfig file or of a certificate file that waits.
 
 mod commands;
+mod faults;
 mod network;
 mod slow_disk;
 mod start;
@@ -97,21 +99,28 @@ struct App {
     /// The wake of the UI: the core asks for a repaint.
     woken: Arc<Notify>,
     network_changed: Arc<AtomicBool>,
+    /// The count of task runs that the test itself ends with a fault.
+    expected_task_ends: usize,
 }
 
 impl App {
     /// Builds the core with the environment of a program from Finder. It is not started.
-    fn new(home: &Home, mut settings: CoreSettings) -> Self {
+    fn new(home: &Home, settings: CoreSettings) -> Self {
+        Self::with_journal(home, settings, Journal::new(1000, WallClock::system()))
+    }
+
+    /// The same, with a journal of the test.
+    fn with_journal(home: &Home, mut settings: CoreSettings, journal: Journal) -> Self {
         settings.detect_period = Duration::from_millis(20);
         let network_changed = Arc::new(AtomicBool::new(false));
         let core = Core::new(CoreParts {
             runtime: Handle::current(),
             base_env: home.finder_env(),
-            journal: Journal::new(1000, WallClock::system()),
+            journal,
             detectors: vec![Box::new(OnOrder(Arc::clone(&network_changed)))],
             settings,
         });
-        Self { core, woken: Arc::new(Notify::new()), network_changed }
+        Self { core, woken: Arc::new(Notify::new()), network_changed, expected_task_ends: 0 }
     }
 
     fn start(&self) {
@@ -166,7 +175,8 @@ impl App {
 impl Drop for App {
     fn drop(&mut self) {
         if !std::thread::panicking() {
-            assert_eq!(self.texts_of("task"), Vec::<String>::new(), "a task of the app ended");
+            let ended = self.texts_of("task");
+            assert_eq!(ended.len(), self.expected_task_ends, "a task of the app ended: {ended:?}");
         }
     }
 }
