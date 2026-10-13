@@ -12,6 +12,8 @@ use std::time::{Duration, SystemTime};
 use futures_util::StreamExt as _;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
+use http::StatusCode;
+use http::header::AUTHORIZATION;
 use http_body_util::BodyExt as _;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, timeout};
 
@@ -30,8 +32,19 @@ use crate::signal::Listener;
 /// end, and only the newest old connection stays.
 const MAX_DRAINING: usize = 4;
 
-/// One light request in progress: its round trip time, or why it got no answer.
-type Check = Pin<Box<dyn Future<Output = Result<Duration, NetError>> + Send>>;
+/// The text of the end of a connection after HTTP 401 to its light request.
+const REFUSED: &str = "the server refused the light request (HTTP 401)";
+
+/// One light request in progress: its answer, or why it got none.
+type Check = Pin<Box<dyn Future<Output = Result<Answer, NetError>> + Send>>;
+
+/// What the server said to a light request.
+enum Answer {
+    /// The connection and the server work. The value is the round trip time.
+    Accepted(Duration),
+    /// HTTP 401. The check gave it to the credential of the cluster already.
+    Refused,
+}
 
 pub(super) struct Driver {
     shared: Arc<Shared>,
@@ -46,8 +59,12 @@ pub(super) struct Driver {
 
 /// Why the serve of one connection ended.
 enum Ended {
-    /// A clean end by the server. Open streams continue on the old connection.
-    Closed,
+    /// A clean end by the server. Open streams continue on the old connection, and the
+    /// light request in progress is one of them.
+    Closed(Option<Check>),
+    /// HTTP 401 to the light request. A kube-apiserver then ends the connection in the
+    /// clean way, so the channel does the same and does not wait for it.
+    Refused,
     Failed(String),
     /// The channel is an extra one and had no stream for some time.
     Retired,
@@ -106,9 +123,13 @@ impl Driver {
                     drop(connection);
                     reason
                 }
-                Ended::Closed => {
-                    draining.add(connection);
+                Ended::Closed(check) => {
+                    draining.add(connection, check);
                     "the server closed the connection".to_owned()
+                }
+                Ended::Refused => {
+                    draining.add(connection, None);
+                    REFUSED.to_owned()
                 }
             };
             draining.during(self.pause_after(reason, stable)).await;
@@ -171,17 +192,18 @@ impl Driver {
         let ended = loop {
             tokio::select! {
                 end = connection.run() => break match end {
-                    End::Closed => Ended::Closed,
+                    End::Closed => Ended::Closed(check.take()),
                     End::Failed(reason) => Ended::Failed(reason),
                 },
                 answer = in_progress(&mut check) => {
                     check = None;
                     match answer {
-                        Ok(round_trip) => {
+                        Ok(Answer::Accepted(round_trip)) => {
                             self.shared.streams.frame_arrived();
                             self.shared.status.write(|facts| facts.ping_time = Some(round_trip));
                             self.go_live(&mut live_since, connection);
                         }
+                        Ok(Answer::Refused) => break Ended::Refused,
                         Err(error) => break Ended::Failed(error.to_string()),
                     }
                 }
@@ -248,19 +270,29 @@ impl Driver {
 
     /// Sends the light request and reads its full answer, so that its stream ends in the
     /// normal way. `None` while the cluster has no token: no request goes out then.
+    ///
+    /// HTTP 401 goes to the credential of the cluster. Without that report, a token that the
+    /// server refuses would cost one connection for each light request, with no visible cause.
     fn check(&self, sender: &Sender, limit: Duration) -> Option<Check> {
         let (mut sender, request) = (sender.clone(), self.light.build(Protocol::Http2)?);
+        let (light, token) = (Arc::clone(&self.light), request.headers().get(AUTHORIZATION).cloned());
         Some(Box::pin(async move {
             let started = Instant::now();
             let exchange = async {
-                let mut body = sender.send_request(request).await?.into_body();
+                let (head, mut body) = sender.send_request(request).await?.into_parts();
                 while let Some(frame) = body.frame().await {
                     frame?;
                 }
-                Ok::<_, hyper::Error>(())
+                Ok::<_, hyper::Error>(head.status)
             };
             match timeout(limit, exchange).await {
-                Ok(Ok(())) => Ok(started.elapsed()),
+                Ok(Ok(StatusCode::UNAUTHORIZED)) => {
+                    if let Some(token) = &token {
+                        light.refused(token);
+                    }
+                    Ok(Answer::Refused)
+                }
+                Ok(Ok(_)) => Ok(Answer::Accepted(started.elapsed())),
                 Ok(Err(error)) => Err(NetError::because("the light request failed", &error)),
                 Err(_) => Err(NetError::timeout(format!("no answer to the light request in {limit:?}"))),
             }
@@ -269,7 +301,7 @@ impl Driver {
 }
 
 /// Waits for the light request in progress. With none, it waits with no end.
-async fn in_progress(check: &mut Option<Check>) -> Result<Duration, NetError> {
+async fn in_progress(check: &mut Option<Check>) -> Result<Answer, NetError> {
     match check.as_mut() {
         Some(check) => check.await,
         None => std::future::pending().await,
@@ -281,11 +313,24 @@ async fn in_progress(check: &mut Option<Check>) -> Result<Duration, NetError> {
 struct Draining(FuturesUnordered<BoxFuture<'static, ()>>);
 
 impl Draining {
-    fn add(&mut self, connection: Connection) {
+    /// Keeps an old connection until its last stream ends. `check` is the light request
+    /// that was in progress on it: a kube-apiserver sends HTTP 401 and GOAWAY together, so
+    /// the answer is read here, and an HTTP 401 still reaches the credential.
+    fn add(&mut self, connection: Connection, check: Option<Check>) {
         if self.0.len() >= MAX_DRAINING {
             self.0.clear();
         }
-        self.0.push(Box::pin(connection.drain()));
+        let answer = async {
+            let Some(check) = check else { return };
+            match check.await {
+                // The check gave an HTTP 401 to the credential. The connection is closed in
+                // each case, so no other result changes something.
+                Ok(Answer::Accepted(_) | Answer::Refused) | Err(_) => {}
+            }
+        };
+        self.0.push(Box::pin(async move {
+            tokio::join!(connection.drain(), answer);
+        }));
     }
 
     /// Runs `work` and, at the same time, the old connections.

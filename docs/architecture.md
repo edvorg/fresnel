@@ -110,7 +110,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Hedged connect**: one more attempt starts after 1.5 connect times, and the first attempt
   that completes TCP and TLS wins.
 - **Credential**: one task runs the plugin, one run at a time. A request waits 2 s at most.
-  After a second HTTP 401, one small request proves the token.
+  After a second HTTP 401, to a request or to a light request, one small request proves the token.
 - **Upgrade client**: exec, attach and port forward. A warm connection gets a test before use.
 - **Signal**: a wake, a network change and "retry now" raise the one signal of a cluster. It
   ends each retry delay, and each channel tests its connection with a limit of 3 s.

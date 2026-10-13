@@ -166,6 +166,14 @@ has no token. It keeps its connection open in the state "waits for a token", and
 still finds a silent connection. In milestone M0, a plugin that hung for 20 seconds cost 43
 connections in place of 3.
 
+## An HTTP 401 to a light request goes to the credential
+
+A kube-apiserver also ends an HTTP/2 connection after HTTP 401 to a token that it refuses.
+With no request of a caller, only the light request can tell. On k3s, a refused token cost
+51 connections in 30 seconds, and the credential showed as valid. Thus a channel reports
+this HTTP 401 to the credential task and ends the connection in the clean way, so open
+streams continue. The credential then shows its failure, and no channel sends a request.
+
 ## The hedge delay follows the connect time
 
 The hedged connect covers TCP and TLS, because a held connection can stop before the first

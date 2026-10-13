@@ -248,7 +248,8 @@ async fn a_refused_token_costs_one_plugin_run_and_no_failed_request() {
     assert!(answers.iter().all(|answer| matches!(answer, Ok((StatusCode::OK, _)))), "{answers:?}");
     let (runs, unauthorized, proofs) = counts(&cluster);
     assert_eq!((runs, proofs), (2, 0), "20 refused requests cost one plugin run");
-    assert!((1..=20).contains(&unauthorized), "{unauthorized}");
+    // The light request of each channel can have the refused token too.
+    assert!((1..=23).contains(&unauthorized), "{unauthorized}");
     assert_eq!(state.read("runs"), "run\nrun\n");
 }
 

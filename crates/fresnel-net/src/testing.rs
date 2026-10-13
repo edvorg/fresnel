@@ -108,6 +108,8 @@ impl LightRequests for NoPlugin {
     fn token(&self) -> BoxFuture<'_, ()> {
         std::future::ready(()).boxed()
     }
+
+    fn refused(&self, _authorization: &HeaderValue) {}
 }
 
 /// The text of the path `/big`: large, so that gzip makes it much smaller.

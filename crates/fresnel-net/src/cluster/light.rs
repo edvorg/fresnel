@@ -5,7 +5,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures_util::FutureExt as _;
 use futures_util::future::BoxFuture;
-use http::Request;
+use http::{HeaderValue, Request};
 use http_body_util::Full;
 
 use super::address::Address;
@@ -32,6 +32,12 @@ impl LightRequests for ClusterLight {
         match &self.credentials {
             Some(credentials) => credentials.token_exists().boxed(),
             None => std::future::ready(()).boxed(),
+        }
+    }
+
+    fn refused(&self, authorization: &HeaderValue) {
+        if let Some(credentials) = &self.credentials {
+            credentials.light_request_refused(authorization);
         }
     }
 }

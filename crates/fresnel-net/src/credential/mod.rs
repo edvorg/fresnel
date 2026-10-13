@@ -197,6 +197,17 @@ impl Credentials {
         }
     }
 
+    /// Tells the task that the server answered HTTP 401 to a light request with this token.
+    /// No caller waits for the decision. A light request with an older token tells nothing
+    /// about the token of this moment, so it gives no report.
+    pub(crate) fn light_request_refused(&self, authorization: &HeaderValue) {
+        let current = self.shared.view.borrow().token.clone();
+        if let Some(refused) = current.filter(|token| token.header == authorization) {
+            self.shared.unauthorized.fetch_add(1, Ordering::Relaxed);
+            self.shared.refused.send_modify(|highest| *highest = (*highest).max(refused.generation));
+        }
+    }
+
     /// Waits until the cluster has a token, with no time limit. A channel waits here before
     /// its light request: a request with no token would end its connection.
     pub(crate) async fn token_exists(&self) {

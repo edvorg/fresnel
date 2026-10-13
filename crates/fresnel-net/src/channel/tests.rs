@@ -340,6 +340,8 @@ impl LightRequests for SecondBuildPanics {
     fn token(&self) -> BoxFuture<'_, ()> {
         NoPlugin.token()
     }
+
+    fn refused(&self, _authorization: &http::HeaderValue) {}
 }
 
 /// A defect in the task of a channel must not leave a state that looks good (design rule 1).

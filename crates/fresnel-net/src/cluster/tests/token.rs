@@ -8,7 +8,7 @@ use futures_util::future::BoxFuture;
 
 use super::*;
 use crate::channel::ChannelStatus;
-use crate::credential::{Credential, PluginError};
+use crate::credential::{Credential, CredentialFailure, PluginError};
 use crate::signal::Cause;
 
 /// A plugin that needs `run_time` for each run.
@@ -100,4 +100,49 @@ async fn an_idle_channel_sends_no_light_request_while_the_plugin_runs_again() {
     let status = bed.cluster.status();
     assert!(all_are(&status, &ChannelState::Live), "{status:?}");
     assert_eq!(bed.server.dials(), 3, "no channel lost its connection");
+}
+
+/// A token that the server refuses, and no request of a caller: only the light request can
+/// tell. Its HTTP 401 goes to the credential, as the HTTP 401 of a request does, and the
+/// channel ends the connection in the clean way, so a watch that is open continues.
+#[tokio::test(start_paused = true)]
+async fn an_http_401_to_a_light_request_goes_to_the_credential_and_an_open_watch_continues() {
+    let mut bed = Bed::start(Some(&["one", "two", "three"])).await;
+    let mut events = bed.send(RequestKind::Watch, "/watch").await.expect("a watch").into_body();
+    let dials = bed.server.dials();
+
+    // The server refuses each token from now on. A wake makes each channel test its connection.
+    bed.server.refuse_path("/version");
+    bed.cluster.signal().raise(Cause::Wake);
+    let refused = bed
+        .until("a failed credential", |status| {
+            let state = status.credential.as_ref().map(|credential| &credential.state);
+            matches!(state, Some(CredentialState::Failed { failure: CredentialFailure::Refused, .. }))
+        })
+        .await;
+    let credential = refused.credential.expect("a credential");
+    assert_eq!((credential.plugin_runs, credential.proofs), (2, 1), "one more plugin run, then one proof");
+    // A report counts while its token is the token of the cluster: one at least for each token.
+    assert!(credential.unauthorized >= 2, "{} reports", credential.unauthorized);
+    assert!(bed.elapsed() < 2 * SECOND, "the failure showed after {:?}", bed.elapsed());
+    let seen = tokens_of_light_requests(&bed);
+    assert!(seen.iter().all(Option::is_some), "a light request went out with no token: {seen:?}");
+
+    // The stream of the watch is on the old connection of its channel.
+    bed.server.send_event("event\n");
+    let event = timeout(SECOND, events.frame()).await.expect("an event in time").expect("a frame").expect("data");
+    assert_eq!(event.into_data().expect("data"), "event\n");
+
+    // With no token, no channel sends a request. Each one keeps a connection and waits.
+    let status =
+        bed.until("each channel waits for a token", |status| all_are(status, &ChannelState::WaitsForToken)).await;
+    for channel in first_channels(&status) {
+        assert_eq!(channel.last_error.as_deref(), Some("the server refused the light request (HTTP 401)"));
+    }
+    let (requests, connections) = (bed.server.seen().len(), bed.server.dials());
+    // Each channel connects again 3 times at most: the pause of a channel grows, and the
+    // proof is done before a fourth connect.
+    assert!(connections - dials <= 9, "{} connections for two refused tokens", connections - dials);
+    sleep(SECOND).await;
+    assert_eq!((bed.server.seen().len(), bed.server.dials()), (requests, connections), "a request with no token");
 }

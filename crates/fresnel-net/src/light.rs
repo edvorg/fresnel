@@ -7,10 +7,15 @@
 //! goes out while the cluster has no token. A kube-apiserver ends an HTTP/2 connection
 //! after its answer to a request with no credential. In milestone M0, a plugin that hung
 //! for 20 s cost 43 connections for that reason, and the minimum is 3.
+//!
+//! The server ends the connection in the same way after HTTP 401 to a token that it
+//! refuses. Thus the HTTP 401 of a light request goes to the credential of the cluster, as
+//! the HTTP 401 of a request of a caller does. On k3s, a refused token with no such report
+//! cost 51 connections in 30 s, and the credential showed as valid.
 
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
-use http::Request;
+use http::{HeaderValue, Request};
 use http_body_util::Full;
 
 use crate::connect::dial::Protocol;
@@ -24,4 +29,8 @@ pub(crate) trait LightRequests: Send + Sync + 'static {
 
     /// Waits until the cluster has a token. For a cluster with no plugin, the wait ends at once.
     fn token(&self) -> BoxFuture<'_, ()>;
+
+    /// The server answered HTTP 401 to a light request with this `Authorization` value. The
+    /// credential then decides as after a request of a caller: a plugin run, or a proof.
+    fn refused(&self, authorization: &HeaderValue);
 }
