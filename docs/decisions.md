@@ -199,6 +199,14 @@ then decides which values stay, as in a terminal. The resolve returns when the d
 complete, and it kills the process group: a profile can end slowly or leave a process. Fixed
 folders such as `/opt/homebrew/bin` always go to the end of `PATH`.
 
+## One spawn of a child process at a time
+
+On macOS, a new pipe gets its close-on-exec flag in a second step. A child that some other
+thread starts between the two steps keeps that pipe open, and a spawn waits for the end of one
+such pipe. In milestone M0, a test stayed 600 seconds in its spawn for this reason. Thus the
+process module holds one lock for each spawn, and plugins that start at the same moment start
+one after the other.
+
 ## hyper runs inside the task of the channel
 
 hyper gives the socket loop and the future of each request to an executor. The executor of

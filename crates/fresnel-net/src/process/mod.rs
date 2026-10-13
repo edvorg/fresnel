@@ -7,6 +7,7 @@
 
 use std::io;
 use std::process::{ExitStatus, Stdio};
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use nix::sys::signal::{Signal, killpg};
@@ -63,7 +64,7 @@ pub(crate) async fn run(
     // SAFETY: the closure runs between fork and exec. `setsid` is async-signal-safe, and the
     // closure does not allocate and takes no lock.
     unsafe { command.pre_exec(|| setsid().map(drop).map_err(io::Error::from)) };
-    let mut group = Group::of(command.spawn()?);
+    let mut group = Group::of(spawn(&mut command)?);
     let (Some(stdout), Some(stderr)) = (group.child.stdout.take(), group.child.stderr.take()) else {
         return Err(io::Error::other("the child has no output pipe"));
     };
@@ -77,6 +78,20 @@ pub(crate) async fn run(
         End::Complete | End::TimedOut | End::TooMuchOutput | End::Failed(_) => group.stop().await,
     };
     Ok(Output { stdout: out, stderr: err, end, stopped })
+}
+
+/// One spawn at a time in the process of the app.
+///
+/// On macOS, a new pipe gets its close-on-exec flag in a second step. A child that some
+/// other thread starts between the two steps keeps the pipe open. A spawn waits for the end
+/// of one such pipe, so it then waits for the end of that child. In milestone M0, a test
+/// stayed 600 s in its spawn for this reason.
+static SPAWN: Mutex<()> = Mutex::new(());
+
+fn spawn(command: &mut Command) -> io::Result<Child> {
+    // The lock guards no data, so a poisoned lock is safe to use.
+    let _one_at_a_time = SPAWN.lock().unwrap_or_else(PoisonError::into_inner);
+    command.spawn()
 }
 
 /// A child and its process group. One type owns the two, so the kill always comes before
@@ -193,4 +208,56 @@ pub(crate) fn tail(bytes: &[u8], characters: usize) -> String {
     let text = String::from_utf8_lossy(bytes);
     let skip = text.chars().count().saturating_sub(characters);
     text.chars().skip(skip).collect::<String>().trim().to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::task::JoinSet;
+
+    use super::*;
+
+    const THREADS: usize = 8;
+    const ROUNDS: usize = 40;
+    /// The life of a long child. A spawn that waits for a long child needs this time.
+    const LONG: Duration = Duration::from_secs(2);
+
+    fn command(script: &str) -> Command {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", script]);
+        command
+    }
+
+    /// Starts a short child and gives the time to its end.
+    async fn short_run() -> Duration {
+        let started = std::time::Instant::now();
+        let limits = RunLimits { time: LONG, output_bytes: 1024 };
+        let output = run(command("true"), limits, |_| false).await.expect("the child starts");
+        assert!(matches!(output.end, End::Exited(status) if status.success()), "{:?}", output.end);
+        started.elapsed()
+    }
+
+    /// Some threads start a short child and a long one at the same moment, again and again.
+    /// Without one spawn at a time, a long child can hold the pipe of a spawn on some other
+    /// thread, and that spawn then waits for the end of the long child.
+    #[test]
+    fn a_spawn_does_not_wait_for_a_child_of_some_other_thread() {
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(THREADS).enable_all().build();
+        let slowest = runtime.expect("a runtime").block_on(async {
+            let limits = RunLimits { time: LONG, output_bytes: 1024 };
+            let (mut long_runs, mut slowest) = (JoinSet::new(), Duration::ZERO);
+            for _ in 0..ROUNDS {
+                let mut short_runs = JoinSet::new();
+                for _ in 0..THREADS {
+                    long_runs.spawn(run(command("sleep 2"), limits, |_| false));
+                    short_runs.spawn(short_run());
+                }
+                while let Some(time) = short_runs.join_next().await {
+                    slowest = slowest.max(time.expect("no panic"));
+                }
+            }
+            // The drop of the long runs kills their children.
+            slowest
+        });
+        assert!(slowest < LONG / 2, "a short child needed {slowest:?}");
+    }
 }
