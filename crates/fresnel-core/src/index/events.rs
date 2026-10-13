@@ -19,8 +19,8 @@ use k8s_openapi::jiff::Timestamp;
 pub use on_demand::{EventsRead, read_events};
 
 use super::links::Links;
-use super::source::Tracked;
-use super::task::{Answer, Index, Indexer, Read};
+use super::source::{SourceStatus, Tracked};
+use super::task::{Answer, Index, IndexState, Indexer, Read};
 use crate::kinds::Kind;
 use crate::published::Reader;
 use crate::store::{Change, Items, ObjectKey, Snapshot};
@@ -52,9 +52,25 @@ impl Index<ObjectEvents> {
     }
 }
 
+impl Index<ObjectEvents> {
+    /// The index of the Events of one snapshot, as the task of the index gives it after
+    /// one read, with `state` as the state of that task. A test of a reader builds the
+    /// index of each state with it.
+    pub fn of_snapshot(events: &Snapshot<Event>, state: IndexState) -> Self {
+        let mut relations = ObjectEvents { events: events.items.clone(), ..ObjectEvents::default() };
+        for (key, event) in events.items.iter() {
+            link(&mut relations, subject(event), key);
+        }
+        let source =
+            SourceStatus { kind: Kind::Event, listed: events.listed, state: events.state.clone(), since: events.since };
+        Self::following(1, vec![source], relations).in_state(state)
+    }
+}
+
 /// The last time that the Event occurred. A source that repeats an Event changes its
-/// series or its last timestamp, and not the creation time of the object.
-fn last_seen(event: &Event) -> Option<Timestamp> {
+/// series or its last timestamp, and not the creation time of the object. The answers
+/// of the index have this sequence, and a view shows this time.
+pub fn last_seen(event: &Event) -> Option<Timestamp> {
     let series = event.series.as_ref().and_then(|series| series.last_observed_time.as_ref()).map(|time| time.0);
     let last = event.last_timestamp.as_ref().map(|time| time.0);
     let first = event.event_time.as_ref().map(|time| time.0);

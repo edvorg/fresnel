@@ -51,6 +51,33 @@ async fn an_object_of_the_fixture_finds_its_events_with_the_newest_first() {
     assert_eq!(index.events_of(Kind::Pod, &ObjectKey::new(SCENE, "no-such-pod"), "uid-1").found.len(), 0);
 }
 
+/// A view test builds an index with no task. It must give the answers of the task.
+#[tokio::test]
+async fn the_index_of_a_snapshot_gives_the_answers_of_the_task_with_the_state_of_its_caller() {
+    let bed = Bed::new();
+    let store = bed.fixture::<Event>();
+    let (by_task, _) = read(&mut EventIndexer::new(store.reader()));
+    let snapshot = store.reader().read();
+    let built = Index::of_snapshot(&snapshot, IndexState::Following);
+    assert_eq!((built.generation, &built.state, built.sources()), (1, &by_task.state, by_task.sources()));
+    for name in ["crash", "web-", "done"] {
+        let (key, uid) = pod(name);
+        let (task, direct) = (by_task.events_of(Kind::Pod, &key, &uid), built.events_of(Kind::Pod, &key, &uid));
+        assert!(!task.found.is_empty(), "{name} has Events");
+        assert_eq!((sorted_names(&direct.found), direct.basis), (sorted_names(&task.found), Basis::Current));
+    }
+    let node = fixture::all::<Node>().remove(0);
+    let key = ObjectKey::new("", node.meta().name.as_deref().expect("a name"));
+    let uid = node.meta().uid.as_deref().expect("a UID");
+    let by_name = |index: &Index<ObjectEvents>| sorted_names(&index.events_of(Kind::Node, &key, uid).found);
+    assert_eq!(by_name(&built), by_name(&by_task), "the Events that name the node with no UID of the API");
+
+    let failed = IndexState::Failed { reason: "a defect".into() };
+    let stale = Index::of_snapshot(&snapshot, failed.clone());
+    let (key, uid) = pod("crash");
+    assert_eq!(stale.events_of(Kind::Pod, &key, &uid).basis, Basis::NotFollowed(failed));
+}
+
 /// The kubelet writes the name of its node in the place of the UID. Each other source
 /// writes the UID of the Node object.
 #[tokio::test]

@@ -24,7 +24,7 @@ mod task;
 
 use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
 
-pub use events::{EventsRead, ObjectEvents, read_events};
+pub use events::{EventsRead, ObjectEvents, last_seen, read_events};
 pub use owner::{EndpointPod, ObjectRef, Owners};
 pub use refs::{References, Target, references_of};
 pub use source::SourceStatus;
