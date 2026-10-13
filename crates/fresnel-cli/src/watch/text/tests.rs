@@ -48,7 +48,8 @@ fn connections(watches: &[(ChannelState, usize)], requests: ChannelState) -> Clu
 }
 
 fn store(kind: Kind, state: StoreState, items: usize, last_contact: Option<SystemTime>) -> StoreStatus {
-    StoreStatus { kind, state, since: EPOCH + 50 * SECOND, last_contact, items, dropped: 0, generation: 1 }
+    let listed = last_contact.is_some();
+    StoreStatus { kind, state, since: EPOCH + 50 * SECOND, last_contact, listed, items, dropped: 0, generation: 1 }
 }
 
 #[test]

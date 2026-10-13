@@ -152,6 +152,28 @@ async fn a_new_writer_of_a_store_starts_with_the_objects_of_the_last_snapshot() 
     let snapshot = publisher.read();
     let names: Vec<&str> = snapshot.items.iter().map(|(key, _)| &*key.name).collect();
     assert_eq!((names, snapshot.generation), (vec!["a", "b"], 2), "half of a list is gone, and the generation goes on");
+    assert!(snapshot.listed, "the list of the task before counts");
+}
+
+/// Plan section 9.8: "no pods" and "pods not loaded" differ. A store with no object tells
+/// which one it is.
+#[tokio::test(start_paused = true)]
+async fn a_store_is_listed_after_its_first_complete_list_also_with_no_object() {
+    let (mut writer, reader, _disposal) = writer::<Meta>();
+    writer.begin_list();
+    writer.list_page(vec![object("a", "1")]).expect("a good page");
+    writer.set_state(StoreState::Listing { loaded: 1 });
+    assert!(!reader.read().listed, "one page is not the list");
+    writer.cancel_list();
+    writer.set_state(StoreState::Waiting(Wait::Channel));
+    assert!(!reader.read().listed, "a list that failed tells nothing");
+
+    list(&mut writer, &[]);
+    let empty = reader.read();
+    assert_eq!((empty.listed, empty.items.len(), empty.generation), (true, 0, 0), "the cluster has no object");
+    assert!(empty.status(crate::kinds::Kind::Pod).listed);
+    writer.set_state(StoreState::Waiting(Wait::ListSlot));
+    assert!(reader.read().listed, "a later fault does not take the objects away");
 }
 
 /// An object that the server made `second` seconds after a fixed time.

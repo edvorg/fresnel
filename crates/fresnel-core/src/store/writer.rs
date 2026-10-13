@@ -43,6 +43,8 @@ pub(crate) struct Writer<T> {
     generation: u64,
     dropped: u64,
     last_contact: Option<SystemTime>,
+    /// True after the first complete list. A task that starts again keeps it, with the objects.
+    listed: bool,
     /// True when the objects differ from the objects of the last snapshot.
     changed: bool,
     /// True when the last snapshot does not have the last data of the server.
@@ -69,6 +71,7 @@ impl<T: Object> Writer<T> {
             generation: last.generation,
             dropped: last.dropped,
             last_contact: last.last_contact,
+            listed: last.listed,
             changed: false,
             unpublished: false,
             last_publish: None,
@@ -131,6 +134,7 @@ impl<T: Object> Writer<T> {
                 self.changed = true;
             }
             self.count_dropped(listing.dropped);
+            self.listed = true;
             self.publish();
         }
     }
@@ -201,6 +205,7 @@ impl<T: Object> Writer<T> {
             state: self.state.clone(),
             since: self.since,
             last_contact: self.last_contact,
+            listed: self.listed,
             dropped: self.dropped,
             items: self.items.items().clone(),
         });
