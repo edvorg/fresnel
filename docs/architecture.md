@@ -43,8 +43,8 @@ xtask
 
 - `fresnel-net`: connections, the credential plugin and the time limits. It has no dependency
   on kube. It is the lowest crate, thus it also holds the task start function.
-- `fresnel-core`: the domain. Clusters, the watch loop, stores, the kinds and the journal;
-  later also indexes, search and operations. It has no dependency on egui. The crates above
+- `fresnel-core`: the domain. Clusters, the watch loop, stores, indexes, the kinds and the
+  journal; later also search and operations. It has no dependency on egui. The crates above
   it reach the connection layer through the name `fresnel_core::net`.
 - `fresnel-ui`: the egui widgets and views. It uses the object types of `k8s-openapi` and
   never the types of kube.
@@ -58,8 +58,8 @@ xtask
 ## Borders in the code
 
 - Only one module of `fresnel-core` holds kube clients: `cluster/gateway.rs`. Each function of
-  this module applies its time limit and the rule for writes. Only `store/items.rs` uses the
-  map type of `imbl`.
+  this module applies its time limit and the rule for writes. Only `store/items.rs` and
+  `index/links.rs` use the map types of `imbl`.
 - One module wraps each outside UI crate: `egui_table` in `widgets/table.rs`, `egui_tiles` in
   `shell/dock.rs`, `egui_plot` in `widgets/chart.rs`. An egui upgrade then changes few files.
 - Each library crate has one error type with a class: auth, forbidden, conflict, timeout,
@@ -72,9 +72,8 @@ runtime. `Tasks::start_thread` starts one on a thread of its own, for a worker.
 
 - The caller gives a name, a restart rule and a body. The body builds one run of the task.
   `Restart::Always` runs it again after each end, with a pause that grows to a limit.
-- Each task has a state: running, backoff, or ended. `Tasks::snapshot` gives a copy of all.
-- A run that ends gives one report: the end (`Ok`, an error or a panic) and the pause before
-  the next run. The journal takes each report through the trait `Reporter`.
+- Each task has a state: running, backoff or ended. `Tasks::snapshot` gives a copy of all. A
+  run that ends gives one report to the journal: its end, and the pause before the next run.
 - The caller owns a `TaskHandle`. The task stops when the handle drops. A thread ends by
   itself then: its body gets a `Stop`, and its input ends after the handle.
 
@@ -120,26 +119,25 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **State file** and **journal**: `state.json` holds the selection of the last run. The
   journal holds its last 10,000 entries in memory, and a sink takes each entry.
 
-## Stores
+## Stores and indexes
 
 `store::ClusterStores` holds one store for each kind of one cluster, for all namespaces.
 
 - **Kinds**: `kinds` has the one list of the kinds. A `Kind` is a typed identity. A tier A
   kind has a store with full objects, a tier B kind with the metadata only: no store holds a
-  value of a Secret. Lease and Endpoints (tier C) have no store.
+  value of a Secret. Lease and Endpoints (tier C) have no store. One file for each tier A
+  kind gives its health value, and `PodStatus` gives the row of `kubectl get pods`.
 - **Watch loop**: one task for each store. It reads a list in pages, 4 lists of a cluster at
   a time: the first lists in the sequence of the kinds, each later list in its turn. Then it
   follows a watch with bookmarks, which the server ends after 60 to 90 s. The next watch starts
   after the last version, and the store stays live. Only HTTP 410 gives a new list.
-- **Failures**: a failure gives a pause that grows to 3 s. A complete list and a watch that
-  worked end the count, and the signal of the cluster ends each pause. A watch that worked
-  starts again with no pause: the channel counts the loss of a connection, not each watch.
-- **Lanes**: one task for each cluster publishes a small copy of the channel states. A store
-  sends no request while its channel is not live, and it is not live itself then.
+- **Failures**: a failure gives a pause that grows to 3 s, and the signal of the cluster ends
+  each pause. A store sends no request while its channel is not live, and it is not live
+  itself then: the channel counts the loss of a connection, not each watch.
 - **States**: waiting (for a channel, a credential, a list slot or the start of the watch),
   list in progress, live, attempt, pause, throttled, forbidden, not supported, internal error
-  and stopped. The objects stay in each state, with the time of the last data of the server.
-  A panic of the task gives the state "internal error", a report and a restart.
+  and stopped. The objects stay in each state. A panic of the task gives the state "internal
+  error", a report and a restart.
 - **Snapshot**: the task applies each event at once and publishes each 30 ms at most. The
   generation grows only when an object changes. An object goes in with no `managedFields`
   and no copy of `kubectl apply`. The store of the Events has a maximum count.
@@ -147,6 +145,13 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   is true until the store has that version of the object. No store keeps a mark for a write.
 - **Published state**: `published::Publisher` gives each value of a state to its readers as
   a copy of one pointer. One worker thread frees a value that a reader held.
+- **Indexes**: `index::ClusterIndexes` has one task for each index, which applies the
+  differences of two snapshots of its stores. The owner index gives the objects and the pods
+  below an owner, also in an owner loop, and the pods behind a Service. The reference index
+  gives the pods that use a ConfigMap, a Secret, a ServiceAccount or a Node. The Event index
+  gives the Events of an object.
+- **Basis**: each answer of an index tells if it is current, old (a store is not live), not
+  loaded (a store had no complete list) or not followed (its task failed or stopped).
 
 ## Contract between the UI and the core
 
@@ -169,32 +174,27 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 ## Test kit
 
 `fresnel-testkit` has four parts. Each part runs in the test process and stops at its drop.
-The proxy and the fake server have counters and a `wait_for` call, so a test waits for a signal.
 
 - `FaultProxy`: a TCP proxy that holds, freezes, delays, resets or silences connections.
 - `K3s`: k3s in Docker, with the address of its kube-apiserver, `kubectl` and a restart.
-- `FakeApiServer`: a local server with TLS, HTTP/2, HTTP/1.1, watch streams and the HTTP 101
-  upgrade. Its faults are no answer, HTTP 401, 403 and 429, GOAWAY and a low stream limit.
+- `FakeApiServer`: TLS, HTTP/2, HTTP/1.1, watch streams, the HTTP 101 upgrade, and faults.
 - `Home`: a home folder with a shell profile, for a start with the environment of Finder.
 
 ## Tests
 
 - **Unit tests** run with no network and with paused time. A time limit of `fresnel-net` runs
-  on an HTTP/2 server in memory, and the watch loop on a source with a script.
-- **Socket tests** use the fake API server and the fault proxy on 127.0.0.1, in real time.
-  They need no Docker and run with the unit tests.
+  on an HTTP/2 server in memory, the watch loop on a source with a script, and the indexes,
+  the Pod status and the health values on `fixtures/k3s`: a copy of a scene on k3s.
+- **Socket tests** use the fake API server and the fault proxy on 127.0.0.1, with no Docker.
 - **UI tests** drive the views through `egui_kittest` with no window, on a fake core.
 - **Program tests** start `fresnel-cli`, and `fresnel` with no window, as a child process
   with the environment of Finder and the home folder of a test.
 - **Cluster tests** use k3s in Docker through the fault proxy, with the attribute `#[ignore]`.
   After each fault, a test of the stores asserts a recovery time and "store equal to the API".
-- CI runs the format check, the lints, the unit tests, the UI tests and the size check on
-  macOS and Linux for each push. A second job on Linux runs the cluster tests.
+  A test of the indexes compares them and the Pod status with the API and with kubectl.
+- CI runs each check on macOS and Linux for each push, and the cluster tests on Linux.
 
 ## Guards
 
-- `Cargo.toml` holds the one lint table and the one version table of the workspace.
-- `clippy.toml` refuses a direct `tokio::spawn` and a direct `std::thread::spawn`. `fresnel-ui`
-  refuses an index with no check, and each crate a lock in the head of a branch.
-- `cargo xtask check-sizes` checks the limits of the documents and the source files.
-- `cargo xtask check-borders` checks the two "no dependency" rules above.
+The lint table of `Cargo.toml`, `clippy.toml`, `cargo xtask check-sizes` and `cargo xtask
+check-borders` hold these rules. [CONTRIBUTING.md](../CONTRIBUTING.md) gives each one.

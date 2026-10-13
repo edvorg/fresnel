@@ -6,12 +6,12 @@ that looks current.
 
 ## Status
 
-Milestone M0 (connect) is complete, and the work is in milestone M1 (live data). The
-repository has the workspace, the lints, CI, the function that starts each background task,
-the test kit, the network layer `fresnel-net`, the first parts of `fresnel-core` (kubeconfig
-loader, cluster registry, gateway, app core, journal, state file, the kinds, the watch loop
-and the stores), the commands `doctor` and `watch`, and the first window: the clusters of
-the kubeconfig files with their live connection states. The window shows no objects yet.
+Milestone M0 (connect) is complete, and the work is in milestone M1 (live data). The repository
+has the workspace, the lints, CI, the function that starts each background task, the test kit,
+the network layer `fresnel-net`, the first parts of `fresnel-core` (kubeconfig loader, cluster
+registry, gateway, app core, journal, state file, kinds, watch loop, stores and indexes), the
+commands `doctor` and `watch`, and the first window: the clusters of the kubeconfig files with
+their live connection states. The window shows no objects yet.
 
 ## The app
 

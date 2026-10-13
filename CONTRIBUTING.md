@@ -84,6 +84,10 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
   loss of a connection as a failure of its own: the channel counts it.
 - An object shows "change pending" after a write while `Snapshot::is_pending` is true for
   the answer of that write (`store::Written`). No code puts a mark into a store.
+- A tier A kind gives its health value in `kinds/<kind>.rs`, from the object alone: a value
+  has no clock and reads no other object.
+- An index is an `Indexer` in `index/`. It follows each store with `Tracked::read`, holds a
+  relation in `Links`, and each answer gives its `Basis`: "none" never looks like "not loaded".
 
 ## Tests
 
@@ -119,6 +123,9 @@ Rules for a cluster test:
   `docker ps --all --filter name=fresnel-test-` shows what is left.
 - No test uses a real cluster or the kubeconfig of the user.
 - Test data comes from the test cluster. No object from a real cluster goes into the repository.
+- `fixtures/k3s` is a copy of the scene `tests/k3s_stores/indexes/scene.yaml`. The cluster test
+  `the_indexes` writes it again when `FRESNEL_WRITE_FIXTURE` is set. A unit test makes a state
+  that the scene cannot hold with `fixture::changed`.
 
 ## Dependencies
 

@@ -598,3 +598,70 @@ starts at the same moment: its kubelet finds the cgroup `kubepods` with no contr
 container starts well. Thus the helper makes a new container for a k3s that ended by
 itself, 3 times at most, and each such end is a line of the test output. A restart of a
 cluster gets no second attempt: the cluster has data.
+
+## An index follows its stores by the differences of two snapshots
+
+The task of an index compares the last snapshot that it read with the current one, and
+applies each difference. A reader can miss an event, and a difference of two snapshots
+cannot lose a change. Its cost follows the count of the changes: the map shares each part
+with no change, and two entries are equal when they are one allocation. A new status of a
+pod changes no relation, so it gives no new value of the index.
+
+## Each answer of an index tells its basis
+
+The prototype gave "no pods" before the pod store had its first list. Thus a snapshot tells
+when its store had a complete list, and each answer of an index carries a basis: current,
+old, not loaded or not followed. The basis reads only the stores behind that answer. A user
+who cannot list Jobs still gets a good answer for the pods of a Deployment.
+
+## The walk below an owner visits each object one time
+
+The API server takes two Jobs that name each other as their owner. In the prototype, the
+walk from an owner to its pods never ended for them, and a view that asked would stop the
+app. The walk keeps the set of the UIDs that it visited. The scene of the cluster test has
+such a pair of Jobs, so the fixture of the unit tests has it too.
+
+## The Pod status text is the rule of the API server
+
+`kubectl get pods` prints a table that the API server makes. The app ports that function,
+`printPod` of Kubernetes 1.33, step by step and in its sequence, so a later version is easy
+to compare. A unit test holds each pod of the fixture equal to the recorded output of
+kubectl. A cluster test compares the app with kubectl and with the table of the API, for
+one resource version of each pod.
+
+## A health value reads the object alone
+
+The health value of an object has no clock and reads no other object. A row of a table
+then changes its value only with its own object, and a unit test needs one object. The
+price: a value cannot tell that a state takes too long. An object on its way is
+"progressing" until the object itself tells a fault, for example the deadline of a rollout.
+The pods of a workload carry the other faults.
+
+## The fixture of the unit tests is a copy of a scene on k3s
+
+No object of a real cluster goes into the repository, and an object written by hand has
+only the fields that its writer knows. Thus one cluster test creates a scene on k3s with
+one object for each relation and each state, waits until it is at rest, and can write each
+tier A object and the output of kubectl to `fixtures/k3s`. The unit tests of the indexes,
+the Pod status text and the health values read these files.
+
+## The Event index finds an Event with no UID by the name
+
+An Event names its object with a UID, and an other object with the same name has an other
+UID. The kubelet writes the name of its node in the place of the UID. Thus the index has
+two relations: by the UID, and by kind and name for an Event with no UID of the API. An
+Event of an earlier pod with the same name then stays out of the answer for the new pod.
+
+## The reference index needs no store of ConfigMaps and Secrets
+
+A pod names its ConfigMaps, its Secrets, its ServiceAccount and its Node by name. The index
+maps that name to the pods, so "used by" needs only the store of the pods, and no store
+holds a value of a Secret. A reference to an object that does not exist is in the index
+too: a missing ConfigMap is the reason why a pod cannot start.
+
+## The kubelet of the test cluster has no limit for image pulls
+
+A kubelet refuses each image pull above 5 in one second. A scene that starts 20 pods at
+once then had some pods in `ErrImagePull`, a different set in each run, and the pods of k3s
+itself too. The k3s helper sets `registry-qps=0`, so the state of a scene depends on its
+manifest only.
