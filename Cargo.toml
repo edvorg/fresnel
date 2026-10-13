@@ -42,10 +42,15 @@ jiff = { version = "0.2.38", default-features = false, features = ["std"] }
 # the user and the interface addresses.
 nix = { version = "0.30.1", default-features = false, features = ["net", "process", "signal", "user"] }
 
+# The kubeconfig files of `fresnel-core`: YAML with base64 values. kube reads YAML with the
+# same crate.
+serde = { version = "1.0.229", features = ["derive"] }
+serde-saphyr = "0.0.29"
+base64 = "0.22.1"
+
 # Only the test kit and tests use these.
 libc = "0.2.180"
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }
-base64 = "0.22.1"
 
 # Exact pin: `fresnel-net` replaces the transport of kube. Each kube upgrade needs a review of
 # `cluster/gateway.rs` in `fresnel-core`. Only `fresnel-core` and the programs can use kube.
