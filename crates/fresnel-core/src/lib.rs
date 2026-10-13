@@ -2,6 +2,8 @@
 //!
 //! - [`app`]: the app core, which the window reads and commands.
 //! - [`cluster`]: the clusters and the requests to them. [`kubeconfig`]: their source.
+//! - [`kinds`]: the registry of the resource types. [`store`]: the objects of each kind of
+//!   a cluster, which the watch loop keeps current.
 //! - [`published`]: the one type that publishes a state to its readers.
 //! - [`journal`]: the list of events, warnings and errors.
 //! - [`state_file`]: what the app keeps from one run to the next.
@@ -13,9 +15,12 @@ pub mod app;
 pub mod cluster;
 mod error;
 pub mod journal;
+pub mod kinds;
 pub mod kubeconfig;
 pub mod published;
 pub mod state_file;
+pub mod store;
+mod watch;
 
 pub use error::CoreError;
 /// The connection layer. The crates above reach its types through this name.

@@ -10,11 +10,13 @@ repository.workspace = true
 [dependencies]
 base64.workspace = true
 bytes.workspace = true
+fastrand.workspace = true
 fresnel-net.workspace = true
 futures-util.workspace = true
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
+imbl.workspace = true
 k8s-openapi.workspace = true
 # `ws`: the WebSocket handshake of exec, attach and port forward.
 kube = { workspace = true, features = ["ws"] }
@@ -26,7 +28,6 @@ tokio = { workspace = true, features = ["rt", "sync", "time"] }
 tower-service.workspace = true
 
 [dev-dependencies]
-fastrand.workspace = true
 fresnel-testkit.workspace = true
 nix.workspace = true
 rcgen.workspace = true

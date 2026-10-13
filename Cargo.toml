@@ -48,6 +48,10 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = "0.0.29"
 base64 = "0.22.1"
 
+# The map of a store. A copy shares each part that did not change, so a snapshot of 10,000
+# objects costs no copy. The store prototype measured this crate.
+imbl = "7.0.2"
+
 # Only the test kit and tests use these.
 libc = "0.2.180"
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }
