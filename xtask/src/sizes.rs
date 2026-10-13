@@ -17,13 +17,16 @@ const SOURCE_FOLDERS: [&str; 2] = ["crates", "xtask"];
 const SOURCE_LINES: usize = 400;
 
 /// The result of the check: the count of files that it read, and one line for each problem.
-pub(crate) struct Sizes {
-    pub(crate) files: usize,
-    pub(crate) problems: Vec<String>,
+#[derive(Debug)]
+pub struct Sizes {
+    /// The count of files that the check read.
+    pub files: usize,
+    /// One line for each problem.
+    pub problems: Vec<String>,
 }
 
 /// Checks each limit below `root`. A file that the check cannot read is a problem.
-pub(crate) fn check(root: &Path) -> Sizes {
+pub fn check(root: &Path) -> Sizes {
     let mut sizes = Sizes { files: 0, problems: Vec::new() };
     for (document, limit) in DOCUMENT_LINES {
         sizes.read(root, document, |text| line_problem(document, text, limit).into_iter().collect());

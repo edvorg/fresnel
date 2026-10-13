@@ -1,22 +1,26 @@
 //! Repository tasks. Run one with `cargo xtask <command>`.
 
-mod sizes;
-
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+use xtask::{install, sizes};
 
 const USAGE: &str = "\
 usage: cargo xtask <command>
 
 commands:
-  check-sizes  check the size limits of the documents and the source files
-  install      build Fresnel.app and install it (not available yet)";
+  check-sizes            check the size limits of the documents and the source files
+  install [--to <folder>]
+                         build Fresnel.app and install it into /Applications or into
+                         <folder>; the earlier bundle stays as Fresnel.app.prev";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match arguments.as_slice() {
-        [command] if command == "check-sizes" => check_sizes(),
-        [command] if command == "install" => install(),
+        ["check-sizes"] => check_sizes(),
+        ["install"] => install(Path::new(install::APPLICATIONS)),
+        ["install", "--to", folder] => install(Path::new(folder)),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
@@ -24,9 +28,13 @@ fn main() -> ExitCode {
     }
 }
 
+/// The root of the workspace: the folder above the folder of this crate.
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+}
+
 fn check_sizes() -> ExitCode {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let sizes = sizes::check(&root);
+    let sizes = sizes::check(&root());
     for problem in &sizes.problems {
         eprintln!("{problem}");
     }
@@ -39,8 +47,19 @@ fn check_sizes() -> ExitCode {
     }
 }
 
-/// The placeholder of the install command. It fails, so that no script reads it as an install.
-fn install() -> ExitCode {
-    eprintln!("install: not available yet. The bundle step of milestone M0 adds this command.");
-    ExitCode::FAILURE
+fn install(destination: &Path) -> ExitCode {
+    match install::run(&root(), destination) {
+        Ok(installed) => {
+            println!("install: {} is the new version", installed.app.display());
+            if let Some(fallback) = installed.fallback {
+                println!("install: the earlier version is {}", fallback.display());
+            }
+            println!("install: quit a running Fresnel before the first start of the new version");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("install: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }
