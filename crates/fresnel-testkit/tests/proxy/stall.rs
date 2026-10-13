@@ -40,8 +40,10 @@ async fn a_new_connection_that_its_client_closes_during_a_freeze_never_reaches_t
     }
     let mut patient = bed.connect().await;
     patient.write_all(b"early ").await.expect("the kernel takes the bytes");
-    let counters = in_time(bed.proxy.wait_for(|counters| counters.gave_up == 3)).await;
-    assert_eq!((counters.accepted, counters.open), (4, 1), "the proxy holds one connection");
+    // A connection counts as given up before it leaves the count of the open ones.
+    let held = |counters: &ProxyCounters| counters.gave_up == 3 && counters.open == 1;
+    let counters = in_time(bed.proxy.wait_for(held)).await;
+    assert_eq!(counters.accepted, 4, "the proxy holds one connection of the four");
 
     bed.proxy.set(ProxyMode::Pass);
     let mut server = bed.accept().await;
