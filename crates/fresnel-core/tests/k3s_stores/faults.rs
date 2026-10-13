@@ -51,7 +51,9 @@ async fn the_watches_of_each_kind_use_three_connections(cluster: &Cluster, app: 
     let started = Instant::now();
     let stores = app.stores.until_live(LIMIT).await;
     println!("{} stores are live {:?} after their start", stores.len(), started.elapsed());
-    // A connect attempt that lost its race closes at once. Then three connections stay.
+    // The channel for log streams carries no request of a store, so it can connect later. A
+    // connect attempt that lost its race closes at once. Then three connections stay.
+    until_live(&app.link).await;
     let counters = in_time("three open connections", app.proxy.wait_for(|counters| counters.open <= 3)).await;
     let status = app.link.net.status();
     let streams: usize = status.watches.channels.iter().map(|channel| channel.streams_open).sum();
