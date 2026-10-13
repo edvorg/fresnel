@@ -5,11 +5,12 @@ use std::time::Duration;
 
 use futures_util::FutureExt as _;
 
-use super::bench::{Bench, MS, SECOND, pairs, settings};
+use super::bench::{Bench, LIVE, MS, SECOND, pairs, settings};
 use crate::error::CoreError;
 use crate::kinds::Kind;
 use crate::net::ErrorClass;
 use crate::store::{StoreState, Wait};
+use crate::watch::lanes::{LaneStates, Path};
 
 #[tokio::test(start_paused = true)]
 async fn the_list_reads_each_page_and_the_watch_starts_after_the_version_of_the_list() {
@@ -45,6 +46,31 @@ async fn a_list_waits_for_a_slot_of_its_cluster_and_shows_it() {
     bench.until_state("the list", |state| *state == StoreState::Waiting(Wait::Stream)).await;
     assert_eq!(bench.script.take_calls(), ["list of 500", "watch after 7 for 60 s"]);
     assert!(gate.take(Kind::Pod).now_or_never().is_some(), "the list gave its slot back");
+}
+
+/// A fault at the worst moment: the connection goes while the list waits for its slot. The
+/// list must not take the slot for a request into a connection that is gone.
+#[tokio::test(start_paused = true)]
+async fn a_list_whose_connection_goes_while_it_waits_for_a_slot_sends_no_request() {
+    let mut bench = Bench::start(settings());
+    let gate = Arc::clone(&bench.gate);
+    let mut slots = Vec::new();
+    for _ in 0..4 {
+        slots.push(gate.take(Kind::Pod).await);
+    }
+    bench.until_state("the wait for a slot", |state| *state == StoreState::Waiting(Wait::ListSlot)).await;
+    bench.lanes.send_replace(LaneStates { requests: Path::NoChannel, ..LIVE });
+    slots.pop();
+    bench.until_state("the wait for a channel", |state| *state == StoreState::Waiting(Wait::Channel)).await;
+    assert!(gate.take(Kind::Pod).now_or_never().is_some(), "the list holds no slot while it waits for a channel");
+    tokio::time::sleep(30 * SECOND).await;
+    assert_eq!(bench.script.take_calls(), Vec::<String>::new(), "no request and no failure of the store");
+
+    bench.script.page(&[("a", "5")], Some("7"), None);
+    bench.lanes.send_replace(LIVE);
+    bench.until_state("the list", |state| *state == StoreState::Waiting(Wait::Stream)).await;
+    assert_eq!(bench.script.take_calls(), ["list of 500", "watch after 7 for 60 s"]);
+    assert_eq!(bench.elapsed(), 30 * SECOND, "the list started at the moment the channel was back");
 }
 
 #[tokio::test(start_paused = true)]
