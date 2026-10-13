@@ -58,8 +58,10 @@ async fn retry_now_runs_a_failed_plugin_again_at_once() {
     let credential = row(&view, "fake").status().and_then(|status| status.credential.clone()).expect("a credential");
     let CredentialState::Failed { failure, .. } = &credential.state else { panic!("{credential:?}") };
     assert_eq!(failure.detail(), "Error: access token is required (secret-text-of-the-plugin)");
+    let entry = format!("no credential ({failed})");
+    app.until_texts("fake", |texts| texts.contains(&entry)).await;
     let journal = app.journal();
-    assert!(journal.contains(&(Level::Error, "fake".to_owned(), format!("no credential ({failed})"))), "{journal:?}");
+    assert!(journal.contains(&(Level::Error, "fake".to_owned(), entry)), "{journal:?}");
     assert!(journal.iter().all(|(_, _, text)| !text.contains("secret-text")), "the journal goes to a log: {journal:?}");
 
     // The user repairs the plugin and asks for a retry.
@@ -69,7 +71,7 @@ async fn retry_now_runs_a_failed_plugin_again_at_once() {
     app.until_health("fake", Health::Live).await;
     assert!(retried.elapsed() < Duration::from_secs(10), "{:?}", retried.elapsed());
     assert_eq!(home.read("state/runs"), "run\nrun\n");
-    let texts = app.texts_of("fake");
+    let texts = app.until_texts("fake", |texts| texts.last().is_some_and(|text| text.starts_with("live: "))).await;
     assert!(texts.iter().any(|text| text.starts_with("retry now: ")), "{texts:?}");
     assert_eq!(texts.last().map(String::as_str), Some("live: a request got an answer on each channel"));
 }

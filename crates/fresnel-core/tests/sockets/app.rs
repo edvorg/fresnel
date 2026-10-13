@@ -175,6 +175,14 @@ impl App {
     fn texts_of(&self, source: &str) -> Vec<String> {
         self.journal().into_iter().filter(|(_, from, _)| from == source).map(|(_, _, text)| text).collect()
     }
+
+    /// Waits until the texts of the entries of one source meet the condition, and gives
+    /// them. A task of its own writes the entries of a cluster, so the view can show a
+    /// state before the journal has the entry of that state.
+    async fn until_texts(&self, source: &str, met: impl Fn(&[String]) -> bool) -> Vec<String> {
+        self.until(&format!("the journal entries of {source}"), |_| met(&self.texts_of(source))).await;
+        self.texts_of(source)
+    }
 }
 
 impl Drop for App {

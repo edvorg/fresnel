@@ -44,8 +44,10 @@ async fn each_state_change_is_in_the_journal_and_a_network_change_ends_the_retry
     app.until_health("far", Health::Live).await;
     assert!(back.elapsed() < Duration::from_secs(10), "{:?}", back.elapsed());
 
+    let lives = |texts: &[String]| texts.iter().filter(|text| text.starts_with("live")).count();
     let steps: Vec<String> = app
-        .texts_of("far")
+        .until_texts("far", |texts| lives(texts) == 2)
+        .await
         .into_iter()
         .filter_map(|text| text.split([':', '(']).next().map(|step| step.trim().to_owned()))
         .filter(|step| step != "a connection was lost")

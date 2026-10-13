@@ -52,7 +52,8 @@ async fn the_core_does_nothing_before_its_start_and_then_connects_with_the_envir
     let texts = app.texts_of("app");
     assert!(texts[0].starts_with("the login shell /") && texts[0].contains(" gave its environment in "), "{texts:?}");
     assert_eq!(texts[1..], ["read 2 contexts from 1 kubeconfig file"]);
-    assert_eq!(app.texts_of("fake"), ["the channels connect", "live: a request got an answer on each channel"]);
+    let of_cluster = app.until_texts("fake", |texts| texts.len() >= 2).await;
+    assert_eq!(of_cluster, ["the channels connect", "live: a request got an answer on each channel"]);
 }
 
 /// The quit sequence of the core: no connection and no plugin process stays.
