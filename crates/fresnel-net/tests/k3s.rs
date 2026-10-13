@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
-use fresnel_net::credential::PluginSpec;
+use fresnel_net::credential::{CredentialFailure, CredentialState, PluginSpec};
 use fresnel_net::env::ProcessEnv;
 use fresnel_net::task::{TaskReport, Tasks};
 use fresnel_net::{ChannelState, Cluster, ClusterSpec, ClusterStatus, Endpoint, NetSettings, RequestKind, WallClock};
@@ -204,6 +204,33 @@ printf '{\"apiVersion\":\"client.authentication.k8s.io/v1\",\"kind\":\"ExecCrede
     }
 }
 
+/// The spec of a cluster whose user is the token of the plugin. The TLS settings have the
+/// certificate of the server only: the token proves the user.
+fn spec_with_plugin(name: &str, k3s: &K3s, proxy: &FaultProxy, plugin: &SlowPlugin) -> ClusterSpec {
+    let text = std::fs::read_to_string(k3s.kubeconfig()).expect("the kubeconfig of the test cluster");
+    let mut roots = RootCertStore::empty();
+    for root in CertificateDer::pem_slice_iter(&decoded(&text, "certificate-authority-data:")) {
+        roots.add(root.expect("a certificate")).expect("a root");
+    }
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let builder =
+        ClientConfig::builder_with_provider(provider).with_safe_default_protocol_versions().expect("versions");
+    ClusterSpec {
+        name: name.to_owned(),
+        endpoint: Endpoint {
+            host: proxy.addr().ip().to_string(),
+            port: proxy.addr().port(),
+            base_path: String::new(),
+            tls_server_name: None,
+            tls: Arc::new(builder.with_root_certificates(roots).with_no_client_auth()),
+        },
+        plugin: Some(plugin.spec()),
+        env: [("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")].into_iter().collect(),
+        settings: NetSettings::default(),
+        clock: WallClock::system(),
+    }
+}
+
 impl Drop for SlowPlugin {
     fn drop(&mut self) {
         if let Err(error) = std::fs::remove_dir_all(&self.0) {
@@ -224,30 +251,7 @@ async fn a_channel_keeps_its_first_connection_on_a_real_kube_apiserver_while_a_s
     let token = k3s.kubectl(&["create", "token", "reader", "--namespace", "default"]).await.expect("a token");
     let plugin = SlowPlugin::new(token.trim());
     let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("a task of the app ended: {report}"));
-    // The TLS settings have the certificate of the server only: the token proves the user.
-    let text = std::fs::read_to_string(k3s.kubeconfig()).expect("the kubeconfig of the test cluster");
-    let mut roots = RootCertStore::empty();
-    for root in CertificateDer::pem_slice_iter(&decoded(&text, "certificate-authority-data:")) {
-        roots.add(root.expect("a certificate")).expect("a root");
-    }
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let builder =
-        ClientConfig::builder_with_provider(provider).with_safe_default_protocol_versions().expect("versions");
-    let spec = ClusterSpec {
-        name: "k3s-token".to_owned(),
-        endpoint: Endpoint {
-            host: proxy.addr().ip().to_string(),
-            port: proxy.addr().port(),
-            base_path: String::new(),
-            tls_server_name: None,
-            tls: Arc::new(builder.with_root_certificates(roots).with_no_client_auth()),
-        },
-        plugin: Some(plugin.spec()),
-        env: [("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")].into_iter().collect(),
-        settings: NetSettings::default(),
-        clock: WallClock::system(),
-    };
-    let cluster = Cluster::start(&tasks, spec).expect("a cluster");
+    let cluster = Cluster::start(&tasks, spec_with_plugin("k3s-token", &k3s, &proxy, &plugin)).expect("a cluster");
 
     until(&cluster, "each channel has its connection and waits for the token", |status| {
         first_channels(status).iter().all(|channel| channel.state == ChannelState::WaitsForToken)
@@ -269,5 +273,45 @@ async fn a_channel_keeps_its_first_connection_on_a_real_kube_apiserver_while_a_s
     let status = until_live(&cluster).await;
     assert!(first_channels(&status).iter().all(|channel| channel.connections == 1), "{status:#?}");
     assert_eq!(proxy.counters().accepted, 3, "one connection for each channel");
+    assert_eq!(proxy.task_failures(), Vec::<String>::new());
+}
+
+/// A kube-apiserver also ends an HTTP/2 connection after HTTP 401 to a token that it
+/// refuses. With no request of a caller, only the light request of a channel can tell the
+/// credential. Then no channel sends a request, and the cluster shows the cause (design
+/// rules 3 and 5). With no report, such a token cost 51 connections in 30 s, with no end,
+/// and the credential showed as valid.
+#[tokio::test]
+#[ignore = "needs k3s in Docker"]
+async fn a_token_that_a_real_kube_apiserver_refuses_shows_as_refused_and_costs_no_connection_in_a_pause() {
+    let k3s = K3s::start("net-refused").await.expect("k3s starts");
+    let proxy = FaultProxy::start(k3s.api_addr()).await.expect("a proxy");
+    let plugin = SlowPlugin::new("not-a-token-of-this-cluster");
+    let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("a task of the app ended: {report}"));
+    let cluster = Cluster::start(&tasks, spec_with_plugin("k3s-refused", &k3s, &proxy, &plugin)).expect("a cluster");
+
+    // The count of failures in sequence of a credential that the server refused.
+    let refusals = |status: &ClusterStatus| match status.credential.as_ref().map(|credential| &credential.state) {
+        Some(CredentialState::Failed { failure: CredentialFailure::Refused, failures, .. }) => *failures,
+        _ => 0,
+    };
+    // Measured: the first refusal shows after 2.4 s, of which the plugin runs for 2 s.
+    let refused = until(&cluster, "a refused credential", |status| refusals(status) == 1).await;
+    let credential = refused.credential.expect("a credential");
+    // A proof that goes out on a connection that the server ended a moment before gets no
+    // answer, and the next HTTP 401 starts a new proof.
+    assert!(credential.plugin_runs == 2 && credential.proofs >= 1, "one more plugin run, then a proof: {credential:?}");
+
+    // The plugin runs again after 2 s and after 4 s more. After the third refusal, the
+    // next run is 8 s away, and each channel waits for it on an open connection.
+    until(&cluster, "the third refusal", |status| refusals(status) == 3).await;
+    until(&cluster, "each channel waits for a token", |status| {
+        first_channels(status).iter().all(|channel| channel.state == ChannelState::WaitsForToken)
+    })
+    .await;
+    let accepted = proxy.counters().accepted;
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(proxy.counters().accepted, accepted, "a channel connected again while the cluster has no token");
+    assert_eq!(cluster.status().credential.expect("a credential").plugin_runs, 4, "one run for each refusal");
     assert_eq!(proxy.task_failures(), Vec::<String>::new());
 }
