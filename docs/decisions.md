@@ -506,6 +506,15 @@ an object are the same when UID and resource version are equal. A new list keeps
 allocation of each object with no change. In the prototype, each new list was a new
 generation, so each view computed all again after each reconnect.
 
+## A pending change is a comparison, not a mark in the store
+
+After a write, the object shows "change pending" until its watch event arrives. The answer
+to the write gives the UID and the resource version of the object, and
+`Snapshot::is_pending` compares them with the object of a snapshot. A mark in the store
+would need a second writer, and a mark that no event removes would stay for all time. The
+versions of a kube-apiserver are numbers. For a version that is not a number, the answer
+is "not pending".
+
 ## Readers hold a published state as a copy of one pointer
 
 `published::Publisher` gives a state to its readers. A read copies one pointer and never

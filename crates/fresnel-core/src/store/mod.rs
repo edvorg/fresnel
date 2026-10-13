@@ -5,11 +5,12 @@
 //!
 //! - `cluster`: the stores of one cluster. `writer`: the write side of one store.
 //! - `snapshot`, `items`, `state`: what a reader sees. `strip` and `limit`: what a store
-//!   does not keep.
+//!   does not keep. `pending`: the result of a write that a snapshot does not show yet.
 
 mod cluster;
 mod items;
 mod limit;
+mod pending;
 mod snapshot;
 mod state;
 mod strip;
@@ -17,6 +18,7 @@ mod writer;
 
 pub use cluster::{ClusterStores, EventsMode, StoreParts, StoreSettings};
 pub use items::{Items, ObjectKey};
+pub use pending::Written;
 pub use snapshot::{Snapshot, StoreStatus};
 pub use state::{StoreState, Wait};
 pub(crate) use writer::Writer;

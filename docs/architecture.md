@@ -32,8 +32,7 @@ These rules have priority over features.
 
 ## Crates
 
-An arrow shows a permitted dependency, and no other one is permitted. Each crate can also
-use `fresnel-testkit` in its tests.
+An arrow is a permitted dependency, and there is no other one. A test can use `fresnel-testkit`.
 
 ```text
 fresnel (program) ------> fresnel-ui ------> fresnel-core ------> fresnel-net
@@ -144,6 +143,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Snapshot**: the task applies each event at once and publishes each 30 ms at most. The
   generation grows only when an object changes. An object goes in with no `managedFields`
   and no copy of `kubectl apply`. The store of the Events has a maximum count.
+- **Write result**: `Snapshot::is_pending` compares the answer of a write with a snapshot. It
+  is true until the store has that version of the object. No store keeps a mark for a write.
 - **Published state**: `published::Publisher` gives each value of a state to its readers as
   a copy of one pointer. One worker thread frees a value that a reader held.
 
@@ -168,14 +169,13 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 ## Test kit
 
 `fresnel-testkit` has four parts. Each part runs in the test process and stops at its drop.
+The proxy and the fake server have counters and a `wait_for` call, so a test waits for a signal.
 
 - `FaultProxy`: a TCP proxy that holds, freezes, delays, resets or silences connections.
 - `K3s`: k3s in Docker, with the address of its kube-apiserver, `kubectl` and a restart.
 - `FakeApiServer`: a local server with TLS, HTTP/2, HTTP/1.1, watch streams and the HTTP 101
   upgrade. Its faults are no answer, HTTP 401, 403 and 429, GOAWAY and a low stream limit.
 - `Home`: a home folder with a shell profile, for a start with the environment of Finder.
-
-The proxy and the fake server have counters and a `wait_for` call, so a test waits for a signal.
 
 ## Tests
 
