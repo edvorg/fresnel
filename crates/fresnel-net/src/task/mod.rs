@@ -94,7 +94,9 @@ impl Tasks {
         let id = self.shared.registry.add(name.clone());
         let stop = Arc::new(Stop::default());
         let supervisor = Supervisor { shared: Arc::clone(&self.shared), id, name: name.clone(), restart };
-        let thread = std::thread::Builder::new().name(name.to_string());
+        // The standard library panics for a thread name with a NUL byte, and the scope of a
+        // task can be a name from a file of the user.
+        let thread = std::thread::Builder::new().name(name.to_string().replace('\0', " "));
         #[expect(clippy::disallowed_methods, reason = "this is the one start function for a thread")]
         let started = thread.spawn({
             let stop = Arc::clone(&stop);

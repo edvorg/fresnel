@@ -88,6 +88,20 @@ fn a_worker_runs_on_a_thread_with_the_name_of_its_task_and_needs_no_runtime() {
     assert!(reports.try_recv().is_err(), "a run that is alive gives no report");
 }
 
+/// The scope of a task can be a name from a kubeconfig file. A thread name with a NUL byte
+/// is a panic of the standard library, in the thread that starts the task.
+#[test]
+fn a_task_name_with_a_nul_byte_starts_a_thread_and_does_not_panic() {
+    let (_runtime, tasks, reports) = tasks_with_reports();
+    let (name_sender, names) = channel();
+    let job = tasks.start_thread(TaskName::scoped("rows", "a\0b"), Restart::Never, move |_: &Stop| {
+        name_sender.send(std::thread::current().name().map(str::to_owned)).map_err(|_| "the test is gone")
+    });
+    assert_eq!(names.recv_timeout(LIMIT).expect("the thread runs"), Some("rows [a b]".to_owned()));
+    assert_eq!(reports.recv_timeout(LIMIT).expect("a report").end, End::Done);
+    assert_eq!(status(&tasks, &job).name.to_string(), "rows [a\0b]", "the name of the task keeps its text");
+}
+
 #[test]
 fn a_panic_on_the_thread_gives_a_state_a_report_and_a_restart() {
     let (_runtime, tasks, reports) = tasks_with_reports();
