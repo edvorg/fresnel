@@ -3,6 +3,7 @@
 use std::convert::Infallible;
 use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use futures_util::StreamExt;
 use futures_util::future::BoxFuture;
@@ -13,6 +14,7 @@ use hyper::server::conn::{http1, http2};
 use hyper::service::service_fn;
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
+use socket2::{SockRef, TcpKeepalive};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
@@ -24,6 +26,9 @@ use super::state::{Connection, Shared};
 use crate::background::connection_end;
 
 type Io = TokioIo<TlsStream<TcpStream>>;
+
+/// The idle time before a keepalive probe of the system, and the time between two probes.
+const PROBE: Duration = Duration::from_secs(1);
 
 /// Accepts connections until an error. One task owns all connection tasks, so the end of
 /// the server ends each connection.
@@ -49,8 +54,14 @@ async fn serve(tcp: TcpStream, connection: Connection) {
 
 /// The client selects the protocol in the TLS handshake. A client with no selection gets
 /// HTTP/1.1.
+///
+/// A client that closes while data is on its way sends a reset, and the loopback of macOS
+/// can lose that reset (see `proxy/drain.rs`). The server would then hold the connection
+/// with no end, and a test that waits for its close would fail. So the system sends a
+/// probe on each idle connection: the answer to a probe for a closed socket is a reset.
 async fn serve_protocol(shared: &Arc<Shared>, tcp: TcpStream, number: u64) -> io::Result<()> {
     tcp.set_nodelay(true)?;
+    SockRef::from(&tcp).set_tcp_keepalive(&TcpKeepalive::new().with_time(PROBE).with_interval(PROBE))?;
     let tls = shared.tls.accept(tcp).await?;
     let http2 = tls.get_ref().1.alpn_protocol() == Some(b"h2");
     let io = TokioIo::new(tls);

@@ -136,6 +136,14 @@ the data, waits until the peer acknowledged all bytes, 2 seconds at most, and cl
 reset. The proxy also delays each byte with no limit of the data rate, so a far cluster does
 not look slower than it is.
 
+## The fake server probes each idle connection
+
+A client that closes with data on its way sends a reset, and the loopback of macOS can lose
+it. The fake API server then held the connection with no end: 1 of 80 runs of a test that
+stops the core during its first lists. So the server sets a TCP keepalive of 1 second on
+each connection. The answer of the system to a probe for a closed socket is a reset, and
+the connection ends.
+
 ## A request carries its kind
 
 The caller sets a `RequestKind` on each request: get, list page, watch, log stream, write or
