@@ -147,7 +147,8 @@ cluster ams (ams.example.test:443, plugin doctl)
   HTTP/2        stream limit of the server: 100
   ping          20.0 / 21.0 / 25.0 ms (small requests on the open connection)
   GET /version  v1.33.1 (linux/amd64)
-  idle close    the idle connection ended after 90.4 s (the server closed the connection); the channels with a light request stayed open
+  idle close    the idle connection ended after 90.4 s (the server closed the connection)
+                the channels with a light request stayed open
 
 cluster old (127.0.0.1:6443, plugin login)
   plugin        login not found; search 0.1 ms
@@ -161,7 +162,8 @@ cluster old (127.0.0.1:6443, plugin login)
   HTTP/2        stream limit of the server: not known
   ping          no time (small requests on the open connection)
   GET /version  failed: no answer on each channel in 20s
-  idle close    the idle connection was open after 120.0 s; the channels with a light request did not stay open
+  idle close    the idle connection was open after 120.0 s
+                the channels with a light request did not stay open
 
 cluster token ()
   not measured  a static token

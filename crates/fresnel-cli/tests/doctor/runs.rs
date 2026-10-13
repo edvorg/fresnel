@@ -48,8 +48,13 @@ fn kubeconfig(home: &Home, contexts: &[(&str, SocketAddr, &FakeApiServer, User)]
         match user {
             User::None => list.push_str(&format!("- {{name: {name}, context: {{cluster: {name}}}}}\n")),
             User::Plugin { token } => users.push_str(&format!(
-                "- name: {name}\n  user:\n    exec:\n      apiVersion: client.authentication.k8s.io/v1beta1\n      command: {PLUGIN}\n      \
-                 env: [{{name: FAKE_PLUGIN_STATE, value: '{state}'}}, {{name: FAKE_PLUGIN_TOKEN, value: {token}}}]\n"
+                "- name: {name}
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      command: {PLUGIN}
+      env: [{{name: FAKE_PLUGIN_STATE, value: '{state}'}}, {{name: FAKE_PLUGIN_TOKEN, value: {token}}}]
+"
             )),
             User::Token => users.push_str(&format!("- {{name: {name}, user: {{token: static-token-of-the-test}}}}\n")),
         }

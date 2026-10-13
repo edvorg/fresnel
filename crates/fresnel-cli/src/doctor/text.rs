@@ -165,7 +165,7 @@ fn session_lines(session: &Session) -> Vec<String> {
     lines.push(line("ping", format!("{} (small requests on the open connection)", times(session.ping_ms.as_ref()))));
     let version = step(&session.version, |version| format!("{} ({})", version.git_version, version.platform));
     lines.push(line("GET /version", version));
-    lines.extend(session.idle_close.iter().map(|idle| line("idle close", idle_text(idle))));
+    lines.extend(session.idle_close.iter().flat_map(idle_lines));
     lines
 }
 
@@ -178,14 +178,14 @@ fn credential_lines(credential: &Credential) -> Vec<String> {
     lines
 }
 
-fn idle_text(idle: &IdleClose) -> String {
+fn idle_lines(idle: &IdleClose) -> Vec<String> {
     let closed = match (idle.closed_after_s, &idle.reason) {
         (Some(after), Some(reason)) => format!("the idle connection ended after {after:.1} s ({reason})"),
         (Some(after), None) => format!("the idle connection ended after {after:.1} s"),
         (None, _) => format!("the idle connection was open after {:.1} s", idle.waited_s),
     };
     let kept = if idle.light_request_kept_open { "stayed open" } else { "did not stay open" };
-    format!("{closed}; the channels with a light request {kept}")
+    vec![line("idle close", closed), line("", format!("the channels with a light request {kept}"))]
 }
 
 #[cfg(test)]

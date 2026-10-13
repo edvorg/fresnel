@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use fresnel_core::cluster::{ClusterId, Registry};
-use fresnel_core::kubeconfig::{self, Context};
+use fresnel_core::kubeconfig::{self, Context, Kubeconfig};
 use fresnel_core::net::NetSettings;
 use fresnel_core::net::credential::PluginSpec;
 use fresnel_core::net::env::{self, EnvSettings, EnvSource, Environment, ProcessEnv};
@@ -73,7 +73,29 @@ async fn examine(options: &Options, runtime: &Handle) -> ExitCode {
             Err(name) => return usage_error(&format!("the kubeconfig files have no context `{name}`")),
         },
     };
+    let (clusters, task_reports) = measure(&selected, &loaded, &base, &environment.vars, options, runtime).await;
+    let report = Report {
+        tool: concat!("fresnel-cli ", env!("CARGO_PKG_VERSION")).to_owned(),
+        time,
+        environment: environment_report(&environment, &base),
+        kubeconfig: kubeconfig_report(&loaded),
+        clusters,
+        task_reports,
+    };
+    print!("{}", text::render(&report));
+    finish(&report, options)
+}
 
+/// Measures each selected cluster, one after the other. Gives the report of each cluster,
+/// and one line for each task of the app that ended in the run.
+async fn measure(
+    selected: &[&Context],
+    loaded: &Kubeconfig,
+    base: &ProcessEnv,
+    resolved: &ProcessEnv,
+    options: &Options,
+    runtime: &Handle,
+) -> (Vec<report::Cluster>, Vec<String>) {
     let ended = Arc::new(Mutex::new(Vec::new()));
     let reports = Arc::clone(&ended);
     let tasks = Tasks::new(runtime.clone(), move |report: TaskReport| {
@@ -84,36 +106,29 @@ async fn examine(options: &Options, runtime: &Handle) -> ExitCode {
         credential: settings.credential.plugin_limit + CREDENTIAL_MARGIN,
         idle_close: options.idle_close,
     };
-    let registry = Registry::new(tasks, runtime.clone(), environment.vars.clone(), settings);
+    let registry = Registry::new(tasks, runtime.clone(), resolved.clone(), settings);
     registry.set_contexts(loaded.contexts.clone());
     let mut clusters = Vec::new();
     for context in selected {
         // The report comes at the end, and a run can take minutes.
         let wait = options.idle_close.map_or_else(String::new, |limit| format!(", with a wait of {limit:?} at most"));
         eprintln!("doctor: the cluster {}{wait}", context.name);
-        clusters.push(cluster(&registry, context, &base, &environment.vars, options, &limits).await);
+        clusters.push(cluster(&registry, context, base, resolved, options, &limits).await);
     }
     drop(registry);
+    let task_reports = ended.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    (clusters, task_reports)
+}
 
-    let report = Report {
-        tool: concat!("fresnel-cli ", env!("CARGO_PKG_VERSION")).to_owned(),
-        time,
-        environment: environment_report(&environment, &base),
-        kubeconfig: report::Kubeconfig {
-            sources: loaded.sources.iter().map(|path| path.display().to_string()).collect(),
-            absent: loaded.absent.iter().map(|path| path.display().to_string()).collect(),
-            contexts: loaded.contexts.len(),
-            problems: loaded
-                .problems
-                .iter()
-                .map(|problem| format!("{}: {}", problem.path.display(), problem.text))
-                .collect(),
-        },
-        clusters,
-        task_reports: ended.lock().unwrap_or_else(PoisonError::into_inner).clone(),
-    };
-    print!("{}", text::render(&report));
-    finish(&report, options)
+fn kubeconfig_report(loaded: &Kubeconfig) -> report::Kubeconfig {
+    let texts = |paths: &[std::path::PathBuf]| paths.iter().map(|path| path.display().to_string()).collect();
+    let problem = |problem: &kubeconfig::Problem| format!("{}: {}", problem.path.display(), problem.text);
+    report::Kubeconfig {
+        sources: texts(&loaded.sources),
+        absent: texts(&loaded.absent),
+        contexts: loaded.contexts.len(),
+        problems: loaded.problems.iter().map(problem).collect(),
+    }
 }
 
 /// Writes the JSON file and gives the exit status.
@@ -126,8 +141,15 @@ fn finish(report: &Report, options: &Options) -> ExitCode {
         return ExitCode::FAILURE;
     }
     println!("\nJSON report: {}", options.json.display());
-    let answered = |cluster: &report::Cluster| matches!(&cluster.result, Step::Done(Measured { session: Step::Done(session), .. }) if matches!(session.version, Step::Done(_)));
     if report.clusters.iter().all(answered) { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+}
+
+/// True when the cluster gave its version: the full way to the server works.
+fn answered(cluster: &report::Cluster) -> bool {
+    let Step::Done(Measured { session: Step::Done(session), .. }) = &cluster.result else {
+        return false;
+    };
+    matches!(session.version, Step::Done(_))
 }
 
 /// The contexts with these names, in the sequence of the names. The error is a name with

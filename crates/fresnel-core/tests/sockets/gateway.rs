@@ -21,7 +21,8 @@ const NAMESPACES: &str = "/api/v1/namespaces";
 const CONFIG_MAPS: &str = "/api/v1/namespaces/default/configmaps";
 const LOG: &str = "/api/v1/namespaces/default/pods/web/log";
 const EXEC: &str = "/api/v1/namespaces/default/pods/web/exec?command=sh&stdout=true";
-const TWO_NAMESPACES: &str = r#"{"kind":"NamespaceList","apiVersion":"v1","metadata":{"resourceVersion":"7","continue":"next"},
+const TWO_NAMESPACES: &str = r#"{"kind":"NamespaceList","apiVersion":"v1",
+    "metadata":{"resourceVersion":"7","continue":"next"},
     "items":[{"metadata":{"name":"default"}},{"metadata":{"name":"kube-system"}}]}"#;
 
 fn paths(server: &FakeApiServer, method: &Method) -> Vec<String> {
