@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use fresnel_core::index::{Answer, Basis, ClusterIndexes, IndexState, ObjectRef, read_events};
 use fresnel_core::kinds::Kind;
-use fresnel_core::net::NetSettings;
+use fresnel_core::net::{ErrorClass, NetSettings};
 use fresnel_core::store::{EventsMode, ObjectKey, StoreSettings, StoreState, WatchSettings};
 use fresnel_testkit::Fault;
 use tokio::time::timeout;
@@ -163,4 +163,19 @@ async fn the_events_of_one_object_come_from_the_server(bed: &Bed) {
     bed.server.add_fault(Fault::forbidden().on_path("/api/v1/namespaces/shop/events"));
     let refused = read_events(&bed.link.gateway, Kind::Pod, &web, "uid-web", 10).await.expect_err("a refusal");
     assert_eq!(refused.status(), Some(403), "{refused}");
+}
+
+/// Bad data of a server: a page of the Events that names the token of its own request.
+/// A read that follows that token asks for the same page again and again, with no pause.
+#[tokio::test]
+async fn a_read_of_the_events_ends_when_the_server_gives_the_token_of_a_page_two_times() {
+    let bed = Bed::start(NetSettings::default()).await;
+    let path = "/api/v1/namespaces/shop/events";
+    bed.server.set_body(path, r#"{"metadata":{"resourceVersion":"7","continue":"again"},"items":[]}"#);
+    let web = ObjectKey::new("shop", "web");
+    let read = timeout(LIMIT, read_events(&bed.link.gateway, Kind::Pod, &web, "uid-web", 10));
+    let refused = read.await.expect("the read ends").expect_err("a list with no end");
+    assert_eq!(refused.class(), ErrorClass::Invalid, "{refused}");
+    let pages = bed.server.requests().iter().filter(|seen| seen.uri.path() == path).count();
+    assert_eq!(pages, 2, "the first page, and the page of its token");
 }

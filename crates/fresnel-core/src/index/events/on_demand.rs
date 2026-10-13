@@ -59,9 +59,9 @@ pub async fn read_events(
     };
     let (mut events, mut token) = (Vec::new(), None);
     let more = loop {
-        let read: Page<Event> = gateway.list_page(page(kind, key, token.as_deref())?).await?;
+        let mut read: Page<Event> = gateway.list_page(page(kind, key, token.as_deref())?).await?;
+        token = read.next_token(token.as_deref())?;
         events.extend(read.items.unwrap_or_default().into_iter().filter(is_about));
-        token = read.metadata.continue_.filter(|token| !token.is_empty());
         if token.is_none() || events.len() > max {
             break events.len() > max || token.is_some();
         }

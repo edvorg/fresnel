@@ -24,6 +24,19 @@ pub(crate) struct Page<T> {
     pub(crate) items: Option<Vec<T>>,
 }
 
+impl<T> Page<T> {
+    /// Takes the token for the next page out of the page. `None` after the last page.
+    /// `asked` is the token of the request of this page: a server that gives it back
+    /// would get that request again with no pause and with no end.
+    pub(crate) fn next_token(&mut self, asked: Option<&str>) -> Result<Option<String>, CoreError> {
+        let next = self.metadata.continue_.take().filter(|next| !next.is_empty());
+        if next.is_some() && next.as_deref() == asked {
+            return Err(CoreError::invalid("the list of the server gave the token of a page two times"));
+        }
+        Ok(next)
+    }
+}
+
 /// The requests of one watch loop.
 pub(crate) trait Source<T>: Send + Sync + 'static {
     /// The events of one watch.
