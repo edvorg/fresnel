@@ -1,4 +1,4 @@
-//! The scripted faults: no answer, HTTP 401 by path, by token and by time, and HTTP 429.
+//! The scripted faults: no answer, HTTP 401 by path, by token and by time, HTTP 403 and HTTP 429.
 
 use std::pin::pin;
 use std::time::Duration;
@@ -60,6 +60,17 @@ async fn unauthorized_by_time_ends_by_itself() {
     bed.server.add_fault(Fault::unauthorized().for_time(outage));
     assert_eq!(connection.get("/api/v1/pods").await.status(), StatusCode::UNAUTHORIZED);
     sleep(outage).await;
+    assert_eq!(connection.get("/api/v1/pods").await.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn forbidden_gives_http_403_with_the_status_object_of_a_server() {
+    let bed = Bed::start().await;
+    bed.server.add_fault(Fault::forbidden().on_path("/api/v1/secrets"));
+    let mut connection = bed.http2().await;
+    let refused = connection.get("/api/v1/secrets?limit=500").await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    assert!(text(refused).await.contains(r#""reason":"Forbidden","code":403"#));
     assert_eq!(connection.get("/api/v1/pods").await.status(), StatusCode::OK);
 }
 

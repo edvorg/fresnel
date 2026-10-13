@@ -22,6 +22,7 @@ const VERSION: &str = r#"{"major":"1","minor":"33","gitVersion":"v1.33.5+fake","
 /// The answer to a path with no body of its own.
 const EMPTY_LIST: &str = r#"{"kind":"List","apiVersion":"v1","metadata":{"resourceVersion":"1"},"items":[]}"#;
 const UNAUTHORIZED: &str = r#"{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"Unauthorized","reason":"Unauthorized","code":401}"#;
+const FORBIDDEN: &str = r#"{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"forbidden: the user of the test cannot read this path","reason":"Forbidden","code":403}"#;
 const TOO_MANY_REQUESTS: &str = r#"{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"Too many requests, please try again later.","reason":"TooManyRequests","code":429}"#;
 
 /// Records the request and gives its answer: the fault that takes it, or the normal answer.
@@ -34,6 +35,7 @@ pub(super) async fn answer<B>(shared: &Arc<Shared>, connection: u64, request: Re
     let response = match fault.map(|fault| fault.answer) {
         None => normal_answer(shared, &seen),
         Some(FaultAnswer::Unauthorized) => json(StatusCode::UNAUTHORIZED, UNAUTHORIZED.into()),
+        Some(FaultAnswer::Forbidden) => json(StatusCode::FORBIDDEN, FORBIDDEN.into()),
         Some(FaultAnswer::TooManyRequests { retry_after_seconds }) => {
             let mut response = json(StatusCode::TOO_MANY_REQUESTS, TOO_MANY_REQUESTS.into());
             response.headers_mut().insert(RETRY_AFTER, HeaderValue::from(retry_after_seconds));

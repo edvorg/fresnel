@@ -28,6 +28,7 @@ pub struct Fault {
 pub(super) enum FaultAnswer {
     Nothing,
     Unauthorized,
+    Forbidden,
     TooManyRequests { retry_after_seconds: u64 },
 }
 
@@ -40,6 +41,11 @@ impl Fault {
     /// The request gets HTTP 401, as from a server that refuses the token.
     pub fn unauthorized() -> Self {
         Self::new(FaultAnswer::Unauthorized)
+    }
+
+    /// The request gets HTTP 403, as from a server whose access rules do not permit it.
+    pub fn forbidden() -> Self {
+        Self::new(FaultAnswer::Forbidden)
     }
 
     /// The request gets HTTP 429 with the header `Retry-After` in full seconds.
