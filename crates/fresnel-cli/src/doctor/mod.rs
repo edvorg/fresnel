@@ -216,3 +216,32 @@ fn plugin_report(plugin: &PluginSpec, base: &ProcessEnv, resolved: &ProcessEnv) 
         search_ms: ms(search),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_idle_measurement_gives_the_channels_for_log_streams_no_light_request() {
+        let options = |idle_close| Options { idle_close, ..args::parse(&[]).expect("the options with no argument") };
+        assert_eq!(settings(&options(None)), NetSettings::default());
+        let idle = settings(&options(Some(Duration::from_secs(120))));
+        assert_eq!(idle.logs.light_period, Duration::MAX);
+        let logs = NetSettings::default().logs;
+        assert_eq!(NetSettings { logs, ..idle }, NetSettings::default(), "no other setting changes");
+    }
+
+    #[test]
+    fn the_selected_contexts_come_in_the_sequence_of_their_names() {
+        let path = std::env::temp_dir().join(format!("fresnel-cli-test-named-{}.yaml", std::process::id()));
+        std::fs::write(&path, "contexts:\n- name: a\n- name: b\n- name: c\n").expect("a file of the test");
+        let contexts = kubeconfig::load(std::slice::from_ref(&path)).contexts;
+        std::fs::remove_file(&path).expect("the file goes");
+        let names = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
+        let picked = names(&["c", "a"]);
+        let selected = named(&contexts, &picked).expect("two contexts");
+        assert_eq!(selected.iter().map(|context| context.name.as_str()).collect::<Vec<_>>(), ["c", "a"]);
+        let unknown = names(&["a", "x"]);
+        assert_eq!(named(&contexts, &unknown).err(), Some("x"));
+    }
+}

@@ -119,12 +119,23 @@ impl Registry {
             return Ok(link);
         }
         let started = access.clone().and_then(|access| self.start(id, &access));
+        self.keep(id, &access, started)
+    }
+
+    /// Stores the result of a connect that started from `access`. A connect reads the
+    /// certificate files with no lock, so the list can change before this step.
+    fn keep(
+        &self,
+        id: &ClusterId,
+        access: &Result<Access, CoreError>,
+        started: Result<Link, CoreError>,
+    ) -> Result<Link, CoreError> {
         let mut clusters = self.clusters();
         let entry = clusters.iter_mut().find(|entry| &entry.id == id).ok_or_else(|| no_cluster(id))?;
         match &entry.state {
             // A second caller was faster. The drop of `started` closes its connections.
             State::On(link) => return Ok(link.clone()),
-            State::Off | State::Failed(_) if entry.context.access != access => {
+            State::Off | State::Failed(_) if entry.context.access != *access => {
                 return Err(CoreError::invalid(format!("the kubeconfig entry of `{id}` changed during the connect")));
             }
             State::Off | State::Failed(_) => {}
@@ -214,4 +225,65 @@ impl std::fmt::Debug for Registry {
 
 fn no_cluster(id: &ClusterId) -> CoreError {
     CoreError::invalid(format!("the kubeconfig files have no context `{id}`"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use fresnel_net::task::TaskReport;
+
+    use super::*;
+
+    fn context(name: &str, problem: &str) -> Context {
+        Context {
+            name: name.to_owned(),
+            namespace: None,
+            source: PathBuf::new(),
+            access: Err(CoreError::invalid(problem)),
+        }
+    }
+
+    fn registry(contexts: Vec<Context>) -> Registry {
+        let tasks = Tasks::new(Handle::current(), |_report: TaskReport| {});
+        let registry = Registry::new(tasks, Handle::current(), ProcessEnv::default(), NetSettings::default());
+        registry.set_contexts(contexts);
+        registry
+    }
+
+    fn errors(registry: &Registry) -> Vec<(String, String, Option<String>)> {
+        let error =
+            |access: &Result<Access, CoreError>| access.as_ref().map_or_else(ToString::to_string, |_| String::new());
+        let failure = |state: &LinkState| match state {
+            LinkState::Failed(error) => Some(error.to_string()),
+            LinkState::Off | LinkState::On(_) => None,
+        };
+        let views = registry.snapshot();
+        views.iter().map(|view| (view.id.to_string(), error(&view.context.access), failure(&view.state))).collect()
+    }
+
+    #[tokio::test]
+    async fn a_name_has_one_entry_and_a_connect_stores_no_result_for_an_entry_that_changed() {
+        let registry = registry(vec![context("a", "first"), context("a", "second"), context("b", "third")]);
+        let listed = |a: Option<&str>| {
+            let entry = |name: &str, error: &str, failure: Option<&str>| {
+                (name.to_owned(), error.to_owned(), failure.map(str::to_owned))
+            };
+            vec![entry("a", "first", a), entry("b", "third", None)]
+        };
+        assert_eq!(errors(&registry), listed(None), "the first context of a name is its entry");
+
+        // A new load of the kubeconfig files came between the two steps of a connect.
+        let id = ClusterId::new("a");
+        let before = Err(CoreError::invalid("the entry before the load"));
+        let error = registry.keep(&id, &before, Err(CoreError::invalid("the entry before the load")));
+        assert_eq!(error.expect_err("no result").to_string(), "the kubeconfig entry of `a` changed during the connect");
+        assert_eq!(errors(&registry), listed(None), "the state of the new entry does not change");
+
+        let error = registry.connect(&id).expect_err("the entry has an error");
+        assert_eq!(error.to_string(), "first");
+        assert_eq!(errors(&registry), listed(Some("first")));
+        let gone = registry.keep(&ClusterId::new("c"), &before, Err(CoreError::invalid("x"))).expect_err("no entry");
+        assert_eq!(gone.to_string(), "the kubeconfig files have no context `c`");
+    }
 }
