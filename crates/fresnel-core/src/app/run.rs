@@ -106,7 +106,11 @@ impl Inner {
             self.journal.warning(APP, format!("{}: {}", problem.path.display(), problem.text));
         }
         let current = loaded.current.filter(|name| loaded.contexts.iter().any(|context| &context.name == name));
-        registry.set_contexts(loaded.contexts);
+        let state = self.state();
+        // The stop emptied the registry. A load that ends after the stop must not fill it again.
+        if state.phase != Phase::Stopped {
+            registry.set_contexts(loaded.contexts);
+        }
         Ok(current)
     }
 
@@ -127,7 +131,9 @@ impl Inner {
             repaint.request();
         };
         let monitor = Monitor::start(&self.tasks, detectors, self.settings.detect_period, report);
-        self.state().monitor = Some(monitor);
+        let mut state = self.state();
+        // A stopped core keeps no monitor: its task would run to the end of the runtime.
+        state.monitor = Some(monitor).filter(|_| state.phase != Phase::Stopped);
     }
 
     fn next_command(&self) -> Option<Command> {
@@ -217,4 +223,38 @@ impl Inner {
 /// "1 context", "4 contexts": a count with its noun.
 fn count(count: usize, noun: &str) -> String {
     format!("{count} {noun}{}", if count == 1 { "" } else { "s" })
+}
+
+#[cfg(test)]
+mod tests {
+    use fresnel_net::WallClock;
+    use fresnel_testkit::Home;
+    use tokio::runtime::Handle;
+
+    use super::super::{Core, CoreParts, CoreSettings};
+    use crate::journal::Journal;
+
+    /// The stop can come while the task of the core is between two waits. The task then
+    /// runs on to its next wait, and what it has in its hands must start nothing.
+    #[tokio::test]
+    async fn a_start_that_ends_after_the_stop_keeps_no_cluster_and_no_monitor() {
+        let home = Home::new("late-start", &["kubeconfig.yaml"]).expect("a home folder");
+        let text = "current-context: a\ncontexts:\n- {name: a, context: {cluster: none}}\n";
+        home.write("work/kubeconfig.yaml", text).expect("the kubeconfig");
+        let core = Core::new(CoreParts {
+            runtime: Handle::current(),
+            base_env: home.finder_env(),
+            journal: Journal::new(100, WallClock::system()),
+            detectors: Vec::new(),
+            settings: CoreSettings::default(),
+        });
+
+        core.stop();
+        core.inner.prepare().await.expect("the start");
+        let view = core.view();
+        let read = view.journal.entries.iter().any(|entry| entry.text == "read 1 context from 1 kubeconfig file");
+        assert!(read, "the start did read the file: {:?}", view.journal);
+        assert_eq!(view.clusters.len(), 0, "the stop emptied the registry, and it stays empty");
+        assert!(core.inner.state().monitor.is_none(), "a stopped core keeps no monitor");
+    }
 }

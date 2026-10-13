@@ -178,11 +178,16 @@ impl Core {
 
     /// Starts the work of the core: the login shell, the kubeconfig files and the
     /// connections. `wake` asks the UI for a repaint; the core calls it from a task, a
-    /// limited count of times in one second. Only the first call starts something.
+    /// limited count of times in one second. Only the first call starts something, and a
+    /// stopped core stays stopped.
     pub fn start(&self, wake: impl Fn() + Send + Sync + 'static) {
         let inner = &self.inner;
-        if std::mem::replace(&mut inner.state().phase, Phase::Running) != Phase::Idle {
-            return;
+        {
+            let mut state = inner.state();
+            if state.phase != Phase::Idle {
+                return;
+            }
+            state.phase = Phase::Running;
         }
         inner.repaint.set_wake(Arc::new(wake));
         let period = Duration::from_secs(1) / inner.settings.repaints_per_second.max(1);
@@ -221,10 +226,14 @@ impl Core {
         }
     }
 
-    /// Gives a command to the task of the core. The call returns at once.
+    /// Gives a command to the task of the core. The call returns at once. A stopped core
+    /// drops the command: no task reads it.
     pub fn send(&self, command: Command) {
         let accepted = {
             let mut state = self.inner.state();
+            if state.phase == Phase::Stopped {
+                return;
+            }
             let free = state.commands.len() < COMMAND_LIMIT;
             if free {
                 state.commands.push_back(command);
@@ -240,6 +249,9 @@ impl Core {
 
     /// The quit sequence of the core: each task stops, each connection closes, and a
     /// running plugin process ends with its task. A stopped core does not start again.
+    ///
+    /// The task of the core can be in a file read at this moment, and the read ends later.
+    /// Thus the task reads the phase under the lock before it keeps a result.
     pub fn stop(&self) {
         let stopped = {
             let mut state = self.inner.state();
@@ -335,5 +347,11 @@ mod tests {
         core.send(command());
         assert_eq!(journal(&core), [(Level::Error, "a command is lost: 256 commands wait for the core".to_owned())]);
         assert_eq!(core.inner.state().commands.len(), COMMAND_LIMIT);
+
+        // A stopped core takes no command: no task reads it.
+        core.stop();
+        core.send(command());
+        let waiting = core.inner.state().commands.len();
+        assert_eq!((waiting, journal(&core).len()), (0, 1));
     }
 }
