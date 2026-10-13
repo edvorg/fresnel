@@ -6,6 +6,7 @@ use fresnel_core::kinds::Kind;
 use fresnel_core::store::ObjectKey;
 use fresnel_testkit::FakeApiServer;
 
+use super::selection::until_saved;
 use super::{App, home, row, write_kubeconfig};
 use crate::common::in_time;
 use crate::stores::PODS;
@@ -79,6 +80,7 @@ async fn the_view_has_the_pods_and_the_events_of_each_selected_cluster_and_a_cha
     in_time("each connection of fra closes", fra.wait_for(|counters| counters.open_connections == 0)).await;
     assert_eq!(live_pods(&grown, "fra").map(|pods| pods.len()), Some(2), "the copy of a reader keeps its objects");
 
+    until_saved(&home, &["ams"]).await;
     app.core.stop();
     in_time("the stop closes each watch", ams.wait_for(|counters| counters.open_watches == 0)).await;
     in_time("the stop closes each connection", ams.wait_for(|counters| counters.open_connections == 0)).await;

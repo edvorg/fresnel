@@ -19,8 +19,10 @@ fn saved(home: &Home) -> Option<Vec<String>> {
 }
 
 /// Waits until the state file has this selection. The core writes the file on a thread for
-/// blocking calls and gives no signal for it, so the test reads the file again.
-async fn until_saved(home: &Home, clusters: &[&str]) {
+/// blocking calls and gives no signal for it, so the test reads the file again. A test that
+/// changed the selection ends after this wait: a write after the end of the test would
+/// stay in the home folder of the test.
+pub(super) async fn until_saved(home: &Home, clusters: &[&str]) {
     let written = async {
         while saved(home).as_deref() != Some(&clusters.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>()[..]) {
             tokio::time::sleep(Duration::from_millis(5)).await;

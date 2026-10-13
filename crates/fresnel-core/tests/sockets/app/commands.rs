@@ -8,6 +8,7 @@ use fresnel_core::journal::Level;
 use fresnel_core::net::credential::CredentialState;
 use fresnel_testkit::FakeApiServer;
 
+use super::selection::until_saved;
 use super::{App, KUBECONFIG, PLUGIN, home, row, states, write_kubeconfig};
 use crate::bed::authority;
 use crate::common::in_time;
@@ -38,6 +39,7 @@ async fn a_selection_connects_a_cluster_and_closes_the_connections_of_one_that_l
     app.select("a", true);
     app.until_health("a", Health::Live).await;
     assert_eq!(a.counters().connections, 6);
+    until_saved(&home, &["a", "b"]).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
