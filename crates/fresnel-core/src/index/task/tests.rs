@@ -183,6 +183,54 @@ async fn a_run_after_a_fault_gives_its_relations_a_new_number_also_when_it_finds
     assert!(again.generation > failed.generation, "a view computes again only for a new number");
 }
 
+/// A second fault during the recovery: the run after a panic panics too, and the store
+/// changes in each pause.
+#[tokio::test(start_paused = true)]
+async fn a_second_panic_in_the_run_after_a_panic_keeps_the_state_and_the_next_run_has_each_change() {
+    let mut started = start();
+    started.store.list(vec![object("a", "1")]);
+    while started.next().await.generation == 0 {}
+
+    started.panics.store(true, Ordering::Relaxed);
+    for change in ["b", "c"] {
+        started.store.apply(object(change, "1"));
+        let failed = started.next().await;
+        assert!(matches!(failed.state, IndexState::Failed { .. }), "{:?}", failed.state);
+        assert_eq!((failed.generation, failed.relations().as_slice()), (1, &["a".to_owned()][..]), "the index before");
+        let report = started.bed.reports.recv_timeout(Duration::from_secs(5)).expect("one report for each run");
+        assert!(matches!(report.end, End::Panicked(_)) && report.restart_in.is_some(), "{report:?}");
+    }
+
+    started.panics.store(false, Ordering::Relaxed);
+    let again = started.next().await;
+    assert_eq!(again.state, IndexState::Following);
+    assert_eq!(again.relations().as_slice(), ["a".to_owned(), "b".to_owned(), "c".to_owned()]);
+    assert!(again.generation > 1);
+    assert!(started.bed.reports.try_recv().is_err(), "no report for a run that works");
+}
+
+/// A stop at the worst moment: the owner drops the index while its task waits for a restart.
+#[tokio::test(start_paused = true)]
+async fn an_index_that_stops_after_a_panic_is_stopped_and_its_task_does_not_start_again() {
+    let mut started = start();
+    started.store.list(vec![object("a", "1")]);
+    while started.next().await.generation == 0 {}
+    started.panics.store(true, Ordering::Relaxed);
+    started.store.bookmark();
+    assert!(matches!(started.next().await.state, IndexState::Failed { .. }));
+
+    drop(started.running);
+    tokio::time::timeout(Duration::from_secs(60), started.index.changed()).await.expect("the final state");
+    let stopped = started.index.read();
+    assert_eq!((&stopped.state, stopped.relations().as_slice()), (&IndexState::Stopped, &["a".to_owned()][..]));
+    // The pause of the restart goes by: no run, so no new value and no second report.
+    started.panics.store(false, Ordering::Relaxed);
+    assert!(tokio::time::timeout(Duration::from_secs(60), started.index.changed()).await.is_err());
+    assert_eq!(started.index.read().state, IndexState::Stopped);
+    assert_eq!(started.bed.tasks.snapshot().len(), 1, "only the thread for old values");
+    assert_eq!(started.bed.reports.try_iter().count(), 1, "the report of the panic");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_stopped_index_keeps_its_relations_and_ends_its_task() {
     let mut started = start();
