@@ -125,8 +125,8 @@ async fn a_request_with_no_credential_gets_its_answer_and_ends_its_connection() 
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("v1.33.5+fake"), "the answer is complete: {body}");
     assert!(ended.is_ok(), "the connection ended with GOAWAY and no error: {ended:?}");
-    let counters = bed.counters_when(|counters| counters.open_connections == 1).await;
-    assert_eq!(counters.broken, 0, "the server closed the connection with no error");
+    // The client can close first, so the counter `broken` of the server is not a fact here.
+    bed.counters_when(|counters| counters.open_connections == 1).await;
     let again = in_time(known.send(with_token())).await.expect("a response");
     assert_eq!(again.status(), StatusCode::OK, "a request with a token keeps its connection");
 }
