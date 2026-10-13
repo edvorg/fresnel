@@ -26,14 +26,21 @@ pub fn run(root: &Path, destination: &Path) -> io::Result<Installed> {
         return Err(io::Error::new(io::ErrorKind::Unsupported, "the bundle is for macOS only"));
     }
     let program = build(root)?;
-    // The stage is in the destination folder, so it is on the same volume and the install
-    // is a rename.
+    with_stage(destination, |stage| stage_and_install(&program, stage, destination))
+}
+
+/// Runs `work` with a new stage folder and removes the folder after it. The stage is in
+/// the destination folder, so it is on the same volume and the install is a rename.
+/// An error of the work comes first: it tells more than an error of the removal after it.
+pub fn with_stage<T>(destination: &Path, work: impl FnOnce(&Path) -> io::Result<T>) -> io::Result<T> {
     std::fs::create_dir_all(destination)?;
     let stage = destination.join(format!(".fresnel-install-{}", std::process::id()));
     std::fs::create_dir(&stage)?;
-    let installed = stage_and_install(&program, &stage, destination);
-    std::fs::remove_dir_all(&stage)?;
-    installed
+    let done = work(&stage);
+    let removed = std::fs::remove_dir_all(&stage);
+    let done = done?;
+    removed?;
+    Ok(done)
 }
 
 fn stage_and_install(program: &Path, stage: &Path, destination: &Path) -> io::Result<Installed> {

@@ -120,6 +120,28 @@ fn an_install_whose_last_step_fails_puts_each_bundle_back() {
     assert_eq!(mark(&three), "three");
 }
 
+#[test]
+fn the_stage_folder_goes_away_and_an_error_of_the_install_comes_before_an_error_of_the_removal() {
+    let scratch = Scratch::new("stage");
+    let applications = scratch.0.join("Applications");
+    let staged = xtask::install::with_stage(&applications, |stage| {
+        std::fs::write(stage.join("a-file"), "x")?;
+        Ok(stage.to_owned())
+    });
+    let stage = staged.expect("the work");
+    assert_eq!((stage.parent(), stage.exists()), (Some(applications.as_path()), false));
+    assert_eq!(names(&applications), Vec::<String>::new());
+
+    // The work fails, and the removal fails too: the folder is gone.
+    let failed = xtask::install::with_stage(&applications, |stage| {
+        std::fs::remove_dir(stage)?;
+        Err::<(), _>(std::io::Error::other("codesign failed"))
+    });
+    assert_eq!(failed.expect_err("the work failed").to_string(), "codesign failed");
+    let unremoved = xtask::install::with_stage(&applications, |stage| std::fs::remove_dir(stage));
+    assert_eq!(unremoved.expect_err("the removal failed").kind(), std::io::ErrorKind::NotFound);
+}
+
 /// The tools `iconutil`, `codesign` and `plutil` are tools of macOS.
 #[cfg(target_os = "macos")]
 mod macos {
