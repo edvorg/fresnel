@@ -49,11 +49,7 @@ impl Window {
 
     /// App Nap stays off while a cluster is selected: its channels have timers.
     fn hold_activity(&mut self, view: &CoreView) {
-        let wanted = view.clusters.iter().any(|row| row.selected);
-        if self.nap.hold(wanted) {
-            let state = if wanted { "is off while a cluster is selected" } else { "is permitted again" };
-            self.boot.journal().info("app", format!("App Nap {state}"));
-        }
+        self.nap.hold(view.clusters.iter().any(|row| row.selected));
     }
 }
 

@@ -20,11 +20,6 @@ impl NapGuard {
         }
         true
     }
-
-    /// True while the activity is held.
-    pub fn is_held(&self) -> bool {
-        self.activity.is_some()
-    }
 }
 
 #[cfg(target_os = "macos")]
@@ -80,10 +75,11 @@ mod tests {
     #[test]
     fn the_guard_begins_the_activity_one_time_and_ends_it_one_time() {
         let mut guard = NapGuard::default();
-        assert!(!guard.hold(false) && !guard.is_held());
-        assert!(guard.hold(true) && guard.is_held());
-        assert!(!guard.hold(true) && guard.is_held(), "a second call begins no second activity");
-        assert!(guard.hold(false) && !guard.is_held());
+        assert!(!guard.hold(false), "no activity to end");
+        assert!(guard.hold(true));
+        assert!(!guard.hold(true), "a second call begins no second activity");
+        assert!(guard.hold(false));
+        assert!(!guard.hold(false));
         // The drop of a guard that holds the activity ends it.
         assert!(guard.hold(true));
     }
