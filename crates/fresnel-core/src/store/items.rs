@@ -11,6 +11,8 @@ use imbl::OrdMap;
 use imbl::ordmap::DiffItem;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
+use crate::kinds::Object;
+
 /// The identity of one object in the store of its kind: namespace and name. The sequence
 /// is the sequence of a list by namespace and name.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -55,13 +57,20 @@ impl<T> PartialEq for Entry<T> {
 
 /// One difference between the objects of a store at two moments.
 #[derive(Debug)]
-pub(crate) enum Change<'a, T> {
+pub enum Change<'a, T> {
     /// The later moment has one more object.
     Added(&'a ObjectKey, &'a Arc<T>),
     /// The object is gone at the later moment.
     Removed(&'a ObjectKey, &'a Arc<T>),
     /// The object has a new version, or a new object has its name.
-    Updated { key: &'a ObjectKey, old: &'a Arc<T>, new: &'a Arc<T> },
+    Updated {
+        /// The identity of the object in its store.
+        key: &'a ObjectKey,
+        /// The object at the earlier moment.
+        old: &'a Arc<T>,
+        /// The object at the later moment.
+        new: &'a Arc<T>,
+    },
 }
 
 /// The objects of one store at one moment, in the sequence of their identities.
@@ -105,9 +114,10 @@ impl<T> Items<T> {
     }
 
     /// Each difference from these objects to the objects of a later moment, in the sequence
-    /// of the identities. An index follows a store with it: a difference cannot lose a
-    /// change, as a missed event can. The walk does not enter a part that the two maps share.
-    pub(crate) fn changes_to<'a>(&'a self, later: &'a Self) -> impl Iterator<Item = Change<'a, T>> {
+    /// of the identities. An index and a view follow a store with it: a difference cannot
+    /// lose a change, as a missed event can. The walk does not enter a part that the two
+    /// maps share, so two moments with the same objects cost nothing.
+    pub fn changes_to<'a>(&'a self, later: &'a Self) -> impl Iterator<Item = Change<'a, T>> {
         self.map.diff(&later.map).map(|difference| match difference {
             DiffItem::Add(key, new) => Change::Added(key, &new.0),
             DiffItem::Remove(key, old) => Change::Removed(key, &old.0),
@@ -125,9 +135,24 @@ impl<T> Items<T> {
     }
 }
 
+impl<T: Object> FromIterator<Arc<T>> for Items<T> {
+    /// The objects of a list as a store holds them. A test of a reader builds the snapshot
+    /// of each state with it. An object with no name is not an entry, as in a store.
+    fn from_iter<I: IntoIterator<Item = Arc<T>>>(objects: I) -> Self {
+        let mut items = Self::default();
+        for object in objects {
+            if let Some(key) = ObjectKey::of(object.meta()) {
+                items.insert(key, object);
+            }
+        }
+        items
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kinds::Meta;
 
     fn key(name: &str) -> ObjectKey {
         ObjectKey::new("shop", name)
@@ -162,5 +187,21 @@ mod tests {
         assert_eq!(words(after.changes_to(&before)), ["b v1>v1", "+c v1", "-d v1"]);
         let empty = Items::default();
         assert_eq!(words(empty.changes_to(&before)), ["+a v1", "+b v1", "+c v1"], "the first read of a store");
+    }
+
+    #[test]
+    fn a_list_of_objects_gives_the_entries_of_a_store_and_an_object_with_no_name_is_none() {
+        let named = |namespace: &str, name: &str| {
+            let mut meta = Meta::default();
+            meta.metadata.namespace = Some(namespace.to_owned());
+            meta.metadata.name = Some(name.to_owned());
+            Arc::new(meta)
+        };
+        let items: Items<Meta> =
+            [named("shop", "web"), named("lab", "web"), Arc::new(Meta::default()), named("shop", "api")]
+                .into_iter()
+                .collect();
+        let keys: Vec<String> = items.iter().map(|(key, _)| format!("{}/{}", key.namespace, key.name)).collect();
+        assert_eq!(keys, ["lab/web", "shop/api", "shop/web"]);
     }
 }

@@ -114,8 +114,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   limits. A failed write tells its fate: not sent, refused or not known. Each read has a size limit.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. It does no work
   before its start. Then one task reads the login shell environment and the kubeconfig files,
-  connects each selected cluster and runs each command of the UI. One task for each cluster
-  puts its state changes into the journal. The core does not start the stores yet.
+  connects each selected cluster and runs each command of the UI. A connected cluster has its
+  stores, its indexes and one task that puts its state changes into the journal.
 - **State file** and **journal**: `state.json` holds the selection of the last run. The
   journal holds its last 10,000 entries in memory, and a sink takes each entry.
 

@@ -6,9 +6,11 @@
 //!
 //! - `run`: the task that starts the core and runs each command.
 //! - `saved`: the selection of clusters in the state file.
+//! - `data`: the stores and the indexes of each connected cluster.
 //! - `watch`: one task for each connected cluster, for the journal and the repaint.
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
 
+mod data;
 mod health;
 mod repaint;
 mod run;
@@ -28,11 +30,15 @@ use fresnel_net::task::{Backoff, Reporter, Restart, TaskHandle, TaskName, TaskRe
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
+pub use data::ClusterData;
 pub use health::Health;
 pub use view::{ClusterRow, CoreView, ShellNote, Startup};
 
 use crate::cluster::{ClusterId, Registry};
 use crate::journal::Journal;
+use crate::published::Disposal;
+use crate::store::StoreSettings;
+use data::Connected;
 use repaint::Repaint;
 
 /// The most commands that wait for the task of the core. The UI sends one for each click.
@@ -47,6 +53,8 @@ pub struct CoreSettings {
     pub env: EnvSettings,
     /// The connection layer of each cluster.
     pub net: NetSettings,
+    /// The stores of each cluster.
+    pub stores: StoreSettings,
     /// The wake detector and the network detector look each time this period ends.
     pub detect_period: Duration,
     /// The most repaints in one second that the core asks the UI for.
@@ -58,6 +66,7 @@ impl Default for CoreSettings {
         Self {
             env: EnvSettings::default(),
             net: NetSettings::default(),
+            stores: StoreSettings::default(),
             detect_period: Duration::from_secs(2),
             repaints_per_second: 60,
         }
@@ -119,8 +128,8 @@ struct State {
     /// The selection in the state file, also with the clusters that no kubeconfig file has now.
     in_state_file: BTreeSet<ClusterId>,
     commands: VecDeque<Command>,
-    /// The state watch of each connected cluster.
-    watchers: HashMap<ClusterId, TaskHandle>,
+    /// The stores, the indexes and the tasks of each connected cluster.
+    connected: HashMap<ClusterId, Connected>,
     detectors: Option<Vec<Box<dyn Detector>>>,
     monitor: Option<Monitor>,
     /// The tasks of the core itself. Empty before the start and after the stop.
@@ -137,6 +146,9 @@ struct Inner {
     repaint: Repaint,
     /// The registry exists after the environment is known: each plugin runs with it.
     registry: OnceLock<Registry>,
+    /// The thread that frees the snapshots that a reader held. It starts with the first
+    /// stores, and it ends after them: this field drops after the state.
+    disposal: OnceLock<Disposal>,
     state: Mutex<State>,
     /// Wakes the task of the core for a new command.
     command_sent: Notify,
@@ -170,7 +182,7 @@ impl Core {
             saved: saved::Saved::Current,
             in_state_file: BTreeSet::new(),
             commands: VecDeque::new(),
-            watchers: HashMap::new(),
+            connected: HashMap::new(),
             detectors: Some(detectors),
             monitor: None,
             running: Vec::new(),
@@ -184,6 +196,7 @@ impl Core {
             settings,
             repaint,
             registry: OnceLock::new(),
+            disposal: OnceLock::new(),
             state: Mutex::new(state),
             command_sent: Notify::new(),
         };
@@ -221,16 +234,25 @@ impl Core {
         }
     }
 
+    /// The function that starts each background task of the app. The window gives it to
+    /// the views for their worker threads, so a worker that ends is in the journal too.
+    pub fn tasks(&self) -> Tasks {
+        self.inner.tasks.clone()
+    }
+
     /// A copy of the state of the app.
     pub fn view(&self) -> CoreView {
-        let (startup, shell_problem, selected) = {
+        let (startup, shell_problem, selected, mut data) = {
             let state = self.inner.state();
-            (state.startup, state.shell_problem.clone(), state.selected.clone())
+            let data: HashMap<ClusterId, ClusterData> =
+                state.connected.iter().map(|(id, connected)| (id.clone(), connected.data())).collect();
+            (state.startup, state.shell_problem.clone(), state.selected.clone(), data)
         };
         let clusters = self.inner.registry.get().map(Registry::snapshot).unwrap_or_default();
         let row = |cluster: crate::cluster::ClusterView| {
             let selected = selected.contains(&cluster.id);
-            ClusterRow::new(cluster, selected)
+            let data = data.remove(&cluster.id);
+            ClusterRow::new(cluster, selected, data)
         };
         CoreView {
             startup,
@@ -271,7 +293,7 @@ impl Core {
             let mut state = self.inner.state();
             state.phase = Phase::Stopped;
             state.commands.clear();
-            (std::mem::take(&mut state.running), std::mem::take(&mut state.watchers), state.monitor.take())
+            (std::mem::take(&mut state.running), std::mem::take(&mut state.connected), state.monitor.take())
         };
         drop(stopped);
         if let Some(registry) = self.inner.registry.get() {

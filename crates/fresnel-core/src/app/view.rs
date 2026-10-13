@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use fresnel_net::ClusterStatus;
 
+use super::data::ClusterData;
 use super::health::{self, Health};
 use crate::cluster::{ClusterId, ClusterView, LinkState};
 use crate::error::CoreError;
@@ -39,10 +40,13 @@ pub struct ClusterRow {
     pub selected: bool,
     /// The state of its connections.
     pub link: LinkState,
+    /// The objects of the cluster with the states of their stores. `None` for a cluster
+    /// that is not connected.
+    pub data: Option<ClusterData>,
 }
 
 impl ClusterRow {
-    pub(super) fn new(view: ClusterView, selected: bool) -> Self {
+    pub(super) fn new(view: ClusterView, selected: bool, data: Option<ClusterData>) -> Self {
         let access = view.context.access.as_ref();
         Self {
             server: access.map(|access| access.server.to_string()).map_err(Clone::clone),
@@ -50,6 +54,7 @@ impl ClusterRow {
             id: view.id,
             selected,
             link: view.state,
+            data,
         }
     }
 

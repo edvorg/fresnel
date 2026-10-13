@@ -5,12 +5,14 @@
 //! installed app does.
 //!
 //! - `start`: the start and the stop. `commands`: the selection and "Retry now".
+//! - `data`: the objects of the selected clusters in the view.
 //! - `network`: a network that goes away and comes back.
 //! - `selection`: the selection of one run is the selection of the next run.
 //! - `faults`: a login shell that hangs, and a panic of the task of the core.
 //! - `slow_disk`: a read of a kubeconfig file or of a certificate file that waits.
 
 mod commands;
+mod data;
 mod faults;
 mod network;
 mod selection;

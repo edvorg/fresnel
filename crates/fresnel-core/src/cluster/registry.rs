@@ -162,6 +162,17 @@ impl Registry {
         drop(old);
     }
 
+    /// Closes the connections of one cluster and keeps `error` as the reason of a connect
+    /// that failed: a part that the cluster needs did not start on its connections.
+    pub fn fail(&self, id: &ClusterId, error: CoreError) {
+        let old = self
+            .clusters()
+            .iter_mut()
+            .find(|entry| &entry.id == id)
+            .map(|entry| std::mem::replace(&mut entry.state, State::Failed(error)));
+        drop(old);
+    }
+
     /// The connected parts of one cluster. `None` for a cluster that is not connected.
     pub fn link(&self, id: &ClusterId) -> Option<Link> {
         self.read(id, Entry::link).ok().flatten()

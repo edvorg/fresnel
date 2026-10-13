@@ -12,8 +12,9 @@ use fresnel_net::Cause;
 use fresnel_net::detect::{Disturbance, Monitor};
 use fresnel_net::env::{self, EnvSource, ProcessEnv};
 
+use super::data::Connected;
 use super::view::{ShellNote, Startup};
-use super::{APP, Command, Inner, Phase, watch};
+use super::{APP, Command, Inner, Phase};
 use crate::cluster::{ClusterId, LinkState, Registry};
 use crate::error::CoreError;
 use crate::kubeconfig::{self, Context};
@@ -192,7 +193,7 @@ impl Inner {
     /// and no other cluster is.
     async fn reconcile(&self, registry: &Registry) -> Result<(), CoreError> {
         let clusters = registry.snapshot();
-        let selected = {
+        let (selected, stopped) = {
             let mut state = self.state();
             // The stop emptied the registry. With its empty list, the selection would lose
             // each cluster. The phase changes before the registry, so this read is safe.
@@ -201,9 +202,12 @@ impl Inner {
             }
             state.selected.retain(|id| clusters.iter().any(|cluster| &cluster.id == id));
             let selected = state.selected.clone();
-            state.watchers.retain(|id, _| selected.contains(id));
-            selected
+            let stopped: Vec<Connected> =
+                state.connected.extract_if(|id, _| !selected.contains(id)).map(|(_, running)| running).collect();
+            (selected, stopped)
         };
+        // The stores of a cluster that left the selection stop here, after the lock is free.
+        drop(stopped);
         for cluster in clusters {
             match (selected.contains(&cluster.id), cluster.state) {
                 (true, LinkState::Off) => self.connect(registry, &cluster.id).await?,
@@ -223,19 +227,23 @@ impl Inner {
             let (registry, id) = (registry.clone(), id.clone());
             self.off_worker(move || registry.connect(&id)).await?
         };
-        let watcher = match connected {
-            Ok(link) => Some(watch::start(&self.tasks, id, link.net, self.journal.clone(), self.repaint.clone())),
+        // A cluster with no stores shows no object, so a start of them that fails is a
+        // connect that failed: the connections close, and each view shows the reason.
+        let started = connected
+            .and_then(|link| Connected::start(self, id, &link).inspect_err(|error| registry.fail(id, error.clone())));
+        let running = match started {
+            Ok(running) => Some(running),
             Err(error) => {
                 self.journal.error(id.as_str(), format!("the connect did not start: {error}"));
                 None
             }
         };
         let mut state = self.state();
-        // A watch of older connections of the cluster goes away in each case. A stopped
-        // core keeps no watch: the watch would hold the connections open.
-        let old = match watcher.filter(|_| state.phase != Phase::Stopped) {
-            Some(watcher) => state.watchers.insert(id.clone(), watcher),
-            None => state.watchers.remove(id),
+        // The stores of older connections of the cluster go away in each case. A stopped
+        // core keeps none: their tasks would hold the connections open.
+        let old = match running.filter(|_| state.phase != Phase::Stopped) {
+            Some(running) => state.connected.insert(id.clone(), running),
+            None => state.connected.remove(id),
         };
         drop(state);
         drop(old);

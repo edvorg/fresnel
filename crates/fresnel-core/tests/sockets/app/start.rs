@@ -41,12 +41,10 @@ async fn the_core_does_nothing_before_its_start_and_then_connects_with_the_envir
     assert_eq!((credential.plugin_runs, home.read("state/runs").as_str()), (1, "run\n"), "one run of the plugin");
     assert_eq!(row(&view, "other").last_answer_age(), None);
 
-    // The core reads no object: its only request is the light request of a channel.
+    // The core changes nothing in a cluster: each request is a read.
     let requests = server.requests();
-    assert!(!requests.is_empty());
-    for seen in &requests {
-        assert_eq!((&seen.method, seen.uri.path(), seen.uri.query()), (&Method::GET, "/version", None), "{seen:?}");
-    }
+    assert!(requests.iter().any(|seen| seen.uri.path() == "/version"), "the light request of a channel");
+    assert!(requests.iter().all(|seen| seen.method == Method::GET), "{requests:?}");
     assert_eq!(other.counters().connections, 0, "a cluster that is not selected gets no connection");
 
     let texts = app.texts_of("app");

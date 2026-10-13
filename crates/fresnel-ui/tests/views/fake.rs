@@ -135,6 +135,7 @@ pub(crate) fn row(name: &str, link: LinkState) -> ClusterRow {
         auth: Some(AuthKind::Plugin("doctl".to_owned())),
         selected: true,
         link,
+        data: None,
     }
 }
 
