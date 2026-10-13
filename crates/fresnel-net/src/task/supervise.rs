@@ -52,25 +52,34 @@ impl Supervisor {
         F: Future<Output = Result<(), E>>,
         E: Display,
     {
-        let registry = &self.shared.registry;
         let mut early_ends = 0_u32;
         loop {
-            registry.run_started(self.id);
+            self.shared.registry.run_started(self.id);
             let started = Instant::now();
             let end = run_once(&mut body).await;
-            let Restart::Always(backoff) = self.restart else {
-                return self.end(end);
+            let Some(pause) = self.after_run(end, started.elapsed(), &mut early_ends) else {
+                return;
             };
-            early_ends = if started.elapsed() >= backoff.reset_after { 1 } else { early_ends.saturating_add(1) };
-            let pause = backoff.pause(early_ends, fastrand::u32(..));
-            registry.run_ended(self.id, TaskState::Backoff { last: end.clone(), early_ends, pause });
-            self.report(end, Some(pause));
             sleep(pause).await;
         }
     }
 
+    /// Records and reports the end of one run. Gives the pause before the next run, or
+    /// `None` after the final end of a task that runs one time.
+    pub(super) fn after_run(&self, end: End, run_time: Duration, early_ends: &mut u32) -> Option<Duration> {
+        let Restart::Always(backoff) = self.restart else {
+            self.end(end);
+            return None;
+        };
+        *early_ends = if run_time >= backoff.reset_after { 1 } else { early_ends.saturating_add(1) };
+        let (early_ends, pause) = (*early_ends, backoff.pause(*early_ends, fastrand::u32(..)));
+        self.shared.registry.run_ended(self.id, TaskState::Backoff { last: end.clone(), early_ends, pause });
+        self.report(end, Some(pause));
+        Some(pause)
+    }
+
     /// Records the final state of the task, then reports it.
-    fn end(&self, end: End) {
+    pub(super) fn end(&self, end: End) {
         self.shared.registry.run_ended(self.id, TaskState::Ended(end.clone()));
         self.report(end, None);
     }
@@ -96,7 +105,7 @@ where
     }
 }
 
-fn panic_message(panic: &(dyn Any + Send)) -> String {
+pub(super) fn panic_message(panic: &(dyn Any + Send)) -> String {
     if let Some(message) = panic.downcast_ref::<&str>() {
         (*message).to_owned()
     } else if let Some(message) = panic.downcast_ref::<String>() {

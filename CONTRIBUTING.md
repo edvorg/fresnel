@@ -54,8 +54,10 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
 - A task can own a `JoinSet` for its short child tasks, if it reads the result of each one.
 - A task reads no file itself. A read can wait for a slow disk, and a thread of the runtime
   that waits holds other tasks. Run the read with `spawn_blocking` and wait for its result.
-- A worker thread needs its own start function in `fresnel_net::task`, with a state and a
-  report. `std::thread::scope` is permitted, because it joins each thread.
+- A worker thread starts with `Tasks::start_thread`. Nothing can stop a thread from outside:
+  its body returns when its input ends, or when the `Stop` that it gets is set. The owner
+  drops the handle before that input, so the end of the input is not a fault.
+  `std::thread::scope` is permitted, because it joins each thread.
 
 ## Requests
 

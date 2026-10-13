@@ -65,9 +65,10 @@ memory only.
 ## One function starts each background task
 
 In each prototype review, a task that ended or panicked left a state that looked good and data
-that did not change. Thus `fresnel_net::task::Tasks::start` is the only way to start a task.
-It gives the task a name, a state, a report for the journal and a restart with backoff. A lint
-refuses a direct `tokio::spawn` and a direct `std::thread::spawn`.
+that did not change. Thus `fresnel_net::task::Tasks::start` is the only way to start a task,
+and `Tasks::start_thread` the only way to start a thread. Each one gives a name, a state, a
+report for the journal and a restart with backoff. A lint refuses a direct `tokio::spawn` and
+a direct `std::thread::spawn`.
 
 ## State goes to the UI as a copy
 

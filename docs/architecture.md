@@ -75,7 +75,8 @@ xtask
 
 ## Background tasks
 
-`fresnel_net::task::Tasks::start` is the one function that starts a background task.
+`fresnel_net::task::Tasks::start` is the one function that starts a background task on the
+runtime. `Tasks::start_thread` starts one on a thread of its own, for a worker of the UI.
 
 - The caller gives a name, a restart rule and a body. The body builds one run of the task.
 - Each task has a state: running, backoff, or ended. `Tasks::snapshot` gives a copy of all
@@ -84,11 +85,10 @@ xtask
   the next run. The journal takes each report through the trait `Reporter`.
 - `Restart::Always` runs the task again after each end, with a pause that grows to a limit.
   `Restart::Never` is for a job that runs one time.
-- The caller owns a `TaskHandle`. The task stops when the handle drops.
-- Code of the caller cannot stop the supervisor: it catches a panic of the body and a panic
-  of the reporter.
-- A fault of the supervisor itself, for example a runtime with no timer, ends the task with a
-  final state and a report.
+- The caller owns a `TaskHandle`. The task stops when the handle drops. A thread ends by
+  itself then: its body gets a `Stop`, and its input ends after the handle.
+- Code of the caller cannot stop the supervisor: it catches a panic of the body and of the
+  reporter. A fault of the supervisor itself ends the task with a final state and a report.
 
 ## Network layer
 
