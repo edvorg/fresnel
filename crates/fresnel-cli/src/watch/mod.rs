@@ -105,7 +105,13 @@ async fn report_until(watched: &[Watched], options: &Options) -> bool {
         let at_end = end.is_some_and(|end| end <= next);
         let last = tokio::select! {
             () = sleep_until(end.filter(|_| at_end).unwrap_or(next)) => at_end,
-            _signal = tokio::signal::ctrl_c() => true,
+            signal = tokio::signal::ctrl_c() => {
+                // With no signal of the system, the command has no clean end later. It ends now.
+                if let Err(error) = signal {
+                    eprintln!("watch: the system gives no signal for Ctrl+C: {error}");
+                }
+                true
+            }
         };
         let reports: Vec<ClusterReport> = watched.iter().map(report).collect();
         let time =
