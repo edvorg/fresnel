@@ -515,6 +515,14 @@ would need a second writer, and a mark that no event removes would stay for all 
 versions of a kube-apiserver are numbers. For a version that is not a number, the answer
 is "not pending".
 
+## Tier A stores keep the full object
+
+The first version keeps the full typed object of each tier A kind: 30.8 KB for one pod in
+the prototype, and about 1.8 GiB for four clusters with 10,000 pods each. The slim pod
+type of the prototype has 5.4 KB. A store takes each object type with the trait `Object`,
+so a slim type can replace the full one for a large cluster with no change of the watch
+loop.
+
 ## Readers hold a published state as a copy of one pointer
 
 `published::Publisher` gives a state to its readers. A read copies one pointer and never
