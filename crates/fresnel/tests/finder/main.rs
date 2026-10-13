@@ -27,14 +27,20 @@ const RESULT: &str = "CHILD-RESULT ";
 const PLUGIN: &str = "fresnel-test-plugin";
 /// The start of each token that the plugin gives.
 const TOKEN: &str = "secret-token-of-the-test";
+/// The state file in the settings folder of the app.
+const STATE_FILE: &str = fresnel_core::state_file::FILE_NAME;
 
 /// The home folder of the child, with the plugin of the tests of `fresnel-net` and a
-/// kubeconfig with one cluster on `server`.
+/// kubeconfig with one cluster on `server`. The kubeconfig has no current context: the
+/// state file of an earlier run selects the cluster.
 fn home(server: &FakeApiServer) -> Home {
     let home = Home::new("program", &["kubeconfig.yaml"]).expect("a home folder");
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fresnel-net/tests/fixtures/fake-plugin");
     home.add_program(PLUGIN, &format!("#!/bin/sh\nexec '{}'\n", fixture.display())).expect("the plugin");
     home.write("work/kubeconfig.yaml", &kubeconfig(&home, server.addr(), server)).expect("the kubeconfig");
+    let data = Folders::of(home.folder(), Build::current()).data;
+    std::fs::create_dir_all(&data).expect("the settings folder");
+    std::fs::write(data.join(STATE_FILE), r#"{"version": 1, "selected_clusters": ["fake"]}"#).expect("the state file");
     home
 }
 
@@ -44,8 +50,7 @@ fn kubeconfig(home: &Home, address: SocketAddr, server: &FakeApiServer) -> Strin
         base64(format!("-----BEGIN CERTIFICATE-----\n{certificate}\n-----END CERTIFICATE-----\n").as_bytes());
     let state = home.path("state");
     format!(
-        "current-context: fake
-clusters:
+        "clusters:
 - {{name: fake, cluster: {{server: 'https://{address}', certificate-authority-data: {authority}}}}}
 users:
 - name: fake
@@ -125,7 +130,7 @@ fn the_app_core_starts_with_the_environment_of_finder() {
     let folders = Folders::of(home.folder(), Build::current());
     assert_eq!(result["data_folder"], folders.data.display().to_string());
     assert!(folders.data.ends_with("fresnel-debug") || !cfg!(debug_assertions), "{folders:?}");
-    assert_eq!(files(&folders.data), [folders.data.join("fresnel.lock")]);
+    assert_eq!(files(&folders.data), [folders.data.join("fresnel.lock"), folders.data.join(STATE_FILE)]);
     let lock = std::fs::read_to_string(folders.data.join("fresnel.lock")).expect("the lock file");
     assert_eq!(result["second_start"], format!("fresnel runs already (process {})", lock.trim()));
 
@@ -135,6 +140,7 @@ fn the_app_core_starts_with_the_environment_of_finder() {
         " INFO  [app] fresnel 0.1.0 (debug build) started; settings in ",
         " INFO  [app] the login shell /",
         " INFO  [app] read 1 context from 1 kubeconfig file",
+        " INFO  [app] the selection of the last run: fake",
         " INFO  [fake] the channels connect",
         " INFO  [fake] live: a request got an answer on each channel",
         " INFO  [app] quit: the tasks stop and the connections close",

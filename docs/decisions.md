@@ -331,13 +331,20 @@ no connection or no credential. A failed credential wins, because the channels s
 for the rest of the life of the old token. A channel that waits for the first token of the
 plugin counts as connecting: it has a connection, and the cluster cannot do work yet.
 
-## The selection at the start is the current context
+## The selection at the start is the selection of the last run
 
-At its start, the app selects the current context of the kubeconfig files, as `kubectl` does.
-The user selects each other cluster in the top bar. A connect runs the credential plugin of
-the cluster, and a login plugin can open a browser window, so the app does not connect each
-context of the files by itself. The selection is not saved yet. The settings file of a later
-milestone saves it.
+The core writes the selected clusters to `state.json` after each change by the user, and
+selects them again at its start. With no state file, it selects the current context, as
+`kubectl` does. It never connects each context by itself: a connect runs the credential
+plugin, and a login plugin can open a browser window. A saved cluster that no kubeconfig
+file has stays in the file, because a kubeconfig file can be absent for one run.
+
+## The app does not write over a state file that it cannot read
+
+A state file with a different version number, with a key that this version does not know or
+with broken JSON can be the file of a newer version of the app. The journal tells the problem
+with its line and column. The app starts as with no file and does not save the selection in
+that run. Each write goes to a new file that then gets the name of the state file.
 
 ## The core reads files on the threads for blocking calls
 

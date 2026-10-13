@@ -27,6 +27,8 @@ pub(super) async fn run(inner: Arc<Inner>) -> Result<(), CoreError> {
         while let Some(command) = inner.next_command() {
             inner.apply(&registry, command).await?;
         }
+        // One write for all commands of the queue: the button "All" sends one for each cluster.
+        inner.save_selection(&registry).await?;
         inner.command_sent.notified().await;
     }
 }
@@ -43,9 +45,9 @@ impl Inner {
             Registry::new(self.tasks.clone(), self.runtime.clone(), env.clone(), self.settings.net.clone())
         });
         self.enter(Startup::Kubeconfig);
+        let saved = self.load_saved_state().await?;
         let current = self.load_kubeconfig(&env, registry).await?;
-        // The cluster of `kubectl` is the selection at the start. The user selects the others.
-        self.state().selected.extend(current.map(ClusterId::new));
+        self.select_at_start(saved, current, registry);
         self.start_monitor(registry);
         self.reconcile(registry).await?;
         self.enter(Startup::Ready);
@@ -53,7 +55,10 @@ impl Inner {
     }
 
     /// Runs a call that reads files on a thread for blocking calls, and waits for its result.
-    async fn off_worker<T: Send + 'static>(&self, read: impl FnOnce() -> T + Send + 'static) -> Result<T, CoreError> {
+    pub(super) async fn off_worker<T: Send + 'static>(
+        &self,
+        read: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, CoreError> {
         let done = self.runtime.spawn_blocking(read).await;
         done.map_err(|error| CoreError::invalid(format!("a read of files did not end: {error}")))
     }
@@ -160,12 +165,7 @@ impl Inner {
 
     async fn apply(&self, registry: &Registry, command: Command) -> Result<(), CoreError> {
         match command {
-            Command::Select { cluster, selected: true } => {
-                self.state().selected.insert(cluster);
-            }
-            Command::Select { cluster, selected: false } => {
-                self.state().selected.remove(&cluster);
-            }
+            Command::Select { cluster, selected } => self.select(cluster, selected),
             Command::RetryNow(cluster) => self.retry(registry, &cluster).await?,
         }
         self.reconcile(registry).await
@@ -263,6 +263,7 @@ mod tests {
             runtime: Handle::current(),
             base_env: home.finder_env(),
             journal: Journal::new(100, WallClock::system()),
+            state_file: home.path("state/state.json"),
             detectors: Vec::new(),
             settings: CoreSettings::default(),
         });

@@ -15,6 +15,7 @@ use fresnel_core::journal::Journal;
 use fresnel_core::net::WallClock;
 use fresnel_core::net::detect::system_detectors;
 use fresnel_core::net::env::ProcessEnv;
+use fresnel_core::state_file;
 use tokio::runtime::{Builder, Runtime};
 
 use crate::folders::{Build, Folders};
@@ -101,6 +102,7 @@ impl Boot {
             runtime: runtime.handle().clone(),
             base_env,
             journal: journal.clone(),
+            state_file: folders.data.join(state_file::FILE_NAME),
             detectors: system_detectors(),
             settings: CoreSettings::default(),
         });

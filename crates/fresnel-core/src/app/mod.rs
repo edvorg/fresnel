@@ -5,16 +5,19 @@
 //! so the UI thread starts no network work and reads no file.
 //!
 //! - `run`: the task that starts the core and runs each command.
+//! - `saved`: the selection of clusters in the state file.
 //! - `watch`: one task for each connected cluster, for the journal and the repaint.
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
 
 mod health;
 mod repaint;
 mod run;
+mod saved;
 mod view;
 mod watch;
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -69,6 +72,9 @@ pub struct CoreParts {
     pub base_env: ProcessEnv,
     /// The journal. The program gives it the log file as its sink.
     pub journal: Journal,
+    /// The state file: the core reads the selection of the last run from it, and writes
+    /// each change of the selection to it.
+    pub state_file: PathBuf,
     /// The detectors of a wake and of a network change.
     pub detectors: Vec<Box<dyn Detector>>,
     /// The settings.
@@ -108,6 +114,10 @@ struct State {
     env: Option<ProcessEnv>,
     shell_problem: Option<ShellNote>,
     selected: BTreeSet<ClusterId>,
+    /// What the state file has of the selection.
+    saved: saved::Saved,
+    /// The selection in the state file, also with the clusters that no kubeconfig file has now.
+    in_state_file: BTreeSet<ClusterId>,
     commands: VecDeque<Command>,
     /// The state watch of each connected cluster.
     watchers: HashMap<ClusterId, TaskHandle>,
@@ -119,6 +129,7 @@ struct State {
 
 struct Inner {
     journal: Journal,
+    state_file: PathBuf,
     tasks: Tasks,
     runtime: Handle,
     base_env: ProcessEnv,
@@ -147,7 +158,7 @@ impl Core {
     /// Builds the core. It starts no task, reads no file and opens no connection before
     /// [`Core::start`], so the window can open first.
     pub fn new(parts: CoreParts) -> Self {
-        let CoreParts { runtime, base_env, journal, detectors, settings } = parts;
+        let CoreParts { runtime, base_env, journal, state_file, detectors, settings } = parts;
         let repaint = Repaint::new();
         let tasks = Tasks::new(runtime.clone(), reporter(journal.clone(), repaint.clone()));
         let state = State {
@@ -156,6 +167,8 @@ impl Core {
             env: None,
             shell_problem: None,
             selected: BTreeSet::new(),
+            saved: saved::Saved::Current,
+            in_state_file: BTreeSet::new(),
             commands: VecDeque::new(),
             watchers: HashMap::new(),
             detectors: Some(detectors),
@@ -164,6 +177,7 @@ impl Core {
         };
         let inner = Inner {
             journal,
+            state_file,
             tasks,
             runtime,
             base_env,
@@ -303,6 +317,8 @@ mod tests {
             runtime: Handle::current(),
             base_env: ProcessEnv::default(),
             journal: Journal::new(100, WallClock::system()),
+            // No test of this module starts the core, so nothing reads or writes the file.
+            state_file: PathBuf::from("/no/such/folder/state.json"),
             detectors: Vec::new(),
             settings: CoreSettings::default(),
         })

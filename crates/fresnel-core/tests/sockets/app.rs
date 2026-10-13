@@ -6,12 +6,14 @@
 //!
 //! - `start`: the start and the stop. `commands`: the selection and "Retry now".
 //! - `network`: a network that goes away and comes back.
+//! - `selection`: the selection of one run is the selection of the next run.
 //! - `faults`: a login shell that hangs, and a panic of the task of the core.
 //! - `slow_disk`: a read of a kubeconfig file or of a certificate file that waits.
 
 mod commands;
 mod faults;
 mod network;
+mod selection;
 mod slow_disk;
 mod start;
 
@@ -37,6 +39,8 @@ use crate::common::LIMIT;
 /// The command of the plugin in the kubeconfig: a bare name, which only the profile finds.
 const PLUGIN: &str = "fresnel-test-plugin";
 const KUBECONFIG: &str = "work/kubeconfig.yaml";
+/// The state file of the core in the home folder of a test.
+const STATE_FILE: &str = "state/state.json";
 
 /// A home folder with the plugin of the tests of `fresnel-net` in its folder `plugins`.
 fn home(label: &str) -> Home {
@@ -117,6 +121,7 @@ impl App {
             runtime: Handle::current(),
             base_env: home.finder_env(),
             journal,
+            state_file: home.path(STATE_FILE),
             detectors: vec![Box::new(OnOrder(Arc::clone(&network_changed)))],
             settings,
         });

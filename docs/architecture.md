@@ -131,12 +131,13 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Gateway**: the requests to one cluster, with one function for each request kind: get, list
   page, watch stream, log stream, send and upgrade. The kind gives the connection and the time
   limits. A failed write tells its fate: not sent, refused or not known. Each read has a size limit.
-- **Probe**: `fresnel_net::probe` measures single steps of a connect with the connect code of
-  the app. The `doctor` command uses it.
+- **Probe**: `fresnel_net::probe` measures single steps of a connect for the `doctor` command.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. It does no work
   before its start. Then one task reads the login shell environment and the kubeconfig files,
   connects each selected cluster and runs each command of the UI. It reads files on the
   threads for blocking calls. One task for each cluster puts its state changes into the journal.
+- **State file**: `state.json` in the settings folder, with a version number. The core reads
+  the selection of the last run from it and writes each change of the selection to it.
 - **Journal**: the last 10,000 entries in memory, with counts. A sink takes each entry.
 
 ## Contract between the UI and the core
@@ -165,8 +166,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 `fresnel-testkit` has four parts. Each part runs in the test process and stops at its drop.
 
 - `FaultProxy`: a TCP proxy before a server. Its modes are pass, hold of new connections,
-  freeze, latency and a reset each period. Two calls reset all connections and make the open
-  connections silent.
+  freeze, latency and a reset each period. It can reset or silence the open connections.
 - `K3s`: k3s in Docker with a fixed address in its own Docker network. It gives a kubeconfig
   file and the address of the kube-apiserver, and it can restart the cluster.
 - `FakeApiServer`: a local server with TLS, HTTP/2, HTTP/1.1, watch streams and the HTTP 101
@@ -174,9 +174,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - `Home`: a home folder with a shell profile, for a start with the environment of Finder.
 
 A fault test of the app puts a `FaultProxy` before `K3s` or before `FakeApiServer`. The proxy
-and the fake server have counters and a `wait_for` call, so that a test waits for a signal and
-not for a fixed time. A task of the kit that ends is a fault of the test equipment: the kit
-prints one line for it, and `task_failures` gives the list.
+and the fake server have counters and a `wait_for` call, so a test waits for a signal and not
+for a fixed time. A task of the kit that ends is a fault: `task_failures` gives the list.
 
 ## Tests
 

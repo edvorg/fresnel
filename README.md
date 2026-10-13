@@ -19,9 +19,9 @@ cargo xtask install                   # builds Fresnel.app and puts it into /App
 cargo xtask install --to <folder>     # the same into some other folder
 ```
 
-The earlier bundle stays as `Fresnel.app.prev`. The app selects the current context of the
-kubeconfig files at its start. The top bar has a switch for each other cluster. The selection
-is not saved yet.
+The earlier bundle stays as `Fresnel.app.prev`. At its first start, the app selects the
+current context of the kubeconfig files. The top bar has a switch for each cluster. The app
+saves the selection in `state.json` of its settings folder and starts with it again.
 
 - Settings folder: `~/Library/Application Support/fresnel`. A debug build uses `fresnel-debug`.
 - Log folder: `~/Library/Logs/fresnel`, with `fresnel.log` and a report file for each panic.
