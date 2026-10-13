@@ -41,7 +41,8 @@ pub enum ProxyMode {
         max: Duration,
     },
     /// Open connections stay open but carry no bytes and no close. A new connection gets no
-    /// answer. The bytes pass when the mode changes.
+    /// answer. The bytes pass when the mode changes. A new connection that its client closes
+    /// during the freeze never reaches the server.
     Freeze,
     /// Each byte arrives this time after the proxy read it, in each direction. The data rate
     /// has no limit. A new connection waits one round trip, as a TCP handshake does.
@@ -63,6 +64,9 @@ pub struct ProxyCounters {
     pub reset: u64,
     /// Connections that the proxy closed because the server did not accept its connect.
     pub refused: u64,
+    /// New connections that their client closed during a freeze, before the proxy
+    /// connected to the server.
+    pub gave_up: u64,
     /// Connections that ended with an error of a socket, for example a reset by a peer.
     pub broken: u64,
 }

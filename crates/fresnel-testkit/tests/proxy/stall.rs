@@ -28,6 +28,28 @@ async fn freeze_stops_all_bytes_and_each_close_until_the_mode_changes() {
     drop(bed.accept().await);
 }
 
+/// A break of the network for minutes: the client gives up each connect attempt at its
+/// time limit. At the end of the freeze, only the attempt that still waits gets its server.
+#[tokio::test]
+async fn a_new_connection_that_its_client_closes_during_a_freeze_never_reaches_the_server() {
+    let bed = Bed::start().await;
+    bed.proxy.set(ProxyMode::Freeze);
+    for _ in 0..3 {
+        let mut given_up = bed.connect().await;
+        given_up.write_all(b"hello of a client that gives up").await.expect("the kernel takes the bytes");
+    }
+    let mut patient = bed.connect().await;
+    patient.write_all(b"early ").await.expect("the kernel takes the bytes");
+    let counters = in_time(bed.proxy.wait_for(|counters| counters.gave_up == 3)).await;
+    assert_eq!((counters.accepted, counters.open), (4, 1), "the proxy holds one connection");
+
+    bed.proxy.set(ProxyMode::Pass);
+    let mut server = bed.accept().await;
+    patient.write_all(b"bytes").await.expect("write");
+    assert_eq!(receive(&mut server, 11).await, b"early bytes", "the bytes of the freeze come first");
+    assert!(timeout(QUIET, bed.upstream.accept()).await.is_err(), "no other connection reaches the server");
+}
+
 #[tokio::test]
 async fn silent_connections_carry_nothing_for_all_time_and_new_connections_work() {
     let bed = Bed::start().await;
