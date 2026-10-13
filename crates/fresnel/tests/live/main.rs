@@ -159,8 +159,13 @@ fn the_rows_of_a_cluster_with_a_silent_network_get_their_mark_in_20_seconds_or_l
     assert!(marked <= Duration::from_secs(20), "the mark came after {marked:?}");
     assert_eq!(marks(&window), rows(&window, "-fra"), "each row of fra has the mark, and no row of ams");
     assert!(rows(&window, "-fra") > 0 && shows(&window, "50 pods"), "the old rows stay (design rule 5)");
-    let note = window.query_all_by_label_contains("Pods: waits for a connection").count();
-    assert_eq!(note, 1, "the note of the one cluster tells why");
+    // The note of the one cluster tells why. Its first text can be the failure of the
+    // watch; then the store waits for a connection of its cluster.
+    assert_eq!(window.query_all_by_label_contains("Pods: ").count(), 1);
+    until(&mut window, "the store waits for a connection", |window| {
+        window.query_all_by_label_contains("Pods: waits for a connection").count() == 1
+    });
+    assert_eq!(marks(&window), rows(&window, "-fra"), "the mark stays in each state that is not live");
 
     // The network returns: the rows are current again.
     fra.proxy.set(ProxyMode::Pass);
