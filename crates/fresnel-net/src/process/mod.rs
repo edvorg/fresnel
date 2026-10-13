@@ -14,11 +14,15 @@ use nix::sys::signal::{Signal, killpg};
 use nix::unistd::{Pid, setsid};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
-use tokio::time::{Instant, timeout, timeout_at};
+use tokio::time::{Instant, sleep, timeout, timeout_at};
 
 /// The wait for the end of a killed process. `SIGKILL` cannot be refused, so the limit is
 /// for a kernel that is slow.
 const REAP_LIMIT: Duration = Duration::from_secs(1);
+/// The most kills for the processes that stay in a group after its first process, and
+/// the pause between two of them. A process that got the signal needs a moment to end.
+const REST_KILLS: u32 = 100;
+const REST_KILL_PAUSE: Duration = Duration::from_millis(2);
 /// After the exit of the child, its last bytes are in the pipe already. A helper process
 /// that it left can hold the pipe open, so the read does not wait for the end of the pipe.
 const DRAIN_GRACE: Duration = Duration::from_millis(100);
@@ -126,9 +130,34 @@ impl Group {
     }
 
     /// Kills the group and collects the child. True when the child is gone.
+    ///
+    /// A process that a member of the group starts at the moment of a kill is not in the
+    /// group yet, and that kill does not reach it. In a test, the command of the exit hook
+    /// of a shell stayed for this reason in 2 of 12 runs. Thus the kill repeats until the
+    /// group has no process.
     async fn stop(&mut self) -> bool {
+        let id = self.id;
         self.kill();
-        timeout(REAP_LIMIT, self.child.wait()).await.is_ok()
+        let gone = timeout(REAP_LIMIT, self.child.wait()).await.is_ok();
+        if let Some(id) = id {
+            kill_the_rest(id).await;
+        }
+        gone
+    }
+}
+
+/// Kills the processes that are in the group after the collect of its first process, until
+/// the system reports a group with no process.
+///
+/// The id of a group with a process cannot become the id of a new process. The id of an
+/// empty group can, but only after the system gave each other id to a new process. The first
+/// kill here follows the collect at once, so it reaches the old group or no process.
+async fn kill_the_rest(group: Pid) {
+    for _ in 0..REST_KILLS {
+        if killpg(group, Signal::SIGKILL).is_err() {
+            return;
+        }
+        sleep(REST_KILL_PAUSE).await;
     }
 }
 
@@ -259,5 +288,47 @@ mod tests {
             slowest
         });
         assert!(slowest < LONG / 2, "a short child needed {slowest:?}");
+    }
+
+    /// The exit hook of this shell writes the id of its process into a file and stays.
+    const SHELL_WITH_EXIT_HOOK: &str = r#"trap 'sh -c "echo \$\$ > \"\$HOOK_FILE\"; exec sleep 30"' EXIT; echo ready"#;
+
+    /// One run of the shell with the hook. The run ends when the output is complete, and
+    /// that is the moment at which the shell starts the process of its hook.
+    async fn run_with_exit_hook(hook_file: std::path::PathBuf) {
+        let mut shell = command(SHELL_WITH_EXIT_HOOK);
+        shell.env("HOOK_FILE", hook_file);
+        let limits = RunLimits { time: LONG, output_bytes: 1024 };
+        let output = run(shell, limits, |out| out.ends_with(b"ready\n")).await.expect("the child starts");
+        assert!(matches!(output.end, End::Complete) && output.stopped, "{:?}", output.end);
+    }
+
+    /// A process that a member of the group starts at the moment of the kill is not in the
+    /// group yet. One kill does not reach it, and it stays after the app is gone.
+    #[test]
+    fn the_stop_of_a_group_leaves_no_process_that_a_member_starts_at_that_moment() {
+        let folder = std::env::temp_dir().join(format!("fresnel-net-test-hook-{:08x}", fastrand::u32(..)));
+        std::fs::create_dir(&folder).expect("a new folder");
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(THREADS).enable_all().build();
+        runtime.expect("a runtime").block_on(async {
+            let mut runs = JoinSet::new();
+            for number in 0..THREADS * ROUNDS {
+                runs.spawn(run_with_exit_hook(folder.join(number.to_string())));
+            }
+            while let Some(done) = runs.join_next().await {
+                done.expect("no panic");
+            }
+            // A process that no kill reached writes its file a moment after its start.
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        });
+        let mut alive = 0;
+        for file in std::fs::read_dir(&folder).expect("the folder") {
+            let text = std::fs::read_to_string(file.expect("an entry").path()).expect("the file of a hook");
+            let hook = Pid::from_raw(text.trim().parse().expect("a process id"));
+            // The test ends a process that stayed, so that a failure leaves nothing.
+            alive += usize::from(nix::sys::signal::kill(hook, Signal::SIGKILL).is_ok());
+        }
+        std::fs::remove_dir_all(&folder).expect("the folder goes away");
+        assert_eq!(alive, 0, "processes of an exit hook stayed after the stop of their group");
     }
 }

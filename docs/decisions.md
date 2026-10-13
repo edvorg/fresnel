@@ -216,6 +216,13 @@ such pipe. In milestone M0, a test stayed 600 seconds in its spawn for this reas
 process module holds one lock for each spawn, and plugins that start at the same moment start
 one after the other.
 
+## The kill of a process group repeats until the group is empty
+
+A process that a member of a group starts at the moment of a kill is not in the group yet,
+and the kill does not reach it. The command of the exit hook of a login shell stayed for this
+reason after 2 of 12 test runs. Thus the process module kills the group again after it
+collected the first process, until the system reports a group with no process.
+
 ## hyper runs inside the task of the channel
 
 hyper gives the socket loop and the future of each request to an executor. The executor of
