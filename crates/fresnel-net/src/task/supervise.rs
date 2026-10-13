@@ -105,7 +105,9 @@ where
     }
 }
 
-pub(super) fn panic_message(panic: &(dyn Any + Send)) -> String {
+/// The message of a panic, for a report or for a state. A task that catches a panic of its
+/// own work uses it for the state that it shows before the panic goes on.
+pub fn panic_message(panic: &(dyn Any + Send)) -> String {
     if let Some(message) = panic.downcast_ref::<&str>() {
         (*message).to_owned()
     } else if let Some(message) = panic.downcast_ref::<String>() {

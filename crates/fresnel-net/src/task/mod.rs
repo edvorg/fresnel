@@ -28,6 +28,7 @@ use registry::Registry;
 pub use report::{Reporter, TaskReport};
 pub use status::{End, TaskId, TaskName, TaskState, TaskStatus};
 use supervise::Supervisor;
+pub use supervise::panic_message;
 pub use thread::Stop;
 
 /// What follows the end of one run of a task.
