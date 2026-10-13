@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{APP, Inner};
+use super::{APP, Inner, Phase};
 use crate::cluster::{ClusterId, Registry};
 use crate::error::CoreError;
 use crate::state_file::{self, SavedState};
@@ -78,7 +78,9 @@ impl Inner {
         let known = known_clusters(registry);
         let selected = {
             let mut state = self.state();
-            if state.saved != Saved::Changed {
+            // After the stop, the registry is empty, and a write would take each cluster
+            // for one that no kubeconfig file has.
+            if state.saved != Saved::Changed || state.phase == Phase::Stopped {
                 return Ok(());
             }
             state.saved = Saved::Current;

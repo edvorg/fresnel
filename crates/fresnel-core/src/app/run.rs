@@ -194,6 +194,11 @@ impl Inner {
         let clusters = registry.snapshot();
         let selected = {
             let mut state = self.state();
+            // The stop emptied the registry. With its empty list, the selection would lose
+            // each cluster. The phase changes before the registry, so this read is safe.
+            if state.phase == Phase::Stopped {
+                return Ok(());
+            }
             state.selected.retain(|id| clusters.iter().any(|cluster| &cluster.id == id));
             let selected = state.selected.clone();
             state.watchers.retain(|id, _| selected.contains(id));
@@ -250,6 +255,7 @@ mod tests {
     use tokio::runtime::Handle;
 
     use super::super::{Core, CoreParts, CoreSettings};
+    use crate::cluster::ClusterId;
     use crate::journal::Journal;
 
     /// The stop can come while the task of the core is between two waits. The task then
@@ -275,5 +281,34 @@ mod tests {
         assert!(read, "the start did read the file: {:?}", view.journal);
         assert_eq!(view.clusters.len(), 0, "the stop emptied the registry, and it stays empty");
         assert!(core.inner.state().monitor.is_none(), "a stopped core keeps no monitor");
+    }
+
+    /// The same for a command: the stop empties the registry, and a command that then
+    /// continues must not take that for a kubeconfig with no cluster. Before, it removed
+    /// each cluster from the selection and wrote an empty selection to the state file.
+    #[tokio::test]
+    async fn a_command_that_ends_after_the_stop_keeps_the_selection_and_writes_no_file() {
+        let home = Home::new("late-command", &["kubeconfig.yaml"]).expect("a home folder");
+        let text = "current-context: a\ncontexts:\n- {name: a, context: {cluster: none}}\n- {name: b, context: {}}\n";
+        home.write("work/kubeconfig.yaml", text).expect("the kubeconfig");
+        let core = Core::new(CoreParts {
+            runtime: Handle::current(),
+            base_env: home.finder_env(),
+            journal: Journal::new(100, WallClock::system()),
+            state_file: home.path("state/state.json"),
+            detectors: Vec::new(),
+            settings: CoreSettings::default(),
+        });
+        let inner = &core.inner;
+        let registry = inner.prepare().await.expect("the start");
+        let b = ClusterId::new("b");
+        inner.select(ClusterId::new("a"), false);
+        inner.select(b.clone(), true);
+
+        core.stop();
+        inner.reconcile(&registry).await.expect("the reconcile");
+        inner.save_selection(&registry).await.expect("no write");
+        assert_eq!(inner.state().selected.iter().collect::<Vec<_>>(), [&b], "the selection of the user");
+        assert!(!home.path("state/state.json").exists(), "a stopped core wrote the state file");
     }
 }
