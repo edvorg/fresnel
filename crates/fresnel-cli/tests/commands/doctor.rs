@@ -1,4 +1,4 @@
-//! Runs of the program against the fake API server.
+//! Runs of the `doctor` command against the fake API server.
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -88,7 +88,7 @@ async fn the_command_measures_a_cluster_with_the_environment_of_finder() {
         &kubeconfig(&home, &[("fake", proxy.addr(), &server, User::Plugin { token: "doctor" })]),
     );
 
-    let run = home.doctor(&["--context", "fake", "--samples", "8", "--connect-limit", "1"]).await;
+    let run = home.run("doctor", &["--context", "fake", "--samples", "8", "--connect-limit", "1"]).await;
     assert_eq!(run.status, Some(0), "stdout:\n{}\nstderr:\n{}", run.stdout, run.stderr);
     println!("{}", run.stdout);
     let report = home.json("fresnel-doctor.json");
@@ -172,7 +172,7 @@ async fn a_slow_plugin_costs_no_connection_and_the_idle_wait_sees_no_close() {
         &kubeconfig(&home, &[("fake", server.addr(), &server, User::Plugin { token: "doctor" })]),
     );
 
-    let run = home.doctor(&["--context", "fake", "--samples", "0", "--idle-close", "2"]).await;
+    let run = home.run("doctor", &["--context", "fake", "--samples", "0", "--idle-close", "2"]).await;
     assert_eq!(run.status, Some(0), "stdout:\n{}\nstderr:\n{}", run.stdout, run.stderr);
     let session = &home.json("fresnel-doctor.json")["clusters"][0]["result"]["session"];
     let channels = session["channels"].as_array().expect("the channels");
@@ -202,7 +202,7 @@ async fn a_server_that_refuses_each_connection_gives_its_report_with_no_wait() {
     home.write("work/kubeconfig.yaml", &kubeconfig(&home, &[("gone", gone, &server, User::None)]));
 
     let started = Instant::now();
-    let run = home.doctor(&["--context", "gone"]).await;
+    let run = home.run("doctor", &["--context", "gone"]).await;
     let elapsed = started.elapsed();
     assert_eq!(run.status, Some(1), "stdout:\n{}\nstderr:\n{}", run.stdout, run.stderr);
     assert!(elapsed < Duration::from_secs(10), "the run took {elapsed:?}:\n{}", run.stdout);
@@ -230,7 +230,7 @@ async fn a_plugin_that_hangs_shows_a_timeout_and_leaves_no_process() {
     home.write("state/mode", "hang\n");
 
     let started = Instant::now();
-    let run = home.doctor(&["--context", "fake", "--samples", "0", "--idle-close", "30"]).await;
+    let run = home.run("doctor", &["--context", "fake", "--samples", "0", "--idle-close", "30"]).await;
     let elapsed = started.elapsed();
     assert_eq!(run.status, Some(1), "stdout:\n{}\nstderr:\n{}", run.stdout, run.stderr);
     assert!((Duration::from_secs(20)..Duration::from_secs(25)).contains(&elapsed), "the run took {elapsed:?}");
@@ -262,7 +262,7 @@ async fn the_command_measures_each_selected_cluster_on_its_own_server() {
     let file = home.path("config.yaml").display().to_string();
 
     // With no selected context, the command lists the contexts and opens no connection.
-    let run = home.doctor(&["--kubeconfig", &file]).await;
+    let run = home.run("doctor", &["--kubeconfig", &file]).await;
     assert_eq!(run.status, Some(0), "{}", run.stderr);
     let expected = format!(
         "3 contexts in 1 kubeconfig file:\n  east  {}  no credential\n  west  {}  no credential\n  \
@@ -273,14 +273,15 @@ async fn the_command_measures_each_selected_cluster_on_its_own_server() {
     );
     assert_eq!(run.stdout, expected);
     assert_eq!((east.counters().connections, west.counters().connections), (0, 0));
-    let run = home.doctor(&["--kubeconfig", &file, "--context", "north"]).await;
+    let run = home.run("doctor", &["--kubeconfig", &file, "--context", "north"]).await;
     assert_eq!(run.status, Some(2));
     assert!(run.stderr.starts_with("the kubeconfig files have no context `north`\n\nusage: "), "{}", run.stderr);
     assert_eq!((east.counters().connections, west.counters().connections), (0, 0));
 
     let json = home.path("out.json").display().to_string();
-    let run =
-        home.doctor(&["--kubeconfig", &file, "--all", "--samples", "2", "--idle-close", "2", "--json", &json]).await;
+    let run = home
+        .run("doctor", &["--kubeconfig", &file, "--all", "--samples", "2", "--idle-close", "2", "--json", &json])
+        .await;
     assert_eq!(run.status, Some(1), "the context `token` gives no version:\n{}\n{}", run.stdout, run.stderr);
     let report = home.json("out.json");
     assert_eq!(report["kubeconfig"]["sources"], serde_json::json!([file]), "the option replaces the files of the user");
@@ -328,7 +329,7 @@ async fn a_plugin_that_fails_shows_its_text_at_the_terminal_and_not_in_the_file(
     );
     home.write("state/mode", "fail\n");
 
-    let run = home.doctor(&["--all", "--samples", "0"]).await;
+    let run = home.run("doctor", &["--all", "--samples", "0"]).await;
     assert_eq!(run.status, Some(1), "stdout:\n{}\nstderr:\n{}", run.stdout, run.stderr);
     let session = &home.json("fresnel-doctor.json")["clusters"][0]["result"]["session"];
     let failure = format!("credential plugin `{PLUGIN}`: stopped with exit status: 7");

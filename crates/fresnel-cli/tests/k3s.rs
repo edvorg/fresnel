@@ -4,7 +4,7 @@
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
-#[path = "doctor/home.rs"]
+#[path = "commands/home.rs"]
 mod home;
 
 use std::time::Duration;
@@ -50,7 +50,7 @@ async fn the_command_measures_a_real_kube_apiserver_through_the_fault_proxy() {
     home.write("work/token", token.trim());
 
     // The context of the cluster admin, with a client certificate.
-    let run = home.doctor(&["--context", "default", "--samples", "5"]).await;
+    let run = home.run("doctor", &["--context", "default", "--samples", "5"]).await;
     println!("{}", run.stdout);
     assert_eq!(run.status, Some(0), "stderr:\n{}", run.stderr);
     let report = home.json("fresnel-doctor.json");
@@ -81,7 +81,7 @@ async fn the_command_measures_a_real_kube_apiserver_through_the_fault_proxy() {
     // connection. The login shell gives the folder of the plugin and the kubeconfig.
     let json = home.path("plugin.json").display().to_string();
     let options = ["--context", "with-plugin", "--samples", "0", "--idle-close", "120", "--json", &json];
-    let run = home.doctor(&options).await;
+    let run = home.run("doctor", &options).await;
     println!("{}", run.stdout);
     assert_eq!(run.status, Some(0), "stderr:\n{}", run.stderr);
     let report = home.json("plugin.json");

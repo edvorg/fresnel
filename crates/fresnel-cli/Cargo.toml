@@ -22,8 +22,8 @@ fresnel-testkit.workspace = true
 tokio = { workspace = true, features = ["macros", "process"] }
 
 [[test]]
-name = "doctor"
-path = "tests/doctor/main.rs"
+name = "commands"
+path = "tests/commands/main.rs"
 
 [lints]
 workspace = true

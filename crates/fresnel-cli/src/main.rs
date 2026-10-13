@@ -1,6 +1,9 @@
 //! The command line program. It is for tests and for fault diagnosis.
 
+mod contexts;
 mod doctor;
+mod runtime;
+mod words;
 
 use std::process::ExitCode;
 
@@ -26,4 +29,15 @@ fn main() -> ExitCode {
             ExitCode::from(USAGE_ERROR)
         }
     }
+}
+
+/// Tells the problem of a command line with the usage of its command.
+fn usage_error(problem: &str, usage: &str) -> ExitCode {
+    eprintln!("{problem}\n\n{usage}");
+    ExitCode::from(USAGE_ERROR)
+}
+
+/// The error for a context that the user selected and that no kubeconfig file has.
+fn no_context(name: &str, usage: &str) -> ExitCode {
+    usage_error(&format!("the kubeconfig files have no context `{name}`"), usage)
 }

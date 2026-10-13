@@ -24,47 +24,22 @@ use fresnel_core::net::NetSettings;
 use fresnel_core::net::credential::PluginSpec;
 use fresnel_core::net::env::{self, EnvSettings, EnvSource, Environment, ProcessEnv};
 use fresnel_core::net::task::{TaskReport, Tasks};
-use tokio::runtime::{Builder, Handle, Runtime};
+use tokio::runtime::Handle;
 
-use args::{Options, Selection};
+use args::Options;
 use report::{Measured, Report, Step, ms};
+
+use crate::contexts;
 
 /// The margin above the time limit of the plugin, for the wait for the first token.
 const CREDENTIAL_MARGIN: Duration = Duration::from_secs(2);
-/// The longest wait for the tasks of the runtime at the end of the command. The tasks of a
-/// cluster end at once, and a task ends the process of its plugin.
-const EXIT_LIMIT: Duration = Duration::from_secs(1);
 
 /// Runs the command. The exit status is 0 when each selected cluster gave its version.
 pub(crate) fn run(arguments: &[String]) -> ExitCode {
-    let options = match args::parse(arguments) {
-        Ok(options) => options,
-        Err(problem) => return usage_error(&problem),
-    };
-    let runtime = match Builder::new_multi_thread().worker_threads(2).enable_all().build() {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            eprintln!("cannot start the runtime: {error}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let status = runtime.block_on(examine(&options, runtime.handle()));
-    stop(runtime);
-    status
-}
-
-/// Stops the runtime at the end of the command.
-///
-/// The drop of a runtime waits for each blocking call with no limit. An address lookup of
-/// the system is such a call: it cannot be stopped, and it can need 30 seconds on a network
-/// with no name server. The command has its report then, so it does not wait for the call.
-fn stop(runtime: Runtime) {
-    runtime.shutdown_timeout(EXIT_LIMIT);
-}
-
-fn usage_error(problem: &str) -> ExitCode {
-    eprintln!("{problem}\n\n{}", args::USAGE);
-    ExitCode::from(crate::USAGE_ERROR)
+    match args::parse(arguments) {
+        Ok(options) => crate::runtime::run(|runtime| async move { examine(&options, &runtime).await }),
+        Err(problem) => crate::usage_error(&problem, args::USAGE),
+    }
 }
 
 async fn examine(options: &Options, runtime: &Handle) -> ExitCode {
@@ -76,16 +51,13 @@ async fn examine(options: &Options, runtime: &Handle) -> ExitCode {
         given => given.to_vec(),
     };
     let loaded = kubeconfig::load(&sources);
-    let selected: Vec<&Context> = match &options.selection {
-        Selection::List => {
-            print!("{}", text::contexts(&loaded));
+    let selected = match contexts::selected(&loaded, &options.selection) {
+        Ok(Some(selected)) => selected,
+        Ok(None) => {
+            print!("{}", contexts::list(&loaded));
             return ExitCode::SUCCESS;
         }
-        Selection::All => loaded.contexts.iter().collect(),
-        Selection::Names(names) => match named(&loaded.contexts, names) {
-            Ok(contexts) => contexts,
-            Err(name) => return usage_error(&format!("the kubeconfig files have no context `{name}`")),
-        },
+        Err(name) => return crate::no_context(name, args::USAGE),
     };
     let (clusters, task_reports) = measure(&selected, &loaded, &base, &environment.vars, options, runtime).await;
     let report = Report {
@@ -166,13 +138,6 @@ fn answered(cluster: &report::Cluster) -> bool {
     matches!(session.version, Step::Done(_))
 }
 
-/// The contexts with these names, in the sequence of the names. The error is a name with
-/// no context.
-fn named<'a>(contexts: &'a [Context], names: &'a [String]) -> Result<Vec<&'a Context>, &'a str> {
-    let find = |name: &'a String| contexts.iter().find(|context| &context.name == name).ok_or(name.as_str());
-    names.iter().map(find).collect()
-}
-
 /// The settings of the app. For the idle close measurement, the channels for log streams
 /// send no light request: such a channel is idle after its first answer.
 fn settings(options: &Options) -> NetSettings {
@@ -238,7 +203,7 @@ async fn cluster(
     report::Cluster {
         context: name,
         server: Some(access.server.to_string()),
-        auth: Some(text::auth(&access.auth())),
+        auth: Some(contexts::auth(&access.auth())),
         plugin: access.plugin().map(|plugin| plugin_report(plugin, base, resolved)),
         result,
     }
@@ -270,34 +235,5 @@ mod tests {
         assert_eq!(idle.logs.light_period, Duration::MAX);
         let logs = NetSettings::default().logs;
         assert_eq!(NetSettings { logs, ..idle }, NetSettings::default(), "no other setting changes");
-    }
-
-    #[test]
-    fn the_end_of_the_command_does_not_wait_for_a_blocking_call() {
-        let runtime = Builder::new_multi_thread().worker_threads(1).enable_all().build().expect("a runtime");
-        let (started, runs) = std::sync::mpsc::channel();
-        let call = runtime.spawn_blocking(move || {
-            started.send(()).expect("the test waits for this");
-            std::thread::sleep(4 * EXIT_LIMIT);
-        });
-        runs.recv().expect("the blocking call runs");
-        let stopped = Instant::now();
-        stop(runtime);
-        assert!(stopped.elapsed() < 2 * EXIT_LIMIT, "the stop took {:?}", stopped.elapsed());
-        drop(call);
-    }
-
-    #[test]
-    fn the_selected_contexts_come_in_the_sequence_of_their_names() {
-        let path = std::env::temp_dir().join(format!("fresnel-cli-test-named-{}.yaml", std::process::id()));
-        std::fs::write(&path, "contexts:\n- name: a\n- name: b\n- name: c\n").expect("a file of the test");
-        let contexts = kubeconfig::load(std::slice::from_ref(&path)).contexts;
-        std::fs::remove_file(&path).expect("the file goes");
-        let names = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
-        let picked = names(&["c", "a"]);
-        let selected = named(&contexts, &picked).expect("two contexts");
-        assert_eq!(selected.iter().map(|context| context.name.as_str()).collect::<Vec<_>>(), ["c", "a"]);
-        let unknown = names(&["a", "x"]);
-        assert_eq!(named(&contexts, &unknown).err(), Some("x"));
     }
 }

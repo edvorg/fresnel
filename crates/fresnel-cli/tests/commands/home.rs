@@ -42,14 +42,14 @@ impl Home {
         serde_json::from_str(&self.read(file)).expect("the JSON report")
     }
 
-    /// Runs `fresnel-cli doctor` in this home folder, with the environment of Finder.
-    pub(crate) async fn doctor(&self, arguments: &[&str]) -> Run {
+    /// Runs one command of `fresnel-cli` in this home folder, with the environment of Finder.
+    pub(crate) async fn run(&self, command_name: &str, arguments: &[&str]) -> Run {
         let folder = self.0.folder();
         let mut command = Command::new("/usr/bin/env");
         command
             .args(["-i", &format!("HOME={}", folder.display()), &format!("PATH={FINDER_PATH}")])
             .arg(env!("CARGO_BIN_EXE_fresnel-cli"))
-            .arg("doctor")
+            .arg(command_name)
             .args(arguments)
             .current_dir(folder)
             .stdin(Stdio::null())

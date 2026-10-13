@@ -1,26 +1,13 @@
 //! The text report of the `doctor` command, for the terminal.
 
-use fresnel_core::kubeconfig::{AuthKind, Kubeconfig};
-
 use super::report::{Cluster, Connects, Credential, IdleClose, Measured, Plugin, Report, Session, Step, Summary};
+use crate::words::{count, size};
 
 /// The width of the label at the start of each line of a cluster.
 const LABEL: usize = 14;
 
 fn line(label: &str, text: impl AsRef<str>) -> String {
     format!("  {label:<LABEL$}{}", text.as_ref())
-}
-
-/// A count with its noun: "1 context", "3 contexts".
-fn count(number: impl Into<u64>, noun: &str) -> String {
-    match number.into() {
-        1 => format!("1 {noun}"),
-        number => format!("{number} {noun}s"),
-    }
-}
-
-fn size(length: usize, noun: &str) -> String {
-    count(u64::try_from(length).unwrap_or(u64::MAX), noun)
 }
 
 /// The smallest, the middle and the largest time.
@@ -37,31 +24,6 @@ fn step<T>(step: &Step<T>, text: impl FnOnce(&T) -> String) -> String {
         Step::Done(value) => text(value),
         Step::Failed { error } => format!("failed: {error}"),
     }
-}
-
-/// The text of the credential of a context, for the list and for the report.
-pub(super) fn auth(kind: &AuthKind) -> String {
-    match kind {
-        AuthKind::Plugin(command) => format!("plugin {command}"),
-        AuthKind::Certificate => "client certificate".to_owned(),
-        AuthKind::Anonymous => "no credential".to_owned(),
-    }
-}
-
-/// The list of the contexts, for a run with no selected context.
-pub(super) fn contexts(kubeconfig: &Kubeconfig) -> String {
-    let files = size(kubeconfig.sources.len() - kubeconfig.absent.len(), "kubeconfig file");
-    let mut lines = vec![format!("{} in {files}:", size(kubeconfig.contexts.len(), "context"))];
-    for context in &kubeconfig.contexts {
-        lines.push(match &context.access {
-            Ok(access) => format!("  {}  {}  {}", context.name, access.server, auth(&access.auth())),
-            Err(error) => format!("  {}  not usable: {error}", context.name),
-        });
-    }
-    let problems = kubeconfig.problems.iter();
-    lines.extend(problems.map(|problem| format!("problem: {}: {}", problem.path.display(), problem.text)));
-    lines.push("Select a context with --context <name>, or each context with --all.".to_owned());
-    lines.join("\n") + "\n"
 }
 
 /// The full report.

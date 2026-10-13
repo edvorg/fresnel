@@ -3,6 +3,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::contexts::{Picker, Selection};
+
 pub(super) const USAGE: &str = "\
 usage: fresnel-cli doctor [options]
 
@@ -22,15 +24,6 @@ options:
 const MAX_SAMPLES: usize = 1000;
 const MAX_CONNECT_LIMIT: u64 = 60;
 const MAX_IDLE_CLOSE: u64 = 3600;
-
-/// Which contexts the command examines.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum Selection {
-    /// None: the command lists the contexts.
-    List,
-    All,
-    Names(Vec<String>),
-}
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Options {
@@ -53,14 +46,14 @@ pub(super) fn parse(arguments: &[String]) -> Result<Options, String> {
         idle_close: None,
         json: PathBuf::from("fresnel-doctor.json"),
     };
-    let (mut names, mut all) = (Vec::new(), false);
+    let mut picker = Picker::default();
     let mut rest = arguments.iter();
     while let Some(option) = rest.next() {
         let mut value = || rest.next().ok_or_else(|| format!("the option {option} needs a value"));
         match option.as_str() {
-            "--all" => all = true,
-            "--context" => names.push(value()?.clone()),
-            "--kubeconfig" => options.kubeconfig.push(PathBuf::from(value()?)),
+            "--all" => picker.all(),
+            "--context" => picker.context(value()?),
+            "--kubeconfig" => picker.kubeconfig(value()?),
             "--json" => options.json = PathBuf::from(value()?),
             "--samples" => options.samples = number(option, value()?, 0, MAX_SAMPLES)?,
             "--connect-limit" => options.connect_limit = seconds(option, value()?, MAX_CONNECT_LIMIT)?,
@@ -68,12 +61,7 @@ pub(super) fn parse(arguments: &[String]) -> Result<Options, String> {
             other => return Err(format!("`{other}` is not an option of the command")),
         }
     }
-    options.selection = match (all, names.is_empty()) {
-        (true, false) => return Err("use --all or --context, not the two".to_owned()),
-        (true, true) => Selection::All,
-        (false, false) => Selection::Names(names),
-        (false, true) => Selection::List,
-    };
+    (options.kubeconfig, options.selection) = picker.finish()?;
     Ok(options)
 }
 
