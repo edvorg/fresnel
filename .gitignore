@@ -1,3 +1,5 @@
 /target
 .DS_Store
 .idea/
+# The report of `fresnel-cli doctor`. It has the addresses of the clusters of the user.
+/fresnel-doctor.json
