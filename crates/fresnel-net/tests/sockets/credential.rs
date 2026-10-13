@@ -195,6 +195,45 @@ async fn an_http_401_of_one_path_does_not_change_other_requests() {
     assert_eq!(proof.bearer(), Some("path-2"), "the proof used the new token on a core path");
 }
 
+/// Plan section 13.3: the server refuses each token for a time, as an API server whose
+/// token check does not work for some seconds. The requests work again with no action of
+/// the user, and no channel loses its connection.
+#[tokio::test]
+async fn after_an_http_401_outage_that_ends_by_itself_the_requests_work_again_on_the_same_connections() {
+    let tasks = TestTasks::new();
+    let server = FakeApiServer::start().await.expect("a server");
+    server.end_anonymous_connections();
+    let state = Scratch::new("plugin-401-outage");
+    let cluster = Cluster::start(&tasks.tasks, with_plugin("outage", &server, &state)).expect("a cluster");
+    until_live(&cluster).await;
+
+    server.add_fault(Fault::unauthorized().for_time(3 * SECOND));
+    let outage = Instant::now();
+    let error = fetch(&cluster, RequestKind::Get, "/api/v1/pods").await.expect_err("the server refuses each token");
+    assert_eq!(
+        (error.class(), error.to_string().as_str()),
+        (ErrorClass::Auth, "the server refused a new token of the credential plugin (HTTP 401)")
+    );
+
+    // The plugin runs again by itself after each pause. A token of a run during the outage
+    // is refused too, and the credential then fails again.
+    let recovered = async {
+        loop {
+            until_valid(&cluster).await;
+            if matches!(fetch(&cluster, RequestKind::Get, "/api/v1/pods").await, Ok((StatusCode::OK, _))) {
+                return;
+            }
+        }
+    };
+    crate::common::in_time("a request works after the outage", recovered).await;
+    let needed = outage.elapsed();
+    assert!(3 * SECOND <= needed && needed < 10 * SECOND, "the requests worked again after {needed:?}");
+    let (runs, _refusals, proofs) = counts(&cluster);
+    assert!((3..=5).contains(&runs) && (1..=3).contains(&proofs), "{runs} plugin runs and {proofs} proofs");
+    assert_eq!(server.counters().connections, 3, "a channel lost its connection in the outage");
+    assert!(server.requests().iter().all(|request| request.bearer().is_some()), "a request had no token");
+}
+
 /// The rule before the proof: one HTTP 401, one plugin run, and the request goes out again.
 #[tokio::test]
 async fn a_refused_token_costs_one_plugin_run_and_no_failed_request() {
