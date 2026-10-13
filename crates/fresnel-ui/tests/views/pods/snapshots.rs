@@ -1,12 +1,9 @@
 //! PNG files of the Pods view in the dark theme, for a look by a person.
 
-use std::sync::Arc;
-
 use egui_kittest::kittest::Queryable as _;
 use fresnel_core::store::{StoreState, Wait};
-use k8s_openapi::api::core::v1::Pod;
 
-use crate::data::{cluster, empty_store, live, pods};
+use crate::data::{cluster, empty_store, live, many_pods, pods};
 use crate::fake::{SECOND, Window, connected, live_status, now, open_tab, until, view, window_with};
 use crate::pods::scenes::{pods_of, session};
 use crate::snapshots::{SCALE, save};
@@ -67,16 +64,7 @@ fn the_first_lists_of_three_clusters_with_no_row_yet() {
 
 #[test]
 fn ten_thousand_pods_of_one_cluster() {
-    let scene = pods();
-    let copy = |number: usize| {
-        let mut pod = Pod::clone(&scene[number % scene.len()]);
-        let name = pod.metadata.name.take().unwrap_or_default();
-        pod.metadata.name = Some(format!("{name}-{number:05}"));
-        pod.metadata.uid = Some(format!("uid-{number:05}"));
-        pod.metadata.namespace = Some(format!("team-{:02}", number / scene.len() % 20));
-        Arc::new(pod)
-    };
-    let many: Vec<Arc<Pod>> = (0..10_000).map(copy).collect();
+    let many = many_pods(10_000);
     let mut window = window_with(view(vec![live("ams-prod", &many)]), egui::Theme::Dark, SCALE);
     save(&mut window, "pods-10000");
 }

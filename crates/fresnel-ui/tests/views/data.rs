@@ -87,6 +87,21 @@ pub(crate) fn renamed(pod: &Pod, name: &str, uid: &str) -> Arc<Pod> {
     })
 }
 
+/// Many pods: copies of the pods of the scene, each with a name and a UID of its own, in
+/// 20 namespaces.
+pub(crate) fn many_pods(count: usize) -> Vec<Arc<Pod>> {
+    let scene = pods();
+    let copy = |number: usize| {
+        let mut pod = Pod::clone(&scene[number % scene.len()]);
+        let name = pod.metadata.name.take().unwrap_or_default();
+        pod.metadata.name = Some(format!("{name}-{number:05}"));
+        pod.metadata.uid = Some(format!("uid-{number:05}"));
+        pod.metadata.namespace = Some(format!("team-{:02}", number / scene.len() % 20));
+        Arc::new(pod)
+    };
+    (0..count).map(copy).collect()
+}
+
 /// The snapshot of a store after a complete list. A live store got its last data 3 s
 /// before now, and each other store 48 s before now, at 07:59:12.
 pub(crate) fn store<T: fresnel_core::kinds::Object>(state: StoreState, objects: &[Arc<T>]) -> Snapshot<T> {

@@ -6,8 +6,9 @@
 //! This crate uses the object types of `k8s-openapi` and never the types of kube. Thus a
 //! kube upgrade does not change the UI.
 //!
-//! - `shell`: the layout of the window. `views`: the content of each tab.
-//! - `widgets`: small parts. `theme`: colors and sizes. `format`: texts for numbers and times.
+//! - `shell`: the layout of the window. `views`: the pages of the center and the tabs of
+//!   the dock. `widgets`: the table and small parts.
+//! - `theme`: colors and sizes. `format`: texts for numbers and times.
 
 #![deny(
     clippy::indexing_slicing,

@@ -18,7 +18,7 @@ use egui::{Event, Modifiers, MouseWheelUnit, TouchPhase};
 use egui_kittest::kittest::Queryable as _;
 use k8s_openapi::api::core::v1::Pod;
 
-use crate::data::{live, pods};
+use crate::data::{live, many_pods};
 use crate::fake::{Window, shows, view, window_with_no_gpu};
 use crate::pods::column;
 
@@ -27,20 +27,6 @@ const LIMIT: Duration = Duration::from_millis(16);
 const PODS: usize = 10_000;
 /// The longest wait for the rows of the worker thread.
 const ROWS_LIMIT: Duration = Duration::from_secs(60);
-
-/// 10,000 pods: 400 copies of each pod of the scene, in 20 namespaces.
-fn many_pods() -> Vec<Arc<Pod>> {
-    let scene = pods();
-    let copy = |number: usize| {
-        let mut pod = Pod::clone(&scene[number % scene.len()]);
-        let name = pod.metadata.name.take().unwrap_or_default();
-        pod.metadata.name = Some(format!("{name}-{number:05}"));
-        pod.metadata.uid = Some(format!("uid-{number:05}"));
-        pod.metadata.namespace = Some(format!("team-{:02}", number / scene.len() % 20));
-        Arc::new(pod)
-    };
-    (0..PODS).map(copy).collect()
-}
 
 /// The times of the frames of one step of the test.
 struct Step {
@@ -113,7 +99,7 @@ fn first(window: &Window, title: &str) -> Option<String> {
 
 #[test]
 fn a_frame_with_10_000_pods_takes_16_ms_or_less_during_scroll_sort_and_filter() {
-    let all = many_pods();
+    let all = many_pods(PODS);
     let mut window = window_with_no_gpu(view(vec![live("ams-prod", &all)]), 2.0);
     assert!(shows(&window, "10,000 pods"));
     let mut warm = Step::new("the first frames");
