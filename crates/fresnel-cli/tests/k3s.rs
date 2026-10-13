@@ -116,3 +116,34 @@ async fn the_command_measures_a_real_kube_apiserver_through_the_fault_proxy() {
     }
     assert_eq!(proxy.task_failures(), Vec::<String>::new());
 }
+
+/// The count of objects in the line of one kind of a report of the `watch` command.
+fn objects(report: &str, kind: &str) -> usize {
+    let line = report.lines().find(|line| line.split_whitespace().next() == Some(kind));
+    let count = line.and_then(|line| line.split_whitespace().nth(2)).and_then(|count| count.parse().ok());
+    count.unwrap_or_else(|| panic!("a line for {kind} in:\n{report}"))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs k3s in Docker"]
+async fn the_watch_command_shows_each_store_of_a_real_cluster() {
+    let k3s = K3s::start("watch").await.expect("k3s starts");
+    let home = Home::new("k3s-watch", &["kubeconfig.yaml"]);
+    home.write("work/kubeconfig.yaml", &std::fs::read_to_string(k3s.kubeconfig()).expect("the kubeconfig"));
+    k3s.kubectl(&["create", "secret", "generic", "made", "--from-literal=password=fresnel-test-value"])
+        .await
+        .expect("a secret");
+
+    let run = home.run("watch", &["--context", "default", "--interval", "5", "--for", "10"]).await;
+    println!("{}", run.stdout);
+    assert_eq!(run.status, Some(0), "stderr:\n{}", run.stderr);
+    let report = &run.stdout[run.stdout.rfind("fresnel-cli watch, ").expect("a report")..];
+    let headline = report.lines().nth(2).expect("the line of the cluster");
+    assert!(headline.starts_with("cluster default: 39 of 39 stores live, "), "{headline}");
+    assert!(headline.ends_with(" objects, 3 connections, 39 watch streams"), "{headline}");
+    assert_eq!(objects(report, "Node"), 1);
+    assert!(objects(report, "Namespace") >= 4 && objects(report, "Secret") >= 1, "{report}");
+    // The command reads the metadata of a Secret only, and it prints no object.
+    assert!(!run.stdout.contains("fresnel-test-value") && !run.stderr.contains("fresnel-test-value"));
+    assert_eq!(run.stderr, "", "no task of the app ended");
+}

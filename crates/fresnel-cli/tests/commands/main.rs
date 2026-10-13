@@ -8,3 +8,4 @@
 
 mod doctor;
 mod home;
+mod watch;
