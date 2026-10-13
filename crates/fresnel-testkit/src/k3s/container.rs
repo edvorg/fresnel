@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use tokio::time::{Instant, sleep};
 
-use super::docker::{docker, docker_blocking};
+use super::docker::{docker, docker_blocking, docker_with_errors};
 use super::network::Network;
 use crate::KitError;
 
@@ -17,6 +17,8 @@ const READY_LIMIT: Duration = Duration::from_secs(180);
 const READY_STEP: Duration = Duration::from_millis(250);
 /// Without a limit, `kubectl` can wait with no end for a server that starts.
 const READY_REQUEST_LIMIT: &str = "--request-timeout=5s";
+/// The count of the last lines of k3s in the error of a cluster that stopped.
+const LOG_LINES: &str = "30";
 /// The seconds that Docker waits for the end of k3s before it kills the process.
 const STOP_SECONDS: &str = "3";
 
@@ -66,17 +68,33 @@ impl Container {
 
     /// Runs a `kubectl` command again and again until it works. `problem` is the text of
     /// the error at the time limit.
+    ///
+    /// k3s can stop with an error, also after its API server was ready. A wait for a
+    /// container that is gone would only cost its limit and hide the cause, so the error
+    /// then comes at once, with the last lines that k3s wrote.
     async fn wait_for(&self, problem: &str, kubectl: &[&str]) -> Result<(), KitError> {
         let limit = Instant::now() + READY_LIMIT;
         loop {
-            match self.exec(&[&["kubectl"], kubectl, &[READY_REQUEST_LIMIT]].concat()).await {
+            let error = match self.exec(&[&["kubectl"], kubectl, &[READY_REQUEST_LIMIT]].concat()).await {
                 Ok(_) => return Ok(()),
-                Err(error) if Instant::now() >= limit => {
-                    return Err(KitError::because(format!("{}: {problem} after {READY_LIMIT:?}", self.name), error));
-                }
-                Err(_not_ready_yet) => sleep(READY_STEP).await,
+                Err(error) => error,
+            };
+            if !self.is_running().await {
+                let lines = docker_with_errors(&["logs", "--tail", LOG_LINES, &self.name]).await;
+                let lines = lines.unwrap_or_else(|error| format!("no log: {error}"));
+                return Err(KitError::new(format!("{}: k3s stopped. Its last lines:\n{lines}", self.name)));
             }
+            if Instant::now() >= limit {
+                return Err(KitError::because(format!("{}: {problem} after {READY_LIMIT:?}", self.name), error));
+            }
+            sleep(READY_STEP).await;
         }
+    }
+
+    /// True while the process of k3s runs in the container.
+    async fn is_running(&self) -> bool {
+        let state = docker(&["inspect", "--format", "{{.State.Running}}", &self.name]).await;
+        state.is_ok_and(|state| state.trim() == "true")
     }
 
     pub(super) async fn restart(&self) -> Result<(), KitError> {
