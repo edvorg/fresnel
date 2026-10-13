@@ -1,0 +1,361 @@
+# The scene of the index tests: one object for each relation and each state that the
+# indexes, the Pod status text and the health values must read. `scene.rs` creates it on
+# k3s, and the fixture of the unit tests is a copy of the result.
+#
+# Each container uses one of two images. A pod that only has to run uses the pause image,
+# which k3s has for its own pods. A pod that has to end or to fail uses busybox.
+apiVersion: v1
+kind: Namespace
+metadata: {name: scene}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: web-config, namespace: scene}
+data: {greeting: hello}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: web-secret, namespace: scene}
+stringData: {password: not-a-secret}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: web, namespace: scene}
+---
+# Two pods that use a ConfigMap as a volume and in a projected volume, a Secret in the
+# environment, a ServiceAccount and an image pull Secret. `web-env`, `web-tls` and
+# `registry-key` do not exist: a reference needs no object.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: scene}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: web}}
+  template:
+    metadata: {labels: {app: web}}
+    spec:
+      serviceAccountName: web
+      imagePullSecrets: [{name: registry-key}]
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: web
+          image: rancher/mirrored-pause:3.6
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 80}]
+          env:
+            - name: PASSWORD
+              valueFrom: {secretKeyRef: {name: web-secret, key: password}}
+          envFrom:
+            - configMapRef: {name: web-env, optional: true}
+          volumeMounts: [{name: config, mountPath: /config}]
+      volumes:
+        - name: config
+          configMap: {name: web-config}
+        - name: mixed
+          projected:
+            sources:
+              - secret: {name: web-tls, optional: true}
+              - configMap: {name: web-config}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: scene}
+spec:
+  selector: {app: web}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+# No load balancer runs in the test cluster, so this Service waits for its address.
+apiVersion: v1
+kind: Service
+metadata: {name: public, namespace: scene}
+spec:
+  type: LoadBalancer
+  selector: {app: web}
+  ports: [{port: 80, targetPort: http}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: outside, namespace: scene}
+spec:
+  type: ExternalName
+  externalName: example.invalid
+---
+apiVersion: v1
+kind: Service
+metadata: {name: nobody, namespace: scene}
+spec:
+  selector: {app: no-such-app}
+  ports: [{port: 80}]
+---
+# Three pods with no owner are behind this Service: one is ready, one is not ready, and
+# one ends.
+apiVersion: v1
+kind: Service
+metadata: {name: mixed, namespace: scene}
+spec:
+  selector: {scene/mixed: "true"}
+  ports: [{port: 80}]
+---
+# The image does not exist: the pod never starts, and the rollout fails at its deadline.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: broken, namespace: scene}
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 5
+  selector: {matchLabels: {app: broken}}
+  template:
+    metadata: {labels: {app: broken}}
+    spec:
+      containers:
+        - name: broken
+          image: registry.invalid/fresnel/no-such-image:1
+---
+apiVersion: v1
+kind: Service
+metadata: {name: db, namespace: scene}
+spec:
+  clusterIP: None
+  selector: {app: db}
+  ports: [{port: 5432}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: db, namespace: scene}
+spec:
+  serviceName: db
+  replicas: 2
+  selector: {matchLabels: {app: db}}
+  template:
+    metadata: {labels: {app: db}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: db
+          image: rancher/mirrored-pause:3.6
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: agent, namespace: scene}
+spec:
+  selector: {matchLabels: {app: agent}}
+  template:
+    metadata: {labels: {app: agent}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: agent
+          image: rancher/mirrored-pause:3.6
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: once, namespace: scene}
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - {name: once, image: "rancher/mirrored-library-busybox:1.36.1", command: ["true"]}
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: fails, namespace: scene}
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - {name: fails, image: "rancher/mirrored-library-busybox:1.36.1", command: [sh, -c, "exit 1"]}
+---
+# The schedule is one time in a year, so the only Job of this CronJob is the one that the
+# scene makes by hand, as `kubectl create job --from` does.
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: tick, namespace: scene}
+spec:
+  schedule: "0 0 1 1 *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - {name: tick, image: "rancher/mirrored-library-busybox:1.36.1", command: ["true"]}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: paused, namespace: scene}
+spec:
+  schedule: "0 0 1 1 *"
+  suspend: true
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - {name: paused, image: "rancher/mirrored-library-busybox:1.36.1", command: ["true"]}
+---
+# Bad data of a cluster: the scene makes these two Jobs the owner of each other. The API
+# server takes that. `loop-a` has one pod, and `loop-b` starts none.
+apiVersion: batch/v1
+kind: Job
+metadata: {name: loop-a, namespace: scene}
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - {name: loop, image: "rancher/mirrored-library-busybox:1.36.1", command: ["true"]}
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: loop-b, namespace: scene}
+spec:
+  suspend: true
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - {name: loop, image: "rancher/mirrored-library-busybox:1.36.1", command: ["true"]}
+---
+# The pods below have no owner. Each one stops in one state of the kubectl status rule.
+apiVersion: v1
+kind: Pod
+metadata: {name: crash, namespace: scene}
+spec:
+  containers:
+    - {name: crash, image: "rancher/mirrored-library-busybox:1.36.1", command: [sh, -c, "exit 1"]}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: done, namespace: scene}
+spec:
+  restartPolicy: Never
+  containers:
+    - {name: done, image: "rancher/mirrored-library-busybox:1.36.1", command: ["true"]}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: failed, namespace: scene}
+spec:
+  restartPolicy: Never
+  containers:
+    - {name: failed, image: "rancher/mirrored-library-busybox:1.36.1", command: [sh, -c, "exit 3"]}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: init-error, namespace: scene}
+spec:
+  restartPolicy: Never
+  initContainers:
+    - {name: setup, image: "rancher/mirrored-library-busybox:1.36.1", command: [sh, -c, "exit 1"]}
+  containers:
+    - {name: main, image: "rancher/mirrored-pause:3.6", imagePullPolicy: IfNotPresent}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: init-crash, namespace: scene}
+spec:
+  initContainers:
+    - {name: setup, image: "rancher/mirrored-library-busybox:1.36.1", command: [sh, -c, "exit 1"]}
+  containers:
+    - {name: main, image: "rancher/mirrored-pause:3.6", imagePullPolicy: IfNotPresent}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: init-wait, namespace: scene}
+spec:
+  terminationGracePeriodSeconds: 1
+  initContainers:
+    - {name: first, image: "rancher/mirrored-library-busybox:1.36.1", command: ["true"]}
+    - {name: second, image: "rancher/mirrored-library-busybox:1.36.1", command: [sleep, "86400"]}
+  containers:
+    - {name: main, image: "rancher/mirrored-pause:3.6", imagePullPolicy: IfNotPresent}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: unschedulable, namespace: scene}
+spec:
+  nodeSelector: {fresnel.test/no-such-node: "true"}
+  containers:
+    - {name: main, image: "rancher/mirrored-pause:3.6", imagePullPolicy: IfNotPresent}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: gated, namespace: scene}
+spec:
+  schedulingGates: [{name: fresnel.test/gate}]
+  containers:
+    - {name: main, image: "rancher/mirrored-pause:3.6", imagePullPolicy: IfNotPresent}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: no-config, namespace: scene}
+spec:
+  containers:
+    - name: main
+      image: rancher/mirrored-pause:3.6
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: GREETING
+          valueFrom: {configMapKeyRef: {name: no-such-config, key: greeting}}
+---
+# An init container with the restart policy `Always` runs for the life of the pod, and
+# kubectl counts it as a container.
+apiVersion: v1
+kind: Pod
+metadata: {name: sidecar, namespace: scene, labels: {scene/mixed: "true"}}
+spec:
+  terminationGracePeriodSeconds: 1
+  initContainers:
+    - {name: helper, image: "rancher/mirrored-pause:3.6", imagePullPolicy: IfNotPresent, restartPolicy: Always}
+  containers:
+    - {name: main, image: "rancher/mirrored-pause:3.6", imagePullPolicy: IfNotPresent}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: not-ready, namespace: scene, labels: {scene/mixed: "true"}}
+spec:
+  terminationGracePeriodSeconds: 1
+  containers:
+    - name: main
+      image: rancher/mirrored-library-busybox:1.36.1
+      command: [sleep, "86400"]
+      readinessProbe:
+        exec: {command: ["false"]}
+        periodSeconds: 1
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: half-done, namespace: scene}
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  containers:
+    - {name: worker, image: "rancher/mirrored-library-busybox:1.36.1", command: ["true"]}
+    - {name: main, image: "rancher/mirrored-pause:3.6", imagePullPolicy: IfNotPresent}
+---
+# The shell ignores the signal of a delete, and the pod has a day to end: after its delete,
+# the pod stays in the state `Terminating`.
+apiVersion: v1
+kind: Pod
+metadata: {name: leaving, namespace: scene, labels: {scene/mixed: "true"}}
+spec:
+  terminationGracePeriodSeconds: 86400
+  containers:
+    - name: main
+      image: rancher/mirrored-library-busybox:1.36.1
+      command: [sh, -c, "trap '' TERM; while true; do sleep 1; done"]
+---
+# A namespace that cannot end: the scene deletes it, and the finalizer holds its ConfigMap.
+apiVersion: v1
+kind: Namespace
+metadata: {name: scene-ending}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: held, namespace: scene-ending, finalizers: [fresnel.test/hold]}

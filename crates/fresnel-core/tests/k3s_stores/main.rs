@@ -16,5 +16,6 @@ mod breaks;
 #[path = "../common/mod.rs"]
 mod common;
 mod faults;
+mod indexes;
 #[path = "../common/stores.rs"]
 mod store_bed;

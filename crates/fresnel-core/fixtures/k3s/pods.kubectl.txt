@@ -1,0 +1,25 @@
+kube-system   coredns-64fd4b4794-6lsjp                  1/1   Running                      0             51s
+kube-system   local-path-provisioner-774c6665dc-zlbfm   1/1   Running                      0             51s
+scene         agent-8djvd                               1/1   Running                      0             51s
+scene         broken-6bf768c954-gjvsw                   0/1   ImagePullBackOff             0             51s
+scene         crash                                     0/1   CrashLoopBackOff             2 (27s ago)   51s
+scene         db-0                                      1/1   Running                      0             51s
+scene         db-1                                      1/1   Running                      0             45s
+scene         done                                      0/1   Completed                    0             51s
+scene         failed                                    0/1   Error                        0             51s
+scene         fails-l8dvz                               0/1   Error                        0             51s
+scene         gated                                     0/1   SchedulingGated              0             51s
+scene         half-done                                 1/2   NotReady                     0             51s
+scene         init-crash                                0/1   Init:CrashLoopBackOff        2 (24s ago)   51s
+scene         init-error                                0/1   Init:Error                   0             51s
+scene         init-wait                                 0/1   Init:1/2                     0             51s
+scene         leaving                                   1/1   Terminating                  0             51s
+scene         loop-a-zrwmv                              0/1   Completed                    0             51s
+scene         no-config                                 0/1   CreateContainerConfigError   0             51s
+scene         not-ready                                 0/1   Running                      0             51s
+scene         once-r7w6j                                0/1   Completed                    0             51s
+scene         sidecar                                   2/2   Running                      0             51s
+scene         tick-manual-d6v5w                         0/1   Completed                    0             35s
+scene         unschedulable                             0/1   Pending                      0             51s
+scene         web-6888b778b6-75md7                      1/1   Running                      0             36s
+scene         web-6888b778b6-p2twl                      1/1   Running                      0             37s
