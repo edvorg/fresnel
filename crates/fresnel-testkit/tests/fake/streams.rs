@@ -3,7 +3,7 @@
 
 use std::pin::pin;
 
-use fresnel_testkit::{FakeApiServer, FaultProxy};
+use fresnel_testkit::{FakeApiServer, Fault, FaultProxy};
 use http::StatusCode;
 use http::header::AUTHORIZATION;
 use http_body_util::BodyExt;
@@ -111,7 +111,7 @@ async fn a_request_with_no_credential_gets_its_answer_and_ends_its_connection() 
         request
     };
     let bed = Bed::start().await;
-    bed.server.end_anonymous_connections();
+    bed.server.end_unauthenticated_connections();
     let mut known = bed.http2().await;
     assert_eq!(in_time(known.send(with_token())).await.expect("a response").status(), StatusCode::OK);
 
@@ -129,6 +129,37 @@ async fn a_request_with_no_credential_gets_its_answer_and_ends_its_connection() 
     bed.counters_when(|counters| counters.open_connections == 1).await;
     let again = in_time(known.send(with_token())).await.expect("a response");
     assert_eq!(again.status(), StatusCode::OK, "a request with a token keeps its connection");
+}
+
+/// A kube-apiserver also ends the connection after HTTP 401 to a token that it refuses.
+/// The HTTP 401 of an aggregated API, which is a fault on a path here, ends no connection.
+#[tokio::test]
+async fn an_http_401_of_the_server_ends_its_connection_and_an_http_401_of_one_path_does_not() {
+    let with_token = |path: &str, token: &str| {
+        let mut request = get(path);
+        request.headers_mut().insert(AUTHORIZATION, format!("Bearer {token}").parse().expect("a header"));
+        request
+    };
+    let bed = Bed::start().await;
+    bed.server.end_unauthenticated_connections();
+    bed.server.add_fault(Fault::unauthorized().on_path("/apis/metrics.k8s.io/"));
+    bed.server.add_fault(Fault::unauthorized().for_token("old"));
+
+    let mut kept = bed.http2().await;
+    let metrics = in_time(kept.send(with_token("/apis/metrics.k8s.io/v1beta1/nodes", "new"))).await;
+    assert_eq!(metrics.expect("a response").status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(in_time(kept.send(with_token("/version", "new"))).await.expect("a response").status(), StatusCode::OK);
+
+    let mut refused = bed.http2().await;
+    let exchange = async {
+        let answer = refused.sender.send_request(with_token("/version", "old")).await.expect("a response");
+        (answer.status(), text(answer).await)
+    };
+    let ((status, body), ended) = in_time(async { tokio::join!(exchange, &mut refused.connection) }).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(body.contains(r#""reason":"Unauthorized""#), "the answer is complete: {body}");
+    assert!(ended.is_ok(), "the connection ended with GOAWAY and no error: {ended:?}");
+    bed.counters_when(|counters| counters.open_connections == 1).await;
 }
 
 #[tokio::test]

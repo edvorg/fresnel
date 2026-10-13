@@ -162,7 +162,7 @@ async fn the_command_measures_a_cluster_with_the_environment_of_finder() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_slow_plugin_costs_no_connection_and_the_idle_wait_sees_no_close() {
     let server = FakeApiServer::start().await.expect("a server");
-    server.end_anonymous_connections();
+    server.end_unauthenticated_connections();
     let home = home("anonymous");
     // The plugin is slow, so each channel has its connection before the first token.
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fresnel-net/tests/fixtures/fake-plugin");
@@ -221,7 +221,7 @@ async fn a_server_that_refuses_each_connection_gives_its_report_with_no_wait() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_plugin_that_hangs_shows_a_timeout_and_leaves_no_process() {
     let server = FakeApiServer::start().await.expect("a server");
-    server.end_anonymous_connections();
+    server.end_unauthenticated_connections();
     let home = home("hang");
     home.write(
         "work/kubeconfig.yaml",
@@ -320,7 +320,7 @@ async fn the_command_measures_each_selected_cluster_on_its_own_server() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_plugin_that_fails_shows_its_text_at_the_terminal_and_not_in_the_file() {
     let server = FakeApiServer::start().await.expect("a server");
-    server.end_anonymous_connections();
+    server.end_unauthenticated_connections();
     let home = home("fail");
     home.write(
         "work/kubeconfig.yaml",

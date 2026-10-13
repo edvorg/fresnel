@@ -134,10 +134,12 @@ impl FakeApiServer {
         self.shared.go_away.send_modify(|count| *count += 1);
     }
 
-    /// From now on, the server ends an HTTP/2 connection after its answer to a request with
-    /// no credential, with GOAWAY. A kube-apiserver does this to each anonymous request.
-    pub fn end_anonymous_connections(&self) {
-        self.shared.ends_anonymous.store(true, Ordering::Relaxed);
+    /// From now on, the server ends an HTTP/2 connection with GOAWAY after its answer to a
+    /// request with no credential, and after the HTTP 401 of a fault with no path. A
+    /// kube-apiserver does this to each request that does not pass its token check. The
+    /// HTTP 401 of a fault on a path ends no connection: it stands for an aggregated API.
+    pub fn end_unauthenticated_connections(&self) {
+        self.shared.ends_unauthenticated.store(true, Ordering::Relaxed);
     }
 
     /// The heads of the requests that the server saw, in their sequence.

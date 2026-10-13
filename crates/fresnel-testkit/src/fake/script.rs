@@ -72,6 +72,12 @@ impl Fault {
         self
     }
 
+    /// True for an HTTP 401 of the server itself: its token check refuses the request. A
+    /// fault on a path stands for an aggregated API, which refuses after that check passed.
+    pub(super) fn refuses_the_credential(&self) -> bool {
+        self.answer == FaultAnswer::Unauthorized && self.path.is_none()
+    }
+
     pub(super) fn takes(&self, request: &SeenRequest, now: Instant) -> bool {
         self.path.as_ref().is_none_or(|prefix| request.uri.path().starts_with(prefix.as_str()))
             && self.token.as_ref().is_none_or(|token| request.bearer() == Some(token.as_str()))

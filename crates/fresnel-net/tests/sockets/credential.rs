@@ -76,7 +76,7 @@ async fn the_plugin_runs_one_time_for_each_cluster() {
 async fn a_slow_plugin_costs_no_connection_and_the_server_sees_no_request_with_no_token() {
     let tasks = TestTasks::new();
     let server = FakeApiServer::start().await.expect("a server");
-    server.end_anonymous_connections();
+    server.end_unauthenticated_connections();
     let state = Scratch::new("plugin-slow");
     state.write("mode", "slow");
     let cluster = Cluster::start(&tasks.tasks, with_plugin("slow", &server, &state)).expect("a cluster");
@@ -106,7 +106,7 @@ async fn a_slow_plugin_costs_no_connection_and_the_server_sees_no_request_with_n
 async fn a_plugin_that_hangs_shows_a_timeout_and_its_processes_are_gone() {
     let tasks = TestTasks::new();
     let server = FakeApiServer::start().await.expect("a server");
-    server.end_anonymous_connections();
+    server.end_unauthenticated_connections();
     let state = Scratch::new("plugin-hang");
     state.write("mode", "hang");
     let mut spec = with_plugin("hang", &server, &state);
@@ -197,12 +197,13 @@ async fn an_http_401_of_one_path_does_not_change_other_requests() {
 
 /// Plan section 13.3: the server refuses each token for a time, as an API server whose
 /// token check does not work for some seconds. The requests work again with no action of
-/// the user, and no channel loses its connection.
+/// the user. The server ends a connection after each HTTP 401, as a kube-apiserver does,
+/// so each refused request costs one connection, and a channel with no request keeps its own.
 #[tokio::test]
-async fn after_an_http_401_outage_that_ends_by_itself_the_requests_work_again_on_the_same_connections() {
+async fn after_an_http_401_outage_that_ends_by_itself_the_requests_work_again() {
     let tasks = TestTasks::new();
     let server = FakeApiServer::start().await.expect("a server");
-    server.end_anonymous_connections();
+    server.end_unauthenticated_connections();
     let state = Scratch::new("plugin-401-outage");
     let cluster = Cluster::start(&tasks.tasks, with_plugin("outage", &server, &state)).expect("a cluster");
     until_live(&cluster).await;
@@ -230,7 +231,13 @@ async fn after_an_http_401_outage_that_ends_by_itself_the_requests_work_again_on
     assert!(3 * SECOND <= needed && needed < 10 * SECOND, "the requests worked again after {needed:?}");
     let (runs, _refusals, proofs) = counts(&cluster);
     assert!((3..=5).contains(&runs) && (1..=3).contains(&proofs), "{runs} plugin runs and {proofs} proofs");
-    assert_eq!(server.counters().connections, 3, "a channel lost its connection in the outage");
+    // The first send, the second send and the proof each lost their connection. The pause
+    // of the channel and of the plugin keep the count low: 8 in each of 6 runs.
+    let connections = server.counters().connections;
+    assert!((6..=10).contains(&connections), "{connections} connections with an outage of 3 s");
+    let status = cluster.status();
+    let idle = [&status.watches.channels[0], &status.logs.channels[0]].map(|channel| channel.connections);
+    assert_eq!(idle, [1, 1], "a channel with no request lost its connection in the outage");
     assert!(server.requests().iter().all(|request| request.bearer().is_some()), "a request had no token");
 }
 
@@ -251,6 +258,32 @@ async fn a_refused_token_costs_one_plugin_run_and_no_failed_request() {
     // The light request of each channel can have the refused token too.
     assert!((1..=23).contains(&unauthorized), "{unauthorized}");
     assert_eq!(state.read("runs"), "run\nrun\n");
+}
+
+/// The same with no request of a caller: only the light request of a channel can tell the
+/// credential. The server ends the connection with its HTTP 401, as a kube-apiserver does,
+/// so the answer arrives on a connection that is closed already.
+#[tokio::test]
+async fn a_refused_token_with_no_request_of_a_caller_costs_one_plugin_run_and_one_connect_for_each_channel() {
+    let tasks = TestTasks::new();
+    let server = FakeApiServer::start().await.expect("a server");
+    server.end_unauthenticated_connections();
+    server.add_fault(Fault::unauthorized().for_token("idle-1"));
+    let state = Scratch::new("plugin-401-idle");
+    let cluster = Cluster::start(&tasks.tasks, with_plugin("idle", &server, &state)).expect("a cluster");
+
+    let live = until_live(&cluster).await;
+    let (runs, unauthorized, proofs) = counts(&cluster);
+    assert_eq!((runs, proofs), (2, 0), "the light requests with the refused token cost one plugin run");
+    assert!((1..=3).contains(&unauthorized), "{unauthorized}");
+    assert!(matches!(cluster.status().credential.expect("a credential").state, CredentialState::Valid { .. }));
+    for channel in first_channels(&live) {
+        assert_eq!(channel.connections, 2, "the server ended the first connection: {channel:?}");
+    }
+    assert_eq!(server.counters().connections, 6);
+    let tokens: Vec<_> = server.requests().iter().map(|request| request.bearer().map(str::to_owned)).collect();
+    let second = tokens.iter().filter(|token| token.as_deref() == Some("idle-2")).count();
+    assert_eq!((tokens.len(), second), (6, 3), "each channel sent one light request for each token: {tokens:?}");
 }
 
 #[tokio::test]

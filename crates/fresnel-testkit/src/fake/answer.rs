@@ -29,8 +29,9 @@ const TOO_MANY_REQUESTS: &str = r#"{"kind":"Status","apiVersion":"v1","metadata"
 /// fault "no answer" never returns from here.
 pub(super) async fn answer<B>(shared: &Arc<Shared>, connection: u64, request: Request<B>) -> (Response<Body>, bool) {
     let seen = SeenRequest::of(connection, &request);
-    let ends = shared.ends_after(&seen);
-    let response = match shared.fault_for(&seen) {
+    let fault = shared.fault_for(&seen);
+    let ends = shared.ends_after(&seen, fault.as_ref());
+    let response = match fault.map(|fault| fault.answer) {
         None => normal_answer(shared, &seen),
         Some(FaultAnswer::Unauthorized) => json(StatusCode::UNAUTHORIZED, UNAUTHORIZED.into()),
         Some(FaultAnswer::TooManyRequests { retry_after_seconds }) => {

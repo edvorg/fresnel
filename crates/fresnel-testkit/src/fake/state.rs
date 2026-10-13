@@ -12,7 +12,7 @@ use tokio::time::Instant;
 use tokio_rustls::TlsAcceptor;
 
 use super::FakeCounters;
-use super::script::{Fault, FaultAnswer};
+use super::script::Fault;
 use super::seen::SeenRequest;
 use super::watch::{FEED_EVENTS, Feed};
 
@@ -28,8 +28,9 @@ pub(super) struct Shared {
     pub(super) feed: broadcast::Sender<Feed>,
     /// Each change sends GOAWAY on each open HTTP/2 connection.
     pub(super) go_away: watch::Sender<u64>,
-    /// True: an HTTP/2 connection ends after the answer to a request with no credential.
-    pub(super) ends_anonymous: AtomicBool,
+    /// True: an HTTP/2 connection ends after the answer to a request that the token check
+    /// of the server does not pass.
+    pub(super) ends_unauthenticated: AtomicBool,
     script: Mutex<Script>,
 }
 
@@ -66,7 +67,7 @@ impl Shared {
             counters: watch::Sender::new(FakeCounters::default()),
             feed: broadcast::Sender::new(FEED_EVENTS),
             go_away: watch::Sender::new(0),
-            ends_anonymous: AtomicBool::new(false),
+            ends_unauthenticated: AtomicBool::new(false),
             script: Mutex::new(Script::default()),
         }
     }
@@ -86,9 +87,11 @@ impl Shared {
         Connection { number, shared: Arc::clone(self) }
     }
 
-    /// True when the connection of this request must end after its answer.
-    pub(super) fn ends_after(&self, request: &SeenRequest) -> bool {
-        self.ends_anonymous.load(Ordering::Relaxed) && !request.headers.contains_key(AUTHORIZATION)
+    /// True when the connection of this request must end after its answer: the request
+    /// has no credential, or `fault` is the server that refuses its token.
+    pub(super) fn ends_after(&self, request: &SeenRequest, fault: Option<&Fault>) -> bool {
+        let refused = fault.is_some_and(Fault::refuses_the_credential);
+        self.ends_unauthenticated.load(Ordering::Relaxed) && (refused || !request.headers.contains_key(AUTHORIZATION))
     }
 
     pub(super) fn add_fault(&self, fault: Fault) {
@@ -100,9 +103,9 @@ impl Shared {
     }
 
     /// The first fault in the sequence of `add_fault` that takes the request.
-    pub(super) fn fault_for(&self, request: &SeenRequest) -> Option<FaultAnswer> {
+    pub(super) fn fault_for(&self, request: &SeenRequest) -> Option<Fault> {
         let now = Instant::now();
-        self.script().faults.iter().find(|fault| fault.takes(request, now)).map(|fault| fault.answer)
+        self.script().faults.iter().find(|fault| fault.takes(request, now)).cloned()
     }
 
     pub(super) fn set_body(&self, path: &str, body: Bytes) {
