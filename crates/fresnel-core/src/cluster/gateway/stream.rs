@@ -48,6 +48,9 @@ impl<K: DeserializeOwned> WatchStream<K> {
     /// The next event. `None` is the end of the stream: the server ends each watch after
     /// its timeout. An `ERROR` event of the server, for example for an old resource version,
     /// is an event and not an `Err`.
+    ///
+    /// A caller can drop this call at each moment, for example at a time limit of its own.
+    /// The data that arrived stays in the stream, and the next call continues.
     pub async fn next(&mut self) -> Option<Result<WatchEvent<K>, CoreError>> {
         loop {
             if let Some(line) = self.take_line() {
@@ -142,6 +145,7 @@ async fn next_data(body: &mut Option<Data>) -> Option<Result<Bytes, CoreError>> 
 
 #[cfg(test)]
 mod tests {
+    use futures_util::FutureExt as _;
     use futures_util::stream;
     use http_body::Frame;
     use http_body_util::StreamBody;
@@ -190,6 +194,25 @@ mod tests {
         }
         assert!(events.next().await.is_none(), "a line with no end is not an event");
         assert!(events.next().await.is_none(), "the stream stays ended");
+    }
+
+    /// The watch loop waits for an event with a time limit, so a wait ends in the middle
+    /// of a line.
+    #[tokio::test]
+    async fn a_dropped_wait_loses_no_part_of_an_event() {
+        let (pieces, arrived) = tokio::sync::mpsc::channel::<&'static str>(4);
+        let frames = stream::unfold(arrived, |mut arrived| async move {
+            let piece = arrived.recv().await?;
+            Some((Ok::<_, CoreError>(Frame::data(Bytes::from_static(piece.as_bytes()))), arrived))
+        });
+        let mut events = WatchStream::<Value>::over(StreamBody::new(Box::pin(frames)).boxed_unsync());
+
+        pieces.send(r#"{"type":"ADDED","obj"#).await.expect("the stream is open");
+        assert!(events.next().now_or_never().is_none(), "half of a line is no event");
+        pieces.send("ect\":{\"name\":6}}\n").await.expect("the stream is open");
+        assert_eq!(name(events.next().await), "added 6");
+        drop(pieces);
+        assert!(events.next().await.is_none());
     }
 
     #[tokio::test]
