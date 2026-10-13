@@ -1,4 +1,5 @@
-//! Resets at the worst moments, a restart of the API server and a silent connection.
+//! Resets at the worst moments, a restart of the API server and a silent connection. The
+//! last step is no fault: the renewal of each watch at its timeout.
 //!
 //! The steps are in one test, because the start of a cluster is the slow part.
 
@@ -46,6 +47,7 @@ async fn the_stores_are_equal_to_the_api_after_each_fault() {
     resets_during_changes(&cluster, &app).await;
     a_restart_of_the_api_server(&cluster, &app).await;
     a_silent_connection(&cluster, &app).await;
+    the_renewal_of_each_watch(&cluster, &mut app).await;
     assert_eq!(app.proxy.task_failures(), Vec::<String>::new());
 }
 
@@ -172,5 +174,28 @@ async fn a_silent_connection(cluster: &Cluster, app: &App) {
     let shown = (silent.elapsed(), SystemTime::now());
     let recovery = app.live_again_after(shown.1, RECOVERY).await;
     println!("the silent connection showed in each store after {:?}; each store was live {recovery:?} later", shown.0);
+    assert_equal_to_the_api(&app.stores.stores, &cluster.api.gateway, LIMIT).await;
+}
+
+/// The server ends each watch at its timeout: here after 5 to 8 seconds, in place of 60
+/// to 90. This is no fault, so no store leaves the state "live" for it, and no change of
+/// the time between two watches is lost.
+async fn the_renewal_of_each_watch(cluster: &Cluster, app: &mut App) {
+    let watch = WatchSettings { server_timeout: 5..=8, ..settings().watch };
+    app.start_stores_again(cluster, StoreSettings { watch, ..settings() });
+    let before = app.stores.until_live(LIMIT).await;
+    let config_maps = ConfigMaps::of(&cluster.api.gateway);
+    // 20 seconds: the server ends each watch two times at least.
+    for number in 0..40 {
+        config_maps.create(&format!("renewed-{number:03}")).await;
+        sleep(Duration::from_millis(500)).await;
+    }
+    let after = app.stores.stores.statuses();
+    for (before, after) in before.iter().zip(&after) {
+        let kind = after.kind.info().name;
+        assert!(after.state.is_live(), "the store of {kind} is not live: {}", after.state);
+        assert_eq!(after.since, before.since, "the store of {kind} left the state \"live\" for a renewal");
+    }
+    println!("each store stayed live through the renewals of its watch for 20 s");
     assert_equal_to_the_api(&app.stores.stores, &cluster.api.gateway, LIMIT).await;
 }

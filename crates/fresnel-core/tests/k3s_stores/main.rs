@@ -5,8 +5,8 @@
 //!
 //! - `bed`: the cluster of a test and the app before it. `api`: the reads and the writes of
 //!   the test itself, which use no proxy.
-//! - `faults`: resets, a restart of the server and a silent connection. `breaks`: a
-//!   network with no answer for 30 seconds, 2 minutes and 10 minutes.
+//! - `faults`: resets, a restart of the server, a silent connection and the renewal of
+//!   each watch. `breaks`: a network with no answer for 30 seconds, 2 minutes and 10 minutes.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
