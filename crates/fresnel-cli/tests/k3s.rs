@@ -65,8 +65,11 @@ async fn the_command_measures_a_real_kube_apiserver_through_the_fault_proxy() {
         (&5.into(), &0.into(), &5.into(), &0.into())
     );
     // The proxy holds a new connection for one round trip, and the TLS handshake needs one more.
-    assert!(number(&plain["tls_ms"]["min"], "the TLS time") >= 80.0, "{plain}");
-    assert!(number(&hedged["total_ms"]["min"], "the connect time") >= 80.0, "{hedged}");
+    // The test asserts the sum of the TCP time and the TLS time: a busy program sees the end
+    // of its TCP connect late, and that part of the hold is then not in its TLS time.
+    for connects in [plain, hedged] {
+        assert!(number(&connects["total_ms"]["min"], "the connect time") >= 80.0, "{connects}");
+    }
     assert_eq!(hedged["attempts"], 5, "a far server does not get two attempts for each connect: {hedged}");
     let session = &result["session"];
     assert_eq!((&session["stream_limit"], &session["credential"]), (&100.into(), &Value::Null));
