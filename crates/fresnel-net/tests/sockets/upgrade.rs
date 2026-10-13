@@ -7,6 +7,7 @@ use fresnel_net::{Cause, Cluster, ClusterSpec, RequestKind, UpgradeStatus};
 use fresnel_testkit::{FakeApiServer, Fault, FaultProxy};
 use http::header::{CONNECTION, UPGRADE};
 use http::{Request, StatusCode};
+use http_body_util::BodyExt as _;
 use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
@@ -164,4 +165,26 @@ async fn the_warm_set_gets_its_refresh_while_upgrades_use_it_all_the_time() {
         light_requests >= status.reused + 2,
         "no refresh in 4 periods: {light_requests} light requests, {status:?}"
     );
+}
+
+/// The server refuses an upgrade with a normal answer, for example HTTP 403 with its
+/// reason. The caller must get the full body: only the reader of the body runs the
+/// connection of that answer.
+#[tokio::test]
+async fn an_answer_that_is_no_upgrade_gives_its_full_body_and_closes_its_connection() {
+    let server = FakeApiServer::start().await.expect("a server");
+    let reason = format!(r#"{{"kind":"Status","message":"{}"}}"#, "pod not found ".repeat(20_000));
+    server.set_body("/api/v1/namespaces/default/pods/gone/exec", &reason);
+    let tasks = TestTasks::new();
+    let cluster = Cluster::start(&tasks.tasks, spec("no-upgrade", server.addr(), trust(&server))).expect("a cluster");
+    until_live(&cluster).await;
+
+    let path = "/api/v1/namespaces/default/pods/gone/exec?command=sh";
+    let mut request = Request::get(path).body(Bytes::new()).expect("a request");
+    request.extensions_mut().insert(RequestKind::Upgrade);
+    let response = cluster.send(request).await.expect("the answer of the server");
+    assert_eq!(response.status(), StatusCode::OK, "the fake server has no other status for a body");
+    let body = in_time("the full body", response.into_body().collect()).await.expect("the body").to_bytes();
+    assert!(body == reason.as_bytes(), "{} of {} bytes", body.len(), reason.len());
+    in_time("only the three channels stay open", server.wait_for(|counters| counters.open_connections == 3)).await;
 }

@@ -79,8 +79,15 @@ impl Line {
             }
             return Ok(response.map(ResponseBody::new));
         }
-        // An answer with a body, for example HTTP 403: the reader of the body runs the connection.
-        let connection = async move { drop(connection.await) }.boxed();
+        // An answer with a body, for example HTTP 403: the reader of the body runs the
+        // connection. The end of the connection tells the reader nothing new: hyper gives an
+        // error of the connection to the body too.
+        let connection = async move {
+            match connection.await {
+                Ok(()) | Err(_) => {}
+            }
+        }
+        .boxed();
         Ok(response.map(|body| ResponseBody::new(body).with_connection(connection)))
     }
 }
