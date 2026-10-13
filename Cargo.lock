@@ -978,7 +978,15 @@ dependencies = [
 name = "fresnel-cli"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "fastrand",
  "fresnel-core",
+ "fresnel-testkit",
+ "http",
+ "jiff",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

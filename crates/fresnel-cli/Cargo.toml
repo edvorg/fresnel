@@ -9,6 +9,21 @@ repository.workspace = true
 
 [dependencies]
 fresnel-core.workspace = true
+http.workspace = true
+jiff.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "time"] }
+
+[dev-dependencies]
+base64.workspace = true
+fastrand.workspace = true
+fresnel-testkit.workspace = true
+tokio = { workspace = true, features = ["macros", "process"] }
+
+[[test]]
+name = "doctor"
+path = "tests/doctor/main.rs"
 
 [lints]
 workspace = true
