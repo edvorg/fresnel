@@ -15,13 +15,13 @@ const FAR_V6: SocketAddr = SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb
 
 /// What the detector compares between two looks.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct NetworkFacts {
+struct NetworkFacts {
     /// Each address of each interface that is up, with the name of the interface.
-    pub addresses: BTreeSet<(String, IpAddr)>,
+    addresses: BTreeSet<(String, IpAddr)>,
     /// The source address of a packet to a far IPv4 address. It changes with the default route.
-    pub route_v4: Option<IpAddr>,
+    route_v4: Option<IpAddr>,
     /// The same for IPv6.
-    pub route_v6: Option<IpAddr>,
+    route_v6: Option<IpAddr>,
 }
 
 /// Detects a change of the interface addresses or of the default route: Wi-Fi to cable, a
@@ -38,7 +38,7 @@ impl NetworkChange {
     }
 
     /// A detector on `read`. A test gives its own facts.
-    pub fn new(read: impl FnMut() -> NetworkFacts + Send + 'static) -> Self {
+    fn new(read: impl FnMut() -> NetworkFacts + Send + 'static) -> Self {
         Self { read: Box::new(read), last: None }
     }
 }
