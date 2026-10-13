@@ -98,3 +98,73 @@ impl Follower {
         self.seen.iter().find(|(id, _)| id == cluster).map(|(_, snapshot)| &**snapshot)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use fresnel_core::store::{ObjectKey, StoreState};
+
+    use super::*;
+    use crate::testing::{TestTasks, fixture_pods, snapshot};
+
+    fn step(bed: &TestTasks, follower: &mut Follower, clusters: &[(&str, &[Arc<Pod>])]) -> Gone {
+        let held =
+            |(name, pods): &(&str, &[Arc<Pod>])| (ClusterId::new(*name), bed.held(snapshot(pods, StoreState::Live)));
+        follower.step(clusters.iter().map(held).collect())
+    }
+
+    fn id(cluster: &str, pod: &Pod) -> ObjectId {
+        let key = ObjectKey::new("scene", pod.metadata.name.as_deref().expect("a name"));
+        ObjectId { cluster: ClusterId::new(cluster), key, uid: uid(pod).into() }
+    }
+
+    #[test]
+    fn a_step_gives_the_pods_and_the_clusters_that_went_away_and_a_new_number_for_new_objects() {
+        let bed = TestTasks::new();
+        let pods: Vec<Arc<Pod>> =
+            fixture_pods().into_iter().filter(|pod| pod.metadata.namespace.as_deref() == Some("scene")).collect();
+        let mut follower = Follower::default();
+        assert!(step(&bed, &mut follower, &[("ams", &pods), ("fra", &pods)]).is_empty());
+        let first = follower.serial();
+
+        // A store publishes the same objects again for a new state: no new number.
+        assert!(step(&bed, &mut follower, &[("ams", &pods), ("fra", &pods)]).is_empty());
+        assert_eq!(follower.serial(), first);
+
+        // One pod of ams goes away, and a new pod has the name of an other one.
+        let (deleted, replaced) = (Arc::clone(&pods[0]), Arc::clone(&pods[1]));
+        let mut next = Pod::clone(&replaced);
+        next.metadata.uid = Some("the-uid-of-a-new-pod".to_owned());
+        let after: Vec<Arc<Pod>> = pods[2..].iter().cloned().chain([Arc::new(next.clone())]).collect();
+        let gone = step(&bed, &mut follower, &[("ams", &after), ("fra", &pods)]);
+        assert!(gone.has(&id("ams", &deleted)) && gone.has(&id("ams", &replaced)));
+        assert!(!gone.has(&id("ams", &next)) && !gone.has(&id("ams", &pods[2])), "the pods that stay");
+        assert!(!gone.has(&id("fra", &deleted)), "the same pod of an other cluster is an other object");
+        assert!(follower.serial() > first);
+
+        let before = follower.serial();
+        let gone = step(&bed, &mut follower, &[("ams", &after)]);
+        assert!(gone.has(&id("fra", &pods[3])) && !gone.has(&id("ams", &pods[3])), "each pod of fra went away");
+        assert!(follower.serial() > before && follower.snapshot(&ClusterId::new("fra")).is_none());
+    }
+
+    /// The number is a part of the identity of a request for rows. With the number of
+    /// before, a request after a rest could get the rows of a request before it.
+    #[test]
+    fn a_rest_gives_up_the_snapshots_and_the_objects_after_it_have_a_new_number() {
+        let bed = TestTasks::new();
+        let mut follower = Follower::default();
+        step(&bed, &mut follower, &[("ams", &fixture_pods())]);
+        let before = follower.serial();
+        follower.rest();
+        assert!(follower.snapshot(&ClusterId::new("ams")).is_none() && follower.data().clusters.is_empty());
+        // No cluster is selected at the return: the step itself finds no difference.
+        assert!(step(&bed, &mut follower, &[]).is_empty());
+        assert!(follower.serial() > before);
+
+        let at_rest = follower.serial();
+        follower.rest();
+        assert_eq!(follower.serial(), at_rest, "a rest with nothing to give up changes nothing");
+    }
+}
