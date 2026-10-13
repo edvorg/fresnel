@@ -165,6 +165,32 @@ async fn the_events_of_one_object_come_from_the_server(bed: &Bed) {
     assert_eq!(refused.status(), Some(403), "{refused}");
 }
 
+/// A stop in the other sequence: the stores of a cluster stop, and its indexes live on.
+#[tokio::test]
+async fn an_index_of_stores_that_stopped_keeps_its_answers_and_tells_that_they_are_old() {
+    let bed = Bed::start(NetSettings::default()).await;
+    bed.server.set_body(REPLICA_SETS, &list(&[object("web-1", "set-1", "deployment-1", "")]));
+    bed.server.set_body(PODS, &list(&[pod("web-1-a", "set-1")]));
+    let stores = Stores::start(&bed.tasks, &bed.link, StoreSettings::default());
+    let indexes = stores.indexes(&bed.tasks);
+    let owners = indexes.owners();
+    let of_deployment = || owners.read().pods_of(Kind::Deployment, "deployment-1");
+    let current = || Some(of_deployment()).filter(|answer| answer.basis == Basis::Current);
+    assert_eq!(names(&until(&indexes, "each store behind the answer is live", current).await.found), ["web-1-a"]);
+
+    drop(stores);
+    let stopped = |basis: &Basis| matches!(basis, Basis::Old(source) if source.state == StoreState::Stopped);
+    let old = || Some(of_deployment()).filter(|answer| stopped(&answer.basis));
+    assert_eq!(names(&until(&indexes, "the stop of the stores", old).await.found), ["web-1-a"]);
+    // The task of the index has no store to follow now. It waits: that is no fault, and
+    // the index gets no new value.
+    let mut later = indexes.owners();
+    assert!(timeout(Duration::from_millis(300), later.changed()).await.is_err(), "an index with no change");
+    assert_eq!(owners.read().state, IndexState::Following);
+    drop(indexes);
+    assert_eq!(owners.read().state, IndexState::Stopped);
+}
+
 /// Bad data of a server: a page of the Events that names the token of its own request.
 /// A read that follows that token asks for the same page again and again, with no pause.
 #[tokio::test]

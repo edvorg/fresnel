@@ -26,7 +26,8 @@ impl Stores {
         Self { stores, disposal }
     }
 
-    /// Starts the indexes on these stores. They must drop before the stores.
+    /// Starts the indexes on these stores. An index can live longer than its stores: each
+    /// answer stays then, and it tells that it is old.
     pub(crate) fn indexes(&self, tasks: &TestTasks) -> ClusterIndexes {
         let parts = IndexParts { bin: self.disposal.bin(), restart: StoreSettings::default().restart };
         ClusterIndexes::start(&tasks.tasks, &self.stores, parts).expect("each store of an index")
