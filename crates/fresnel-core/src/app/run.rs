@@ -32,7 +32,8 @@ pub(super) async fn run(inner: Arc<Inner>) -> Result<(), CoreError> {
 impl Inner {
     /// The start of the core. Gives the registry with the clusters of the kubeconfig files.
     async fn prepare(&self) -> Registry {
-        if let (Startup::Ready, Some(registry)) = (self.state().startup, self.registry.get()) {
+        let startup = self.state().startup;
+        if let (Startup::Ready, Some(registry)) = (startup, self.registry.get()) {
             return registry.clone();
         }
         let env = self.environment().await;
@@ -56,7 +57,8 @@ impl Inner {
 
     /// The environment of the login shell. The shell runs one time for the life of the core.
     async fn environment(&self) -> ProcessEnv {
-        if let Some(env) = self.state().env.clone() {
+        let known = self.state().env.clone();
+        if let Some(env) = known {
             return env;
         }
         self.enter(Startup::Environment);
@@ -145,7 +147,9 @@ impl Inner {
         }
         // The connect did not start. The cause is most often the kubeconfig entry, so the
         // files load again. The reconcile then connects the cluster.
-        if let Some(env) = self.state().env.clone() {
+        // The copy ends the lock of the state before the read of the files.
+        let env = self.state().env.clone();
+        if let Some(env) = env {
             self.load_kubeconfig(&env, registry);
         }
         registry.disconnect(cluster);

@@ -49,7 +49,8 @@ impl<'a> Gate<'a> {
     }
 
     fn latency(&self) -> Duration {
-        match *self.shared.mode.borrow() {
+        let mode = *self.shared.mode.borrow();
+        match mode {
             ProxyMode::Latency(one_way) => one_way,
             ProxyMode::Pass | ProxyMode::HoldNew { .. } | ProxyMode::Freeze | ProxyMode::ResetEach(_) => Duration::ZERO,
         }

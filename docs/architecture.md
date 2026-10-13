@@ -196,5 +196,5 @@ prints one line for it, and `task_failures` gives the list.
 
 - `Cargo.toml` holds the one lint table and the one version table of the workspace.
 - `clippy.toml` refuses a direct `tokio::spawn` and a direct `std::thread::spawn`.
-- `fresnel-ui` refuses index access without a check.
+- `fresnel-ui` refuses an index with no check. Each crate refuses a lock in a branch head.
 - `cargo xtask check-sizes` checks the limits of the documents and the source files.

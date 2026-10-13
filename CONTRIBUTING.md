@@ -30,6 +30,8 @@ CI runs the same commands on macOS and Linux. The file `rust-toolchain.toml` pin
 - A widget gets the color of a cluster with the identity of the cluster, not with a position.
 - A journal text can go to the log file. It has no output of a child process.
 - An `#[allow]` or an `#[expect]` gives its `reason`.
+- Do not take a lock in the head of `if let` or `match`: the guard lives to the end of the
+  body. Copy the value in a statement of its own. A lint refuses the other form.
 
 ## Background tasks
 

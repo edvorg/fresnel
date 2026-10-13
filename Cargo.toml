@@ -84,6 +84,9 @@ unreachable_pub = "deny"
 let_underscore_must_use = "deny"
 let_underscore_future = "deny"
 unused_result_ok = "deny"
+# A lock guard in the head of `if let` or `match` lives to the end of the body. A wait or a
+# file read in the body then holds the lock, and a reader of a state stops.
+significant_drop_in_scrutinee = "deny"
 # A panic in a library stops a task. Return the error.
 unwrap_used = "deny"
 expect_used = "deny"

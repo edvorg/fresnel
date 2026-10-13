@@ -382,3 +382,11 @@ test runs the part before the window. The app must work with the environment of 
 the test program starts itself again with `env -i`. The child reads its own process
 environment, as `main` does. A flag of the app for a start with no window would be a
 function that only tests use.
+
+## A lint refuses a lock in the head of a branch
+
+A lock guard in the head of `if let` or `match` lives to the end of the body. In the app
+core, such a guard held the lock of the state across a read of the kubeconfig files, and a
+frame of the UI would wait for that read. The tests did not see it. The lint
+`significant_drop_in_scrutinee` now refuses this form in each crate, and the code copies the
+value in a statement of its own.
