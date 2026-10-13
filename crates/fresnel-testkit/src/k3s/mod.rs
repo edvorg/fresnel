@@ -9,6 +9,7 @@ mod container;
 mod docker;
 mod kubeconfig;
 mod network;
+mod pod_line;
 
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
@@ -17,6 +18,7 @@ use std::path::{Path, PathBuf};
 use crate::KitError;
 use container::Container;
 use network::Network;
+pub use pod_line::PodLine;
 
 /// Each container and each network of the test kit has this start of its name.
 /// `docker ps --all --filter name=fresnel-test-` shows what a stopped test run left.

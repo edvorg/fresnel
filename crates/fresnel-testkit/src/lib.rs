@@ -18,5 +18,5 @@ mod proxy;
 pub use error::KitError;
 pub use fake::{FakeApiServer, FakeCounters, Fault, SeenRequest};
 pub use home::{FINDER_PATH, Home};
-pub use k3s::K3s;
+pub use k3s::{K3s, PodLine};
 pub use proxy::{FaultProxy, ProxyCounters, ProxyMode};

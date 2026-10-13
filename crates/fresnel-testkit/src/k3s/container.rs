@@ -46,6 +46,9 @@ impl Container {
             "--disable=metrics-server",
             // Docker can publish the port only when the server listens on the container address.
             "--kube-apiserver-arg=bind-address=0.0.0.0",
+            // The kubelet refuses each image pull above 5 in one second. A test that starts
+            // many pods at once would see some of them fail and wait, a different set each time.
+            "--kubelet-arg=registry-qps=0",
         ];
         docker(&[&run[..], &["--publish", &publish, IMAGE], &k3s[..]].concat()).await?;
         Ok(container)
