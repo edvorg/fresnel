@@ -82,13 +82,18 @@ async fn the_thread_of_the_bin_frees_a_value_that_a_reader_held() {
     let here = std::thread::current().name().map(str::to_owned);
     assert_eq!(freed.recv_timeout(LIMIT).expect("the first value is free"), here);
 
-    // A reader holds the second value over the next publish, as a frame of the UI does.
-    let held = publisher.reader().read();
-    publisher.publish(tracked());
-    assert!(freed.try_recv().is_err(), "a value that a reader holds stays");
-    drop(held);
-    let thread = freed.recv_timeout(LIMIT).expect("the second value is free");
-    assert_eq!(thread.as_deref(), Some("old snapshots"), "the reader did not free the value itself");
+    // A reader holds a value over the next publish, as a frame of the UI does. The thread
+    // of the bin can run at each moment of the drop of the reader, so the test repeats it.
+    let reader = publisher.reader();
+    for round in 0..20 {
+        let (held, copy) = (reader.read(), reader.read().clone());
+        publisher.publish(tracked());
+        assert!(freed.try_recv().is_err(), "a value that a reader holds stays");
+        drop(held);
+        drop(copy);
+        let thread = freed.recv_timeout(LIMIT).expect("the value is free");
+        assert_eq!(thread.as_deref(), Some("old snapshots"), "the reader freed the value itself in round {round}");
+    }
     assert_eq!(disposal.freed_in_place(), 0);
     assert_eq!(*ended.lock().expect("a lock"), Vec::<String>::new());
 }

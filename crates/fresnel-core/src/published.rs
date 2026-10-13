@@ -7,11 +7,12 @@
 //! A value can be large: the snapshot of a store holds each object of a kind. The last
 //! holder of an old value frees it, and that can take many milliseconds. Thus a reader gets
 //! a [`Held`] value, and the drop of it hands the value to the thread of `bin`. The UI
-//! thread never frees an old value.
+//! thread never frees an old value that it read.
 
 mod bin;
 mod notice;
 
+use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -81,7 +82,7 @@ impl<T: Send + Sync + 'static> Publisher<T> {
 
     /// The current value.
     pub fn read(&self) -> Held<T> {
-        Held::of(&self.slot.borrow(), &self.bin)
+        Held::of(&self.slot.borrow().value, &self.bin)
     }
 
     /// A reader of the state.
@@ -105,7 +106,7 @@ impl<T> Clone for Reader<T> {
 impl<T: Send + Sync + 'static> Reader<T> {
     /// The current value. The call copies one pointer and never waits for the publisher.
     pub fn read(&self) -> Held<T> {
-        Held::of(&self.slot.borrow(), &self.bin)
+        Held::of(&self.slot.borrow().value, &self.bin)
     }
 
     /// Waits for a value that this reader did not wait for before. It waits with no end
@@ -119,19 +120,20 @@ impl<T: Send + Sync + 'static> Reader<T> {
 
 /// One value of a state, as a reader holds it. The value does not change.
 pub struct Held<T: Send + Sync + 'static> {
-    value: Arc<T>,
+    /// The pointer of this holder. Only the drop takes it out.
+    value: ManuallyDrop<Arc<T>>,
     bin: Bin,
 }
 
 impl<T: Send + Sync + 'static> Held<T> {
-    fn of(slot: &Slot<T>, bin: &Bin) -> Self {
-        Self { value: Arc::clone(&slot.value), bin: bin.clone() }
+    fn of(value: &Arc<T>, bin: &Bin) -> Self {
+        Self { value: ManuallyDrop::new(Arc::clone(value)), bin: bin.clone() }
     }
 }
 
 impl<T: Send + Sync + 'static> Clone for Held<T> {
     fn clone(&self) -> Self {
-        Self { value: Arc::clone(&self.value), bin: self.bin.clone() }
+        Self::of(&self.value, &self.bin)
     }
 }
 
@@ -144,10 +146,14 @@ impl<T: Send + Sync + 'static> Deref for Held<T> {
 }
 
 impl<T: Send + Sync + 'static> Drop for Held<T> {
-    /// The bin gets one more pointer to the value. Thus the pointer of this holder is never
-    /// the last one, and the thread of the bin frees the value.
+    /// Gives the pointer of this holder to the bin. The holder has no second pointer: with
+    /// one more, the thread of the bin could drop its pointer first, and this thread would
+    /// free the value. On Linux, a test found that sequence at once.
     fn drop(&mut self) {
-        self.bin.put(Arc::clone(&self.value) as bin::Old);
+        // SAFETY: the drop of the struct runs one time, and no code reads `value` after
+        // this line: a field of the type `ManuallyDrop` has no drop of its own.
+        let value = unsafe { ManuallyDrop::take(&mut self.value) };
+        self.bin.put(value);
     }
 }
 
