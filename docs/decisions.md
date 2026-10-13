@@ -687,3 +687,66 @@ A server that gives the token of a request back as the next token would get that
 again with no pause and with no end. The page type has the one function that takes the next
 token and refuses this one. The list of a store and the read of the Events of one object
 use it, so the rule holds for each list in pages.
+
+## The core runs the stores of each connected cluster
+
+The app core starts the stores and the indexes of a cluster with its connections and stops
+them with the disconnect. Its view gives the Pod snapshot and the Event index as copies of
+one pointer. Stores that do not start are a connect that failed: a connected cluster with
+no stores would show an empty list in place of an error.
+
+## New data does not stop the computation of rows
+
+In the UI prototype, each new snapshot stopped the sort in progress. With snapshots faster
+than the sort, the table got no rows at all. Here the worker thread ends each computation,
+and its mailbox holds the newest request only. A new sort or filter stops a computation,
+because its rows have no use. Each result carries the query and the data number of its
+request, and the table drops a result of an older query.
+
+## A request for rows stays in the mailbox until its rows are there
+
+In the UI prototype, a worker thread that ended left a table that showed "updating" with no
+end. Here the thread is a task of the start function. After a panic, the journal has a
+report, the thread starts again and finds the request of the panic in the mailbox. The table
+reads the state of the task and shows the reason next to the rows from before the fault.
+
+## The selection holds objects, and a difference of snapshots removes them
+
+The cursor and the selection of a table hold the cluster and the UID of an object, never a
+row number. The Pods view compares the snapshot of each frame with the one before, as an
+index does: the cost follows the count of the changes. A pod that left its store leaves the
+selection, and a new pod with the name of an old one is an other object.
+
+## The freshness mark comes from the state of the store at the paint
+
+A watch that stops changes no object, so the worker computes no rows for it. Thus the mark
+of a row is not a part of the row: each frame reads the state of the store of each cluster,
+and the next frame after a fault shows the mark and the note. A row with the mark has no
+state color, because its state is not a state of now.
+
+## The detail panel reads its pod in each frame
+
+In the UI prototype, the panel built its data one time and showed a deleted object with each
+button. Here the panel finds its pod in the snapshot of each frame. A pod that a store with
+a complete list does not have shows as deleted, with its last state. A store with no complete
+list does not know its pods, so the panel says "not loaded" then.
+
+## The namespace filter lists the namespaces of the pods
+
+The filter of milestone M1 is in the bar of the Pods view, and its menu has each namespace
+with a pod: the worker collects them with the rows. So the filter needs no store of the
+Namespaces. A namespace of the filter stays in the menu when its last pod goes away. The
+filter moves to the top bar with the tables of the other kinds.
+
+## The limit of a frame time holds in a release build
+
+The frame time test runs in each build, so each run of the tests proves that 10,000 pods
+scroll, sort and filter. It checks the limit of 16 ms in a release build only. CI builds no
+release: its runners share their processors, so a time there says little. Measured on the
+development machine: the longest frame took 0.9 ms.
+
+## The dock is a panel until the user can move a tab
+
+Milestone M1 has two tabs below the center. A panel of egui with a tab bar draws them, and
+the user changes its height with the pointer. `egui_tiles` comes with the tabs that the user
+can move to some other place. Then `shell/dock.rs` wraps it, and no view changes.
