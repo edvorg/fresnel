@@ -3,13 +3,15 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use xtask::{install, sizes};
+use xtask::{borders, install, sizes};
 
 const USAGE: &str = "\
 usage: cargo xtask <command>
 
 commands:
   check-sizes            check the size limits of the documents and the source files
+  check-borders          check that fresnel-net has no kube dependency and fresnel-core
+                         no egui dependency
   install [--to <folder>]
                          build Fresnel.app and install it into /Applications or into
                          <folder>; the earlier bundle stays as Fresnel.app.prev";
@@ -19,6 +21,7 @@ fn main() -> ExitCode {
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match arguments.as_slice() {
         ["check-sizes"] => check_sizes(),
+        ["check-borders"] => check_borders(),
         ["install"] => install(Path::new(install::APPLICATIONS)),
         ["install", "--to", folder] => install(Path::new(folder)),
         _ => {
@@ -43,6 +46,20 @@ fn check_sizes() -> ExitCode {
         ExitCode::SUCCESS
     } else {
         eprintln!("check-sizes: {} problems in {} files", sizes.problems.len(), sizes.files);
+        ExitCode::FAILURE
+    }
+}
+
+fn check_borders() -> ExitCode {
+    let borders = borders::check(&root());
+    for problem in &borders.problems {
+        eprintln!("{problem}");
+    }
+    if borders.problems.is_empty() {
+        println!("check-borders: {} rules hold", borders.rules);
+        ExitCode::SUCCESS
+    } else {
+        eprintln!("check-borders: {} problems", borders.problems.len());
         ExitCode::FAILURE
     }
 }

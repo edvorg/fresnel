@@ -38,6 +38,7 @@ cargo test --workspace                # unit tests and UI tests, with no cluster
 FRESNEL_SNAPSHOT_DIR=<folder> cargo test --package fresnel-ui   # also PNG files of the views
 cargo test --workspace -- --ignored   # cluster tests, with k3s in Docker
 cargo xtask check-sizes               # size limits of documents and source files
+cargo xtask check-borders             # no kube in fresnel-net, no egui in fresnel-core
 ```
 
 On Linux, the UI tests need the package `mesa-vulkan-drivers`.

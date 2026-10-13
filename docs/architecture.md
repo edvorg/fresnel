@@ -197,3 +197,4 @@ for a fixed time. A task of the kit that ends is a fault: `task_failures` gives 
 - `clippy.toml` refuses a direct `tokio::spawn` and a direct `std::thread::spawn`.
 - `fresnel-ui` refuses an index with no check. Each crate refuses a lock in a branch head.
 - `cargo xtask check-sizes` checks the limits of the documents and the source files.
+- `cargo xtask check-borders` and a test of `xtask` check the two "no dependency" rules above.

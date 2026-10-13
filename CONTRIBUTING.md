@@ -109,8 +109,9 @@ Rules for a cluster test:
 - The root `Cargo.toml` holds the one version table. A crate takes a dependency with
   `workspace = true`.
 - An exact pin (`=`) has a comment that gives its reason.
-- `fresnel-net` does not depend on kube. `fresnel-core` does not depend on egui.
-  `fresnel-ui` does not use the types of kube.
+- `fresnel-net` does not depend on kube. `fresnel-core` does not depend on egui. This holds
+  also through some other crate. `cargo xtask check-borders` checks the two rules, and
+  `cargo test` runs the same check. `fresnel-ui` does not use the types of kube.
 - A crate above `fresnel-core` names the connection layer as `fresnel_core::net`. Its manifest
   does not list `fresnel-net`.
 
