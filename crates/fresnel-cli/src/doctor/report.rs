@@ -113,7 +113,8 @@ pub(super) struct Plugin {
 pub(super) struct Measured {
     pub(super) dns: Step<Dns>,
     pub(super) alpn: Alpn,
-    /// Connects with no hedge. `None` when the option `--samples` is 0 or no address is known.
+    /// Connects with no hedge. `None` when the option `--samples` is 0, and when the server
+    /// gave no HTTP/2 connection.
     pub(super) plain: Option<Connects>,
     /// Connects as the app makes them.
     pub(super) hedged: Option<Connects>,

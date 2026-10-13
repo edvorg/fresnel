@@ -24,13 +24,16 @@ use fresnel_core::net::NetSettings;
 use fresnel_core::net::credential::PluginSpec;
 use fresnel_core::net::env::{self, EnvSettings, EnvSource, Environment, ProcessEnv};
 use fresnel_core::net::task::{TaskReport, Tasks};
-use tokio::runtime::{Builder, Handle};
+use tokio::runtime::{Builder, Handle, Runtime};
 
 use args::{Options, Selection};
 use report::{Measured, Report, Step, ms};
 
 /// The margin above the time limit of the plugin, for the wait for the first token.
 const CREDENTIAL_MARGIN: Duration = Duration::from_secs(2);
+/// The longest wait for the tasks of the runtime at the end of the command. The tasks of a
+/// cluster end at once, and a task ends the process of its plugin.
+const EXIT_LIMIT: Duration = Duration::from_secs(1);
 
 /// Runs the command. The exit status is 0 when each selected cluster gave its version.
 pub(crate) fn run(arguments: &[String]) -> ExitCode {
@@ -45,7 +48,18 @@ pub(crate) fn run(arguments: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    runtime.block_on(examine(&options, runtime.handle()))
+    let status = runtime.block_on(examine(&options, runtime.handle()));
+    stop(runtime);
+    status
+}
+
+/// Stops the runtime at the end of the command.
+///
+/// The drop of a runtime waits for each blocking call with no limit. An address lookup of
+/// the system is such a call: it cannot be stopped, and it can need 30 seconds on a network
+/// with no name server. The command has its report then, so it does not wait for the call.
+fn stop(runtime: Runtime) {
+    runtime.shutdown_timeout(EXIT_LIMIT);
 }
 
 fn usage_error(problem: &str) -> ExitCode {
@@ -208,9 +222,14 @@ async fn cluster(
     let result = match registry.probe(&id) {
         Ok(probe) => {
             let facts = connects::measure(&probe, options.samples, options.connect_limit).await;
-            let session = match &facts.dns {
-                Step::Done(_) => session::measure(registry, &id, limits).await,
-                Step::Failed { .. } => Step::failed("not connected: the host has no address"),
+            // The channels need an HTTP/2 connection. With none, the session would only
+            // wait for its time limits.
+            let session = match (&facts.dns, &facts.alpn.http2) {
+                (Step::Done(_), Step::Done(_)) => session::measure(registry, &id, limits).await,
+                (Step::Failed { .. }, _) => Step::failed("not connected: the host has no address"),
+                (Step::Done(_), Step::Failed { .. }) => {
+                    Step::failed("not connected: no HTTP/2 connection to the server")
+                }
             };
             Step::Done(Measured { dns: facts.dns, alpn: facts.alpn, plain: facts.plain, hedged: facts.hedged, session })
         }
@@ -251,6 +270,21 @@ mod tests {
         assert_eq!(idle.logs.light_period, Duration::MAX);
         let logs = NetSettings::default().logs;
         assert_eq!(NetSettings { logs, ..idle }, NetSettings::default(), "no other setting changes");
+    }
+
+    #[test]
+    fn the_end_of_the_command_does_not_wait_for_a_blocking_call() {
+        let runtime = Builder::new_multi_thread().worker_threads(1).enable_all().build().expect("a runtime");
+        let (started, runs) = std::sync::mpsc::channel();
+        let call = runtime.spawn_blocking(move || {
+            started.send(()).expect("the test waits for this");
+            std::thread::sleep(4 * EXIT_LIMIT);
+        });
+        runs.recv().expect("the blocking call runs");
+        let stopped = Instant::now();
+        stop(runtime);
+        assert!(stopped.elapsed() < 2 * EXIT_LIMIT, "the stop took {:?}", stopped.elapsed());
+        drop(call);
     }
 
     #[test]

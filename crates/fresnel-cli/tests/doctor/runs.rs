@@ -2,7 +2,7 @@
 
 use std::net::SocketAddr;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -187,6 +187,32 @@ async fn a_connection_that_the_server_ended_before_the_first_token_is_no_idle_cl
     assert!(idle["waited_s"].as_f64().is_some_and(|waited| (2.0..3.0).contains(&waited)), "{idle}");
     assert_eq!(session["credential"]["plugin_runs"], 1);
     only_the_version(&server);
+}
+
+/// A server that is gone. No step can work with no connection, so the command does not
+/// wait for its samples and for its channels.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_that_refuses_each_connection_gives_its_report_with_no_wait() {
+    let server = FakeApiServer::start().await.expect("a server");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let gone = listener.local_addr().expect("its address");
+    drop(listener);
+    let home = home("refused");
+    home.write("work/kubeconfig.yaml", &kubeconfig(&home, &[("gone", gone, &server, User::None)]));
+
+    let started = Instant::now();
+    let run = home.doctor(&["--context", "gone"]).await;
+    let elapsed = started.elapsed();
+    assert_eq!(run.status, Some(1), "stdout:\n{}\nstderr:\n{}", run.stdout, run.stderr);
+    assert!(elapsed < Duration::from_secs(10), "the run took {elapsed:?}:\n{}", run.stdout);
+    let result = &home.json("fresnel-doctor.json")["clusters"][0]["result"];
+    for protocol in ["http2", "http1"] {
+        let error = result["alpn"][protocol]["error"].as_str().expect("the error of the connect");
+        assert!(error.contains("refused"), "{error}");
+    }
+    assert_eq!((&result["plain"], &result["hedged"]), (&serde_json::Value::Null, &serde_json::Value::Null));
+    assert_eq!(result["session"]["error"], "not connected: no HTTP/2 connection to the server");
+    assert_eq!(server.counters().connections, 0);
 }
 
 /// Headlamp weakness 1: data from the first selected cluster only.

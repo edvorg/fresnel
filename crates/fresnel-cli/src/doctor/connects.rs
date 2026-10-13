@@ -37,7 +37,9 @@ pub(super) async fn measure(probe: &Probe, count: usize, limit: Duration) -> Con
     let dns = Step::Done(Dns { time_ms: ms(lookup.time), addresses });
     // The hedge makes these two connects safe against one held connection.
     let alpn = Alpn { http2: offers(probe, Protocol::Http2).await, http1: offers(probe, Protocol::Http1).await };
-    if count == 0 {
+    // Each sample is an HTTP/2 connect. With no such connection, each sample would fail in
+    // the same way, and a server with no answer would cost the time limit of each one.
+    if count == 0 || matches!(alpn.http2, Step::Failed { .. }) {
         return ConnectFacts { dns, alpn, plain: None, hedged: None };
     }
     let plain = plain(probe, &lookup.addresses, count, limit).await;
