@@ -4,9 +4,9 @@
 //! time. A request only reads the result, and it waits a short time at most. The token
 //! stays in memory.
 //!
-//! - [`plugin`]: one run of the plugin. [`document`]: its answer.
-//! - [`task`]: the task that decides when the plugin runs. [`schedule`]: its time rules.
-//! - [`state`]: what the UI shows. [`layer`]: the token of a request and the HTTP 401 rule.
+//! - `plugin`: one run of the plugin. `document`: its answer.
+//! - `task`: the task that decides when the plugin runs. `schedule`: its time rules.
+//! - `state`: what the UI shows. `layer`: the token of a request and the HTTP 401 rule.
 
 mod document;
 mod error;
