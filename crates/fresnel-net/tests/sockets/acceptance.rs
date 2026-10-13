@@ -151,6 +151,24 @@ async fn eight_resets_in_one_minute_each_recover_in_5_seconds_or_less() {
     assert_eq!(proxy.counters().reset, 8 * 3, "three connections for each reset");
 }
 
+/// A host name can have a dead address before the good one. On most systems `localhost`
+/// gives `::1` first, and the fake server listens on 127.0.0.1 only.
+#[tokio::test]
+async fn a_host_with_a_dead_address_connects_on_its_next_address() {
+    let server = FakeApiServer::start().await.expect("a server");
+    let tasks = TestTasks::new();
+    let mut spec = spec("two-addresses", server.addr(), trust(&server));
+    spec.endpoint.host = "localhost".to_owned();
+    let cluster = Cluster::start(&tasks.tasks, spec).expect("a cluster");
+    let connect = until_live(&cluster).await.connect;
+    assert_eq!(fetch(&cluster, RequestKind::Get, "/version").await.expect("an answer").0, 200);
+    assert!(connect.addresses.contains(&server.addr()), "{connect:?}");
+    // A system with one address for `localhost` cannot show the dead address.
+    if connect.addresses.first() != Some(&server.addr()) {
+        assert!(connect.attempts >= 2 * connect.connects, "each connect starts at the dead address: {connect:?}");
+    }
+}
+
 /// The UI thread starts a cluster. It has no runtime context.
 #[test]
 fn a_thread_with_no_runtime_starts_a_cluster() {

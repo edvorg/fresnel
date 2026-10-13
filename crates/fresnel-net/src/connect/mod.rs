@@ -9,6 +9,7 @@ mod hedge;
 mod resolver;
 mod times;
 
+use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,7 +23,7 @@ use tokio::time::Instant;
 
 use crate::error::NetError;
 use dial::{Io, Protocol, Tls};
-use hedge::Race;
+use hedge::{Race, Won};
 use resolver::Resolver;
 use times::ConnectTimes;
 
@@ -60,7 +61,8 @@ pub struct ConnectSettings {
     pub attempt_limit: Duration,
     /// The time limit of one full connect: lookup, TCP and TLS.
     pub connect_limit: Duration,
-    /// A connect ends after this count of fast failures, for example refused connects.
+    /// A connect ends after this count of fast failures, for example refused connects. A
+    /// host with more addresses than this gets one attempt for each address.
     pub hard_failures: usize,
 }
 
@@ -144,24 +146,36 @@ impl Connector {
             limit: self.settings.connect_limit.saturating_sub(started.elapsed()),
             hard_failures: self.settings.hard_failures,
         };
-        // Each attempt takes the next address, so a host with one dead address still connects.
-        let targets = addresses.iter().copied().cycle();
-        let mut targets = targets.map(|address| self.tls.attempt(address, protocol));
-        let attempt = |_| {
-            let next = targets.next();
-            async move {
-                match next {
-                    Some(connect) => connect.await,
-                    None => Err(std::io::Error::other("the host has no address")),
-                }
-            }
-        };
-        let won = hedge::race(plan, attempt).await?;
+        let won = race_over(plan, &addresses, |address| self.tls.attempt(address, protocol)).await?;
         self.times.record(won.time);
         self.connects.fetch_add(1, Ordering::Relaxed);
         self.attempts.fetch_add(u64::try_from(won.attempts).unwrap_or(u64::MAX), Ordering::Relaxed);
         Ok(won.io)
     }
+}
+
+/// The race over the addresses of one host. Attempt N goes to address N, in a circle, so
+/// that a host with dead addresses still connects. Each address gets its attempt before
+/// fast failures end the race: each connect starts at the first address again.
+async fn race_over<T, F>(
+    plan: Race,
+    addresses: &[SocketAddr],
+    connect: impl Fn(SocketAddr) -> F,
+) -> Result<Won<T>, NetError>
+where
+    F: Future<Output = io::Result<T>>,
+{
+    let plan = Race { hard_failures: plan.hard_failures.max(addresses.len()), ..plan };
+    let attempt = |number: usize| {
+        let target = addresses.get(number % addresses.len().max(1)).copied().map(&connect);
+        async move {
+            match target {
+                Some(connect) => connect.await,
+                None => Err(io::Error::other("the host has no address")),
+            }
+        }
+    };
+    hedge::race(plan, attempt).await
 }
 
 impl Dial for Connector {
@@ -179,5 +193,55 @@ impl Dial for Connector {
             connects: self.connects.load(Ordering::Relaxed),
             attempts: self.attempts.load(Ordering::Relaxed),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::time::sleep;
+
+    use super::*;
+    use crate::error::ErrorClass;
+
+    const MS: Duration = Duration::from_millis(1);
+    const PLAN: Race = Race {
+        delay: Duration::from_millis(200),
+        max_parallel: 5,
+        attempt_limit: Duration::from_secs(3),
+        limit: Duration::from_secs(10),
+        hard_failures: 2,
+    };
+
+    fn address(last: u8) -> SocketAddr {
+        SocketAddr::from(([10, 0, 0, last], 6443))
+    }
+
+    /// A race where only the address `good` connects. Each other address refuses after 1 ms.
+    async fn connect_to(
+        addresses: &[SocketAddr],
+        good: Option<SocketAddr>,
+    ) -> (Result<Won<SocketAddr>, NetError>, Duration) {
+        let started = Instant::now();
+        let connect = |address| async move {
+            sleep(MS).await;
+            if Some(address) == good { Ok(address) } else { Err(io::Error::other("connection refused")) }
+        };
+        (race_over(PLAN, addresses, connect).await, started.elapsed())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn each_address_of_a_host_gets_its_attempt() {
+        let addresses = [address(1), address(2), address(3)];
+        let (won, elapsed) = connect_to(&addresses, Some(address(3))).await;
+        let won = won.expect("two dead addresses come before the good one");
+        assert_eq!((won.io, won.attempts, elapsed), (address(3), 3, 401 * MS));
+
+        let (lost, elapsed) = connect_to(&addresses, None).await;
+        let error = lost.expect_err("no address accepts a connection");
+        assert_eq!((error.class(), elapsed), (ErrorClass::Network, 401 * MS), "no wait for the time limit: {error}");
+
+        let (lost, elapsed) = connect_to(&addresses[..1], None).await;
+        assert!(lost.expect_err("refused").to_string().contains("2 attempts"));
+        assert_eq!(elapsed, 201 * MS, "one address gets the count of fast failures of the settings");
     }
 }
