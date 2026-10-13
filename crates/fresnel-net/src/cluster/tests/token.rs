@@ -146,3 +146,26 @@ async fn an_http_401_to_a_light_request_goes_to_the_credential_and_an_open_watch
     sleep(SECOND).await;
     assert_eq!((bed.server.seen().len(), bed.server.dials()), (requests, connections), "a request with no token");
 }
+
+/// A second fault during the wait for the token: the connection goes silent. The channel
+/// sends no request that could show it, so only the ping can. The channel connects again
+/// in 20 seconds or less, and the token then goes out on the new connection.
+#[tokio::test(start_paused = true)]
+async fn a_connection_that_goes_silent_while_it_waits_for_the_token_is_replaced() {
+    let mut bed = Bed::build(slow(&["one"], 60 * SECOND));
+    bed.until("each channel waits for the token", |status| all_are(status, &ChannelState::WaitsForToken)).await;
+    sleep(7 * SECOND).await;
+    bed.server.silence_open();
+
+    let replaced = |status: &ClusterStatus| first_channels(status).iter().all(|channel| channel.connections == 2);
+    let status = bed.until("each channel has a new connection", replaced).await;
+    let shown_after = bed.elapsed() - 7 * SECOND;
+    assert!(shown_after <= 20 * SECOND, "the silent connections showed after {shown_after:?}");
+    assert!(all_are(&status, &ChannelState::WaitsForToken), "{status:?}");
+    assert_eq!(bed.server.seen().len(), 0, "the server saw a request with no token");
+
+    let live = bed.until("each channel is live", |status| all_are(status, &ChannelState::Live)).await;
+    assert_eq!(bed.elapsed(), 60 * SECOND, "the light request goes out when the token arrives");
+    assert!(replaced(&live), "{live:?}");
+    assert_eq!(tokens_of_light_requests(&bed), [(); 3].map(|()| Some("Bearer one".to_owned())));
+}
