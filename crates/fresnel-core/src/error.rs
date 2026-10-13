@@ -17,7 +17,8 @@ pub struct CoreError {
 }
 
 impl CoreError {
-    pub(crate) fn new(class: ErrorClass, text: impl Into<Arc<str>>) -> Self {
+    /// An error of this class. The text must hold no token, no key and no content of an object.
+    pub fn new(class: ErrorClass, text: impl Into<Arc<str>>) -> Self {
         Self { class, status: None, text: text.into() }
     }
 

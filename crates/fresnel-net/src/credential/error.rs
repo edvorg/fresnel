@@ -75,7 +75,8 @@ pub struct PluginError {
 }
 
 impl PluginError {
-    pub(crate) fn new(command: &str, failure: PluginFailure, detail: String) -> Self {
+    /// The error of one run of `command`. `detail` is the text for the user.
+    pub fn new(command: &str, failure: PluginFailure, detail: String) -> Self {
         Self { command: command.to_owned(), failure, detail }
     }
 
