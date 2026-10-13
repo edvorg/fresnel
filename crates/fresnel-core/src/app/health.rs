@@ -1,6 +1,6 @@
 //! The one state of a cluster that the status bar and the journal show.
 
-use fresnel_net::credential::{CredentialState, RunReason};
+use fresnel_net::credential::CredentialState;
 use fresnel_net::{ChannelState, ChannelStatus, ClusterStatus};
 
 use crate::cluster::LinkState;
@@ -13,9 +13,10 @@ pub enum Health {
     /// The connect did not start, for example because of a bad kubeconfig entry.
     Failed,
     /// The first connect of a channel is in progress, its first answer did not arrive
-    /// yet, or the plugin runs for the first token.
+    /// yet, or it waits for the first token of the plugin.
     Connecting,
-    /// A request got an answer on a channel of each purpose, and the cluster has its token.
+    /// A request got an answer on a channel of each purpose. On a cluster with a plugin,
+    /// a channel sends no request before the first token, so the cluster has its token.
     Live,
     /// A connect failed, and the channel tries again.
     NoConnection,
@@ -41,7 +42,7 @@ impl Health {
         }
         let first = first_channels(status);
         let all_live = first.len() == PURPOSES && first.iter().all(|(_, channel)| channel.state == ChannelState::Live);
-        if all_live && !waits_for_first_token(status) {
+        if all_live {
             Self::Live
         } else if first.iter().any(|(_, channel)| has_failures(channel)) {
             Self::NoConnection
@@ -77,15 +78,8 @@ fn has_failures(channel: &ChannelStatus) -> bool {
     match channel.state {
         ChannelState::Backoff { .. } => true,
         ChannelState::Connecting { attempt } => attempt > 1,
-        ChannelState::Verifying | ChannelState::Live | ChannelState::Retired => false,
+        ChannelState::WaitsForToken | ChannelState::Verifying | ChannelState::Live | ChannelState::Retired => false,
     }
-}
-
-/// True before the first plugin run ended. A channel can be live then: some servers answer
-/// its light request with no token. The cluster cannot do work yet.
-fn waits_for_first_token(status: &ClusterStatus) -> bool {
-    let state = status.credential.as_ref().map(|credential| &credential.state);
-    matches!(state, Some(CredentialState::None | CredentialState::Running { reason: RunReason::Start, .. }))
 }
 
 /// The text of a failed credential. A plugin that runs again after a failure counts as
@@ -195,16 +189,20 @@ mod tests {
     }
 
     #[test]
-    fn a_cluster_with_live_channels_and_no_first_token_is_not_live() {
-        let live = || [LIVE, LIVE, LIVE].map(|state| channel(state, None));
+    fn a_cluster_whose_channels_wait_for_the_first_token_connects() {
+        let waiting = || [(); 3].map(|()| channel(ChannelState::WaitsForToken, None));
         let first_run =
             CredentialState::Running { reason: RunReason::Start, since: SystemTime::UNIX_EPOCH, last_failure: None };
         for state in [CredentialState::None, first_run] {
-            let waits = status(live(), Some(state));
+            let waits = status(waiting(), Some(state));
             assert_eq!((Health::of_status(&waits), reason(&waits)), (Health::Connecting, None));
         }
-        let valid = status(live(), Some(CredentialState::Valid { until: None }));
-        assert_eq!(Health::of_status(&valid), Health::Live);
+        // One channel has its answer, and the token arrived a moment before.
+        let valid = Some(CredentialState::Valid { until: None });
+        let mixed = [LIVE, ChannelState::Verifying, ChannelState::WaitsForToken].map(|state| channel(state, None));
+        assert_eq!(Health::of_status(&status(mixed, valid.clone())), Health::Connecting);
+        let live = [LIVE, LIVE, LIVE].map(|state| channel(state, None));
+        assert_eq!(Health::of_status(&status(live, valid)), Health::Live);
     }
 
     #[test]

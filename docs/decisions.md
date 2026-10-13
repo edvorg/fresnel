@@ -157,6 +157,14 @@ API server that starts can accept a connection and close it. In the prototype, t
 showed live 4 times for 10 ms each. The light request also proves the token after a second
 HTTP 401, keeps an idle connection open, and tests a connection after a wake.
 
+## No request before a token
+
+A kube-apiserver ends an HTTP/2 connection after its answer to a request with no credential.
+Thus a channel of a cluster with a credential plugin sends no light request while the cluster
+has no token. It keeps its connection open in the state "waits for a token", and the ping
+still finds a silent connection. In milestone M0, a plugin that hung for 20 seconds cost 43
+connections in place of 3.
+
 ## The hedge delay follows the connect time
 
 The hedged connect covers TCP and TLS, because a held connection can stop before the first
@@ -295,11 +303,11 @@ light request. The text of a plugin shows at the terminal only.
 
 ## The doctor counts an idle close from the start of its wait
 
-The kube-apiserver of k3s ends an HTTP/2 connection after its answer to a request with no
-credential. A channel can send its light request before the first token of a plugin, so it
-is on a later connection when it is live. Thus the doctor compares with the connections at
-the start of its idle wait. With no token, it does not wait for the channels. With no HTTP/2
-connection, it takes no sample and starts no session.
+A channel can be on a later connection when it is live, for example after a reset during
+the start. That loss is not the close of an idle connection. Thus the doctor compares with
+the connections at the start of its idle wait. With no token, it does not wait for the
+channels: a channel sends no request then and is never live. With no HTTP/2 connection, it
+takes no sample and starts no session.
 
 ## A view is a function of a copy of the state
 
@@ -319,9 +327,8 @@ clusters is complete, the window tells how far the start is.
 
 The status bar and the journal show one state for each cluster: off, failed, connecting, live,
 no connection or no credential. A failed credential wins, because the channels stay live only
-for the rest of the life of the old token. Live channels with no first token count as
-connecting: some servers answer the light request of a channel with no token, and the cluster
-cannot do work yet.
+for the rest of the life of the old token. A channel that waits for the first token of the
+plugin counts as connecting: it has a connection, and the cluster cannot do work yet.
 
 ## The selection at the start is the current context
 

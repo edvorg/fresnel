@@ -63,6 +63,7 @@ fn cells(name: &str, channel: &ChannelStatus, clock: &Clock) -> Vec<Text> {
 fn state_text(channel: &ChannelStatus, clock: &Clock) -> (Tone, String) {
     match &channel.state {
         ChannelState::Connecting { attempt } => (Tone::Info, format!("connecting, attempt {attempt}")),
+        ChannelState::WaitsForToken => (Tone::Info, "connected, waits for a token".to_owned()),
         ChannelState::Verifying => (Tone::Info, "connected, no answer yet".to_owned()),
         ChannelState::Live => (Tone::Ok, "live".to_owned()),
         ChannelState::Backoff { failures, pause } => {

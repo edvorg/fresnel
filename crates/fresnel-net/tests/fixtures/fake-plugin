@@ -6,8 +6,9 @@
 #   pid        its process id
 #   child      the process id of the process that it started (mode "hang")
 #   exec-info  the input that the app gave
-# The file "mode" in that folder selects what a run does: ok (default), hang, fail,
-# helper (it leaves a process that holds its output pipes) or flood (too much output).
+# The file "mode" in that folder selects what a run does: ok (default), slow (the token
+# comes after 1 s), hang, fail, helper (it leaves a process that holds its output pipes)
+# or flood (too much output).
 # FAKE_PLUGIN_TOKEN is the start of the token. The number of the run is its end.
 
 state="${FAKE_PLUGIN_STATE:?the test sets the state folder}"
@@ -18,7 +19,8 @@ run=$(wc -l < "$state/runs" | tr -d ' ')
 mode=$(cat "$state/mode" 2>/dev/null || echo ok)
 
 case "$mode" in
-ok)
+ok | slow)
+    if [ "$mode" = slow ]; then sleep 1; fi
     printf '{"apiVersion":"client.authentication.k8s.io/v1beta1","kind":"ExecCredential","status":{"token":"%s-%s"}}\n' \
         "${FAKE_PLUGIN_TOKEN:-token}" "$run"
     ;;

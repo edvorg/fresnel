@@ -157,14 +157,14 @@ async fn the_command_measures_a_cluster_with_the_environment_of_finder() {
 }
 
 /// A kube-apiserver ends a connection after a request with no credential. A channel of a
-/// cluster with a plugin can send its light request before the first token. Such a channel
-/// is on a later connection when it is live, and that is not the close of an idle connection.
+/// cluster with a plugin sends no request before the first token, so a slow plugin costs
+/// no connection, and the idle wait starts on the first connection of each channel.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_connection_that_the_server_ended_before_the_first_token_is_no_idle_close() {
+async fn a_slow_plugin_costs_no_connection_and_the_idle_wait_sees_no_close() {
     let server = FakeApiServer::start().await.expect("a server");
     server.end_anonymous_connections();
     let home = home("anonymous");
-    // The plugin is slow, so each channel sends a request with no token.
+    // The plugin is slow, so each channel has its connection before the first token.
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fresnel-net/tests/fixtures/fake-plugin");
     home.add_program(PLUGIN, &format!("#!/bin/sh\nsleep 0.3\nexec '{}'\n", fixture.display()));
     home.write(
@@ -176,8 +176,9 @@ async fn a_connection_that_the_server_ended_before_the_first_token_is_no_idle_cl
     assert_eq!(run.status, Some(0), "stdout:\n{}\nstderr:\n{}", run.stdout, run.stderr);
     let session = &home.json("fresnel-doctor.json")["clusters"][0]["result"]["session"];
     let channels = session["channels"].as_array().expect("the channels");
-    let connections: u64 = channels.iter().filter_map(|channel| channel["connections"].as_u64()).sum();
-    assert!(connections > 3, "the fault was not present: no channel lost a connection: {channels:?}");
+    let connections: Vec<_> = channels.iter().map(|channel| &channel["connections"]).collect();
+    assert_eq!(connections, [1, 1, 1], "a channel lost a connection before the first token: {channels:?}");
+    assert!(server.requests().iter().all(|seen| seen.bearer() == Some("doctor-1")), "a request had no token");
     let idle = &session["idle_close"];
     assert_eq!(
         (&idle["closed_after_s"], &idle["light_request_kept_open"]),

@@ -72,7 +72,7 @@ fn session() -> CoreView {
         failures: 2,
         next_attempt: now() + 8 * SECOND,
     };
-    let no_token = [(); 3].map(|()| new_channel(ChannelState::Verifying));
+    let no_token = [(); 3].map(|()| new_channel(ChannelState::WaitsForToken));
 
     let mut with_journal = view(vec![
         connected("ams-prod", live),

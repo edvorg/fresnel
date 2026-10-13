@@ -14,6 +14,9 @@ pub enum ChannelState {
         /// The number of the attempt in the sequence of failures, from 1.
         attempt: u32,
     },
+    /// The connection is open, and the cluster has no token yet. The channel sends no
+    /// request: a kube-apiserver ends a connection after a request with no credential.
+    WaitsForToken,
     /// The connection is open. No request got an answer on it yet, so nothing shows that
     /// the server works.
     Verifying,

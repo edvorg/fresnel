@@ -1,16 +1,19 @@
 //! The connection layer on a real kube-apiserver: k3s in Docker behind the fault proxy.
 //!
-//! The steps are in one test, because the start of a cluster is the slow part.
+//! The steps of the first test are in one test, because the start of a cluster is the
+//! slow part. The test with a credential plugin has its own cluster, so the two run at the
+//! same time.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
+use fresnel_net::credential::PluginSpec;
 use fresnel_net::env::ProcessEnv;
 use fresnel_net::task::{TaskReport, Tasks};
 use fresnel_net::{ChannelState, Cluster, ClusterSpec, ClusterStatus, Endpoint, NetSettings, RequestKind, WallClock};
@@ -166,5 +169,105 @@ async fn the_channels_work_on_a_real_kube_apiserver_through_an_idle_time_a_silen
     assert!(live_after <= Duration::from_secs(5), "the channels were live {live_after:?} after the restart");
     let (code, namespaces) = fetch(&cluster, RequestKind::ListPage, "/api/v1/namespaces?limit=500").await;
     assert!(code == 200 && namespaces.contains(r#""name":"made-in-the-silence""#), "{code}: {namespaces}");
+    assert_eq!(proxy.task_failures(), Vec::<String>::new());
+}
+
+/// A credential plugin in a folder of the test. Each run needs one second, as a plugin that
+/// asks a server, and then gives the token of a file. The drop removes the folder.
+struct SlowPlugin(PathBuf);
+
+impl SlowPlugin {
+    const SCRIPT: &str = "#!/bin/sh
+sleep 1
+printf '{\"apiVersion\":\"client.authentication.k8s.io/v1\",\"kind\":\"ExecCredential\",\"status\":{\"token\":\"%s\"}}\\n' \\
+    \"$(cat \"$(dirname \"$0\")/token\")\"
+";
+
+    fn new(token: &str) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+
+        let folder = std::env::temp_dir().join(format!("fresnel-net-test-k3s-plugin-{:08x}", fastrand::u32(..)));
+        std::fs::create_dir(&folder).expect("a new folder");
+        let plugin = Self(folder);
+        std::fs::write(plugin.0.join("token"), token).expect("the token file");
+        std::fs::write(plugin.command(), Self::SCRIPT).expect("the plugin file");
+        std::fs::set_permissions(plugin.command(), std::fs::Permissions::from_mode(0o700)).expect("a program file");
+        plugin
+    }
+
+    fn command(&self) -> PathBuf {
+        self.0.join("plugin")
+    }
+
+    fn spec(&self) -> PluginSpec {
+        PluginSpec { command: self.command().display().to_string(), ..PluginSpec::default() }
+    }
+}
+
+impl Drop for SlowPlugin {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_dir_all(&self.0) {
+            eprintln!("cannot remove {}: {error}", self.0.display());
+        }
+    }
+}
+
+/// A kube-apiserver ends an HTTP/2 connection after its answer to a request with no
+/// credential. Thus a channel sends no request before the first token of the plugin, and
+/// a cluster with a slow plugin uses one connection for each channel (design rule 3).
+#[tokio::test]
+#[ignore = "needs k3s in Docker"]
+async fn a_channel_keeps_its_first_connection_on_a_real_kube_apiserver_while_a_slow_plugin_runs() {
+    let k3s = K3s::start("net-token").await.expect("k3s starts");
+    let proxy = FaultProxy::start(k3s.api_addr()).await.expect("a proxy");
+    k3s.kubectl(&["create", "serviceaccount", "reader", "--namespace", "default"]).await.expect("a service account");
+    let token = k3s.kubectl(&["create", "token", "reader", "--namespace", "default"]).await.expect("a token");
+    let plugin = SlowPlugin::new(token.trim());
+    let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("a task of the app ended: {report}"));
+    // The TLS settings have the certificate of the server only: the token proves the user.
+    let text = std::fs::read_to_string(k3s.kubeconfig()).expect("the kubeconfig of the test cluster");
+    let mut roots = RootCertStore::empty();
+    for root in CertificateDer::pem_slice_iter(&decoded(&text, "certificate-authority-data:")) {
+        roots.add(root.expect("a certificate")).expect("a root");
+    }
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let builder =
+        ClientConfig::builder_with_provider(provider).with_safe_default_protocol_versions().expect("versions");
+    let spec = ClusterSpec {
+        name: "k3s-token".to_owned(),
+        endpoint: Endpoint {
+            host: proxy.addr().ip().to_string(),
+            port: proxy.addr().port(),
+            base_path: String::new(),
+            tls_server_name: None,
+            tls: Arc::new(builder.with_root_certificates(roots).with_no_client_auth()),
+        },
+        plugin: Some(plugin.spec()),
+        env: [("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")].into_iter().collect(),
+        settings: NetSettings::default(),
+        clock: WallClock::system(),
+    };
+    let cluster = Cluster::start(&tasks, spec).expect("a cluster");
+
+    until(&cluster, "each channel has its connection and waits for the token", |status| {
+        first_channels(status).iter().all(|channel| channel.state == ChannelState::WaitsForToken)
+    })
+    .await;
+    let live = until_live(&cluster).await;
+    for channel in first_channels(&live) {
+        assert_eq!((channel.connections, &channel.last_error), (1, &None), "{channel:?}");
+        assert_eq!(channel.server_stream_limit, Some(100), "the address is the kube-apiserver");
+    }
+    assert_eq!(live.credential.expect("a credential").plugin_runs, 1);
+    // The server knows the user of the token: the service account can read no namespace.
+    let (code, version) = fetch(&cluster, RequestKind::Get, "/version").await;
+    assert!(code == 200 && version.contains("v1.33.5+k3s1"), "{code}: {version}");
+    let (code, refusal) = fetch(&cluster, RequestKind::ListPage, "/api/v1/namespaces?limit=500").await;
+    assert!(code == 403 && refusal.contains("system:serviceaccount:default:reader"), "{code}: {refusal}");
+    // A connection that the server ended would show here some seconds later at most.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let status = until_live(&cluster).await;
+    assert!(first_channels(&status).iter().all(|channel| channel.connections == 1), "{status:#?}");
+    assert_eq!(proxy.counters().accepted, 3, "one connection for each channel");
     assert_eq!(proxy.task_failures(), Vec::<String>::new());
 }

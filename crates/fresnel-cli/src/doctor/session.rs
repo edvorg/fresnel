@@ -41,9 +41,9 @@ pub(super) async fn measure(registry: &Registry, id: &ClusterId, limits: &Limits
 async fn examine(link: &Link, started: Instant, limits: &Limits) -> Session {
     let settled = until(link, limits.credential, credential_settled).await;
     let credential = credential(&settled.unwrap_or_else(|| link.net.status()), started);
-    // With no token, a request fails with the state of the credential, and a
-    // kube-apiserver ends each connection that sent a request. The wait for the channels
-    // would only cost its limit.
+    // With no token, a request fails with the state of the credential, and a channel sends
+    // no light request, so no channel gets live. The wait for the channels would only
+    // cost its limit.
     let has_token = credential.as_ref().is_none_or(|credential| credential.first_token_ms.is_some());
     let live = if has_token { until(link, LIVE_LIMIT, all_live).await } else { None };
     let live_ms = live.as_ref().map(|_| ms(started.elapsed()));
@@ -169,8 +169,8 @@ async fn version_request(link: &Link) -> Result<Version, String> {
 /// the channels are not live at the start of the wait.
 ///
 /// The wait starts from the connections of its own start. A channel can be on a later
-/// connection then: a kube-apiserver ends a connection after a request with no token, and
-/// a channel can send such a request before the first plugin run ended.
+/// connection then, for example after a reset during the start, and that loss is not the
+/// close of an idle connection.
 async fn idle_close(link: &Link, limit: Duration) -> (ClusterStatus, Option<IdleClose>) {
     let Some(before) = until(link, LIVE_LIMIT, all_live).await else {
         return (link.net.status(), None);
@@ -199,6 +199,7 @@ async fn idle_close(link: &Link, limit: Duration) -> (ClusterStatus, Option<Idle
 fn channel(purpose: &'static str, status: &ChannelStatus) -> Channel {
     let state = match &status.state {
         ChannelState::Connecting { attempt } => format!("connecting, attempt {attempt}"),
+        ChannelState::WaitsForToken => "connected, waits for a token".to_owned(),
         ChannelState::Verifying => "connected, no answer yet".to_owned(),
         ChannelState::Live => "live".to_owned(),
         ChannelState::Backoff { failures, .. } => format!("pause after {failures} failures"),

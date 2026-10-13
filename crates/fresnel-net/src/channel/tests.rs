@@ -3,6 +3,7 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
+use futures_util::future::BoxFuture;
 use http::Request;
 use http_body_util::BodyExt as _;
 use tokio::runtime::Handle;
@@ -11,10 +12,11 @@ use tokio::time::{Instant, sleep, timeout};
 use super::group::Group;
 use super::*;
 use crate::changes::Changes;
+use crate::connect::dial::Protocol;
 use crate::error::ErrorClass;
 use crate::signal::Cause;
 use crate::task::TaskReport;
-use crate::testing::{Connects, MemoryServer};
+use crate::testing::{Connects, MemoryServer, NoPlugin};
 
 mod live;
 mod windows;
@@ -326,6 +328,20 @@ async fn the_channel_keeps_four_old_connections_after_goaway_and_no_more() {
     assert_eq!(ended, 4, "the fifth old connection replaced the four before it");
 }
 
+/// Light requests with a defect: the second build panics in the task of the channel.
+struct SecondBuildPanics(AtomicU64);
+
+impl LightRequests for SecondBuildPanics {
+    fn build(&self, protocol: Protocol) -> Option<Request<Full<Bytes>>> {
+        assert_ne!(self.0.fetch_add(1, Ordering::SeqCst), 1, "a defect in the task of the channel");
+        NoPlugin.build(protocol)
+    }
+
+    fn token(&self) -> BoxFuture<'_, ()> {
+        NoPlugin.token()
+    }
+}
+
 /// A defect in the task of a channel must not leave a state that looks good (design rule 1).
 #[tokio::test(start_paused = true)]
 async fn a_panic_in_the_task_of_a_channel_gives_a_report_and_the_channel_connects_again() {
@@ -336,11 +352,7 @@ async fn a_panic_in_the_task_of_a_channel_gives_a_report_and_the_channel_connect
     parts.tasks =
         Tasks::new(Handle::current(), move |report: TaskReport| kept.lock().expect("a lock").push(report.to_string()));
     // The task builds a light request at its first connect and after 30 s. The second one fails.
-    let (built, build) = (AtomicU64::new(0), Arc::clone(&parts.light_request));
-    parts.light_request = Arc::new(move |protocol| {
-        assert_ne!(built.fetch_add(1, Ordering::SeqCst), 1, "a defect in the task of the channel");
-        build(protocol)
-    });
+    parts.light = Arc::new(SecondBuildPanics(AtomicU64::new(0)));
     let mut changes = parts.changed.watch();
     let group = Group::start(parts, Purpose::Watches, settings());
     let status = || group.status().channels.remove(0);

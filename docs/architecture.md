@@ -104,7 +104,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 - **Channel**: one HTTP/2 connection with its own task. The task connects at the start and
   after each loss, sends a ping each 10 s, and sends a light request each 30 s when no stream
-  is open. The state is live only after a request got an answer.
+  is open. With a plugin and no token, it sends nothing. Live means: a request got an answer.
 - **Group**: the channels of one purpose. At 70 percent of the stream limit of the server,
   one more connection opens, to a maximum of 3. Then a request waits, and the state shows it.
 - **Hedged connect**: one more attempt starts after 1.5 connect times, and the first attempt

@@ -26,8 +26,8 @@ pub use state::{ChannelState, ChannelStatus};
 
 use crate::changes::Changed;
 use crate::connect::Dial;
-use crate::connect::dial::Protocol;
 use crate::error::NetError;
+use crate::light::LightRequests;
 use crate::signal::Signal;
 use crate::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
 use link::LinkBoard;
@@ -133,9 +133,6 @@ impl Purpose {
     }
 }
 
-/// Builds a light request for a connection of one protocol.
-pub(crate) type LightRequest = Arc<dyn Fn(Protocol) -> Request<Full<Bytes>> + Send + Sync>;
-
 /// What each channel of a cluster needs for its task.
 #[derive(Clone)]
 pub(crate) struct Parts {
@@ -143,8 +140,8 @@ pub(crate) struct Parts {
     /// The name of the cluster, for the names of the tasks.
     pub(crate) cluster: Arc<str>,
     pub(crate) dial: Arc<dyn Dial>,
-    /// Builds the light request: a small read with the token of this moment.
-    pub(crate) light_request: LightRequest,
+    /// Builds each light request, and tells when the cluster has a token for one.
+    pub(crate) light: Arc<dyn LightRequests>,
     pub(crate) signal: Signal,
     pub(crate) changed: Changed,
 }

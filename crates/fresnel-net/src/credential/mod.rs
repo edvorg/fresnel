@@ -197,22 +197,30 @@ impl Credentials {
         }
     }
 
+    /// Waits until the cluster has a token, with no time limit. A channel waits here before
+    /// its light request: a request with no token would end its connection.
+    pub(crate) async fn token_exists(&self) {
+        self.answered(|view| view.token.as_ref().map(|_| ())).await;
+    }
+
     /// Waits until `answer` gives a value, for `request_wait` at most.
     async fn wait<T>(&self, answer: impl Fn(&View) -> Option<T>) -> Option<T> {
+        timeout(self.shared.settings.request_wait, self.answered(answer)).await.ok()
+    }
+
+    /// Waits until `answer` gives a value.
+    async fn answered<T>(&self, answer: impl Fn(&View) -> Option<T>) -> T {
         let mut view = self.shared.view.subscribe();
-        let answered = async {
-            loop {
-                // The guard of the borrow ends with this statement, before the wait.
-                let now = answer(&view.borrow_and_update());
-                match now {
-                    Some(value) => return value,
-                    // The sender lives in `shared`, so the wait cannot fail.
-                    None if view.changed().await.is_err() => std::future::pending::<()>().await,
-                    None => {}
-                }
+        loop {
+            // The guard of the borrow ends with this statement, before the wait.
+            let now = answer(&view.borrow_and_update());
+            match now {
+                Some(value) => return value,
+                // The sender lives in `shared`, so the wait cannot fail.
+                None if view.changed().await.is_err() => std::future::pending::<()>().await,
+                None => {}
             }
-        };
-        timeout(self.shared.settings.request_wait, answered).await.ok()
+        }
     }
 
     /// The error of a request that did not get a token in the wait: the credential state.

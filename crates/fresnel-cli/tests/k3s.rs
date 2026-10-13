@@ -97,9 +97,13 @@ async fn the_command_measures_a_real_kube_apiserver_through_the_fault_proxy() {
     );
     // The server refuses a request with a bad token, also for this path.
     assert_eq!(session["version"]["git_version"], "v1.33.5+k3s1");
+    // A kube-apiserver ends a connection after a request with no credential. No channel
+    // sent one before the first token of the plugin.
+    let connections: Vec<_> =
+        session["channels"].as_array().expect("channels").iter().map(|c| &c["connections"]).collect();
+    assert_eq!(connections, [1, 1, 1], "a slow plugin costs no connection");
     // A kube-apiserver closes a connection with no request after 90 s. The light request
-    // of the other channels prevents that. A connection that the server ended before the
-    // first token is not such a close.
+    // of the other channels prevents that.
     let idle = &session["idle_close"];
     let closed_after = number(&idle["closed_after_s"], "the time of the close");
     assert!((85.0..100.0).contains(&closed_after), "{idle}");

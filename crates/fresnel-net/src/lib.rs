@@ -17,6 +17,7 @@ pub mod credential;
 pub mod detect;
 pub mod env;
 mod error;
+mod light;
 pub mod probe;
 mod process;
 mod request;

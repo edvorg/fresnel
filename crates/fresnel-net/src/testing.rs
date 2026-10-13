@@ -35,6 +35,7 @@ use crate::connect::dial::{Io, Protocol};
 use crate::connect::{ConnectStatus, Dial};
 use crate::credential::{Credential, PluginError, TokenSource};
 use crate::error::NetError;
+use crate::light::LightRequests;
 use crate::signal::Signal;
 use crate::task::Tasks;
 
@@ -96,6 +97,19 @@ impl TokenSource for Tokens {
     }
 }
 
+/// The light requests of a cluster with no credential plugin: one is always possible.
+pub(crate) struct NoPlugin;
+
+impl LightRequests for NoPlugin {
+    fn build(&self, _protocol: Protocol) -> Option<Request<Full<Bytes>>> {
+        Some(Request::get("https://memory/version").body(Full::default()).expect("a request"))
+    }
+
+    fn token(&self) -> BoxFuture<'_, ()> {
+        std::future::ready(()).boxed()
+    }
+}
+
 /// The text of the path `/big`: large, so that gzip makes it much smaller.
 pub(crate) fn big_text() -> String {
     (0..4000).map(|item| format!(r#"{{"metadata":{{"name":"pod-{item}","namespace":"default"}}}},"#)).collect()
@@ -146,9 +160,7 @@ impl MemoryServer {
             tasks: Tasks::new(Handle::current(), |_| {}),
             cluster: "memory".into(),
             dial: Arc::clone(self) as _,
-            light_request: Arc::new(|_| {
-                Request::get("https://memory/version").body(Full::default()).expect("a request")
-            }),
+            light: Arc::new(NoPlugin),
             signal: Signal::new(),
             changed: Changed::new(),
         }

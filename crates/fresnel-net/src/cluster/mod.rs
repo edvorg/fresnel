@@ -4,6 +4,7 @@
 //! for one cluster and gives copies of their states.
 
 mod address;
+mod light;
 mod service;
 
 use std::sync::Arc;
@@ -18,7 +19,7 @@ use tokio::time::timeout;
 use crate::body::ResponseBody;
 use crate::changes::{Changed, Changes};
 use crate::channel::group::{Group, GroupStatus};
-use crate::channel::{ChannelSettings, LightRequest, Parts, Purpose};
+use crate::channel::{ChannelSettings, Parts, Purpose};
 use crate::clock::WallClock;
 use crate::connect::dial::Protocol;
 use crate::connect::{ConnectSettings, ConnectStatus, Connector, Dial, Endpoint};
@@ -27,12 +28,14 @@ use crate::credential::{
 };
 use crate::env::ProcessEnv;
 use crate::error::NetError;
+use crate::light::LightRequests;
 use crate::request::Limits;
 use crate::signal::Signal;
 use crate::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
 use crate::throttle::{Throttle, ThrottleSettings, ThrottleStatus};
 use crate::upgrade::{UpgradeClient, UpgradeSettings, UpgradeStatus, WarmGuard};
 use address::Address;
+use light::ClusterLight;
 
 /// Each setting of the connection layer for one cluster.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -163,17 +166,13 @@ impl Cluster {
         let (signal, changed) = (Signal::new(), Changed::new());
         let credential = |_| Credentials::new(settings.credential.clone(), clock.clone(), changed.clone());
         let credentials = source.as_ref().map(credential);
-        let light_request: LightRequest = {
-            let (address, credentials) = (Arc::clone(&address), credentials.clone());
-            Arc::new(move |protocol| {
-                address.light_request(protocol, credentials.as_ref().and_then(Credentials::authorization_now))
-            })
-        };
+        let light: Arc<dyn LightRequests> =
+            Arc::new(ClusterLight { address: Arc::clone(&address), credentials: credentials.clone() });
         let parts = Parts {
             tasks: tasks.clone(),
             cluster: Arc::clone(&name),
             dial: Arc::clone(&dial),
-            light_request: Arc::clone(&light_request),
+            light,
             signal: signal.clone(),
             changed: changed.clone(),
         };
@@ -184,7 +183,8 @@ impl Cluster {
 
         let credential_task = credentials.clone().zip(source).map(|(credentials, source)| {
             let limit = settings.credential.proof_limit;
-            let prover = Arc::new(ProofRequest { requests: Arc::clone(&requests), light_request, limit });
+            let prover =
+                Arc::new(ProofRequest { requests: Arc::clone(&requests), address: Arc::clone(&address), limit });
             let signal = signal.clone();
             let body = move || credentials.task(Arc::clone(&source), Arc::clone(&prover) as _, &signal);
             tasks.start(TaskName::scoped("credential", Arc::clone(&name)), Restart::Always(Backoff::default()), body)
@@ -273,15 +273,14 @@ impl tower_service::Service<Request<Bytes>> for Cluster {
 /// The proof of a token: the light request with that token, on a request channel.
 struct ProofRequest {
     requests: Arc<Group>,
-    light_request: LightRequest,
+    address: Arc<Address>,
     limit: std::time::Duration,
 }
 
 impl Prover for ProofRequest {
     fn prove(&self, authorization: http::HeaderValue) -> BoxFuture<'_, Proof> {
         async move {
-            let mut request = (self.light_request)(Protocol::Http2);
-            request.headers_mut().insert(http::header::AUTHORIZATION, authorization);
+            let request = self.address.light_request(Protocol::Http2, Some(authorization));
             let exchange = async {
                 let (channel, _stream) = self.requests.stream().await;
                 channel.send(request).await

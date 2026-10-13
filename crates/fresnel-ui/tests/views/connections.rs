@@ -108,7 +108,7 @@ fn a_failed_credential_shows_the_text_of_the_plugin_and_the_next_attempt() {
         failures: 2,
         next_attempt: now() + 8 * SECOND,
     };
-    let mut no_token = status([(); 3].map(|()| new_channel(ChannelState::Verifying)), Some(failed));
+    let mut no_token = status([(); 3].map(|()| new_channel(ChannelState::WaitsForToken)), Some(failed));
     no_token.credential.as_mut().expect("a credential").plugin_runs = 2;
     no_token.credential.as_mut().expect("a credential").unauthorized = 3;
     let again = CredentialState::Running {
@@ -127,6 +127,7 @@ fn a_failed_credential_shows_the_text_of_the_plugin_and_the_next_attempt() {
 
     let stopped = "credential plugin `doctl`: stopped with exit status: 1";
     let texts = [
+        "connected, waits for a token".to_owned(),
         format!("{stopped}. Failure 2 in sequence, next attempt in 8 s"),
         "2 plugin runs, 3 answers of HTTP 401".to_owned(),
         format!("the plugin runs again after a failure, for 5 s. The failure before: {stopped}"),

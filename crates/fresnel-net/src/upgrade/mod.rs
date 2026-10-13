@@ -163,8 +163,9 @@ impl Shared {
     /// A warm connection that answered a light request now. One that fails its test puts
     /// each other warm connection in doubt, so the set drops.
     async fn tested_warm_line(&self) -> Option<Line> {
+        // With no token, no light request can test a connection. The caller opens a new one.
+        let request = self.parts.light.build(Protocol::Http1)?;
         let mut line = self.idle().pop()?;
-        let request = (self.parts.light_request)(Protocol::Http1);
         if line.test(request, self.settings.test_limit).await.is_ok() {
             self.reused.fetch_add(1, Ordering::Relaxed);
             return Some(line);
@@ -237,12 +238,15 @@ impl Shared {
         self.parts.changed.notify();
     }
 
-    /// Sends a light request on each idle connection. One that gives no answer goes.
+    /// Sends a light request on each idle connection. One that gives no answer goes. With
+    /// no token, nothing goes out and each connection stays: the test before its use decides.
     async fn refresh(&self) {
         let lines = std::mem::take(&mut *self.idle());
         let limit = self.settings.refresh_limit;
         let tested = join_all(lines.into_iter().map(|mut line| async move {
-            let request = (self.parts.light_request)(Protocol::Http1);
+            let Some(request) = self.parts.light.build(Protocol::Http1) else {
+                return Some(line);
+            };
             line.test(request, limit).await.ok().map(|()| line)
         }))
         .await;

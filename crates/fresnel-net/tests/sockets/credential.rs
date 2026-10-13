@@ -4,12 +4,12 @@
 use std::time::{Duration, Instant};
 
 use fresnel_net::credential::{CredentialFailure, CredentialState, PluginFailure};
-use fresnel_net::{Cause, Cluster, ClusterSpec, ErrorClass, RequestKind};
+use fresnel_net::{Cause, ChannelState, Cluster, ClusterSpec, ErrorClass, RequestKind};
 use fresnel_testkit::{FakeApiServer, Fault};
 use http::StatusCode;
 
 use crate::common::{
-    Scratch, TestTasks, fetch, finder_env, plugin, process_exists, send, spec, trust, until, until_live,
+    Scratch, TestTasks, fetch, finder_env, first_channels, plugin, process_exists, send, spec, trust, until, until_live,
 };
 
 const SECOND: Duration = Duration::from_secs(1);
@@ -69,11 +69,44 @@ async fn the_plugin_runs_one_time_for_each_cluster() {
     }
 }
 
+/// A kube-apiserver ends an HTTP/2 connection after its answer to a request with no
+/// credential. A channel thus sends no request before the first token. It keeps its first
+/// connection for the time of the plugin run (design rule 3).
+#[tokio::test]
+async fn a_slow_plugin_costs_no_connection_and_the_server_sees_no_request_with_no_token() {
+    let tasks = TestTasks::new();
+    let server = FakeApiServer::start().await.expect("a server");
+    server.end_anonymous_connections();
+    let state = Scratch::new("plugin-slow");
+    state.write("mode", "slow");
+    let cluster = Cluster::start(&tasks.tasks, with_plugin("slow", &server, &state)).expect("a cluster");
+
+    let waiting = until(&cluster, "each channel has its connection and waits for the token", |status| {
+        first_channels(status).iter().all(|channel| channel.state == ChannelState::WaitsForToken)
+    })
+    .await;
+    let credential = waiting.credential.expect("a credential").state;
+    assert!(matches!(credential, CredentialState::Running { .. }), "the plugin runs: {credential:?}");
+    assert_eq!(server.requests().len(), 0, "a request went out with no token");
+
+    let live = until_live(&cluster).await;
+    for channel in first_channels(&live) {
+        assert_eq!((channel.connections, &channel.last_error), (1, &None), "{channel:?}");
+    }
+    let requests = server.requests();
+    assert_eq!(requests.len(), 3, "the light request of each channel: {requests:?}");
+    assert!(requests.iter().all(|request| request.bearer() == Some("slow-1")), "{requests:?}");
+    assert_eq!(fetch(&cluster, RequestKind::Get, "/api/v1/pods").await.expect("an answer").0, StatusCode::OK);
+    assert_eq!(server.counters().connections, 3, "one connection for each channel");
+    assert_eq!(counts(&cluster), (1, 0, 0));
+}
+
 /// "A plugin that hangs shows a timeout."
 #[tokio::test]
 async fn a_plugin_that_hangs_shows_a_timeout_and_its_processes_are_gone() {
     let tasks = TestTasks::new();
     let server = FakeApiServer::start().await.expect("a server");
+    server.end_anonymous_connections();
     let state = Scratch::new("plugin-hang");
     state.write("mode", "hang");
     let mut spec = with_plugin("hang", &server, &state);
@@ -115,10 +148,8 @@ async fn a_plugin_that_hangs_shows_a_timeout_and_its_processes_are_gone() {
         }
     };
     crate::common::in_time("the child of the plugin is gone", gone).await;
-    assert!(
-        server.requests().iter().all(|request| request.uri.path() == "/version"),
-        "no request went out with no token"
-    );
+    assert_eq!(server.requests().len(), 0, "a request went out with no token");
+    assert_eq!(server.counters().connections, 3, "each channel keeps its first connection");
 
     // The user repairs the plugin. "Retry now" starts the run at once.
     state.write("mode", "ok");

@@ -21,6 +21,8 @@ use crate::request::RequestKind;
 use crate::task::TaskReport;
 use crate::testing::{Connects, MemoryServer, Tokens, big_text};
 
+mod token;
+
 const SECOND: Duration = Duration::from_secs(1);
 const METRICS: &str = "/apis/metrics.k8s.io/v1beta1/nodes";
 
@@ -42,8 +44,22 @@ impl Drop for Bed {
 }
 
 impl Bed {
-    /// A cluster on a server in memory. With tokens, the cluster has a credential.
+    /// A cluster on a server in memory, with each channel live. With tokens, the cluster
+    /// has a credential.
     async fn start(tokens: Option<&[&'static str]>) -> Self {
+        let mut bed = Self::build(tokens.map(|tokens| Tokens::new(tokens) as Arc<dyn TokenSource>));
+        bed.until("each channel is live", |status| {
+            let groups = [&status.watches, &status.requests, &status.logs];
+            let ready = status.credential.as_ref().is_none_or(|credential| credential.plugin_runs > 0);
+            ready && groups.iter().all(|group| group.channels.iter().all(|channel| channel.state == ChannelState::Live))
+        })
+        .await;
+        bed.started = Instant::now();
+        bed
+    }
+
+    /// A cluster on a server in memory. The call does not wait for a state.
+    fn build(source: Option<Arc<dyn TokenSource>>) -> Self {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let tls =
             ClientConfig::builder_with_provider(provider).with_safe_default_protocol_versions().expect("versions");
@@ -62,19 +78,10 @@ impl Bed {
         let tasks = Tasks::new(Handle::current(), move |report: TaskReport| {
             kept.lock().expect("a lock").push(report.to_string())
         });
-        let source = tokens.map(|tokens| Tokens::new(tokens) as Arc<dyn TokenSource>);
         let dial = Arc::clone(&server) as Arc<dyn Dial>;
         let cluster =
             Cluster::build(&tasks, "memory".into(), address, dial, source, NetSettings::default(), paused_clock());
-        let mut bed = Self { server, cluster, started: Instant::now(), reports };
-        bed.until("each channel is live", |status| {
-            let groups = [&status.watches, &status.requests, &status.logs];
-            let ready = status.credential.as_ref().is_none_or(|credential| credential.plugin_runs > 0);
-            ready && groups.iter().all(|group| group.channels.iter().all(|channel| channel.state == ChannelState::Live))
-        })
-        .await;
-        bed.started = Instant::now();
-        bed
+        Self { server, cluster, started: Instant::now(), reports }
     }
 
     async fn until(&mut self, what: &str, condition: impl Fn(&ClusterStatus) -> bool) -> ClusterStatus {
@@ -264,7 +271,7 @@ async fn the_light_request_of_a_channel_carries_the_token() {
     sleep(31 * SECOND).await;
     let light: Vec<_> = bed.server.seen().into_iter().filter(|seen| seen.path == "/version").collect();
     assert_eq!(light.len(), 6, "three channels: the first request and one after 30 s");
-    for request in &light[3..] {
+    for request in &light {
         assert_eq!(request.headers[AUTHORIZATION], "Bearer one");
     }
     let status = bed.cluster.status();
@@ -274,13 +281,12 @@ async fn the_light_request_of_a_channel_carries_the_token() {
 /// A defect in the credential task must show, and the task must run again (design rule 1).
 #[tokio::test(start_paused = true)]
 async fn a_panic_in_the_credential_task_gives_a_report_and_the_task_runs_again() {
-    let mut bed = Bed::start(Some(&["panic", "one"])).await;
+    // No channel is live before the first token, so the test does not wait for that state.
+    let mut bed = Bed::build(Some(Tokens::new(&["panic", "one"])));
     let status = bed
         .until("the end of the task shows", |status| {
-            !matches!(
-                status.credential.as_ref().map(|credential| &credential.state),
-                Some(CredentialState::Running { .. })
-            )
+            let credential = status.credential.as_ref().expect("a credential");
+            credential.plugin_runs == 1 && !matches!(credential.state, CredentialState::Running { .. })
         })
         .await;
     let state = status.credential.expect("a credential").state;
@@ -288,6 +294,7 @@ async fn a_panic_in_the_credential_task_gives_a_report_and_the_task_runs_again()
         matches!(state, CredentialState::Failed { failure: crate::credential::CredentialFailure::Stopped, .. }),
         "{state:?}"
     );
+    assert_eq!(bed.server.seen().len(), 0, "no request with no token");
 
     bed.until("a valid credential", |status| {
         matches!(status.credential.as_ref().map(|credential| &credential.state), Some(CredentialState::Valid { .. }))
