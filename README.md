@@ -8,8 +8,25 @@ that looks current.
 
 The work is in milestone M0 (connect). The repository has the workspace, the lints, CI, the
 function that starts each background task, the test kit, the network layer `fresnel-net`, the
-first parts of `fresnel-core` (kubeconfig loader, cluster registry, gateway) and the `doctor`
-command. The first window comes next.
+first parts of `fresnel-core` (kubeconfig loader, cluster registry, gateway, app core and
+journal), the `doctor` command and the first window: the clusters of the kubeconfig files with
+their live connection states.
+
+## The app
+
+```sh
+cargo xtask install                   # builds Fresnel.app and puts it into /Applications
+cargo xtask install --to <folder>     # the same into some other folder
+```
+
+The earlier bundle stays as `Fresnel.app.prev`. The app selects the current context of the
+kubeconfig files at its start. The top bar has a switch for each other cluster. The selection
+is not saved yet.
+
+- Settings folder: `~/Library/Application Support/fresnel`. A debug build uses `fresnel-debug`.
+- Log folder: `~/Library/Logs/fresnel`, with `fresnel.log` and a report file for each panic.
+- Only one process of the app runs. `cargo run --package fresnel` starts a debug build next
+  to the installed app.
 
 ## Build and test
 
@@ -18,6 +35,7 @@ Install [rustup](https://rustup.rs). The file `rust-toolchain.toml` selects the 
 ```sh
 cargo build
 cargo test --workspace                # unit tests and UI tests, with no cluster
+FRESNEL_SNAPSHOT_DIR=<folder> cargo test --package fresnel-ui   # also PNG files of the views
 cargo test --workspace -- --ignored   # cluster tests, with k3s in Docker
 cargo xtask check-sizes               # size limits of documents and source files
 ```
@@ -44,7 +62,7 @@ closes an idle connection. It prints a text report and writes `fresnel-doctor.js
 
 - `crates/fresnel-net`: connections, the credential plugin, and the function that starts each
   background task.
-- `crates/fresnel-core`: the domain. Clusters, stores, search and operations.
+- `crates/fresnel-core`: the domain. Clusters, the app core, the journal, stores and operations.
 - `crates/fresnel-ui`: the egui widgets and views.
 - `crates/fresnel`: the desktop program.
 - `crates/fresnel-cli`: the command line program for tests and fault diagnosis.

@@ -25,6 +25,10 @@ CI runs the same commands on macOS and Linux. The file `rust-toolchain.toml` pin
 - Do not ignore a result. `let _ =` and `.ok();` do not compile. No lint finds `_ = result;`,
   `drop(result)` or a variable that only holds `is_err()`. They hide the error in the same way.
 - In `fresnel-ui`, read a slice or a text with `get`, not with an index.
+- A view is a function of a copy of the state (`CoreView`). It returns a `Command` and holds
+  no handle to the core. Work that can block runs in the task of the core, never in a frame.
+- A widget gets the color of a cluster with the identity of the cluster, not with a position.
+- A journal text can go to the log file. It has no output of a child process.
 - An `#[allow]` or an `#[expect]` gives its `reason`.
 
 ## Background tasks
@@ -73,9 +77,13 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
   from a `FaultProxy` before the server.
 - A time limit of `fresnel-net` gets a unit test with paused time on the server in memory
   (`src/testing.rs`), and the test asserts the exact time.
-- A UI test uses `egui_kittest` and opens no window.
-- A test of `fresnel-cli` starts the program as a child process with `env -i`, the `PATH` of
-  Finder and a home folder of the test. No test reads the home folder of the user.
+- A UI test uses `egui_kittest` and opens no window. It builds the `CoreView` of each state
+  by hand (`tests/views/fake.rs`) and reads the frame through the accessibility tree.
+- The PNG files of the views are for a look by a person. No test compares pixels.
+- A test of a program starts it as a child process with `env -i`, the `PATH` of Finder and a
+  home folder of the test (`fresnel_testkit::Home`). No test reads the home folder of the user.
+- No test opens the window of `fresnel`. Its test runs `Boot`, the program with no window.
+- A test of `xtask` works in the test folder of the build, never in `/Applications`.
 - A test that needs k3s or Docker has the attribute `#[ignore = "needs k3s in Docker"]`.
   `cargo test --workspace -- --ignored` runs these tests. CI runs them on Linux.
 - A helper in `tests/` that needs `expect` starts its file with

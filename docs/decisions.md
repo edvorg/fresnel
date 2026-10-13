@@ -292,3 +292,93 @@ credential. A channel can send its light request before the first token of a plu
 is on a later connection when it is live. Thus the doctor compares with the connections at
 the start of its idle wait. With no token, it does not wait for the channels. With no HTTP/2
 connection, it takes no sample and starts no session.
+
+## A view is a function of a copy of the state
+
+A view gets a copy of the state of the core and returns the commands of the user. It holds no
+handle to the core, so it can start no network work and read no file. A test builds the copy
+of each state by hand and needs no network and no window. A command runs in the task of the
+core, because a connect reads certificate files.
+
+## The core starts after the window is open
+
+`Core::new` starts no task, reads no file and opens no connection. The window calls
+`Core::start` when it exists, and gives the function that asks for a repaint. Thus a slow
+login shell or a network with no answer cannot delay the first frame. Until the list of
+clusters is complete, the window tells how far the start is.
+
+## A cluster has one state
+
+The status bar and the journal show one state for each cluster: off, failed, connecting, live,
+no connection or no credential. A failed credential wins, because the channels stay live only
+for the rest of the life of the old token. Live channels with no first token count as
+connecting: some servers answer the light request of a channel with no token, and the cluster
+cannot do work yet.
+
+## The selection at the start is the current context
+
+At its start, the app selects the current context of the kubeconfig files, as `kubectl` does.
+The user selects each other cluster in the top bar. A connect runs the credential plugin of
+the cluster, and a login plugin can open a browser window, so the app does not connect each
+context of the files by itself. The selection is not saved yet. The settings file of a later
+milestone saves it.
+
+## The journal writes its log line at once
+
+The journal gives each entry to its sink in the task that made the entry, and the log file
+writes the line at once. A writer task with a queue would lose the last lines at a crash, and
+those lines tell the cause. The sink has its own lock, which also puts the entries of two
+tasks into one sequence. The lock of the list in memory is a different one, so a frame never
+waits for the disk.
+
+## The panic hook takes no lock of the app
+
+A panic writes a report file with the version, the thread, the place, the message and the
+backtrace. The hook does not write to the journal: the thread that panics can hold the lock
+of the journal, and the hook would wait for it with no end. One run writes 20 reports at
+most, because a task that panics at each start would fill the disk. The next start tells
+how many reports the log folder has.
+
+## One process, by a lock of the system
+
+Two processes of the app would write the same settings files and bind the same local ports.
+The app takes a lock of the system on a file of its data folder and writes its process id
+into the file. The system frees the lock when the process ends, also after a crash, so an old
+file cannot stop a start. A debug build has its own folders and thus its own lock.
+
+## The quit sequence runs in the exit call of eframe
+
+After Cmd+Q, macOS ends the process, and the call that runs the window does not return. Thus
+the quit sequence runs in `on_exit` of eframe, and one more time after the window call for
+each other end. Only the first run does something. It stops the tasks of the core, closes
+each connection, ends a plugin that runs, ends the runtime and syncs the log file.
+
+## The activity against App Nap permits system sleep
+
+macOS slows the timers of an app with a hidden window. A keepalive ping would then be late,
+and a silent connection would show late. While a cluster is selected, the app holds an
+activity of the type "user initiated, idle system sleep permitted". It keeps the timers
+exact and does not keep a laptop awake. The wake detector handles the sleep of the system.
+
+## The icon is drawn by code
+
+The icon of the app is a Fresnel lens from the front: some rings on a dark tile. A function
+of `xtask` draws it at each size, so the repository holds no image file and a change of the
+icon is a change of some numbers. `iconutil` of macOS makes the icon file from the PNG files,
+so the format of that file is not code of this repository.
+
+## The install is a rename
+
+`cargo xtask install` makes the bundle in a folder inside the destination folder, signs it
+and moves it to its place with a rename. The destination thus holds the old bundle or the new
+one, never a mix. The earlier bundle stays as `Fresnel.app.prev`. macOS does not show that
+name as an app, and a rename back is the fallback. The signature is ad hoc: macOS on Apple
+silicon starts only signed code.
+
+## The test of the program starts itself as a child process
+
+The window cannot run in a test. Thus the program is a library with a small `main`, and its
+test runs the part before the window. The app must work with the environment of Finder, so
+the test program starts itself again with `env -i`. The child reads its own process
+environment, as `main` does. A flag of the app for a start with no window would be a
+function that only tests use.

@@ -53,13 +53,14 @@ xtask
   it reach the connection layer through the name `fresnel_core::net`.
 - `fresnel-ui`: the egui widgets and views. It uses the object types of `k8s-openapi` and
   never the types of kube.
-- `fresnel`: the desktop program. The window, the tokio runtime and the log setup.
+- `fresnel`: the desktop program. The window, the tokio runtime, the log file, the lock of
+  the process and the quit sequence.
 - `fresnel-cli`: the command line program for tests and fault diagnosis. Its command `doctor`
   measures the connection to a cluster. It sends `GET /version` only, so it reads no object.
-- `fresnel-testkit`: the fault proxy, the helper for k3s in Docker and a fake API server.
-  Only tests use it. The test kit can use `fresnel-net`. Thus a test of `fresnel-net` that
-  needs the test kit is a file in `tests/`, not a unit test.
-- `xtask`: repository tasks. It uses no other crate of the workspace.
+- `fresnel-testkit`: the fault proxy, the helper for k3s in Docker, a fake API server and a
+  home folder for a test. Only tests use it. The test kit can use `fresnel-net`. Thus a test
+  of `fresnel-net` that needs the test kit is a file in `tests/`, not a unit test.
+- `xtask`: the size check and the macOS bundle. It uses no other crate of the workspace.
 
 ## Borders in the code
 
@@ -121,9 +122,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 `fresnel-core` makes a connected cluster from a kubeconfig context.
 
 - **Kubeconfig**: `kubeconfig::load` reads each file of `KUBECONFIG` of the login shell and then
-  `~/.kube/config`, and lists each context. For a name in two files, the first file wins. Each
-  problem of a file is in the result. A context that the app cannot use stays in the list
-  with its error.
+  `~/.kube/config`, and lists each context. For a name in two files, the first file wins. The
+  result has each problem of a file. A context that the app cannot use stays, with its error.
 - **Registry**: one entry for each context. It owns the connections of each connected cluster
   and gives a copy of each state. It connects one cluster at a time, so a cluster starts one
   time. A `ClusterId` is the name of the context.
@@ -133,22 +133,36 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   size limit.
 - **Probe**: `fresnel_net::probe` measures single steps of a connect with the connect code of
   the app. The `doctor` command uses it.
+- **App core**: `app::Core` owns the registry, the tasks and the journal. It does no work
+  before its start. Then one task reads the login shell environment and the kubeconfig files,
+  connects each selected cluster and runs each command of the UI. One task for each connected
+  cluster puts each change of its one state into the journal.
+- **Journal**: the last 10,000 entries in memory, with counts. A sink takes each entry.
 
 ## Contract between the UI and the core
 
-1. **State.** One type publishes each state. The UI gets a copy, never a lock that can stop a
-   task.
-2. **Commands.** The UI starts an operation as a job. Job states: pending, done, failed, not
-   sent, result not known.
-3. **Workers.** The UI computes sorted and filtered rows on a worker thread. Each result
-   carries the identity of its request. The UI drops a result that does not fit the current
-   state.
-4. **Repaint.** A store requests a repaint when it changes. One notifier limits these repaints.
+1. **State.** `Core::view` gives a copy of each state. The UI never gets a lock that can stop
+   a task. A view is a function of the copy and holds no handle to the core.
+2. **Commands.** A view returns a `Command`, and the task of the core runs it. Later, an
+   operation is a job with the states pending, done, failed, not sent and result not known.
+3. **Workers.** The UI computes rows on a worker thread. A result carries the identity of its
+   request, and the UI drops a result that does not fit the current state.
+4. **Repaint.** A change of a state asks for a repaint. One notifier limits the repaints to 60
+   in one second. The core does not know egui: the window gives it the wake function.
 5. **Memory.** The UI thread never frees a large old snapshot.
+
+## Desktop program
+
+- **Start**: the folders, the lock of the process, the log file, the panic hook, the runtime
+  and the core, in this sequence. The core starts after the window is open.
+- **Quit**: the core stops its tasks, closes each connection and ends a plugin that runs. Then
+  the runtime ends and the log file reaches the disk. The sequence also runs after Cmd+Q.
+- **Bundle**: `cargo xtask install` builds `Fresnel.app`, signs it ad hoc and moves it into
+  `/Applications` with a rename. The earlier bundle stays as `Fresnel.app.prev`.
 
 ## Test kit
 
-`fresnel-testkit` has three parts. Each part runs in the test process and stops at its drop.
+`fresnel-testkit` has four parts. Each part runs in the test process and stops at its drop.
 
 - `FaultProxy`: a TCP proxy before a server. Its modes are pass, hold of new connections,
   freeze, latency and a reset each period. Two calls reset all connections and make the open
@@ -157,6 +171,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   file and the address of the kube-apiserver, and it can restart the cluster.
 - `FakeApiServer`: a local server with TLS, HTTP/2, HTTP/1.1, watch streams and the HTTP 101
   upgrade. Its scripted faults are no answer, HTTP 401, HTTP 429, GOAWAY and a low stream limit.
+- `Home`: a home folder with a shell profile, for a start with the environment of Finder.
 
 A fault test of the app puts a `FaultProxy` before `K3s` or before `FakeApiServer`. The proxy
 and the fake server have counters and a `wait_for` call, so that a test waits for a signal and
@@ -169,9 +184,9 @@ prints one line for it, and `task_failures` gives the list.
   `fresnel-net` for a time limit use an HTTP/2 server on pipes in memory, so each time is exact.
 - **Socket tests** use the fake API server and the fault proxy on 127.0.0.1. They need no
   Docker and run with the unit tests. Real sockets need real time.
-- **UI tests** drive the views through `egui_kittest` with no window.
-- **Program tests** start `fresnel-cli` as a child process with the environment of a program
-  from Finder. The home folder is a folder of the test, so the login shell reads its profile.
+- **UI tests** drive the views through `egui_kittest` with no window, on a fake core.
+- **Program tests** start `fresnel-cli`, and `fresnel` with no window, as a child process
+  with the environment of Finder. The login shell reads the profile of a test home folder.
 - **Cluster tests** use k3s in Docker through the fault proxy. They have the attribute
   `#[ignore]`, and `cargo test --workspace -- --ignored` runs them.
 - CI runs the format check, the lints, the unit tests, the UI tests and the size check on
