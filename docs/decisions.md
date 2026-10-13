@@ -508,11 +508,11 @@ generation, so each view computed all again after each reconnect.
 
 ## Readers hold a published state as a copy of one pointer
 
-`published::Publisher` is the one type that gives a state to its readers. A read copies one
-pointer and never waits for the task. The last holder of an old snapshot frees it: 22 ms
-for 10,000 pods that changed, more than one frame. Thus a reader gets a `Held` value. Its
-drop gives one more pointer to a bin, and one worker thread empties the bin. The bin has a
-limit and a counter.
+`published::Publisher` gives a state to its readers. A read copies one pointer and never
+waits for the task. The last holder of an old snapshot frees it: 22 ms for 10,000 pods that
+changed, more than one frame. Thus a reader gets a `Held` value. Its drop moves its one
+pointer into a bin, which one worker thread empties. With a second pointer for the bin, the
+reader could be the last holder. The bin has a limit.
 
 ## A fault of a store task shows as a state of the store
 
@@ -558,3 +558,11 @@ The acceptance asks for breaks of 30 seconds, 2 minutes and 10 minutes. The test
 three apps before one k3s cluster, each one behind a fault proxy of its own, and runs the
 three breaks at the same time. Thus the test needs 11 minutes and not 13. Each app has its
 own connections and stores, so no break changes the result of the other ones.
+
+## The k3s helper starts a new container when k3s ends at its start
+
+On a CI runner, k3s sometimes ends some seconds after its start, when a second cluster
+starts at the same moment: its kubelet finds the cgroup `kubepods` with no controller. A new
+container starts well. Thus the helper makes a new container for a k3s that ended by
+itself, 3 times at most, and each such end is a line of the test output. A restart of a
+cluster gets no second attempt: the cluster has data.

@@ -22,6 +22,10 @@ use network::Network;
 /// `docker ps --all --filter name=fresnel-test-` shows what a stopped test run left.
 const NAME_PREFIX: &str = "fresnel-test-";
 const K3S_KUBECONFIG: &str = "/etc/rancher/k3s/k3s.yaml";
+/// The most containers that one start makes. On a CI runner, k3s sometimes ends some
+/// seconds after its start, when a second cluster starts at the same moment: its kubelet
+/// finds the cgroup `kubepods` with no controller. A new container then starts well.
+const START_ATTEMPTS: u32 = 3;
 
 /// A running k3s cluster. The drop removes the container, its network and its files.
 ///
@@ -39,7 +43,15 @@ impl K3s {
     /// Starts a cluster and waits until its API server is ready and a test can make a pod.
     /// `label` becomes a part of the container name, so that `docker ps` shows which test
     /// owns the container.
+    ///
+    /// A k3s that ends by itself during its start gets a new container, a limited count of
+    /// times. Each such end is a line of the test output.
     pub async fn start(label: &str) -> Result<Self, KitError> {
+        with_new_attempts(|| Self::start_one(label)).await
+    }
+
+    /// One container. Its drop removes it, also after an error of this start.
+    async fn start_one(label: &str) -> Result<Self, KitError> {
         let name = format!("{NAME_PREFIX}{label}-{:06x}", fastrand::u32(..0x0100_0000));
         let api = SocketAddr::from((Ipv4Addr::LOCALHOST, free_port()?));
         let network = Network::create(&name).await?;
@@ -97,6 +109,24 @@ impl K3s {
     }
 }
 
+/// Runs `start` again while its error is a k3s that ended by itself, `START_ATTEMPTS` times
+/// at most. Each other error is the result at once.
+async fn with_new_attempts<T, F>(mut start: impl FnMut() -> F) -> Result<T, KitError>
+where
+    F: Future<Output = Result<T, KitError>>,
+{
+    let mut attempt = 1;
+    loop {
+        match start().await {
+            Err(error) if error.is_k3s_stopped() && attempt < START_ATTEMPTS => {
+                eprintln!("fresnel-testkit: start {attempt} of {START_ATTEMPTS} failed: {error}");
+                attempt += 1;
+            }
+            started => return started,
+        }
+    }
+}
+
 /// A port of 127.0.0.1 that is free now. Docker needs the number before the container
 /// starts, and the port must not change at a restart.
 fn free_port() -> Result<u16, KitError> {
@@ -129,5 +159,35 @@ impl Drop for Files {
         if let Err(error) = fs::remove_dir_all(&self.folder) {
             eprintln!("fresnel-testkit: cannot remove {}: {error}", self.folder.display());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    /// Runs a start that fails with these errors, one for each attempt, and then works.
+    async fn started_after(errors: &[fn() -> KitError]) -> (Result<u32, String>, u32) {
+        let attempts = Cell::new(0);
+        let start = || {
+            let attempt = attempts.replace(attempts.get() + 1);
+            let error = errors.get(attempt as usize).map(|error| error());
+            async move { error.map_or(Ok(7), Err) }
+        };
+        let started = with_new_attempts(start).await.map_err(|error| error.to_string());
+        (started, attempts.get())
+    }
+
+    #[tokio::test]
+    async fn a_k3s_that_ended_by_itself_gets_a_new_start_and_each_other_error_does_not() {
+        let stopped: fn() -> KitError = || KitError::k3s_stopped("k3s stopped");
+        let no_docker: fn() -> KitError = || KitError::new("docker: cannot start");
+        assert_eq!(started_after(&[]).await, (Ok(7), 1));
+        assert_eq!(started_after(&[stopped, stopped]).await, (Ok(7), 3));
+        assert_eq!(started_after(&[stopped, stopped, stopped]).await, (Err("k3s stopped".to_owned()), 3));
+        assert_eq!(started_after(&[no_docker]).await, (Err("docker: cannot start".to_owned()), 1));
+        assert_eq!(started_after(&[stopped, no_docker]).await, (Err("docker: cannot start".to_owned()), 2));
     }
 }

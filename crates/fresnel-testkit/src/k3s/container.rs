@@ -82,7 +82,7 @@ impl Container {
             if !self.is_running().await {
                 let lines = docker_with_errors(&["logs", "--tail", LOG_LINES, &self.name]).await;
                 let lines = lines.unwrap_or_else(|error| format!("no log: {error}"));
-                return Err(KitError::new(format!("{}: k3s stopped. Its last lines:\n{lines}", self.name)));
+                return Err(KitError::k3s_stopped(format!("{}: k3s stopped. Its last lines:\n{lines}", self.name)));
             }
             if Instant::now() >= limit {
                 return Err(KitError::because(format!("{}: {problem} after {READY_LIMIT:?}", self.name), error));
