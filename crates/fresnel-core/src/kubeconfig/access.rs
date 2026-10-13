@@ -12,7 +12,7 @@ use fresnel_net::credential::PluginSpec;
 use http::Uri;
 use serde_json::{Value, json};
 
-use super::file::{ClusterEntry, ExecEntry, UserEntry};
+use super::file::{ClusterEntry, EnvEntry, ExecEntry, UserEntry};
 use super::material::Material;
 use crate::error::CoreError;
 
@@ -228,7 +228,8 @@ fn plugin(user: &Entry<'_, UserEntry>, cluster: &ClusterEntry) -> Result<Option<
 }
 
 fn spec(command: String, exec: &ExecEntry, folder: &Path) -> PluginSpec {
-    let env = exec.env.iter().flatten().map(|pair| (pair.name.clone(), pair.value.clone())).collect();
+    let variable = |pair: &EnvEntry| (pair.name.clone(), pair.value.clone().unwrap_or_default());
+    let env = exec.env.iter().flatten().map(variable).collect();
     PluginSpec {
         command,
         args: exec.args.clone().unwrap_or_default(),

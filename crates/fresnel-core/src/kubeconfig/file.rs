@@ -71,7 +71,8 @@ pub(super) struct ExecEntry {
 #[derive(Deserialize)]
 pub(super) struct EnvEntry {
     pub(super) name: String,
-    pub(super) value: String,
+    /// `None` for an entry with no value. `kubectl` reads it as an empty value.
+    pub(super) value: Option<String>,
 }
 
 #[derive(Default, Deserialize)]

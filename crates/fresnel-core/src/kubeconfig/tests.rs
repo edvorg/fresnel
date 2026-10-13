@@ -114,6 +114,34 @@ fn the_load_lists_each_context_of_each_file_and_the_first_file_wins() {
     assert_eq!(kubeconfig.problems, expected);
 }
 
+/// `kubectl` reads a variable with no value as an empty value. A file with such an entry
+/// must not lose each of its contexts.
+#[test]
+fn a_variable_of_a_plugin_with_no_value_is_empty_and_the_file_loads() {
+    let folder = Folder::new();
+    let text = "
+clusters:
+- {name: c, cluster: {server: 'https://c.example.test', certificate-authority-data: QUJD}}
+users:
+- name: u
+  user:
+    exec:
+      command: login
+      env:
+      - name: EMPTY
+        value:
+      - name: ABSENT
+      - {name: SET, value: work}
+contexts:
+- {name: c, context: {cluster: c, user: u}}
+";
+    let kubeconfig = load(&[folder.write("config", text)]);
+    assert_eq!(kubeconfig.problems, []);
+    let variables = access(&kubeconfig, "c").plugin().expect("a plugin").env.clone();
+    let expected = [("EMPTY", ""), ("ABSENT", ""), ("SET", "work")];
+    assert_eq!(variables, expected.map(|(name, value)| (name.to_owned(), value.to_owned())));
+}
+
 #[test]
 fn a_context_gives_the_server_and_the_credential_of_its_entries() {
     let folder = Folder::new();
