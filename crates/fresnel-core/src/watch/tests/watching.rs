@@ -6,6 +6,8 @@ use tokio::task::yield_now;
 use tokio::time::sleep;
 
 use super::bench::{Bench, LIVE, MS, SECOND, error_event, event, pairs, settings};
+use crate::error::CoreError;
+use crate::net::ErrorClass;
 use crate::store::{StoreState, Wait};
 use crate::watch::lanes::{LaneStates, Path};
 
@@ -32,9 +34,54 @@ async fn the_next_watch_starts_after_the_last_event_or_bookmark_of_the_one_befor
     // The server ends each watch at its timeout. The next one starts at once.
     sleep(5 * SECOND).await;
     drop(events);
-    bench.until_state("the end of the watch", |state| *state == StoreState::Waiting(Wait::Stream)).await;
+    let next = bench.script.watch_opens();
+    next.send(Ok(event("ADDED", "d", "16"))).expect("the watch is open");
+    bench.until("an event of the next watch", |snapshot| snapshot.items.len() == 3).await;
     assert_eq!(bench.script.take_calls(), ["watch after 15 for 60 s"]);
     assert_eq!(bench.elapsed(), 60 * SECOND + 30 * MS, "no pause before the next watch");
+}
+
+/// Design rule 4: a view marks each row from a store that is not live. The server ends
+/// each watch after 60 to 90 s. A store with a state for each such end would get that
+/// mark each minute, with no fault.
+#[tokio::test(start_paused = true)]
+async fn a_store_stays_live_while_the_renewal_of_its_watch_starts() {
+    let (mut bench, events) = Bench::live(settings()).await;
+    let live_since = bench.reader.read().since;
+    sleep(60 * SECOND).await;
+    events.send(Ok(event("ADDED", "c", "8"))).expect("the watch is open");
+    bench.until("the first change", |snapshot| snapshot.items.len() == 3).await;
+    // A change that waits for its batch shows at the end of the watch, because the answer
+    // to the next request can need some seconds.
+    sleep(5 * MS).await;
+    events.send(Ok(event("ADDED", "d", "9"))).expect("the watch is open");
+    drop(events);
+    bench.until("the change before the end", |snapshot| snapshot.items.len() == 4).await;
+    assert_eq!(bench.elapsed(), 60 * SECOND + 5 * MS);
+    sleep(3 * SECOND).await;
+    assert_eq!(bench.script.take_calls(), ["watch after 9 for 60 s"]);
+    let renewing = bench.reader.read();
+    assert_eq!((&renewing.state, renewing.since), (&StoreState::Live, live_since), "no state between two watches");
+
+    let events = bench.script.watch_opens();
+    events.send(Ok(event("ADDED", "e", "10"))).expect("the watch is open");
+    let renewed = bench.until("an event of the new watch", |snapshot| snapshot.items.len() == 5).await;
+    assert_eq!((&renewed.state, renewed.since), (&StoreState::Live, live_since));
+
+    // Only the start after such an end is a renewal. A failure of the new watch shows.
+    events.send(Err(CoreError::new(ErrorClass::Network, "the connection broke"))).expect("the watch is open");
+    let attempt = bench.until_state("the next watch", |state| matches!(state, StoreState::Attempt { .. })).await;
+    assert_eq!(attempt.items.len(), 5, "the objects stay");
+
+    // A renewal that has to wait is a wait like each other one: the store shows each step.
+    let events = bench.script.watch_opens();
+    bench.until_state("the open watch", StoreState::is_live).await;
+    sleep(60 * SECOND).await;
+    bench.lanes.send_replace(LaneStates { credential_failed: true, ..LIVE });
+    drop(events);
+    bench.until_state("the wait for a token", |state| *state == StoreState::Waiting(Wait::Credential)).await;
+    bench.lanes.send_replace(LIVE);
+    bench.until_state("the start of the watch", |state| *state == StoreState::Waiting(Wait::Stream)).await;
 }
 
 /// Plan section 9.2. At 200 changes in one second, the readers get 30 snapshots and not 200.

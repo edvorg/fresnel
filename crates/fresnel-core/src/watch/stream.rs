@@ -7,7 +7,7 @@ use tokio::time::{Instant, sleep_until};
 use super::lanes::Lane;
 use super::recover::Failure;
 use super::source::{Events, Source};
-use super::{Loop, StoreState, WAITS_FOR_STREAM};
+use super::{Loop, StoreState, Wait};
 use crate::cluster::WatchEvent;
 use crate::error::CoreError;
 use crate::kinds::Object;
@@ -25,8 +25,13 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
     /// Runs one watch from the resource version `from` to its end. The stream is closed
     /// at the return, so no stream of the connection stays in use while the loop waits.
     pub(super) async fn watch(&mut self, from: &str) -> Result<(), Failure> {
+        let renewal = std::mem::take(&mut self.renewal);
         self.ready(Lane::Watches).await.map_err(Failure::Fault)?;
-        self.start_request(WAITS_FOR_STREAM);
+        // A store stays live while the renewal of its watch starts. Each other start of a
+        // watch shows as a state, and so does a renewal that had to wait for its channel.
+        if !(renewal && self.writer.state().is_live()) {
+            self.start_request(StoreState::Waiting(Wait::Stream));
+        }
         let range = self.parts.settings.server_timeout.clone();
         let timeout = fastrand::u32(range);
         let source = &self.parts.source;
@@ -48,8 +53,12 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
             Ok(End::ChannelLost) => Err(Failure::ChannelLost),
             // A server that ends each watch at once must not get a new one with no pause.
             Ok(End::ByServer) if !worked => Err(Failure::Failed(ended_early(opened.elapsed()))),
+            // The usual end: the server ends each watch at its timeout. The next watch is
+            // the renewal of this one. The state does not change, so a change that waits
+            // for its batch shows here and not after the next request.
             Ok(End::ByServer) => {
-                self.writer.set_state(WAITS_FOR_STREAM);
+                self.renewal = true;
+                self.writer.flush();
                 Ok(())
             }
             // The usual cause is the loss of the connection, and the channel counts that

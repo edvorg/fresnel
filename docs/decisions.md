@@ -483,6 +483,14 @@ channel counts that loss one time. Only a second failure with no answer between 
 pause. The loop of the prototype counted each reset. After 7 resets in one minute, one
 reset cost 17.7 seconds of old data.
 
+## A store stays live while the renewal of its watch starts
+
+The server ends each watch after 60 to 90 seconds, and the next one starts at once after
+the last version. The store stays live in that time: with a state for each such end, each
+view would mark its rows each minute with no fault. The start has a time limit of 10
+seconds, and a silent connection shows through the channel. Each other start of a watch
+is a state: after a list, a failure or a wait.
+
 ## An answer that the store can use ends the count of failures
 
 The count of failures ends at a list page that the store took, and at a watch that worked.

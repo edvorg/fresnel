@@ -15,7 +15,8 @@ pub enum Wait {
     Credential,
     /// One of the lists that a cluster runs at the same time.
     ListSlot,
-    /// The start of its watch: a free stream of the connection and the answer of the server.
+    /// The start of its watch after a list or after a fault: a free stream of the
+    /// connection and the answer of the server.
     Stream,
 }
 
@@ -29,7 +30,9 @@ pub enum StoreState {
         /// The objects of the pages that arrived.
         loaded: usize,
     },
-    /// The watch is open: each change of the cluster arrives.
+    /// The watch is open: each change of the cluster arrives. The server ends each watch
+    /// after its timeout, and the state stays while the next one starts: that start has
+    /// a time limit, and the changes of that time arrive with the new watch.
     Live,
     /// A request is in progress after failures. No answer arrived yet.
     Attempt {

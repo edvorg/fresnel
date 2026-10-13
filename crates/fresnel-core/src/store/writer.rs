@@ -84,8 +84,7 @@ impl<T: Object> Writer<T> {
     }
 
     /// Changes the state and shows it to the readers at once, with each change that waits
-    /// for its batch. A watch that ends changes the state, so a change never waits for the
-    /// next request or for a pause.
+    /// for its batch. Thus a change never waits for the next request or for a pause.
     pub(crate) fn set_state(&mut self, state: StoreState) {
         if self.state != state {
             self.state = state;
@@ -181,6 +180,14 @@ impl<T: Object> Writer<T> {
     /// Publishes what waits, if the batch time is over.
     pub(crate) fn publish_if_due(&mut self) {
         if self.due().is_some_and(|due| due <= Instant::now()) {
+            self.publish();
+        }
+    }
+
+    /// Publishes what waits, before the end of its batch. The loop calls this when it
+    /// leaves a watch with no change of the state: nothing runs the batch timer then.
+    pub(crate) fn flush(&mut self) {
+        if self.unpublished {
             self.publish();
         }
     }

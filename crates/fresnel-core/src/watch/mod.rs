@@ -121,6 +121,9 @@ struct Loop<'a, T, S> {
     retry_now: Listener,
     /// The resource version that the next watch starts after. `None`: a list comes first.
     cursor: Option<String>,
+    /// True after a watch that worked and that the server ended at its timeout. The next
+    /// watch is then a renewal: the store stays live while it starts.
+    renewal: bool,
     attempts: Attempts,
 }
 
@@ -160,6 +163,7 @@ async fn keep_current<T: Object, S: Source<T>>(parts: &Parts<T, S>) -> Result<()
         lanes: parts.lanes.clone(),
         retry_now: parts.signal.listen(),
         cursor: None,
+        renewal: false,
         attempts: Attempts::default(),
     };
     loop {
@@ -220,9 +224,6 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         self.enter(attempt.map_or(step, |(failures, reason)| StoreState::Attempt { failures, reason }));
     }
 }
-
-/// The state from the start of a watch request to its answer, and between two watches.
-const WAITS_FOR_STREAM: StoreState = StoreState::Waiting(Wait::Stream);
 
 #[cfg(test)]
 mod tests;
