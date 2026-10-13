@@ -182,6 +182,8 @@ impl<M: Model> Table<M> {
                 by_key = true;
             }
         }
+        // The worker can be at work on newer rows. Then a row of this frame can be the
+        // row of an object that went away, and the selection must not keep it.
         if (row_clicked.is_some() || by_key)
             && let Some((rows, objects)) = self.supply.older_rows()
         {
