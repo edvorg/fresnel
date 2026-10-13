@@ -6,7 +6,7 @@
 
 pub(crate) mod dial;
 mod hedge;
-mod resolver;
+pub(crate) mod resolver;
 mod times;
 
 use std::io;
@@ -122,12 +122,9 @@ pub(crate) struct Connector {
 
 impl Connector {
     pub(crate) fn new(endpoint: &Endpoint, settings: ConnectSettings) -> Result<Self, NetError> {
-        let name = endpoint.tls_server_name.as_ref().unwrap_or(&endpoint.host);
-        let name = ServerName::try_from(name.clone())
-            .map_err(|_| NetError::invalid(format!("`{name}` is not a name for a server certificate")))?;
         Ok(Self {
             resolver: Resolver::new(endpoint.host.clone(), endpoint.port, settings.resolve_limit),
-            tls: Tls::new(&endpoint.tls, name),
+            tls: Tls::new(&endpoint.tls, server_name(endpoint)?),
             times: ConnectTimes::new(),
             connects: AtomicU64::new(0),
             attempts: AtomicU64::new(0),
@@ -135,8 +132,9 @@ impl Connector {
         })
     }
 
-    /// One connect: the lookup, then the race. One time limit covers the two steps.
-    async fn connect(&self, protocol: Protocol) -> Result<Io, NetError> {
+    /// One connect: the lookup, then the race. One time limit covers the two steps. Gives
+    /// the connection and the count of attempts that started.
+    pub(crate) async fn connect(&self, protocol: Protocol) -> Result<(Io, usize), NetError> {
         let started = Instant::now();
         let addresses = self.resolver.resolve().await?;
         let plan = Race {
@@ -150,8 +148,15 @@ impl Connector {
         self.times.record(won.time);
         self.connects.fetch_add(1, Ordering::Relaxed);
         self.attempts.fetch_add(u64::try_from(won.attempts).unwrap_or(u64::MAX), Ordering::Relaxed);
-        Ok(won.io)
+        Ok((won.io, won.attempts))
     }
+}
+
+/// The name that the certificate of the server must hold.
+pub(crate) fn server_name(endpoint: &Endpoint) -> Result<ServerName<'static>, NetError> {
+    let name = endpoint.tls_server_name.as_ref().unwrap_or(&endpoint.host);
+    ServerName::try_from(name.clone())
+        .map_err(|_| NetError::invalid(format!("`{name}` is not a name for a server certificate")))
 }
 
 /// The race over the addresses of one host. Attempt N goes to address N, in a circle, so
@@ -180,7 +185,7 @@ where
 
 impl Dial for Connector {
     fn dial(&self, protocol: Protocol) -> BoxFuture<'_, Result<Io, NetError>> {
-        self.connect(protocol).boxed()
+        self.connect(protocol).map(|connected| connected.map(|(io, _attempts)| io)).boxed()
     }
 
     fn status(&self) -> ConnectStatus {

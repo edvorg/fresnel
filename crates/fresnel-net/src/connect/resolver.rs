@@ -89,7 +89,8 @@ impl Resolver {
     }
 }
 
-fn system_lookup(host: String, port: u16) -> BoxFuture<'static, Result<Vec<SocketAddr>, String>> {
+/// The lookup of the system. It gives each address of the host, or the text of the error.
+pub(crate) fn system_lookup(host: String, port: u16) -> BoxFuture<'static, Result<Vec<SocketAddr>, String>> {
     async move {
         let addresses = tokio::net::lookup_host((host.as_str(), port)).await.map_err(|error| error.to_string())?;
         Ok(addresses.collect())

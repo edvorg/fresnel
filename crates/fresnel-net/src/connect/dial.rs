@@ -17,7 +17,7 @@ use tokio_rustls::TlsConnector;
 
 /// The protocol of one connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Protocol {
+pub enum Protocol {
     /// For a channel.
     Http2,
     /// For an upgrade connection.
@@ -67,14 +67,11 @@ impl Tls {
     /// Connects to one address. A connection counts only after the TLS handshake, because a
     /// held connection can stop before the first byte of the server.
     pub(crate) async fn attempt(&self, address: SocketAddr, protocol: Protocol) -> io::Result<Io> {
-        let tcp = TcpStream::connect(address).await?;
-        // A ping and a key of a terminal must not wait for more data.
-        tcp.set_nodelay(true)?;
-        let keepalive = TcpKeepalive::new()
-            .with_time(KEEPALIVE_IDLE)
-            .with_interval(KEEPALIVE_INTERVAL)
-            .with_retries(KEEPALIVE_PROBES);
-        SockRef::from(&tcp).set_tcp_keepalive(&keepalive)?;
+        self.handshake(open(address).await?, protocol).await
+    }
+
+    /// The TLS step of an attempt. The server must select the one protocol of the connection.
+    pub(crate) async fn handshake(&self, tcp: TcpStream, protocol: Protocol) -> io::Result<Io> {
         let connector = match protocol {
             Protocol::Http2 => &self.http2,
             Protocol::Http1 => &self.http1,
@@ -85,4 +82,15 @@ impl Tls {
         }
         Ok(Box::new(tls))
     }
+}
+
+/// The TCP step of an attempt, with the socket options of each connection of the app.
+pub(crate) async fn open(address: SocketAddr) -> io::Result<TcpStream> {
+    let tcp = TcpStream::connect(address).await?;
+    // A ping and a key of a terminal must not wait for more data.
+    tcp.set_nodelay(true)?;
+    let keepalive =
+        TcpKeepalive::new().with_time(KEEPALIVE_IDLE).with_interval(KEEPALIVE_INTERVAL).with_retries(KEEPALIVE_PROBES);
+    SockRef::from(&tcp).set_tcp_keepalive(&keepalive)?;
+    Ok(tcp)
 }

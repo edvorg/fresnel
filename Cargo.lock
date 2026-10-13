@@ -875,6 +875,7 @@ dependencies = [
  "hyper-util",
  "jiff",
  "nix",
+ "rcgen",
  "rustls",
  "serde_json",
  "socket2",
