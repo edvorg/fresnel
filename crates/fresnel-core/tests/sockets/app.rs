@@ -6,9 +6,11 @@
 //!
 //! - `start`: the start and the stop. `commands`: the selection and "Retry now".
 //! - `network`: a network that goes away and comes back.
+//! - `slow_disk`: a read of a kubeconfig file or of a certificate file that waits.
 
 mod commands;
 mod network;
+mod slow_disk;
 mod start;
 
 use std::net::SocketAddr;
@@ -48,6 +50,11 @@ type Entry<'a> = (&'a str, SocketAddr, &'a FakeApiServer, bool);
 
 /// Writes the kubeconfig of the home folder, with `current` as its current context.
 fn write_kubeconfig(home: &Home, current: &str, entries: &[Entry<'_>]) {
+    home.write(KUBECONFIG, &kubeconfig_text(home, current, entries)).expect("the kubeconfig");
+}
+
+/// The text of a kubeconfig with these contexts.
+fn kubeconfig_text(home: &Home, current: &str, entries: &[Entry<'_>]) -> String {
     let (mut clusters, mut users, mut contexts) = (String::new(), String::new(), String::new());
     let state = home.path("state");
     for (name, address, server, plugin) in entries {
@@ -71,8 +78,7 @@ fn write_kubeconfig(home: &Home, current: &str, entries: &[Entry<'_>]) {
             contexts.push_str(&format!("- {{name: {name}, context: {{cluster: {name}}}}}\n"));
         }
     }
-    let text = format!("current-context: {current}\nclusters:\n{clusters}users:\n{users}contexts:\n{contexts}");
-    home.write(KUBECONFIG, &text).expect("the kubeconfig");
+    format!("current-context: {current}\nclusters:\n{clusters}users:\n{users}contexts:\n{contexts}")
 }
 
 /// A detector that sees a network change when the test sets its flag.

@@ -30,7 +30,7 @@ const JOURNAL_LIMIT: usize = 10_000;
 /// The threads of the runtime. The network work of some clusters is light.
 const WORKER_THREADS: usize = 4;
 /// The longest wait for the tasks of the runtime at the quit. A task ends at once; only an
-/// address lookup of the system can block, and it cannot be stopped.
+/// address lookup of the system and a read of a file can block, and they cannot be stopped.
 const EXIT_LIMIT: Duration = Duration::from_secs(1);
 
 /// Why the program did not start.

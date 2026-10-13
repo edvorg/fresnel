@@ -68,10 +68,15 @@ impl Drop for Folder {
     }
 }
 
+/// The certificate of a fake server as the text of a certificate file.
+pub(crate) fn certificate_pem(server: &FakeApiServer) -> String {
+    let certificate = STANDARD.encode(server.certificate_der());
+    format!("-----BEGIN CERTIFICATE-----\n{certificate}\n-----END CERTIFICATE-----\n")
+}
+
 /// The certificate of a fake server as the value of `certificate-authority-data`.
 pub(crate) fn authority(server: &FakeApiServer) -> String {
-    let certificate = STANDARD.encode(server.certificate_der());
-    STANDARD.encode(format!("-----BEGIN CERTIFICATE-----\n{certificate}\n-----END CERTIFICATE-----\n"))
+    STANDARD.encode(certificate_pem(server))
 }
 
 /// The text of a kubeconfig with one context for each server, and no user. `address` is
