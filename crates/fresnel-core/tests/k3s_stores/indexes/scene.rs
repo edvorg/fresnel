@@ -59,15 +59,6 @@ const ENDPOINTS: [(&str, &[&str]); 3] =
 const SYSTEM: &str = "kube-system";
 const SYSTEM_PODS: usize = 2;
 
-/// The collection of a kind, for all namespaces or for one.
-pub(crate) fn collection(kind: Kind, namespace: Option<&str>) -> String {
-    let path = kind.info().path();
-    match (namespace, path.rsplit_once('/')) {
-        (Some(namespace), Some((group, plural))) => format!("{group}/namespaces/{namespace}/{plural}"),
-        _ => path,
-    }
-}
-
 /// Creates each object of the manifest. Gives the UID of each one by its kind and name.
 async fn create_manifest(api: &Gateway) -> Vec<(String, String)> {
     let documents: Vec<Value> = serde_saphyr::from_multiple(MANIFEST).expect("the manifest is YAML");
@@ -76,7 +67,9 @@ async fn create_manifest(api: &Gateway) -> Vec<(String, String)> {
         let text = |pointer: &str| document.pointer(pointer).and_then(Value::as_str);
         let (kind, name) = (text("/kind").expect("a kind"), text("/metadata/name").expect("a name"));
         let known = Kind::ALL.iter().find(|known| known.info().name == kind).expect("a kind of the app");
-        let request = Request::new(collection(*known, text("/metadata/namespace")));
+        let info = known.info();
+        let request =
+            Request::new(text("/metadata/namespace").map_or_else(|| info.path(), |namespace| info.path_in(namespace)));
         let body = serde_json::to_vec(&document).expect("JSON");
         let create = request.create(&PostParams::default(), body).expect("a request");
         let created: Value = api.send(create).await.unwrap_or_else(|error| panic!("create {kind} {name}: {error}"));
@@ -101,14 +94,14 @@ pub(crate) async fn create(cluster: &Cluster) -> Duration {
     let rollout = ["rollout", "status", "deployment/web", "--timeout=300s"];
     kubectl(&rollout).await;
     let annotation = json!({ "spec": { "template": { "metadata": { "annotations": { "scene/round": "2" } } } } });
-    let deployments = Request::new(collection(Kind::Deployment, Some(NAMESPACE)));
+    let deployments = Request::new(Kind::Deployment.info().path_in(NAMESPACE));
     let patch = deployments.patch("web", &PatchParams::default(), &Patch::Merge(annotation)).expect("a request");
     let _: Value = api.send(patch).await.expect("the second round of the Deployment");
     kubectl(&rollout).await;
 
     kubectl(&["create", "job", "tick-manual", "--from=cronjob/tick"]).await;
     // Two Jobs that own each other.
-    let jobs = Request::new(collection(Kind::Job, Some(NAMESPACE)));
+    let jobs = Request::new(Kind::Job.info().path_in(NAMESPACE));
     for (job, owner) in [("loop-a", "loop-b"), ("loop-b", "loop-a")] {
         let reference =
             json!({ "apiVersion": "batch/v1", "kind": "Job", "name": owner, "uid": uid(&format!("Job/{owner}")) });

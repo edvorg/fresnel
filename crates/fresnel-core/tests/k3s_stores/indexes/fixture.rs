@@ -6,13 +6,9 @@ use std::path::{Path, PathBuf};
 
 use fresnel_core::cluster::Gateway;
 use fresnel_core::kinds::{Kind, Tier};
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ListMeta;
-use kube::core::Request;
-use kube::core::params::ListParams;
-use serde::Deserialize;
 use serde_json::Value;
 
-use super::scene;
+use super::{read, scene};
 use crate::bed::Cluster;
 
 /// The test writes the fixture only when this variable of the environment is set.
@@ -20,24 +16,9 @@ const VARIABLE: &str = "FRESNEL_WRITE_FIXTURE";
 /// The most reads of the pods for one copy in which kubectl and the API show the same pods.
 const ATTEMPTS: usize = 40;
 
-#[derive(Deserialize)]
-struct Page {
-    metadata: ListMeta,
-    items: Option<Vec<Value>>,
-}
-
 /// Each object of one kind, as the API gives it, with no `managedFields`: no store keeps them.
 async fn objects(api: &Gateway, kind: Kind) -> Vec<Value> {
-    let request = Request::new(kind.info().path());
-    let (mut objects, mut params) = (Vec::new(), ListParams::default().limit(500));
-    loop {
-        let page: Page = api.list_page(request.list(&params).expect("a request")).await.expect("a list page");
-        objects.extend(page.items.unwrap_or_default());
-        match page.metadata.continue_.filter(|token| !token.is_empty()) {
-            Some(token) => params = params.continue_token(&token),
-            None => break,
-        }
-    }
+    let mut objects = read::objects(api, &kind.info().path(), None).await;
     for object in &mut objects {
         if let Some(metadata) = object.get_mut("metadata").and_then(Value::as_object_mut) {
             metadata.remove("managedFields");

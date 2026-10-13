@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use fresnel_core::cluster::Link;
+use fresnel_core::index::{ClusterIndexes, IndexParts};
 use fresnel_core::net::WallClock;
 use fresnel_core::published::Disposal;
 use fresnel_core::store::{ClusterStores, StoreParts, StoreSettings, StoreStatus};
@@ -14,7 +15,7 @@ use crate::common::TestTasks;
 /// The stores are the first field: they stop before the thread.
 pub(crate) struct Stores {
     pub(crate) stores: ClusterStores,
-    _disposal: Disposal,
+    disposal: Disposal,
 }
 
 impl Stores {
@@ -22,7 +23,13 @@ impl Stores {
         let disposal = Disposal::start(&tasks.tasks);
         let parts = StoreParts { settings, bin: disposal.bin(), clock: WallClock::system() };
         let stores = ClusterStores::start(&tasks.tasks, link, parts).expect("good settings");
-        Self { stores, _disposal: disposal }
+        Self { stores, disposal }
+    }
+
+    /// Starts the indexes on these stores. They must drop before the stores.
+    pub(crate) fn indexes(&self, tasks: &TestTasks) -> ClusterIndexes {
+        let parts = IndexParts { bin: self.disposal.bin(), restart: StoreSettings::default().restart };
+        ClusterIndexes::start(&tasks.tasks, &self.stores, parts).expect("each store of an index")
     }
 
     /// Waits until the facts of the stores meet the condition. `limit` is the longest wait.
