@@ -83,11 +83,12 @@ impl Selection {
 #[cfg(test)]
 mod tests {
     use fresnel_core::cluster::ClusterId;
+    use fresnel_core::store::ObjectKey;
 
     use super::*;
 
     fn id(cluster: &str, uid: &str) -> ObjectId {
-        ObjectId { cluster: ClusterId::new(cluster), uid: uid.into() }
+        ObjectId { cluster: ClusterId::new(cluster), key: ObjectKey::new("shop", "web"), uid: uid.into() }
     }
 
     #[test]

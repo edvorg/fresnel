@@ -9,13 +9,13 @@ use egui::{Align, Label, Layout, RichText, Ui};
 use fresnel_core::app::ClusterData;
 use fresnel_core::index::{Basis, IndexState, last_seen};
 use fresnel_core::kinds::Kind;
-use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::core::v1::Event;
 
 use super::{NONE, heading};
 use crate::format::{self, Clock};
 use crate::theme::{Palette, SMALL};
 use crate::widgets::dot;
+use crate::widgets::table::model::ObjectId;
 use crate::widgets::tone::Tone;
 
 /// The most Events that the section draws. An object can have hundreds of them.
@@ -23,8 +23,7 @@ const LIMIT: usize = 100;
 
 /// The pod of the panel and the data of its cluster.
 pub(super) struct Source<'a> {
-    pub(super) key: &'a ObjectKey,
-    pub(super) uid: &'a str,
+    pub(super) id: &'a ObjectId,
     /// `None` for a cluster that is not connected.
     pub(super) data: Option<&'a ClusterData>,
 }
@@ -40,7 +39,7 @@ pub(super) fn show(ui: &mut Ui, palette: &Palette, clock: &Clock, source: &Sourc
         note(ui, Tone::Muted, "The settings give the Events of this cluster no store.");
         return;
     };
-    let answer = index.events_of(Kind::Pod, source.key, source.uid);
+    let answer = index.events_of(Kind::Pod, &source.id.key, &source.id.uid);
     if let Some(text) = basis_note(&answer.basis) {
         note(ui, Tone::Warn, &text);
     }

@@ -17,13 +17,13 @@ fn rows(bed: &TestTasks, filter: &PodFilter) -> Computed<PodRow, PodSummary> {
 }
 
 fn names(rows: &[PodRow]) -> Vec<String> {
-    let mut names: Vec<String> = rows.iter().map(|row| format!("{}/{}", row.id.cluster, row.key.name)).collect();
+    let mut names: Vec<String> = rows.iter().map(|row| format!("{}/{}", row.id.cluster, row.id.key.name)).collect();
     names.sort();
     names
 }
 
 fn row<'a>(rows: &'a [PodRow], cluster: &str, name: &str) -> &'a PodRow {
-    rows.iter().find(|row| row.id.cluster.as_str() == cluster && &*row.key.name == name).expect("the row")
+    rows.iter().find(|row| row.id.cluster.as_str() == cluster && &*row.id.key.name == name).expect("the row")
 }
 
 /// Weakness 1 of plan section 6: the rows are the pods of each cluster, and a row

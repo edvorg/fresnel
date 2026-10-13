@@ -712,10 +712,25 @@ reads the state of the task and shows the reason next to the rows from before th
 
 ## The selection holds objects, and a difference of snapshots removes them
 
-The cursor and the selection of a table hold the cluster and the UID of an object, never a
-row number. The Pods view compares the snapshot of each frame with the one before, as an
+The cursor and the selection of a table hold the identity of an object, never a row
+number. The Pods view compares the snapshot of each frame with the one before, as an
 index does: the cost follows the count of the changes. A pod that left its store leaves the
 selection, and a new pod with the name of an old one is an other object.
+
+## The identity of an object has its name and its UID
+
+An `ObjectId` is the cluster, the namespace with the name, and the UID. The UID tells a new
+object with the name of an old one from the old one. The name is a part too: with the UID
+alone, two pods that a server gave no UID were one object, and a click on one of them
+opened the panel of the other one, as a deleted pod.
+
+## A click on older rows selects no object that went away
+
+The rows on the screen are older than the stores while the worker computes, and the view
+removes a deleted pod from the selection one time, at its change. A click on the old row of
+such a pod selected it again, with no end. So a table keeps the objects of its last
+request. After a click or a key on older rows, it asks its model for each selected row if
+the objects still have it.
 
 ## The freshness mark comes from the state of the store at the paint
 

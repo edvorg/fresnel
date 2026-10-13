@@ -14,11 +14,11 @@ use std::time::SystemTime;
 use egui::{Align, Button, Frame, Label, Layout, Margin, RichText, ScrollArea, Sense, Ui, WidgetInfo, WidgetType};
 use fresnel_core::app::ClusterRow;
 use fresnel_core::kinds::PodStatus;
-use fresnel_core::store::{ObjectKey, Snapshot};
+use fresnel_core::store::Snapshot;
 use k8s_openapi::api::core::v1::Pod;
 
 use super::notes::old_since;
-use super::rows::{PodRow, age};
+use super::rows::{PodRow, age, uid};
 use crate::shell::Scene;
 use crate::theme::{self, Palette, SMALL};
 use crate::widgets::table::cells::ring;
@@ -45,20 +45,19 @@ enum Presence {
 /// The pod of the panel, with its last state.
 pub(super) struct Subject {
     pub(super) id: ObjectId,
-    key: ObjectKey,
     pod: Arc<Pod>,
     presence: Presence,
 }
 
 impl Subject {
     pub(super) fn of(row: &PodRow) -> Self {
-        Self { id: row.id.clone(), key: row.key.clone(), pod: Arc::clone(&row.pod), presence: Presence::Present }
+        Self { id: row.id.clone(), pod: Arc::clone(&row.pod), presence: Presence::Present }
     }
 
     /// Reads the pod from the snapshot of this frame. A pod with the same name and an
     /// other UID is an other object.
     pub(super) fn refresh(&mut self, pods: &Snapshot<Pod>) {
-        let found = pods.items.get(&self.key).filter(|pod| pod.metadata.uid.as_deref() == Some(&*self.id.uid));
+        let found = pods.items.get(&self.id.key).filter(|pod| uid(pod) == &*self.id.uid);
         self.presence = match found {
             Some(pod) => {
                 self.pod = Arc::clone(pod);
@@ -83,7 +82,7 @@ pub(super) fn show(ui: &mut Ui, scene: &Scene<'_>, subject: &Subject, cluster: O
                 close = button.clicked();
             });
         });
-        ui.add(Label::new(RichText::new(&*subject.key.name).heading().strong()).truncate());
+        ui.add(Label::new(RichText::new(&*subject.id.key.name).heading().strong()).truncate());
         let old = cluster.and_then(|row| row.data.as_ref()).and_then(|data| old_since(&data.pods, scene.clock));
         state_line(ui, palette, scene, subject, old.as_deref());
     });
@@ -94,7 +93,7 @@ pub(super) fn show(ui: &mut Ui, scene: &Scene<'_>, subject: &Subject, cluster: O
             metadata(ui, palette, scene, subject);
             ui.add_space(14.0);
             let data = cluster.and_then(|row| row.data.as_ref());
-            events::show(ui, palette, scene.clock, &events::Source { key: &subject.key, uid: &subject.id.uid, data });
+            events::show(ui, palette, scene.clock, &events::Source { id: &subject.id, data });
         });
     });
     close
@@ -142,7 +141,7 @@ fn heading(ui: &mut Ui, palette: &Palette, title: &str) {
 fn metadata(ui: &mut Ui, palette: &Palette, scene: &Scene<'_>, subject: &Subject) {
     let meta = &subject.pod.metadata;
     heading(ui, palette, "METADATA");
-    text_field(ui, palette, "Namespace", &subject.key.namespace);
+    text_field(ui, palette, "Namespace", &subject.id.key.namespace);
     text_field(ui, palette, "Cluster", subject.id.cluster.as_str());
     text_field(ui, palette, "UID", &subject.id.uid);
     let created = meta.creation_timestamp.as_ref().map(|time| {

@@ -87,7 +87,7 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
 - A table is a `Table` with the `Model` of its kind (`widgets/table/model.rs`).
 - `Model::rows` and `Model::compare` run on the worker thread of the table. A sort value comes
   from the object alone, and `Model::tie` gives two objects one sequence.
-- A cursor and a selection hold an `ObjectId` (cluster and UID), never a row number.
+- A cursor and a selection hold an `ObjectId` (cluster, name and UID), never a row number.
 - A view marks each row of a store that is not live and tells the state of that store with
   its reason. A list with no row says "none" only after a complete list of each store.
 

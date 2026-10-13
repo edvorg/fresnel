@@ -6,16 +6,25 @@ use std::sync::Arc;
 
 use egui::Color32;
 use fresnel_core::cluster::ClusterId;
+use fresnel_core::store::ObjectKey;
 
 use super::worker::Cancel;
 use crate::widgets::tone::Tone;
 
-/// The identity of one object in the app: its cluster and its UID (design rule 8). The
-/// cursor and the selection of a table hold this value and never a row number, so a new
-/// sort, a new filter and new data do not move them to some other object.
+/// The identity of one object in the app: its cluster, its place in the store of its
+/// kind, and its UID (design rule 8). The cursor and the selection of a table hold this
+/// value and never a row number, so a new sort, a new filter and new data do not move
+/// them to some other object.
+///
+/// The UID tells a new object with the name of an old one from the old one. The name is
+/// a part of the identity too: a server with a defect can give two objects with one UID,
+/// or with none, and each row must still be one object.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ObjectId {
     pub(crate) cluster: ClusterId,
+    /// The namespace and the name.
+    pub(crate) key: ObjectKey,
+    /// Empty for an object that its server gave no UID.
     pub(crate) uid: Arc<str>,
 }
 

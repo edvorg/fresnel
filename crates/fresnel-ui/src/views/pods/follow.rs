@@ -12,7 +12,7 @@ use fresnel_core::published::Held;
 use fresnel_core::store::{Change, Snapshot};
 use k8s_openapi::api::core::v1::Pod;
 
-use super::rows::PodData;
+use super::rows::{PodData, uid};
 use crate::widgets::table::model::ObjectId;
 
 /// The objects that went away from one frame to the next.
@@ -44,10 +44,6 @@ pub(super) struct Follower {
     serial: u64,
 }
 
-fn uid(pod: &Pod) -> &str {
-    pod.metadata.uid.as_deref().unwrap_or_default()
-}
-
 impl Follower {
     /// Takes the snapshots of this frame and gives the objects that went away.
     pub(super) fn step(&mut self, now: Vec<(ClusterId, Held<Snapshot<Pod>>)>) -> Gone {
@@ -63,12 +59,12 @@ impl Follower {
                 changed = true;
                 // A new pod with the name of an old one is an other object.
                 let left = match change {
-                    Change::Removed(_, old) => Some(old),
-                    Change::Updated { old, new, .. } if uid(old) != uid(new) => Some(old),
+                    Change::Removed(key, old) => Some((key, old)),
+                    Change::Updated { key, old, new } if uid(old) != uid(new) => Some((key, old)),
                     Change::Added(..) | Change::Updated { .. } => None,
                 };
-                if let Some(old) = left {
-                    gone.pods.insert(ObjectId { cluster: cluster.clone(), uid: uid(old).into() });
+                if let Some((key, old)) = left {
+                    gone.pods.insert(ObjectId { cluster: cluster.clone(), key: key.clone(), uid: uid(old).into() });
                 }
             }
         }

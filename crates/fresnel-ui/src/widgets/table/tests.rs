@@ -16,6 +16,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use fresnel_core::cluster::ClusterId;
+use fresnel_core::store::ObjectKey;
 
 use super::model::{Cell, Computed};
 use super::worker::Cancel;
@@ -58,7 +59,10 @@ impl Model for Numbers {
             gate.recv().expect("the test opens the gate");
         }
         assert!(!self.0.broken.load(Relaxed), "a defect in the rows");
-        let id = |uid: &u32| ObjectId { cluster: ClusterId::new("test"), uid: uid.to_string().into() };
+        let id = |uid: &u32| {
+            let key = ObjectKey::new("test", &format!("object-{uid}"));
+            ObjectId { cluster: ClusterId::new("test"), key, uid: uid.to_string().into() }
+        };
         let rows = data.iter().filter(|(_, value)| value >= filter).map(|(uid, value)| (id(uid), *uid, *value));
         Some(Computed { rows: rows.collect(), total: data.len(), summary: () })
     }

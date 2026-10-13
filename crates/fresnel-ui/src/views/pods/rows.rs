@@ -86,8 +86,6 @@ pub(crate) struct PodFilter {
 /// One row: a pod with its identity and the state that `kubectl get pods` prints.
 pub(crate) struct PodRow {
     pub(crate) id: ObjectId,
-    /// The identity of the pod in the store of its cluster.
-    pub(crate) key: ObjectKey,
     pub(crate) pod: Arc<Pod>,
     pub(crate) status: PodStatus,
 }
@@ -124,6 +122,11 @@ pub(crate) struct PodScene {
 
 /// The mark of a row whose cluster left the selection. The row goes with the next rows.
 const NOT_SELECTED: &str = "old: the cluster is not selected";
+
+/// The UID of a pod. Empty for a pod that its server gave none.
+pub(super) fn uid(pod: &Pod) -> &str {
+    pod.metadata.uid.as_deref().unwrap_or_default()
+}
 
 /// The age of a time of the cluster on the clock of the view.
 pub(crate) fn age(clock: &Clock, time: &Time) -> String {
@@ -176,9 +179,8 @@ impl Model for PodModel {
                 {
                     continue;
                 }
-                let uid = pod.metadata.uid.as_deref().unwrap_or_default();
-                let id = ObjectId { cluster: cluster.clone(), uid: uid.into() };
-                rows.push(PodRow { id, key: key.clone(), pod: Arc::clone(pod), status });
+                let id = ObjectId { cluster: cluster.clone(), key: key.clone(), uid: uid(pod).into() };
+                rows.push(PodRow { id, pod: Arc::clone(pod), status });
             }
         }
         Some(Computed { rows, total, summary: PodSummary { namespaces: namespaces.into_iter().collect() } })
@@ -186,8 +188,8 @@ impl Model for PodModel {
 
     fn compare(&self, a: &PodRow, b: &PodRow, column: usize) -> Ordering {
         match FIELDS.get(column) {
-            Some(Field::Name) => a.key.name.cmp(&b.key.name),
-            Some(Field::Namespace) => a.key.namespace.cmp(&b.key.namespace),
+            Some(Field::Name) => a.id.key.name.cmp(&b.id.key.name),
+            Some(Field::Namespace) => a.id.key.namespace.cmp(&b.id.key.namespace),
             Some(Field::Cluster) => a.id.cluster.cmp(&b.id.cluster),
             Some(Field::Ready) => (a.status.ready, a.status.containers).cmp(&(b.status.ready, b.status.containers)),
             Some(Field::Status) => a.status.text.cmp(&b.status.text),
@@ -201,7 +203,7 @@ impl Model for PodModel {
     }
 
     fn tie(&self, a: &PodRow, b: &PodRow) -> Ordering {
-        a.key.cmp(&b.key).then_with(|| a.id.cluster.cmp(&b.id.cluster)).then_with(|| a.id.uid.cmp(&b.id.uid))
+        a.id.key.cmp(&b.id.key).then_with(|| a.id.cluster.cmp(&b.id.cluster))
     }
 
     fn id<'a>(&self, row: &'a PodRow) -> &'a ObjectId {
@@ -210,9 +212,9 @@ impl Model for PodModel {
 
     fn has(&self, data: &PodData, row: &PodRow) -> bool {
         let pods = data.clusters.iter().find(|(cluster, _)| *cluster == row.id.cluster);
-        let pod = pods.and_then(|(_, pods)| pods.items.get(&row.key));
+        let pod = pods.and_then(|(_, pods)| pods.items.get(&row.id.key));
         // A new pod with the name of the row is an other object.
-        pod.is_some_and(|pod| pod.metadata.uid.as_deref().unwrap_or_default() == &*row.id.uid)
+        pod.is_some_and(|pod| uid(pod) == &*row.id.uid)
     }
 
     fn cell<'a>(&self, row: &'a PodRow, column: usize, scene: &'a PodScene) -> Cell<'a> {
@@ -220,8 +222,8 @@ impl Model for PodModel {
         let old = mark.map_or(Some(NOT_SELECTED), |mark| mark.old.as_deref());
         let status = &row.status;
         let cell = match FIELDS.get(column) {
-            Some(Field::Name) => Cell::new(&*row.key.name).lead(old.map_or(Lead::None, Lead::Old)),
-            Some(Field::Namespace) => Cell::new(&*row.key.namespace).tone(Tone::Muted),
+            Some(Field::Name) => Cell::new(&*row.id.key.name).lead(old.map_or(Lead::None, Lead::Old)),
+            Some(Field::Namespace) => Cell::new(&*row.id.key.namespace).tone(Tone::Muted),
             Some(Field::Cluster) => {
                 let color = mark.map_or(scene.palette.text_faint, |mark| mark.color);
                 Cell::new(row.id.cluster.as_str()).lead(Lead::Dot(color))
