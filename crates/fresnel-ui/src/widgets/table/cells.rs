@@ -3,11 +3,15 @@
 use egui::{Align, Align2, FontId, Label, Layout, Response, RichText, Sense, Shape, Ui, WidgetInfo, WidgetType};
 
 use super::model::{Cell, Column, Lead};
+use crate::format;
 use crate::theme::{Palette, SMALL};
 use crate::widgets::dot;
 
 /// The space between the border of a cell and its text.
 const PAD: f32 = 10.0;
+/// The most characters of a cell that the table lays out: more than the widest column
+/// shows. A value of a cluster can be much longer, for example the reason of a status.
+const TEXT_LIMIT: usize = 400;
 
 /// True for a cell that the scroll regions of `egui_table` cut away. The table lays out
 /// such a cell too; a skip saves the time and one more node in the accessibility tree.
@@ -77,8 +81,9 @@ pub(super) fn cell(ui: &mut Ui, palette: &Palette, column: &Column, cell: &Cell<
             Lead::Dot(color) => dot(ui, color),
             Lead::Old(since) => old_mark(ui, palette, since),
         }
+        let text = format::short(&cell.text, TEXT_LIMIT);
         // The row takes the click, so the text must not take it.
-        ui.add(Label::new(RichText::new(cell.text.as_ref()).color(color)).truncate().selectable(false));
+        ui.add(Label::new(RichText::new(text).color(color)).truncate().selectable(false));
     });
 }
 

@@ -8,6 +8,7 @@
 
 mod events;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -19,6 +20,7 @@ use k8s_openapi::api::core::v1::Pod;
 
 use super::notes::old_since;
 use super::rows::{PodRow, age, uid};
+use crate::format::{self, short};
 use crate::shell::Scene;
 use crate::theme::{self, Palette, SMALL};
 use crate::widgets::table::cells::ring;
@@ -28,8 +30,11 @@ use crate::widgets::{self, dot};
 
 /// The width of the labels of the metadata.
 const LABEL_WIDTH: f32 = 104.0;
-/// The most characters of the value of an annotation. A value can be a full manifest.
+/// The most characters of one value of the metadata. The value of an annotation can be
+/// a full manifest, and no other text of a pod has a limit that each server holds.
 const VALUE_LIMIT: usize = 240;
+/// The most chips of the labels or of the annotations. A pod can have thousands of them.
+const CHIP_LIMIT: usize = 100;
 
 /// What the store of the cluster knows of the pod of the panel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,7 +87,8 @@ pub(super) fn show(ui: &mut Ui, scene: &Scene<'_>, subject: &Subject, cluster: O
                 close = button.clicked();
             });
         });
-        ui.add(Label::new(RichText::new(&*subject.id.key.name).heading().strong()).truncate());
+        let name = short(&subject.id.key.name, VALUE_LIMIT);
+        ui.add(Label::new(RichText::new(name).heading().strong()).truncate());
         let old = cluster.and_then(|row| row.data.as_ref()).and_then(|data| old_since(&data.pods, scene.clock));
         state_line(ui, palette, scene, subject, old.as_deref());
     });
@@ -108,7 +114,7 @@ fn state_line(ui: &mut Ui, palette: &Palette, scene: &Scene<'_>, subject: &Subje
         // The color of a state is for a state of now.
         let tone = if current { Tone::of_object(status.health) } else { Tone::Faint };
         dot(ui, tone.color(palette));
-        ui.label(RichText::new(&status.text).color(tone.color(palette)));
+        ui.label(RichText::new(short(&status.text, VALUE_LIMIT)).color(tone.color(palette)));
         ui.label(RichText::new("·").color(palette.text_faint));
         dot(ui, scene.colors.color(&subject.id.cluster, palette));
         ui.label(RichText::new(subject.id.cluster.as_str()).color(palette.text_muted));
@@ -154,25 +160,11 @@ fn metadata(ui: &mut Ui, palette: &Palette, scene: &Scene<'_>, subject: &Subject
     let owners = meta.owner_references.iter().flatten().map(|owner| format!("{} {}", owner.kind, owner.name));
     let owners = owners.collect::<Vec<String>>().join(", ");
     text_field(ui, palette, "Controlled by", if owners.is_empty() { NONE } else { &owners });
-    field(ui, palette, "Labels", |ui| {
-        let labels = meta.labels.iter().flatten();
-        chips(ui, palette, labels.map(|(key, value)| format!("{key}={value}")));
-    });
-    field(ui, palette, "Annotations", |ui| {
-        let annotations = meta.annotations.iter().flatten();
-        chips(ui, palette, annotations.map(|(key, value)| format!("{key}={}", short(value))));
-    });
+    field(ui, palette, "Labels", |ui| chips(ui, palette, meta.labels.as_ref()));
+    field(ui, palette, "Annotations", |ui| chips(ui, palette, meta.annotations.as_ref()));
 }
 
 const NONE: &str = "–";
-
-/// The start of a long value, with a mark for the part that does not show.
-fn short(value: &str) -> String {
-    match value.char_indices().nth(VALUE_LIMIT) {
-        Some((end, _)) => format!("{}…", value.get(..end).unwrap_or_default()),
-        None => value.to_owned(),
-    }
-}
 
 /// One line of the metadata: the label at the left and the value at the right. A long
 /// value wraps below itself and not below the label.
@@ -191,24 +183,25 @@ fn field(ui: &mut Ui, palette: &Palette, label: &str, value: impl FnOnce(&mut Ui
 fn text_field(ui: &mut Ui, palette: &Palette, label: &str, value: &str) {
     field(ui, palette, label, |ui| {
         ui.add_space(1.0);
-        ui.add(Label::new(value).wrap());
+        ui.add(Label::new(short(value, VALUE_LIMIT)).wrap());
     });
 }
 
-/// One chip for each text, or the mark of no value. A chip has a fixed size, so a line
-/// of chips breaks between two of them.
-fn chips(ui: &mut Ui, palette: &Palette, texts: impl Iterator<Item = String>) {
-    let mut texts = texts.peekable();
-    if texts.peek().is_none() {
+/// One chip for each label or annotation, or the mark of no value. A chip has a fixed
+/// size, so a line of chips breaks between two of them. The first chips show, and a note
+/// has the count of the other ones: each chip is a layout in each frame.
+fn chips(ui: &mut Ui, palette: &Palette, values: Option<&BTreeMap<String, String>>) {
+    let Some(values) = values.filter(|values| !values.is_empty()) else {
         ui.add_space(1.0);
         ui.label(RichText::new(NONE).color(palette.text_faint));
         return;
-    }
+    };
     // A text that is longer than the panel wraps in its chip.
     let widest = ui.available_width() - 12.0;
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-        for text in texts {
+        for (key, value) in values.iter().take(CHIP_LIMIT) {
+            let text = format!("{}={}", short(key, VALUE_LIMIT), short(value, VALUE_LIMIT));
             let galley = ui.painter().layout(text.clone(), theme::mono(), palette.text, widest);
             let (rect, response) = ui.allocate_exact_size(galley.size() + egui::vec2(12.0, 6.0), Sense::hover());
             response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &text));
@@ -216,4 +209,7 @@ fn chips(ui: &mut Ui, palette: &Palette, texts: impl Iterator<Item = String>) {
             ui.painter().galley(rect.min + egui::vec2(6.0, 3.0), galley, palette.text);
         }
     });
+    if let Some(more) = values.len().checked_sub(CHIP_LIMIT).filter(|more| *more > 0) {
+        ui.label(RichText::new(format!("and {} more", format::thousands(more as u64))).color(palette.text_muted));
+    }
 }

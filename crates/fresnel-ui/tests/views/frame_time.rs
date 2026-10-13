@@ -18,7 +18,7 @@ use egui::{Event, Modifiers, MouseWheelUnit, TouchPhase};
 use egui_kittest::kittest::Queryable as _;
 use k8s_openapi::api::core::v1::Pod;
 
-use crate::data::{live, many_pods};
+use crate::data::{changed, live, many_pods, pod};
 use crate::fake::{Window, shows, view, window_with_no_gpu};
 use crate::pods::column;
 
@@ -173,4 +173,41 @@ fn a_frame_with_10_000_pods_takes_16_ms_or_less_during_scroll_sort_and_filter() 
         window.query_all_by_label_contains("of 10,000 pods").next().is_some()
     });
     stream.check();
+}
+
+/// The API gives most texts of an object no limit of their length. A status reason of
+/// 1 MB took a frame of 63 ms each time its row came into view, and the panel of a pod
+/// with 2,000 annotations two frames of 20 ms. Each view cuts such a text before its layout.
+#[test]
+fn a_frame_with_a_pod_of_extreme_values_takes_16_ms_or_less() {
+    let extreme = changed(&pod("db-0"), |value| {
+        value["metadata"]["name"] = "extreme".into();
+        value["metadata"]["uid"] = "the-uid-of-the-extreme-pod".into();
+        value["status"]["reason"] = "R".repeat(1_000_000).into();
+        let annotations: serde_json::Map<String, serde_json::Value> =
+            (0..2000).map(|number| (format!("example.com/note-{number:04}"), "v".repeat(100).into())).collect();
+        value["metadata"]["annotations"] = annotations.into();
+        value["metadata"]["labels"]["long"] = "L".repeat(100_000).into();
+    });
+    let mut all = many_pods(1000);
+    all.push(extreme);
+    let mut window = window_with_no_gpu(view(vec![live("ams-prod", &all)]), 2.0);
+
+    // The filter brings the row of the pod into the view.
+    let mut table = Step::new("extreme values, the row");
+    let field = window.get_by_label("Filter pods").rect().center();
+    table.click(&mut window, field);
+    table.events(&mut window, [Event::Text("extreme".to_owned())]);
+    table.until(&mut window, "the row of the pod", |window| shows(window, "1 of 1,001 pods"));
+    (0..20).for_each(|_| table.frame(&mut window));
+    let status = column(&window, "Status").into_iter().next().expect("the status of the pod");
+    assert!(status.starts_with("RRRR") && status.ends_with('…') && status.chars().count() < 500, "a cut text");
+    table.check();
+
+    let mut panel = Step::new("extreme values, the panel");
+    let row = window.get_by_label("extreme").rect().center();
+    panel.click(&mut window, row);
+    (0..20).for_each(|_| panel.frame(&mut window));
+    assert!(shows(&window, "and 1,900 more"), "the panel shows the first annotations and the count of the rest");
+    panel.check();
 }

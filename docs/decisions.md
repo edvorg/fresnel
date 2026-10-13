@@ -754,6 +754,14 @@ button. Here the panel finds its pod in the snapshot of each frame. A pod that a
 a complete list does not have shows as deleted, with its last state. A store with no complete
 list does not know its pods, so the panel says "not loaded" then.
 
+## A view cuts a text of a cluster before its layout
+
+The API gives most texts of an object no limit of their length. Measured in a release
+build: a status reason of 1 MB cost a frame of 63 ms each time its row came into view, and
+2,000 annotations cost two frames of 20 ms. So a cell lays out 400 characters at most and
+the panel 240 of one value, with a mark. The panel draws the first 100 labels and
+annotations and counts the rest.
+
 ## The namespace filter lists the namespaces of the pods
 
 The filter of milestone M1 is in the bar of the Pods view, and its menu has each namespace

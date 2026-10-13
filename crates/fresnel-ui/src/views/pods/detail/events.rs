@@ -12,7 +12,7 @@ use fresnel_core::kinds::Kind;
 use k8s_openapi::api::core::v1::Event;
 
 use super::{NONE, heading};
-use crate::format::{self, Clock};
+use crate::format::{self, Clock, short};
 use crate::theme::{Palette, SMALL};
 use crate::widgets::dot;
 use crate::widgets::table::model::ObjectId;
@@ -20,6 +20,11 @@ use crate::widgets::tone::Tone;
 
 /// The most Events that the section draws. An object can have hundreds of them.
 const LIMIT: usize = 100;
+/// The most characters of the message of one Event. A recorder of Kubernetes cuts a
+/// message at 1,024 bytes; some other writer of an Event can send more.
+const MESSAGE_LIMIT: usize = 2000;
+/// The most characters of the reason and of the type of one Event.
+const REASON_LIMIT: usize = 80;
 
 /// The pod of the panel and the data of its cluster.
 pub(super) struct Source<'a> {
@@ -85,8 +90,9 @@ fn entry(ui: &mut Ui, palette: &Palette, clock: &Clock, event: &Event) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         dot(ui, tone.color(palette));
-        ui.label(RichText::new(event.reason.as_deref().unwrap_or(NONE)).strong());
-        ui.label(RichText::new(kind).size(SMALL).color(tone.color(palette)));
+        let reason = event.reason.as_deref().unwrap_or(NONE);
+        ui.label(RichText::new(short(reason, REASON_LIMIT)).strong());
+        ui.label(RichText::new(short(kind, REASON_LIMIT)).size(SMALL).color(tone.color(palette)));
         if count > 1 {
             ui.label(RichText::new(format!("×{count}")).size(SMALL).color(palette.text_muted));
         }
@@ -96,7 +102,7 @@ fn entry(ui: &mut Ui, palette: &Palette, clock: &Clock, event: &Event) {
             ui.label(RichText::new(age).size(SMALL).color(palette.text_faint));
         });
     });
-    let message = event.message.as_deref().unwrap_or_default();
+    let message = short(event.message.as_deref().unwrap_or_default(), MESSAGE_LIMIT);
     ui.add(Label::new(RichText::new(message).color(palette.text_muted)).wrap());
     ui.add_space(6.0);
 }

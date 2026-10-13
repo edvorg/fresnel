@@ -1,6 +1,7 @@
 //! Texts for counts, time spans and clock times. Each view uses these, so that one value
 //! reads the same in each place.
 
+use std::borrow::Cow;
 use std::time::{Duration, SystemTime};
 
 use fresnel_core::net::WallClock;
@@ -47,6 +48,16 @@ pub(crate) fn span(time: Duration) -> String {
         format!("{minutes} min {} s", seconds % 60)
     } else {
         format!("{seconds} s")
+    }
+}
+
+/// The first `limit` characters of a text of a cluster, with a mark for the part that
+/// does not show. The API gives most texts no limit of their length, and the layout of a
+/// text of 1 MB takes longer than a frame.
+pub(crate) fn short(text: &str, limit: usize) -> Cow<'_, str> {
+    match text.char_indices().nth(limit) {
+        Some((end, _)) => Cow::Owned(format!("{}…", text.get(..end).unwrap_or_default())),
+        None => Cow::Borrowed(text),
     }
 }
 
@@ -121,6 +132,14 @@ mod tests {
             (short_time(Duration::from_millis(12)), short_time(Duration::from_millis(1440))),
             ("12 ms".into(), "1.4 s".into())
         );
+    }
+
+    #[test]
+    fn a_long_text_shows_its_start_with_a_mark_and_a_cut_is_between_two_characters() {
+        assert_eq!(short("Running", 7), "Running");
+        assert_eq!(short("CrashLoopBackOff", 5), "Crash…");
+        assert_eq!(short("größer", 3), "grö…", "a limit counts characters, not bytes");
+        assert_eq!((short("", 0), short("a", 0)), ("".into(), "…".into()));
     }
 
     #[test]
