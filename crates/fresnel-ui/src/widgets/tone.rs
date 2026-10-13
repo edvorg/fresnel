@@ -3,6 +3,7 @@
 use egui::Color32;
 use fresnel_core::app::Health;
 use fresnel_core::journal::Level;
+use fresnel_core::kinds::ObjectHealth;
 
 use crate::theme::Palette;
 
@@ -40,6 +41,16 @@ impl Tone {
             Health::Live => (Self::Ok, "live"),
             Health::NoConnection => (Self::Warn, "no connection"),
             Health::NoCredential => (Self::Error, "no credential"),
+        }
+    }
+
+    /// The tone of the health value of an object.
+    pub(crate) fn of_object(health: ObjectHealth) -> Self {
+        match health {
+            ObjectHealth::Healthy => Self::Ok,
+            ObjectHealth::Progressing => Self::Info,
+            ObjectHealth::Warning => Self::Warn,
+            ObjectHealth::Failed => Self::Error,
         }
     }
 

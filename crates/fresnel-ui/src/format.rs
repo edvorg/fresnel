@@ -81,11 +81,18 @@ impl Clock {
 
     /// "14:03:07": the time of day in the time zone of the clock.
     pub(crate) fn time_of_day(&self, time: SystemTime) -> String {
-        match Timestamp::try_from(time) {
-            Ok(timestamp) => timestamp.to_zoned(self.zone.clone()).strftime("%H:%M:%S").to_string(),
-            // A time that the calendar cannot show, for example before the year -9999.
-            Err(_) => "--:--:--".to_owned(),
-        }
+        self.text(time, "%H:%M:%S").unwrap_or_else(|| "--:--:--".to_owned())
+    }
+
+    /// "2027-01-15 14:03:07": the day and the time of day in the time zone of the clock.
+    pub(crate) fn date_time(&self, time: SystemTime) -> String {
+        self.text(time, "%Y-%m-%d %H:%M:%S").unwrap_or_else(|| "no date".to_owned())
+    }
+
+    /// `None` for a time that the calendar cannot show, for example before the year -9999.
+    fn text(&self, time: SystemTime, form: &str) -> Option<String> {
+        let timestamp = Timestamp::try_from(time).ok()?;
+        Some(timestamp.to_zoned(self.zone.clone()).strftime(form).to_string())
     }
 }
 
@@ -122,6 +129,7 @@ mod tests {
         let clock = Clock::fixed(now);
         assert_eq!(clock.time_of_day(now), "08:00:00");
         assert_eq!(clock.time_of_day(now + 3725 * SECOND), "09:02:05");
+        assert_eq!(clock.date_time(now + 3725 * SECOND), "2027-01-15 09:02:05");
         assert_eq!((clock.until(now + 5 * SECOND), clock.until(now - 5 * SECOND)), (5 * SECOND, Duration::ZERO));
         assert_eq!((clock.since(now - 7 * SECOND), clock.since(now + 7 * SECOND)), (7 * SECOND, Duration::ZERO));
     }

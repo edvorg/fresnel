@@ -6,8 +6,10 @@ use fresnel_core::cluster::{ClusterId, LinkState};
 use fresnel_core::journal::Level;
 use fresnel_core::net::ChannelState;
 
+use crate::data::{live, pods};
 use crate::fake::{
-    Window, connected, error, journal, live_channels, live_status, new_channel, off, row, shows, status, view, window,
+    Window, connected, connections_window, error, journal, live_channels, live_status, new_channel, off, open_page,
+    open_tab, row, shows, status, view, window,
 };
 
 fn select(cluster: &str, selected: bool) -> Command {
@@ -128,21 +130,35 @@ fn an_idle_frame_asks_for_no_repaint_but_the_one_for_the_age_of_an_answer() {
     let mut idle = window(view(vec![off("ams-prod")]));
     idle.run();
     assert_eq!(repaint_delay(&idle), std::time::Duration::MAX);
+    // A connected cluster with no pod: the Pods page has no age that changes.
+    let mut no_pods = window(view(vec![live("ams-prod", &[])]));
+    no_pods.run();
+    assert_eq!(repaint_delay(&no_pods), std::time::Duration::MAX);
 
-    let mut connected = window(view(vec![connected("ams-prod", live_status())]));
-    connected.run();
-    let delay = repaint_delay(&connected);
-    assert!(delay > std::time::Duration::from_millis(500) && delay <= crate::fake::SECOND, "{delay:?}");
+    let one_second = |window: &Window, what: &str| {
+        let delay = repaint_delay(window);
+        assert!(delay > std::time::Duration::from_millis(500) && delay <= crate::fake::SECOND, "{what}: {delay:?}");
+    };
+    let mut with_pods = window(view(vec![live("ams-prod", &pods())]));
+    with_pods.run();
+    one_second(&with_pods, "the age of a pod");
+    let mut connections = connections_window(view(vec![connected("ams-prod", live_status())]));
+    connections.run();
+    one_second(&connections, "the age of an answer");
 }
 
 /// The user can make the window very small, and a display can be very large.
 #[test]
-fn each_tab_draws_at_each_window_size() {
-    let mut window = window(view(vec![connected("ams-prod", live_status()), off("fra-stage")]));
-    for tab in ["Journal", "Connections"] {
+fn each_page_and_each_tab_draws_at_each_window_size() {
+    let clusters = vec![live("ams-prod", &pods()), connected("sgp-prod", live_status()), off("fra-stage")];
+    let mut window = window(view(clusters));
+    window.get_by_label("crash").click();
+    window.run();
+    for (page, tab) in [("Pods", "Journal"), ("Pods", "Connections"), ("Connections", "Connections")] {
         window.set_size(egui::vec2(1280.0, 800.0));
         window.run();
-        window.get_by_label(tab).click();
+        open_page(&mut window, page);
+        open_tab(&mut window, tab);
         for size in [[0.0, 0.0], [1.0, 1.0], [160.0, 90.0], [3840.0, 2160.0]] {
             window.set_size(size.into());
             window.run();

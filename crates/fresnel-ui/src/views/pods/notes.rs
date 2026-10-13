@@ -1,0 +1,101 @@
+//! The note of each selected cluster above the Pod table: the state of its Pod store with
+//! the reason, and how old its rows are (design rules 4 and 5).
+//!
+//! A cluster whose store is live has no note. Each other cluster has a line of its own,
+//! so two clusters that fail show two reasons (weakness 3 of plan section 6), and a list
+//! with no row never stands for an error.
+
+use egui::{Label, RichText, ScrollArea, Ui};
+use fresnel_core::app::ClusterRow;
+use fresnel_core::cluster::LinkState;
+use fresnel_core::store::{Snapshot, StoreState, Wait};
+use k8s_openapi::api::core::v1::Pod;
+
+use crate::format::{self, Clock};
+use crate::shell::Scene;
+use crate::theme::{Palette, ROW_HEIGHT};
+use crate::widgets::dot;
+use crate::widgets::table::cells::ring;
+use crate::widgets::tone::Tone;
+
+/// The most notes that show with no scroll. More clusters than this scroll in their place
+/// and leave the table its place.
+const LINES: f32 = 4.0;
+
+/// Since when the rows of a store are old, for the mark of each row. `None` for a live
+/// store: its rows are current.
+pub(super) fn old_since(pods: &Snapshot<Pod>, clock: &Clock) -> Option<String> {
+    if pods.state.is_live() {
+        return None;
+    }
+    Some(match pods.last_contact {
+        Some(time) => format!("old since {}", clock.time_of_day(time)),
+        None => "old: the server gave no answer yet".to_owned(),
+    })
+}
+
+/// The tone and the text of the note of one selected cluster.
+fn note(row: &ClusterRow, clock: &Clock) -> Option<(Tone, String)> {
+    let Some(data) = &row.data else {
+        return Some(match &row.link {
+            LinkState::Failed(error) => (Tone::Error, format!("the connect did not start: {error}")),
+            LinkState::Off | LinkState::On(_) => (Tone::Info, "the connect starts".to_owned()),
+        });
+    };
+    let pods = &data.pods;
+    let state = pods.state.to_string();
+    let (tone, state) = match &pods.state {
+        StoreState::Live => return None,
+        // The store waits for the cluster, so the note has the tone and the reason of
+        // the cluster.
+        StoreState::Waiting(Wait::Channel | Wait::Credential) => {
+            let reason = row.reason().map_or_else(String::new, |reason| format!(": {reason}"));
+            (Tone::of_health(row.health()).0, format!("{state}{reason}"))
+        }
+        StoreState::Waiting(Wait::ListSlot | Wait::Stream) | StoreState::Listing { .. } => (Tone::Info, state),
+        StoreState::Attempt { .. } => (Tone::Warn, state),
+        StoreState::Backoff { until, .. } => {
+            (Tone::Warn, format!("{state}; next attempt in {}", format::span(clock.until(*until))))
+        }
+        StoreState::Throttled { until } => (Tone::Warn, format!("{state} until {}", clock.time_of_day(*until))),
+        StoreState::Forbidden { .. } | StoreState::NotSupported { .. } | StoreState::InternalError { .. } => {
+            (Tone::Error, state)
+        }
+        StoreState::Stopped => (Tone::Muted, state),
+    };
+    let rows = match pods.last_contact {
+        Some(time) if pods.listed => format!("Its rows are old since {}.", clock.time_of_day(time)),
+        Some(_) => "Its first list is not complete.".to_owned(),
+        None => "No pod is loaded.".to_owned(),
+    };
+    Some((tone, format!("Pods: {state}. {rows}")))
+}
+
+/// Draws the note of each selected cluster that has one.
+pub(super) fn show(ui: &mut Ui, palette: &Palette, scene: &Scene<'_>) {
+    let selected = scene.view.clusters.iter().filter(|row| row.selected);
+    let notes: Vec<(&ClusterRow, Tone, String)> =
+        selected.filter_map(|row| note(row, scene.clock).map(|(tone, text)| (row, tone, text))).collect();
+    if notes.is_empty() {
+        return;
+    }
+    let list = ScrollArea::vertical().id_salt("pod_notes").max_height(LINES * ROW_HEIGHT).auto_shrink([false, true]);
+    list.show(ui, |ui| {
+        for (row, tone, text) in &notes {
+            ui.horizontal(|ui| {
+                ui.set_height(ROW_HEIGHT - 2.0);
+                ui.add_space(12.0);
+                ui.spacing_mut().item_spacing.x = 6.0;
+                dot(ui, scene.colors.color(&row.id, palette));
+                ui.label(RichText::new(row.id.as_str()).strong());
+                // The mark of the rows of this cluster, so that a person knows it again.
+                if row.data.as_ref().is_some_and(|data| !data.pods.items.is_empty()) {
+                    ring(ui, palette);
+                }
+                ui.add(Label::new(RichText::new(text).color(tone.color(palette))).truncate());
+            });
+        }
+    });
+    let line = ui.available_rect_before_wrap();
+    ui.painter().hline(line.x_range(), line.top(), (1.0, palette.border));
+}

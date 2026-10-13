@@ -9,8 +9,8 @@ use fresnel_core::net::credential::{CredentialFailure, CredentialState, PluginEr
 use fresnel_core::net::{ChannelState, ChannelStatus};
 
 use crate::fake::{
-    SECOND, absent, channel, connected, error, live_channels, live_status, new_channel, now, off, row, shows, status,
-    valid, view, window,
+    SECOND, absent, channel, connected, connections_window, error, live_channels, live_status, new_channel, now, off,
+    row, shows, status, valid, view,
 };
 
 #[test]
@@ -27,7 +27,7 @@ fn a_live_cluster_shows_its_credential_and_each_channel_with_its_numbers() {
     live.requests.channels[0].ping_time = Some(Duration::from_millis(1440));
     live.requests.channels[0].last_frame_age = Some(125 * SECOND);
     live.logs.channels[0].streams_open = 2;
-    let window = window(view(vec![connected("ams-prod", live)]));
+    let window = connections_window(view(vec![connected("ams-prod", live)]));
 
     let card = ["ams-prod", "ams-prod.k8s.example:443  ·  plugin doctl", "live", "last answer 1 s ago"];
     let credential = ["Credential", "valid until 09:00:00 (in 1 h 0 min)", "1 plugin run"];
@@ -51,7 +51,7 @@ fn a_cluster_that_connects_shows_the_attempt_and_that_no_answer_came() {
         new_channel(ChannelState::Verifying),
         new_channel(ChannelState::Connecting { attempt: 1 }),
     ];
-    let window = window(view(vec![connected("fra-stage", status(channels, Some(first_run)))]));
+    let window = connections_window(view(vec![connected("fra-stage", status(channels, Some(first_run)))]));
 
     let texts = [
         "connecting",
@@ -82,7 +82,7 @@ fn a_cluster_with_no_connection_shows_the_error_and_the_time_to_the_next_attempt
         },
         lost(1, 1, 2, "the server sent no ping answer in 5s"),
     ];
-    let window = window(view(vec![connected("sgp-prod", status(channels, Some(valid())))]));
+    let window = connections_window(view(vec![connected("sgp-prod", status(channels, Some(valid())))]));
 
     let texts = [
         "no connection",
@@ -123,7 +123,7 @@ fn a_failed_credential_shows_the_text_of_the_plugin_and_the_next_attempt() {
         connected("ams-prod", status(live_channels(), Some(again))),
         connected("fra-stage", status(live_channels(), Some(refused))),
     ];
-    let window = window(view(clusters));
+    let window = connections_window(view(clusters));
 
     let stopped = "credential plugin `doctl`: stopped with exit status: 1";
     let texts = [
@@ -148,7 +148,7 @@ fn a_connect_that_did_not_start_shows_its_reason_and_a_bad_entry_shows_as_such()
     let mut bad_entry = row("ci", LinkState::Failed(error(unsupported)));
     (bad_entry.server, bad_entry.auth) = (Err(error(unsupported)), None);
     let clusters = vec![row("late", LinkState::Failed(error(reason))), bad_entry, row("new", LinkState::Off)];
-    let window = window(view(clusters));
+    let window = connections_window(view(clusters));
 
     let texts = [
         "failed",
@@ -170,7 +170,7 @@ fn a_throttle_requests_that_wait_and_an_extra_channel_show() {
     busy.logs.waiting = 1;
     busy.watches.channels.push(ChannelStatus { streams_open: 70, ..channel(ChannelState::Live) });
     busy.requests.channels.push(ChannelStatus { last_frame_age: Some(90 * SECOND), ..channel(ChannelState::Retired) });
-    let window = window(view(vec![connected("ams-prod", busy)]));
+    let window = connections_window(view(vec![connected("ams-prod", busy)]));
 
     let texts = [
         "The server throttles the app (HTTP 429) until 08:00:30.",
@@ -187,7 +187,7 @@ fn a_throttle_requests_that_wait_and_an_extra_channel_show() {
 #[test]
 fn retry_now_sends_the_command_for_its_cluster_and_the_view_does_nothing_else() {
     let clusters = vec![connected("ams-prod", live_status()), row("late", LinkState::Failed(error("no server")))];
-    let mut window = window(view(clusters));
+    let mut window = connections_window(view(clusters));
     assert_eq!(window.state().sent, []);
 
     window.get_by_label("Retry now: late").click();
@@ -215,7 +215,7 @@ fn the_view_tells_why_it_has_no_card() {
     for (startup, clusters, text) in texts {
         let mut empty = view(clusters);
         empty.startup = startup;
-        let window = window(empty);
+        let window = connections_window(empty);
         assert!(shows(&window, text), "{startup:?}: {text}");
         assert!(!shows(&window, "Retry now"));
     }
@@ -228,7 +228,7 @@ fn a_login_shell_that_gave_no_environment_shows_with_the_text_of_its_profile() {
         problem: "the login shell /bin/zsh gave no environment in 5s".to_owned(),
         detail: "compinit: insecure directories, run compaudit for list.".to_owned(),
     });
-    let window = window(broken);
+    let window = connections_window(broken);
     let texts = [
         "The login shell gave no environment",
         "the login shell /bin/zsh gave no environment in 5s",
@@ -244,7 +244,7 @@ fn a_login_shell_that_gave_no_environment_shows_with_the_text_of_its_profile() {
 #[test]
 fn a_new_copy_with_other_clusters_and_other_channels_in_each_frame_draws() {
     let names: Vec<String> = (0..12).map(|index| format!("cluster-{index}")).collect();
-    let mut window = window(view(Vec::new()));
+    let mut window = connections_window(view(Vec::new()));
     for step in 0..40_usize {
         let clusters = names.iter().skip(step % 5).take(step % 9).enumerate().map(|(index, name)| {
             let mut status = live_status();

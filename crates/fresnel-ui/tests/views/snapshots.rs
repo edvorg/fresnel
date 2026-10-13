@@ -16,8 +16,8 @@ use fresnel_core::net::credential::{CredentialFailure, CredentialState, PluginEr
 use fresnel_core::net::{ChannelState, ChannelStatus};
 
 use crate::fake::{
-    SECOND, Window, channel, connected, error, journal, live_status, new_channel, now, off, row, status, valid, view,
-    window_with,
+    SECOND, Window, channel, connected, error, journal, live_status, new_channel, now, off, open_page, row, status,
+    valid, view, window_with,
 };
 
 /// The scale of a Retina display.
@@ -118,6 +118,9 @@ fn session() -> CoreView {
 #[test]
 fn the_connections_view_in_the_dark_theme() {
     let mut window = window_with(session(), egui::Theme::Dark, SCALE);
+    open_page(&mut window, "Connections");
+    window.remove_cursor();
+    window.run();
     save(&mut window, "connections");
 }
 
@@ -154,4 +157,20 @@ fn the_window_at_its_start_in_the_dark_theme() {
 fn the_connections_view_in_the_light_theme() {
     let mut window = window_with(session(), egui::Theme::Light, SCALE);
     save(&mut window, "connections-light");
+}
+
+#[test]
+fn the_pods_view_with_old_rows_and_the_notes_of_three_clusters_in_the_dark_theme() {
+    let mut window = window_with(crate::pods::scenes::session(), egui::Theme::Dark, SCALE);
+    save(&mut window, "pods");
+}
+
+#[test]
+fn the_detail_panel_of_a_pod_in_the_dark_theme() {
+    let mut window = window_with(crate::pods::scenes::session(), egui::Theme::Dark, SCALE);
+    window.get_by_label("crash").click();
+    window.run();
+    window.remove_cursor();
+    window.run();
+    save(&mut window, "pods-detail");
 }

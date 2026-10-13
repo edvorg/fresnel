@@ -17,6 +17,8 @@
 
 mod format;
 mod shell;
+#[cfg(test)]
+mod testing;
 mod theme;
 mod views;
 mod widgets;

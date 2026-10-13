@@ -9,13 +9,19 @@ repository.workspace = true
 
 [dependencies]
 egui.workspace = true
+egui_table.workspace = true
 fresnel-core.workspace = true
 # The time of day of a journal entry, in the time zone of the system.
 jiff = { workspace = true, features = ["tz-system", "tzdb-zoneinfo"] }
+k8s-openapi.workspace = true
 
 [dev-dependencies]
 egui_kittest.workspace = true
 image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# The fake core of the view tests needs the handle of a runtime for the task start function.
+tokio = { workspace = true, features = ["rt"] }
 
 [lints]
 workspace = true

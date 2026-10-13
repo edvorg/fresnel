@@ -57,7 +57,7 @@ fn a_full_journal_tells_how_many_entries_left_it_and_draws_only_the_visible_rows
     assert!(shows(&window, "entry 9999"), "the list starts at its newest entry");
     assert!(!shows(&window, "entry 0"));
     let drawn = window.query_all_by_label_contains("entry ").count();
-    assert!((20..60).contains(&drawn), "{drawn} rows are in the frame");
+    assert!((2..40).contains(&drawn), "{drawn} rows are in the frame");
 
     window.state_mut().view.journal = journal(&entries[..1], 1);
     window.run();

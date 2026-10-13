@@ -1,24 +1,29 @@
-//! The dock: the tabs of the window. When the tables of the kinds arrive, this module
-//! wraps `egui_tiles`, and no other module changes.
+//! The dock: the tabs below the center of the window. When the user can move a tab to
+//! some other place, this module wraps `egui_tiles`, and no other module changes.
 
 use egui::{Frame, Margin, Ui};
 
 use crate::theme::{self, BAR_HEIGHT};
 
+/// The height of the dock at the first start. The user changes it with the pointer.
+pub(super) const HEIGHT: f32 = 170.0;
+/// The smallest dock shows its tab bar only, so the center has the rest of the window.
+pub(super) const SMALLEST: f32 = BAR_HEIGHT;
+
 /// One tab of the dock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Tab {
-    Connections,
     Journal,
+    Connections,
 }
 
 impl Tab {
-    const ALL: [Self; 2] = [Self::Connections, Self::Journal];
+    const ALL: [Self; 2] = [Self::Journal, Self::Connections];
 
     fn title(self) -> &'static str {
         match self {
-            Self::Connections => "Connections",
             Self::Journal => "Journal",
+            Self::Connections => "Connections",
         }
     }
 }
@@ -32,7 +37,7 @@ pub(super) fn tab_bar(ui: &mut Ui, open: &mut Tab) {
             for tab in Tab::ALL {
                 ui.selectable_value(open, tab, tab.title());
             }
-            // The bar takes the full width of the window.
+            // The bar takes the full width of the dock.
             ui.add_space(ui.available_width());
         });
     });
