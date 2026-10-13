@@ -450,3 +450,111 @@ core, such a guard held the lock of the state across a read of the kubeconfig fi
 frame of the UI would wait for that read. The tests did not see it. The lint
 `significant_drop_in_scrutinee` now refuses this form in each crate, and the code copies the
 value in a statement of its own.
+
+## One list of the kinds, with a typed identity
+
+`kinds/list.rs` has one line for each kind: its identity, its tier and its object type. A
+`Kind` is a value of an enum, so no code compares the text of a kind. The line gives the API
+path from the constants of the object type. The sequence of the list is the priority of a
+kind for its first list. Each later part of a kind, such as its columns, has this one place
+to grow from.
+
+## Tier B stores ask the server for the metadata form
+
+The store of a tier B kind asks for `PartialObjectMetadata`, so the data of a Secret never
+arrives in the app. `kubectl apply` puts a copy of the object into an annotation, and the
+server sends annotations also with the metadata form: 61 values in the cluster of the
+prototype. Thus each store removes that annotation and `managedFields` from each object.
+`managedFields` were 56 percent of a pod in memory.
+
+## A store follows the state of its channel
+
+One task for each cluster publishes a small copy of the channel states. A store sends no
+request into a connection that is gone, counts no failure for it, and starts again at the
+moment the channel is live. It is not live while no channel for watches is live. In the
+prototype, the last store was live 26 seconds after the network returned. On k3s, each
+store is live 0.1 seconds after the channel found a silent connection.
+
+## A watch that worked starts again with no pause
+
+A watch that gave an event or stayed open for one second did work. When it ends with an
+error, the next watch starts at once: the usual cause is the loss of the connection, and the
+channel counts that loss one time. Only a second failure with no answer between gets a
+pause. The loop of the prototype counted each reset. After 7 resets in one minute, one
+reset cost 17.7 seconds of old data.
+
+## An answer that the store can use ends the count of failures
+
+The count of failures ends at a list page that the store took, and at a watch that worked.
+The good status of a watch alone does not end it: a server can answer each watch with a
+good status and end the stream at once. Such a server gets pauses that grow to 3 seconds.
+The pause has the jitter of each other task, so the stores of one cluster do not all ask
+again at one instant.
+
+## A second HTTP 410 gives a pause
+
+After HTTP 410, only a new list gives the current objects, and the first one starts at once.
+A good list does not end a sequence of HTTP 410: a server that gives a list and then HTTP 410
+to each watch would get a new list with no pause, with no end. Only a watch that worked ends
+the sequence. The same holds for the token of a list page that the server no longer has.
+
+## The generation of a store changes only with its objects
+
+A reader computes its rows again only for a new generation. Thus a state, a bookmark, an
+event with a known version and a new list with no change keep the generation. Two copies of
+an object are the same when UID and resource version are equal. A new list keeps the
+allocation of each object with no change. In the prototype, each new list was a new
+generation, so each view computed all again after each reconnect.
+
+## Readers hold a published state as a copy of one pointer
+
+`published::Publisher` is the one type that gives a state to its readers. A read copies one
+pointer and never waits for the task. The last holder of an old snapshot frees it: 22 ms
+for 10,000 pods that changed, more than one frame. Thus a reader gets a `Held` value. Its
+drop gives one more pointer to a bin, and one worker thread empties the bin. The bin has a
+limit and a counter.
+
+## A fault of a store task shows as a state of the store
+
+A store whose task ended showed "live" in the prototype, with objects that did not change.
+The task of a store catches a panic of its loop, publishes the state "internal error" with
+the message, and lets the panic go on to the start function, which writes the report and
+starts the task again. The new run keeps the objects that the readers see and starts with a
+list, because the run before can have lost an event.
+
+## The state of a refusal stays until an answer
+
+A store that the server refused with HTTP 403 or HTTP 404 asks again with a list, each 60
+seconds or each 10 minutes, and at the signal of the cluster. The state "forbidden" or "not
+supported" stays during such a try, so a view does not show each attempt. A watch that the
+server refuses after a good list also gets a new list: the objects of the store are old then.
+
+## The store of the Events has a maximum count
+
+Events were 32,000 of 47,000 objects in the cluster of the prototype. A setting selects all
+Events, warnings only or no store, and the store keeps 20,000 at most. The oldest Event by
+its creation time leaves first, and the snapshot counts each object that left. For warnings
+only, the server selects with a field selector, so the other Events never arrive.
+
+## The loop reads from a source that a test can script
+
+The watch loop knows two requests, a list page and a watch, behind the trait `Source`. The
+app gives a source that sends them through the gateway. A test gives a source with a script
+and uses paused time, so it sets each answer of the server and asserts each time exactly:
+the stall limit, each pause and the batch of 30 ms. The connection states come the same way,
+as a value that a test sets.
+
+## The fault proxy drops a held connection that its client closed
+
+In a freeze, a new connection gets no answer, and the app closes each connect attempt at
+its time limit. On a real network, nothing of such an attempt reaches the server. Without
+this rule, the end of a break of 10 minutes gave the server about 2,900 connections at one
+moment, each one with a client that was gone. The time to recover after the break would then
+be a property of the proxy.
+
+## The breaks of the acceptance run at the same time
+
+The acceptance asks for breaks of 30 seconds, 2 minutes and 10 minutes. The test starts
+three apps before one k3s cluster, each one behind a fault proxy of its own, and runs the
+three breaks at the same time. Thus the test needs 11 minutes and not 13. Each app has its
+own connections and stores, so no break changes the result of the other ones.

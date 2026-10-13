@@ -9,8 +9,9 @@ that looks current.
 Milestone M0 (connect) is complete, and the work is in milestone M1 (live data). The
 repository has the workspace, the lints, CI, the function that starts each background task,
 the test kit, the network layer `fresnel-net`, the first parts of `fresnel-core` (kubeconfig
-loader, cluster registry, gateway, app core, journal and state file), the `doctor` command
-and the first window: the clusters of the kubeconfig files with their live connection states.
+loader, cluster registry, gateway, app core, journal, state file, the kinds, the watch loop
+and the stores), the commands `doctor` and `watch`, and the first window: the clusters of
+the kubeconfig files with their live connection states. The window shows no objects yet.
 
 ## The app
 
@@ -43,21 +44,23 @@ cargo xtask check-borders             # no kube in fresnel-net, no egui in fresn
 
 On Linux, the UI tests need the package `mesa-vulkan-drivers`.
 
-## The doctor command
+## The commands of fresnel-cli
 
-`doctor` measures the connection to a cluster with the code of the app. It changes nothing,
-and its only request is `GET /version`, so it reads no object.
+Each command runs the code of the app and changes nothing in a cluster. With no context, a
+command lists the contexts and connects to nothing.
 
 ```sh
-cargo run --package fresnel-cli -- doctor                    # lists the contexts
 cargo run --package fresnel-cli -- doctor --context <name>   # measures one cluster
 cargo run --package fresnel-cli -- doctor --all --idle-close 150
+cargo run --package fresnel-cli -- watch --context <name>    # the stores of one cluster
 ```
 
-It reports the time of the login shell and of the credential plugin, the address lookup, the
-connect times with and with no hedge, the share of held connects, HTTP/2 with its stream
-limit, the round trip time, the server version and, with `--idle-close`, when the server
-closes an idle connection. It prints a text report and writes `fresnel-doctor.json`.
+- `doctor` sends `GET /version` only, so it reads no object. It reports the time of the login
+  shell and of the credential plugin, the connect times with and with no hedge, HTTP/2 with
+  its stream limit and, with `--idle-close`, when the server closes an idle connection. It
+  writes `fresnel-doctor.json`.
+- `watch` reads the objects of each kind, as the app does: of a Secret, only the metadata.
+  Each 5 seconds, it prints the state and the object count of each store.
 
 ## Layout
 

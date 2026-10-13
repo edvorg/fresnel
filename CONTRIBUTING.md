@@ -71,6 +71,18 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
 - An error text has no value of an object and no part of a kubeconfig file. For JSON or YAML
   that does not fit, give the position only.
 
+## Kinds and stores
+
+- A kind is one line of the list in `kinds/list.rs`: its identity, its tier and its object
+  type. The sequence of the list is the priority of the first lists of a cluster.
+- A reader of a store gets a snapshot with `Reader::read` and holds it for one frame or one
+  computation. It never gets a lock. Give each new published state a `published::Publisher`.
+- The watch loop sends its requests through the trait `Source`. A rule of the loop gets a
+  unit test with paused time on the source with a script (`watch/tests/bench.rs`). Each
+  time of such a test is exact.
+- A state of a store tells its reason. No step of the loop hides an error or counts the
+  loss of a connection as a failure of its own: the channel counts it.
+
 ## Tests
 
 - A test must be able to fail. Break the code one time and see the failure.
@@ -92,6 +104,8 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
 - A test of `xtask` works in the test folder of the build, never in `/Applications`.
 - A test that needs k3s or Docker has the attribute `#[ignore = "needs k3s in Docker"]`.
   `cargo test --workspace -- --ignored` runs these tests. CI runs them on Linux.
+- A cluster test of the stores asserts a recovery time and, after each fault, that each
+  store is equal to the API (`assert_equal_to_the_api` in `tests/k3s_stores/api.rs`).
 - A helper in `tests/` that needs `expect` starts its file with
   `#![allow(clippy::expect_used, reason = "a test stops with a panic")]`.
 
