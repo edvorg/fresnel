@@ -105,7 +105,7 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
   by hand (`tests/views/fake.rs`) and reads the frame through the accessibility tree. It
   draws frames until the frame shows what it waits for (`until`).
 - A race test of a table holds the worker at a gate and changes the data, the filter or the
-  sort in that time (`widgets/table/tests.rs`). The limit of a frame time is for a release build.
+  sort in that time (`widgets/table/tests/`). The limit of a frame time is for a release build.
 - The PNG files of the views are for a look by a person. No test compares pixels.
 - A test of a program starts it as a child process with `env -i`, the `PATH` of Finder and a
   home folder of the test (`fresnel_testkit::Home`). No test reads the home folder of the user.

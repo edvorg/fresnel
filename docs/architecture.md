@@ -186,7 +186,7 @@ status bar. `fresnel::frame::draw` is one frame of the window, also for a test.
   the Pod status and the health values on `fixtures/k3s`: a copy of a scene on k3s.
 - **Socket tests** use the fake API server and the fault proxy on 127.0.0.1, with no Docker.
 - **UI tests** drive the views through `egui_kittest` with no window, on a fake core. A test
-  of a table holds its worker at a gate. One test draws the views on the real core.
+  of a table holds its worker at a gate. Two tests draw the views on the real core.
 - **Program tests** start `fresnel-cli`, and `fresnel` with no window, as a child process
   with the environment of Finder and the home folder of a test.
 - **Cluster tests** use k3s in Docker through the fault proxy, with the attribute `#[ignore]`.
