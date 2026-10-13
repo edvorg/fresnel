@@ -62,6 +62,8 @@ k8s-openapi = { version = "0.28.0", features = ["v1_33"] }
 egui = { version = "0.36.2", default-features = false, features = ["default_fonts"] }
 eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "x11", "wayland"] }
 egui_kittest = { version = "0.36.2", features = ["wgpu"] }
+# The PNG files of the view tests. egui_kittest gives the image of a frame as this type.
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 
 # The one lint table. A crate takes it with `[lints] workspace = true`.
 # CI makes each warning an error. `clippy.toml` holds the list for `disallowed_methods`.
