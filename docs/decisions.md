@@ -607,6 +607,13 @@ cannot lose a change. Its cost follows the count of the changes: the map shares 
 with no change, and two entries are equal when they are one allocation. A new status of a
 pod changes no relation, so it gives no new value of the index.
 
+## The first relations of an index after a restart get a new number
+
+The task of an index that starts again builds each relation from nothing. It cannot compare
+them with the relations of before the fault: an object that left a store in the pause gives
+no difference. Thus the first value of that run always has a new generation, and a view
+that computes again only for a new number never keeps an object that is gone.
+
 ## Each answer of an index tells its basis
 
 The prototype gave "no pods" before the pod store had its first list. Thus a snapshot tells
@@ -665,3 +672,10 @@ A kubelet refuses each image pull above 5 in one second. A scene that starts 20 
 once then had some pods in `ErrImagePull`, a different set in each run, and the pods of k3s
 itself too. The k3s helper sets `registry-qps=0`, so the state of a scene depends on its
 manifest only.
+
+## A list ends when a page names the token of its own request
+
+A server that gives the token of a request back as the next token would get that request
+again with no pause and with no end. The page type has the one function that takes the next
+token and refuses this one. The list of a store and the read of the Events of one object
+use it, so the rule holds for each list in pages.
