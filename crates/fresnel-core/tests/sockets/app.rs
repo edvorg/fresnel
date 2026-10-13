@@ -159,7 +159,6 @@ impl App {
 
 impl Drop for App {
     fn drop(&mut self) {
-        self.core.stop();
         if !std::thread::panicking() {
             assert_eq!(self.texts_of("task"), Vec::<String>::new(), "a task of the app ended");
         }

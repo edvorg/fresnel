@@ -138,8 +138,7 @@ impl Inner {
     }
 }
 
-/// The app core. A clone is one more handle.
-#[derive(Clone)]
+/// The app core. Its tasks stop and its connections close when this value drops.
 pub struct Core {
     inner: Arc<Inner>,
 }
@@ -252,6 +251,14 @@ impl Core {
         if let Some(registry) = self.inner.registry.get() {
             registry.set_contexts(Vec::new());
         }
+    }
+}
+
+impl Drop for Core {
+    /// The tasks of the core hold its state. Without this stop, they would run to the end
+    /// of the runtime.
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
