@@ -31,9 +31,9 @@ fn main() -> ExitCode {
     }
 }
 
-/// The root of the workspace: the folder above the folder of this crate.
+/// The root of the workspace in which `cargo xtask` runs.
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+    xtask::workspace_root(std::env::var_os("CARGO_MANIFEST_DIR"))
 }
 
 fn check_sizes() -> ExitCode {
