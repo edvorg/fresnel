@@ -96,6 +96,30 @@ fn an_install_that_fails_leaves_the_folder_as_it_was() {
     assert_eq!(mark(&swap::fallback_path(&applications)), "one");
 }
 
+#[test]
+fn an_install_whose_last_step_fails_puts_each_bundle_back() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let scratch = Scratch::new("swap-rollback");
+    let applications = scratch.folder("Applications");
+    swap::install(&staged(&scratch, "one"), &applications).expect("the first install");
+    swap::install(&staged(&scratch, "two"), &applications).expect("the second install");
+
+    // The staged bundle cannot leave a folder that takes no change. The step before it,
+    // the rename of the installed bundle, works.
+    let (stage, three) = (scratch.folder("stage"), staged(&scratch, "three"));
+    let permissions = |mode| std::fs::set_permissions(&stage, std::fs::Permissions::from_mode(mode));
+    permissions(0o555).expect("a folder that takes no change");
+    let error = swap::install(&three, &applications);
+    permissions(0o755).expect("the folder takes changes again");
+
+    error.expect_err("the staged bundle did not move");
+    assert_eq!(names(&applications), ["Fresnel.app", "Fresnel.app.prev"]);
+    assert_eq!(mark(&applications.join("Fresnel.app")), "two");
+    assert_eq!(mark(&swap::fallback_path(&applications)), "one", "the older fallback is back too");
+    assert_eq!(mark(&three), "three");
+}
+
 /// The tools `iconutil`, `codesign` and `plutil` are tools of macOS.
 #[cfg(target_os = "macos")]
 mod macos {

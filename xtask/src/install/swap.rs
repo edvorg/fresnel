@@ -27,7 +27,8 @@ pub fn fallback_path(destination: &Path) -> PathBuf {
 }
 
 /// Moves a staged bundle into the destination folder. The staged bundle must be on the
-/// same volume, so that each step is a rename. An older fallback goes away.
+/// same volume, so that each step is a rename. An older fallback goes away after the new
+/// bundle is in its place. After an error, the folder is as before.
 pub fn install(staged: &Path, destination: &Path) -> io::Result<Installed> {
     if !staged.is_dir() {
         return Err(io::Error::new(io::ErrorKind::NotFound, format!("no bundle at {}", staged.display())));
@@ -37,16 +38,36 @@ pub fn install(staged: &Path, destination: &Path) -> io::Result<Installed> {
         std::fs::rename(staged, &app)?;
         return Ok(Installed { app, fallback: None });
     }
-    if exists(&fallback)? {
-        std::fs::remove_dir_all(&fallback)?;
+    // The older fallback waits under this name, so that a failed install can put it back.
+    let retired = destination.join(format!("{APP}.{FALLBACK}.old"));
+    remove(&retired)?;
+    let had_fallback = exists(&fallback)?;
+    if had_fallback {
+        std::fs::rename(&fallback, &retired)?;
     }
-    std::fs::rename(&app, &fallback)?;
-    if let Err(error) = std::fs::rename(staged, &app) {
-        // The earlier bundle goes back to its place, so the folder is as before.
-        std::fs::rename(&fallback, &app)?;
+    if let Err(error) = replace(staged, &app, &fallback) {
+        if had_fallback {
+            std::fs::rename(&retired, &fallback)?;
+        }
         return Err(error);
     }
+    remove(&retired)?;
     Ok(Installed { app, fallback: Some(fallback) })
+}
+
+/// Makes the installed bundle the fallback and puts the staged bundle into its place.
+fn replace(staged: &Path, app: &Path, fallback: &Path) -> io::Result<()> {
+    std::fs::rename(app, fallback)?;
+    if let Err(error) = std::fs::rename(staged, app) {
+        std::fs::rename(fallback, app)?;
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Removes a bundle. A bundle that is absent is no error.
+fn remove(bundle: &Path) -> io::Result<()> {
+    if exists(bundle)? { std::fs::remove_dir_all(bundle) } else { Ok(()) }
 }
 
 /// True for a path that exists. A link that points to nothing exists too.

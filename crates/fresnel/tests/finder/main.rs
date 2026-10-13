@@ -157,7 +157,8 @@ fn the_app_core_starts_with_the_environment_of_finder() {
     assert!(report.contains("\nmessage: the panic of the test\n\nbacktrace:\n"), "{report}");
     assert!(report.contains("/tests/finder/child.rs:"), "{report}");
 
-    // The quit closed each connection of the child.
+    // The quit stopped the core and closed each connection of the child.
+    assert_eq!(result["clusters_after_quit"], 0);
     let closed = server.wait_for(|counters| counters.connections >= 3 && counters.open_connections == 0);
     let counters = runtime.block_on(async { tokio::time::timeout(child::LIMIT, closed).await });
     assert!(counters.is_ok(), "the connections closed: {:?}", server.counters());

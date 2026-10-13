@@ -53,6 +53,7 @@ pub(crate) fn run() {
         "data_folder": boot.folders().data.display().to_string(),
         "second_start": second_start,
         "journal_entries": boot.core().view().journal.total,
+        "clusters_after_quit": boot.core().view().clusters.len(),
     });
     println!("{RESULT}{result}");
 }
