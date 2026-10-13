@@ -2,6 +2,7 @@
 //!
 //! - [`app`]: the app core, which the window reads and commands.
 //! - [`cluster`]: the clusters and the requests to them. [`kubeconfig`]: their source.
+//! - [`published`]: the one type that publishes a state to its readers.
 //! - [`journal`]: the list of events, warnings and errors.
 //! - [`state_file`]: what the app keeps from one run to the next.
 //!
@@ -13,6 +14,7 @@ pub mod cluster;
 mod error;
 pub mod journal;
 pub mod kubeconfig;
+pub mod published;
 pub mod state_file;
 
 pub use error::CoreError;
