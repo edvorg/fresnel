@@ -88,8 +88,9 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         }
     }
 
-    /// Applies one event. The cursor follows each event and each bookmark, so the next
-    /// watch starts after the last change that the store has.
+    /// Applies one event. The cursor follows each event and each bookmark that the loop
+    /// can read, so the next watch starts after it. That holds also for an object that
+    /// the store refuses, one with no name: the same event would fail again with no end.
     fn apply(&mut self, event: WatchEvent<T>) -> Result<(), Failure> {
         match event {
             WatchEvent::Added(object) | WatchEvent::Modified(object) => {
