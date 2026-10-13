@@ -1,8 +1,8 @@
 //! The journal: the list of events, warnings and errors that the app shows.
 //!
 //! The list in memory has a limit. An entry that leaves the list stays in the log file, and
-//! the view tells how many entries left. The text of one entry has a limit in memory too,
-//! and the log file has the full text. A text of an entry is safe for a log: it never
+//! the view tells how many entries left. The text and the source of one entry have a limit
+//! in memory too, and the log file has the full entry. A text of an entry is safe for a log: it never
 //! holds a token, the output of a plugin or a value of an object.
 //!
 //! `reports`: the journal takes the report of each task run that ended.
@@ -21,6 +21,9 @@ pub use reports::TASK_SOURCE;
 /// can write the long message of a server each time, and 10,000 such entries must not use
 /// the memory of the app.
 const TEXT_BYTES: usize = 4096;
+/// The most bytes of the source of one entry in memory. A source is most often the name of
+/// a cluster, and a kubeconfig file can give a name of each length.
+const SOURCE_BYTES: usize = 256;
 
 /// The weight of one entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -187,15 +190,28 @@ impl Journal {
 }
 
 /// The entry for the list in memory: its text has `TEXT_BYTES` bytes at most, and a note
-/// tells how much more the log file has.
+/// tells how much more the log file has. Its source has `SOURCE_BYTES` bytes at most.
 fn with_short_text(entry: &Arc<Entry>) -> Arc<Entry> {
-    if entry.text.len() <= TEXT_BYTES {
+    let (text, source) = (cut(&entry.text, TEXT_BYTES), cut(&entry.source, SOURCE_BYTES));
+    if text.is_none() && source.is_none() {
         return Arc::clone(entry);
     }
-    let end = (0..=TEXT_BYTES).rev().find(|end| entry.text.is_char_boundary(*end)).unwrap_or(0);
-    let kept = entry.text.get(..end).unwrap_or_default();
-    let text = format!("{kept}… ({} more bytes are in the log file)", entry.text.len() - end);
-    Arc::new(Entry { text, source: entry.source.clone(), ..**entry })
+    let text = match text {
+        Some((kept, more)) => format!("{kept}… ({more} more bytes are in the log file)"),
+        None => entry.text.clone(),
+    };
+    let source = source.map_or_else(|| entry.source.clone(), |(kept, _)| format!("{kept}…"));
+    Arc::new(Entry { text, source, ..**entry })
+}
+
+/// For a text of more than `limit` bytes: its start to the last full character inside the
+/// limit, and the count of the bytes after it.
+fn cut(text: &str, limit: usize) -> Option<(&str, usize)> {
+    if text.len() <= limit {
+        return None;
+    }
+    let end = (0..=limit).rev().find(|end| text.is_char_boundary(*end)).unwrap_or(0);
+    Some((text.get(..end).unwrap_or_default(), text.len() - end))
 }
 
 impl std::fmt::Debug for Journal {
@@ -277,6 +293,18 @@ mod tests {
         assert_eq!(view.entries[1].text.len(), 4096, "a text at the limit stays as it is");
         assert_eq!((view.total, view.errors), (2, 1));
         assert_eq!(lock(&written)[0], format!("0 {long}"), "the log file has the full text");
+    }
+
+    /// The source is most often the name of a cluster from a kubeconfig file.
+    #[test]
+    fn a_long_source_is_short_in_memory() {
+        let journal = Journal::new(10, clock());
+        journal.warning("é".repeat(1000), "connection lost");
+        journal.info("x".repeat(256), "live");
+        let view = journal.view();
+        let sources: Vec<&str> = view.entries.iter().map(|entry| entry.source.as_str()).collect();
+        assert_eq!(sources, [format!("{}…", "é".repeat(128)), "x".repeat(256)]);
+        assert_eq!((view.entries[0].text.as_str(), view.entries[0].level), ("connection lost", Level::Warning));
     }
 
     #[test]
