@@ -1,5 +1,5 @@
 //! The indexes of one cluster: the relations between its objects that a view asks for
-//! (plan section 9.8).
+//! (plan sections 9.8 and 9.9).
 //!
 //! An index is derived data. One task for each index reads the snapshots of its stores and
 //! applies the differences between two snapshots. A reader gets an [`Index`] through the
@@ -7,6 +7,7 @@
 //! "the pods are not loaded" are two answers.
 //!
 //! - `owner`: from an owner to its objects, and from a Service to its pods.
+//! - `refs`: from a ConfigMap, a Secret, a ServiceAccount or a Node to its pods.
 //! - `task`: the task of an index, and what a reader holds. `source`: one store as an
 //!   index reads it. `links`: the map of one relation.
 
@@ -14,12 +15,14 @@
 mod bed;
 mod links;
 mod owner;
+mod refs;
 mod source;
 mod task;
 
 use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
 
 pub use owner::{EndpointPod, ObjectRef, Owners};
+pub use refs::{References, Target, references_of};
 pub use source::SourceStatus;
 pub use task::{Answer, Basis, Index, IndexState};
 
@@ -29,6 +32,7 @@ use crate::kinds::Full;
 use crate::published::{Bin, Changes, Notice, Publisher, Reader};
 use crate::store::{ClusterStores, Snapshot};
 use owner::OwnerIndexer;
+use refs::ReferenceIndexer;
 use task::Indexer;
 
 /// What the owner of the indexes gives to them.
@@ -85,6 +89,7 @@ fn store<K: Full>(stores: &ClusterStores) -> Result<Reader<Snapshot<K>>, CoreErr
 /// The indexes of one cluster. Each one stops when this value drops.
 pub struct ClusterIndexes {
     owners: Running<Owners>,
+    references: Running<References>,
     notice: Notice,
 }
 
@@ -93,10 +98,12 @@ impl ClusterIndexes {
     pub fn start(tasks: &Tasks, stores: &ClusterStores, parts: IndexParts) -> Result<Self, CoreError> {
         let starter = Starter { tasks, cluster: stores.cluster(), parts, notice: Notice::new() };
         let (replica_sets, jobs, pods, slices) = (store(stores)?, store(stores)?, store(stores)?, store(stores)?);
-        let owners = starter.start("owner index", move || {
-            OwnerIndexer::new(replica_sets.clone(), jobs.clone(), pods.clone(), slices.clone())
+        let owners = starter.start("owner index", {
+            let pods = pods.clone();
+            move || OwnerIndexer::new(replica_sets.clone(), jobs.clone(), pods.clone(), slices.clone())
         });
-        Ok(Self { owners, notice: starter.notice })
+        let references = starter.start("reference index", move || ReferenceIndexer::new(pods.clone()));
+        Ok(Self { owners, references, notice: starter.notice })
     }
 
     /// Tells when an index of the cluster has a new value.
@@ -107,6 +114,11 @@ impl ClusterIndexes {
     /// A reader of the owner index.
     pub fn owners(&self) -> Reader<Index<Owners>> {
         self.owners.publisher.reader()
+    }
+
+    /// A reader of the reference index.
+    pub fn references(&self) -> Reader<Index<References>> {
+        self.references.publisher.reader()
     }
 }
 
