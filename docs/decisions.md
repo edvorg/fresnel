@@ -491,13 +491,12 @@ view would mark its rows each minute with no fault. The start has a time limit o
 seconds, and a silent connection shows through the channel. Each other start of a watch
 is a state: after a list, a failure or a wait.
 
-## An answer that the store can use ends the count of failures
+## A complete list or a watch that worked ends the count of failures
 
-The count of failures ends at a list page that the store took, and at a watch that worked.
-The good status of a watch alone does not end it: a server can answer each watch with a
-good status and end the stream at once. Such a server gets pauses that grow to 3 seconds.
-The pause has the jitter of each other task, so the stores of one cluster do not all ask
-again at one instant.
+The count of failures ends at a complete list and at a watch that worked. One good page
+does not end it: on the fake server, a list that failed at its second page each time started
+again each 100 ms, with all its pages. The good status of a watch does not end it: a server
+can end each stream at once. The pause grows to 3 seconds, with the jitter of each other task.
 
 ## A second HTTP 410 gives a pause
 

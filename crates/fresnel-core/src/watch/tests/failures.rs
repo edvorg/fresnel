@@ -2,7 +2,7 @@
 
 use tokio::time::sleep;
 
-use super::bench::{Bench, LIVE, MS, SECOND, error_event, event, pairs, settings};
+use super::bench::{Bench, LIVE, MS, SECOND, error_event, event, is_pause, pairs, settings};
 use crate::error::CoreError;
 use crate::net::task::Backoff;
 use crate::net::{Cause, ErrorClass};
@@ -12,10 +12,6 @@ use crate::watch::lanes::{LaneStates, Path};
 
 fn broke() -> CoreError {
     CoreError::new(ErrorClass::Network, "the connection broke")
-}
-
-fn is_pause(failures: u32) -> impl Fn(&StoreState) -> bool {
-    move |state| matches!(state, StoreState::Backoff { failures: count, .. } if *count == failures)
 }
 
 /// Plan section 9.1. The loop of the prototype counted each reset, also after a watch

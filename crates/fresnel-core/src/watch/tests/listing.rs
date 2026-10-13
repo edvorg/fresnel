@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use futures_util::FutureExt as _;
 
-use super::bench::{Bench, LIVE, MS, SECOND, pairs, settings};
+use super::bench::{Bench, LIVE, MS, SECOND, is_pause, pairs, settings};
 use crate::error::CoreError;
 use crate::kinds::Kind;
 use crate::net::ErrorClass;
@@ -76,8 +76,9 @@ async fn a_list_whose_connection_goes_while_it_waits_for_a_slot_sends_no_request
 #[tokio::test(start_paused = true)]
 async fn a_list_that_fails_starts_again_at_its_first_page_after_a_pause() {
     let mut bench = Bench::start(settings());
+    let broke = || CoreError::new(ErrorClass::Network, "the connection broke");
     bench.script.page(&[("a", "5")], None, Some("t1"));
-    bench.script.list_fails(CoreError::new(ErrorClass::Network, "the connection broke"));
+    bench.script.list_fails(broke());
     let paused = bench.until_state("the pause", |state| matches!(state, StoreState::Backoff { .. })).await;
     let StoreState::Backoff { failures, reason, until } = &paused.state else { panic!("{:?}", paused.state) };
     assert_eq!((*failures, reason.to_string().as_str()), (1, "the connection broke"));
@@ -89,6 +90,21 @@ async fn a_list_that_fails_starts_again_at_its_first_page_after_a_pause() {
     assert_eq!(attempt.state.to_string(), "attempt after 1 failures: the connection broke");
     assert_eq!(bench.elapsed(), 100 * MS);
     assert_eq!(bench.script.take_calls(), ["list of 500", "list after t1", "list of 500"]);
+
+    // A good first page does not end the sequence of failures. A list that fails at its
+    // second page each time would start again each 100 ms for all time, with all its pages.
+    for (failures, at) in [(2, 100), (3, 300)] {
+        bench.script.page(&[("a", "5")], None, Some("t1"));
+        bench.script.list_fails(broke());
+        bench.until_state("the pause", is_pause(failures)).await;
+        assert_eq!(bench.elapsed(), at * MS, "the pause grows");
+    }
+    // The complete list ends the sequence: the next failure is the first one again.
+    bench.script.page(&[("a", "5")], None, Some("t1"));
+    bench.script.page(&[("b", "6")], Some("7"), None);
+    bench.script.watch_fails(broke());
+    bench.until_state("the pause", is_pause(1)).await;
+    assert_eq!((bench.elapsed(), bench.objects()), (700 * MS, pairs(&[("a", "5"), ("b", "6")])));
 }
 
 /// With no version, the watch would start at "now" and lose a change with no error.

@@ -131,9 +131,9 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   a time in the sequence of the kinds. Then it follows a watch with bookmarks, which the
   server ends after 60 to 90 s. The next watch starts after the last version of the one
   before, and the store stays live. Only HTTP 410 gives a new list, and a second one a pause.
-- **Failures**: a failure gives a pause that grows to 3 s. An answer ends the count, and the
-  signal of the cluster ends each pause. A watch that worked starts again with no pause: the
-  channel counts the loss of a connection, not each watch.
+- **Failures**: a failure gives a pause that grows to 3 s. A complete list and a watch that
+  worked end the count, and the signal of the cluster ends each pause. A watch that worked
+  starts again with no pause: the channel counts the loss of a connection, not each watch.
 - **Lanes**: one task for each cluster publishes a small copy of the channel states. A store
   sends no request while its channel is not live, and it is not live itself then.
 - **States**: waiting (for a channel, a credential, a list slot or the start of the watch),

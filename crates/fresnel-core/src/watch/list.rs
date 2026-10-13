@@ -36,10 +36,9 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
                 return Err(no_version().into());
             }
             let loaded = self.writer.list_page(page.items.unwrap_or_default())?;
-            // A page that the store can use is the answer that ends a sequence of failures.
-            self.attempts.answered();
             self.writer.set_state(StoreState::Listing { loaded });
             if token.is_none() {
+                self.attempts.listed();
                 self.cursor = version;
                 self.writer.end_list();
                 return Ok(());

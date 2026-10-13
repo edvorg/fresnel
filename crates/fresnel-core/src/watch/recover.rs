@@ -56,7 +56,7 @@ impl Failure {
 /// The failures in sequence of one loop.
 #[derive(Debug, Default)]
 pub(super) struct Attempts {
-    /// The requests that failed since the last answer.
+    /// The requests that failed since the last complete list or watch that worked.
     failures: u32,
     /// Why the last one failed.
     last: Option<CoreError>,
@@ -65,8 +65,8 @@ pub(super) struct Attempts {
 }
 
 impl Attempts {
-    /// The count of failures since the last answer with the reason of the last one.
-    /// `None` with no failure.
+    /// The count of failures in sequence with the reason of the last one. `None` with no
+    /// failure.
     pub(super) fn failed(&self) -> Option<(u32, &CoreError)> {
         Some(self.failures).zip(self.last.as_ref())
     }
@@ -76,10 +76,13 @@ impl Attempts {
         self.last = Some(reason);
     }
 
-    /// A request got an answer: the sequence of failures ends (plan section 9.1). After
-    /// 7 resets in one minute, the loop of the prototype waited 17 s, because it counted
+    /// A list is complete: the sequence of failures ends (plan section 9.1). After 7
+    /// resets in one minute, the loop of the prototype waited 17 s, because it counted
     /// each one.
-    pub(super) fn answered(&mut self) {
+    ///
+    /// One good page does not end the sequence. A list that fails at a later page each
+    /// time would start again after the first pause for all time, with all its pages.
+    pub(super) fn listed(&mut self) {
         self.failures = 0;
         self.last = None;
     }

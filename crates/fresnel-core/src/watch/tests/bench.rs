@@ -290,6 +290,11 @@ impl Bench {
     }
 }
 
+/// True for the pause after this count of failures in sequence.
+pub(super) fn is_pause(failures: u32) -> impl Fn(&StoreState) -> bool {
+    move |state| matches!(state, StoreState::Backoff { failures: count, .. } if *count == failures)
+}
+
 /// The pairs of a test, as the type of [`Bench::objects`].
 pub(super) fn pairs(objects: &[(&str, &str)]) -> Vec<(String, String)> {
     objects.iter().map(|(name, version)| ((*name).to_owned(), (*version).to_owned())).collect()
