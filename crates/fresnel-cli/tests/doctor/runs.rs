@@ -156,6 +156,39 @@ async fn the_command_measures_a_cluster_with_the_environment_of_finder() {
     assert_eq!((proxy.task_failures(), server.task_failures()), (Vec::<String>::new(), Vec::new()));
 }
 
+/// A kube-apiserver ends a connection after a request with no credential. A channel of a
+/// cluster with a plugin can send its light request before the first token. Such a channel
+/// is on a later connection when it is live, and that is not the close of an idle connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connection_that_the_server_ended_before_the_first_token_is_no_idle_close() {
+    let server = FakeApiServer::start().await.expect("a server");
+    server.end_anonymous_connections();
+    let home = home("anonymous");
+    // The plugin is slow, so each channel sends a request with no token.
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fresnel-net/tests/fixtures/fake-plugin");
+    home.add_program(PLUGIN, &format!("#!/bin/sh\nsleep 0.3\nexec '{}'\n", fixture.display()));
+    home.write(
+        "work/kubeconfig.yaml",
+        &kubeconfig(&home, &[("fake", server.addr(), &server, User::Plugin { token: "doctor" })]),
+    );
+
+    let run = home.doctor(&["--context", "fake", "--samples", "0", "--idle-close", "2"]).await;
+    assert_eq!(run.status, Some(0), "stdout:\n{}\nstderr:\n{}", run.stdout, run.stderr);
+    let session = &home.json("fresnel-doctor.json")["clusters"][0]["result"]["session"];
+    let channels = session["channels"].as_array().expect("the channels");
+    let connections: u64 = channels.iter().filter_map(|channel| channel["connections"].as_u64()).sum();
+    assert!(connections > 3, "the fault was not present: no channel lost a connection: {channels:?}");
+    let idle = &session["idle_close"];
+    assert_eq!(
+        (&idle["closed_after_s"], &idle["light_request_kept_open"]),
+        (&serde_json::Value::Null, &true.into()),
+        "{idle}"
+    );
+    assert!(idle["waited_s"].as_f64().is_some_and(|waited| (2.0..3.0).contains(&waited)), "{idle}");
+    assert_eq!(session["credential"]["plugin_runs"], 1);
+    only_the_version(&server);
+}
+
 /// Headlamp weakness 1: data from the first selected cluster only.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_command_measures_each_selected_cluster_on_its_own_server() {
@@ -229,6 +262,7 @@ async fn the_command_measures_each_selected_cluster_on_its_own_server() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_plugin_that_fails_shows_its_text_at_the_terminal_and_not_in_the_file() {
     let server = FakeApiServer::start().await.expect("a server");
+    server.end_anonymous_connections();
     let home = home("fail");
     home.write(
         "work/kubeconfig.yaml",

@@ -41,17 +41,20 @@ pub(super) async fn measure(registry: &Registry, id: &ClusterId, limits: &Limits
 async fn examine(link: &Link, started: Instant, limits: &Limits) -> Session {
     let settled = until(link, limits.credential, credential_settled).await;
     let credential = credential(&settled.unwrap_or_else(|| link.net.status()), started);
-    let live = until(link, LIVE_LIMIT, all_live).await;
-    let (live_ms, live_at) = (live.as_ref().map(|_| ms(started.elapsed())), Instant::now());
-    let (version, round_trips) = match live {
-        Some(_) => version_and_round_trips(link).await,
-        None => (Step::failed(format!("no answer on each channel in {LIVE_LIMIT:?}")), Vec::new()),
+    // With no token, no channel can prove its connection, and a request fails with the
+    // state of the credential. The wait for the channels would only cost its limit.
+    let has_token = credential.as_ref().is_none_or(|credential| credential.first_token_ms.is_some());
+    let live = if has_token { until(link, LIVE_LIMIT, all_live).await } else { None };
+    let live_ms = live.as_ref().map(|_| ms(started.elapsed()));
+    let requests = match (has_token, live) {
+        (true, None) => Requests::none(format!("no answer on each channel in {LIVE_LIMIT:?}")),
+        (true, Some(_)) | (false, _) => small_requests(link).await,
     };
-    // The state of the channels before the wait: the wait ends with a channel that connects again.
-    let status = link.net.status();
-    let idle_close = match (limits.idle_close, live_ms) {
-        (Some(limit), Some(_)) => Some(idle_close(link, live_at, limit).await),
-        (None, _) | (_, None) => None,
+    // The report has the channels from before the idle wait: that wait ends with a channel
+    // that connects again.
+    let (status, idle_close) = match limits.idle_close.filter(|_| live_ms.is_some()) {
+        Some(limit) => idle_close(link, limit).await,
+        None => (link.net.status(), None),
     };
     let groups = [("watches", &status.watches), ("requests", &status.requests), ("logs", &status.logs)];
     let channels: Vec<Channel> = groups
@@ -63,8 +66,9 @@ async fn examine(link: &Link, started: Instant, limits: &Limits) -> Session {
         live_ms,
         stream_limit: channels.iter().filter_map(|channel| channel.stream_limit).min(),
         channels,
-        ping_ms: Summary::of(&round_trips),
-        version,
+        ping_ms: Summary::of(&requests.round_trips),
+        ping_error: requests.later_error,
+        version: requests.version,
         idle_close,
     }
 }
@@ -115,46 +119,80 @@ fn credential(status: &ClusterStatus, started: Instant) -> Option<Credential> {
     })
 }
 
-/// Sends the small requests through the gateway. The first answer is the version; each
-/// answer gives one round trip on the open request channel.
-async fn version_and_round_trips(link: &Link) -> (Step<Version>, Vec<Duration>) {
+/// The answers to the small requests of one session.
+struct Requests {
+    /// The first answer, or why no request got an answer.
+    version: Step<Version>,
+    /// The time of each answer on the open request channel.
+    round_trips: Vec<Duration>,
+    /// Why a request after the first answer got none.
+    later_error: Option<String>,
+}
+
+impl Requests {
+    fn none(reason: String) -> Self {
+        Self { version: Step::failed(reason), round_trips: Vec::new(), later_error: None }
+    }
+}
+
+/// Sends the small requests through the gateway, one after the other, to the first error.
+async fn small_requests(link: &Link) -> Requests {
     let mut round_trips = Vec::new();
-    let mut version = None;
+    let (mut version, mut error) = (None, None);
     for _ in 0..PINGS {
-        let request = match http::Request::get(VERSION_PATH).body(Vec::new()) {
-            Ok(request) => request,
-            Err(error) => return (Step::failed(error), round_trips),
-        };
         let sent = Instant::now();
-        match link.gateway.get::<Version>(request).await {
+        match version_request(link).await {
             Ok(answer) => {
                 round_trips.push(sent.elapsed());
                 version.get_or_insert(answer);
             }
-            Err(error) if version.is_none() => return (Step::failed(error), round_trips),
-            Err(_) => break,
+            Err(text) => {
+                error = Some(text);
+                break;
+            }
         }
     }
-    let version = version.map_or_else(|| Step::failed("no request was sent"), Step::Done);
-    (version, round_trips)
+    match version {
+        Some(version) => Requests { version: Step::Done(version), round_trips, later_error: error },
+        None => Requests::none(error.unwrap_or_else(|| "no request was sent".to_owned())),
+    }
+}
+
+async fn version_request(link: &Link) -> Result<Version, String> {
+    let request = http::Request::get(VERSION_PATH).body(Vec::new()).map_err(|error| error.to_string())?;
+    link.gateway.get::<Version>(request).await.map_err(|error| error.to_string())
 }
 
 /// Waits for the close of the logs channel. The settings of this run give that channel no
-/// light request, so it sends pings and nothing else after its first answer.
-async fn idle_close(link: &Link, live_at: Instant, limit: Duration) -> IdleClose {
-    let lost = |status: &ClusterStatus| {
-        first_is(&status.logs, |channel| channel.connections >= 2 || channel.state != ChannelState::Live)
+/// light request, so it sends pings and nothing else after its first answer. `None` when
+/// the channels are not live at the start of the wait.
+///
+/// The wait starts from the connections of its own start. A channel can be on a later
+/// connection then: a kube-apiserver ends a connection after a request with no token, and
+/// a channel can send such a request before the first plugin run ended.
+async fn idle_close(link: &Link, limit: Duration) -> (ClusterStatus, Option<IdleClose>) {
+    let Some(before) = until(link, LIVE_LIMIT, all_live).await else {
+        return (link.net.status(), None);
     };
-    let closed = until(link, limit.saturating_sub(live_at.elapsed()), lost).await;
-    let waited = live_at.elapsed();
+    let started = Instant::now();
+    let connection = |group: &GroupStatus| group.channels.first().map(|channel| channel.connections);
+    let lost = |status: &ClusterStatus| {
+        connection(&status.logs) != connection(&before.logs)
+            || !first_is(&status.logs, |channel| channel.state == ChannelState::Live)
+    };
+    let closed = until(link, limit, lost).await;
+    let waited = started.elapsed();
+    // The connection was idle from the last frame of its first answer.
+    let idle_before = before.logs.channels.first().and_then(|channel| channel.last_frame_age).unwrap_or_default();
     let status = link.net.status();
-    let kept = |group: &GroupStatus| first_is(group, |channel| channel.connections == 1);
-    IdleClose {
+    let kept = |now: &GroupStatus, then: &GroupStatus| connection(now) == connection(then);
+    let idle = IdleClose {
         waited_s: seconds(waited),
-        closed_after_s: closed.as_ref().map(|_| seconds(waited)),
+        closed_after_s: closed.as_ref().map(|_| seconds(idle_before + waited)),
         reason: closed.and_then(|closed| closed.logs.channels.first().and_then(|channel| channel.last_error.clone())),
-        light_request_kept_open: kept(&status.watches) && kept(&status.requests),
-    }
+        light_request_kept_open: kept(&status.watches, &before.watches) && kept(&status.requests, &before.requests),
+    };
+    (before, Some(idle))
 }
 
 fn channel(purpose: &'static str, status: &ChannelStatus) -> Channel {

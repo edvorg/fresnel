@@ -150,8 +150,10 @@ fn hedged_text(hedged: &Connects) -> String {
 fn session_lines(session: &Session) -> Vec<String> {
     let mut lines: Vec<String> = session.credential.iter().flat_map(credential_lines).collect();
     let connections: u64 = session.channels.iter().map(|channel| channel.connections).sum();
+    let no_token = session.credential.as_ref().is_some_and(|credential| credential.first_token_ms.is_none());
     let live = match session.live_ms {
         Some(time) => format!("each one live after {time:.1} ms; {}", count(connections, "connection")),
+        None if no_token => "no wait for an answer: the cluster has no token".to_owned(),
         None => "not live".to_owned(),
     };
     lines.push(line("channels", live));
@@ -163,6 +165,7 @@ fn session_lines(session: &Session) -> Vec<String> {
     let limit = session.stream_limit.map_or_else(|| "not known".to_owned(), |limit| limit.to_string());
     lines.push(line("HTTP/2", format!("stream limit of the server: {limit}")));
     lines.push(line("ping", format!("{} (small requests on the open connection)", times(session.ping_ms.as_ref()))));
+    lines.extend(session.ping_error.iter().map(|error| line("", format!("a later request failed: {error}"))));
     let version = step(&session.version, |version| format!("{} ({})", version.git_version, version.platform));
     lines.push(line("GET /version", version));
     lines.extend(session.idle_close.iter().flat_map(idle_lines));

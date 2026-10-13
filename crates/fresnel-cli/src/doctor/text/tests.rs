@@ -51,6 +51,7 @@ fn good_cluster() -> Cluster {
         ],
         stream_limit: Some(100),
         ping_ms: summary(20.0, 21.0, 25.0),
+        ping_error: Some("request channel: connection reset".to_owned()),
         version: Step::Done(Version { git_version: "v1.33.1".to_owned(), platform: "linux/amd64".to_owned() }),
         idle_close: Some(IdleClose {
             waited_s: 90.4,
@@ -93,13 +94,9 @@ fn bad_cluster() -> Cluster {
         channels: vec![channel("watches", "pause after 3 failures", Some("no connection after 1s and 2 attempts"))],
         stream_limit: None,
         ping_ms: None,
-        version: Step::failed("no answer on each channel in 20s"),
-        idle_close: Some(IdleClose {
-            waited_s: 120.0,
-            closed_after_s: None,
-            reason: None,
-            light_request_kept_open: false,
-        }),
+        ping_error: None,
+        version: Step::failed("credential plugin `login`: stopped with exit status: 7"),
+        idle_close: None,
     };
     let measured = Measured {
         dns: Step::Done(Dns { time_ms: 0.0, addresses: vec!["127.0.0.1:6443".to_owned()] }),
@@ -146,6 +143,7 @@ cluster ams (ams.example.test:443, plugin doctl)
   channels      each one live after 905.0 ms; 3 connections
   HTTP/2        stream limit of the server: 100
   ping          20.0 / 21.0 / 25.0 ms (small requests on the open connection)
+                a later request failed: request channel: connection reset
   GET /version  v1.33.1 (linux/amd64)
   idle close    the idle connection ended after 90.4 s (the server closed the connection)
                 the channels with a light request stayed open
@@ -157,13 +155,11 @@ cluster old (127.0.0.1:6443, plugin login)
   credential    credential plugin `login`: stopped with exit status: 7; 2 plugin runs
                 plugin: Error: no account
                 plugin: Run `login init`.
-  channels      not live
+  channels      no wait for an answer: the cluster has no token
                 watches: pause after 3 failures; no connection after 1s and 2 attempts
   HTTP/2        stream limit of the server: not known
   ping          no time (small requests on the open connection)
-  GET /version  failed: no answer on each channel in 20s
-  idle close    the idle connection was open after 120.0 s
-                the channels with a light request did not stay open
+  GET /version  failed: credential plugin `login`: stopped with exit status: 7
 
 cluster token ()
   not measured  a static token
@@ -194,4 +190,30 @@ fn the_text_report_has_one_line_for_each_measured_fact() {
         task_reports: vec!["task credential [ams] failed: boom; restart in 100 ms".to_owned()],
     };
     assert_eq!(render(&report), EXPECTED);
+}
+
+#[test]
+fn a_cluster_with_no_answer_is_not_live_and_an_open_idle_connection_shows_its_wait() {
+    let session = Session {
+        credential: None,
+        live_ms: None,
+        channels: Vec::new(),
+        stream_limit: None,
+        ping_ms: None,
+        ping_error: None,
+        version: Step::failed("no answer on each channel in 20s"),
+        idle_close: Some(IdleClose {
+            waited_s: 120.0,
+            closed_after_s: None,
+            reason: None,
+            light_request_kept_open: false,
+        }),
+    };
+    let lines = session_lines(&session);
+    assert_eq!(lines.first().map(String::as_str), Some("  channels      not live"));
+    let idle = [
+        "  idle close    the idle connection was open after 120.0 s",
+        "                the channels with a light request did not stay open",
+    ];
+    assert_eq!(lines[lines.len() - 2..], idle);
 }

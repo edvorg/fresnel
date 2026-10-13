@@ -172,6 +172,8 @@ pub(super) struct Session {
     pub(super) stream_limit: Option<usize>,
     /// The round trips of small requests on the open connection.
     pub(super) ping_ms: Option<Summary>,
+    /// Why a small request after the first answer got none. `None` is the normal case.
+    pub(super) ping_error: Option<String>,
     pub(super) version: Step<Version>,
     pub(super) idle_close: Option<IdleClose>,
 }
@@ -211,11 +213,13 @@ pub(super) struct Version {
 /// What the server did with a connection that sent pings and no request.
 #[derive(Debug, Serialize)]
 pub(super) struct IdleClose {
+    /// The time of the wait.
     pub(super) waited_s: f64,
-    /// `None`: the connection was open at the end of the wait.
+    /// The time from the last answer on the connection to its close. `None`: the connection
+    /// was open at the end of the wait.
     pub(super) closed_after_s: Option<f64>,
     pub(super) reason: Option<String>,
-    /// True when the channels with a light request each 30 s kept their first connection.
+    /// True when the channels with a light request each 30 s kept their connection.
     pub(super) light_request_kept_open: bool,
 }
 
