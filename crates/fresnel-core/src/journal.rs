@@ -41,6 +41,9 @@ pub struct Entry {
 pub trait Sink: Send + 'static {
     /// Stores one entry. The entries arrive in the sequence of their numbers.
     fn write(&mut self, entry: &Entry);
+
+    /// Makes each stored entry safe against a loss of power. The app calls it at its quit.
+    fn flush(&mut self) {}
 }
 
 /// A copy of the journal for the UI.
@@ -126,6 +129,13 @@ impl Journal {
         self.push(Level::Error, source, text);
     }
 
+    /// Tells the sink to make its entries safe. The quit sequence of the app calls it.
+    pub fn flush(&self) {
+        if let Some(sink) = lock(&self.shared.sink).as_mut() {
+            sink.flush();
+        }
+    }
+
     /// A copy of the list and its counts. Two calls with no entry between them give the
     /// same copy.
     pub fn view(&self) -> Arc<JournalView> {
@@ -190,6 +200,10 @@ mod tests {
         fn write(&mut self, entry: &Entry) {
             lock(&self.0).push(format!("{} {}", entry.number, entry.text));
         }
+
+        fn flush(&mut self) {
+            lock(&self.0).push("flush".to_owned());
+        }
     }
 
     #[test]
@@ -216,7 +230,9 @@ mod tests {
         );
         assert_eq!((view.total, view.warnings, view.errors, view.dropped()), (5, 2, 2, 2));
         assert_eq!(view.entries[0].time, clock().now());
-        assert_eq!(*lock(&written), ["0 one", "1 two", "2 three", "3 four", "4 five"]);
+        journal.flush();
+        assert_eq!(*lock(&written), ["0 one", "1 two", "2 three", "3 four", "4 five", "flush"]);
+        Journal::new(3, clock()).flush();
         assert_eq!(full.entries.len(), 3, "a copy does not change after it was made");
     }
 

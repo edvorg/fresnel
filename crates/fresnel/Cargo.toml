@@ -8,7 +8,26 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
+eframe.workspace = true
+fresnel-core.workspace = true
 fresnel-ui.workspace = true
+jiff.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "time"] }
+
+# The activity against App Nap.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-foundation.workspace = true
+
+[dev-dependencies]
+fastrand.workspace = true
+fresnel-testkit.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros"] }
+
+[[test]]
+name = "finder"
+path = "tests/finder/main.rs"
 
 [lints]
 workspace = true

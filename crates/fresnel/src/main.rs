@@ -1,5 +1,7 @@
-//! The desktop program: the window, the tokio runtime and the log setup.
+//! The desktop program. The library of this package holds each part.
 
-fn main() {
-    println!("fresnel {}", env!("CARGO_PKG_VERSION"));
+use std::process::ExitCode;
+
+fn main() -> ExitCode {
+    fresnel::run()
 }

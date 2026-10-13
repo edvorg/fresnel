@@ -65,6 +65,10 @@ egui_kittest = { version = "0.36.2", features = ["wgpu"] }
 # The PNG files of the view tests. egui_kittest gives the image of a frame as this type.
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 
+# The macOS activity against App Nap. eframe uses these versions too.
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
+
 # The one lint table. A crate takes it with `[lints] workspace = true`.
 # CI makes each warning an error. `clippy.toml` holds the list for `disallowed_methods`.
 [workspace.lints.rust]
