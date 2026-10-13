@@ -302,6 +302,30 @@ async fn a_request_right_after_goaway_goes_to_the_new_connection_with_no_error()
     assert_eq!((bed.elapsed(), bed.server.dials()), (3 * SECOND + MS, 2), "no wait for the next look of the channel");
 }
 
+/// A server that sends GOAWAY again and again must not get a growing count of old connections.
+#[tokio::test(start_paused = true)]
+async fn the_channel_keeps_four_old_connections_after_goaway_and_no_more() {
+    let mut bed = Bed::start(settings());
+    let mut old_streams = Vec::new();
+    for connection in 1..=5_u64 {
+        bed.until("live", |status| status.state == ChannelState::Live && status.connections == connection).await;
+        old_streams.push(bed.open("/watch/pods").await.expect("a stream").0.into_body());
+        bed.server.go_away();
+    }
+    bed.until("live", |status| status.state == ChannelState::Live && status.connections == 6).await;
+
+    bed.server.send_event("event\n");
+    let mut ended = 0;
+    for mut events in old_streams {
+        match timeout(SECOND, events.frame()).await {
+            Ok(Some(Ok(frame))) => assert_eq!(frame.into_data().expect("data"), "event\n"),
+            Ok(Some(Err(_)) | None) => ended += 1,
+            Err(_) => panic!("a stream with no event and no end"),
+        }
+    }
+    assert_eq!(ended, 4, "the fifth old connection replaced the four before it");
+}
+
 /// A defect in the task of a channel must not leave a state that looks good (design rule 1).
 #[tokio::test(start_paused = true)]
 async fn a_panic_in_the_task_of_a_channel_gives_a_report_and_the_channel_connects_again() {

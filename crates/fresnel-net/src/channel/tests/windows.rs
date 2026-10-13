@@ -64,6 +64,20 @@ async fn at_the_stream_budget_one_more_connection_opens_and_then_a_request_waits
     assert_eq!((bed.group.status().channels.len(), bed.server.dials()), (3, 5));
 }
 
+/// A burst at the start of a connection gets the budget for the start limit of hyper, 100
+/// streams. The limit of the server can be higher, and a request that waits gets that room.
+#[tokio::test(start_paused = true)]
+async fn a_higher_limit_of_the_server_gives_room_to_a_request_that_waits() {
+    let server = MemoryServer::new();
+    server.set_stream_limit(150);
+    let bed = Bed::on(server, ChannelSettings { max_connections: 1, ..settings() });
+    let burst = futures_util::future::join_all((0..71).map(|_| bed.open("/watch/pods")));
+    let burst = timeout(5 * SECOND, burst).await.expect("room for request 71 after the limit of the server came");
+    assert!(burst.iter().all(Result::is_ok));
+    let status = bed.status();
+    assert_eq!((status.server_stream_limit, status.stream_budget, status.streams_open), (Some(150), 105, 71));
+}
+
 /// A caller that reads slowly, or not at all, fills the window of its stream. That must
 /// not take the connection from the other callers: the state would stay live with no data.
 #[tokio::test(start_paused = true)]
