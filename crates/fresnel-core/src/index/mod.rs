@@ -8,7 +8,8 @@
 //!
 //! - `owner`: from an owner to its objects, and from a Service to its pods.
 //! - `refs`: from a ConfigMap, a Secret, a ServiceAccount or a Node to its pods.
-//! - `events`: from an object to its Events.
+//! - `events`: from an object to its Events, and the read of them from the server for a
+//!   cluster that keeps no store of the Events.
 //! - `task`: the task of an index, and what a reader holds. `source`: one store as an
 //!   index reads it. `links`: the map of one relation.
 
@@ -23,7 +24,7 @@ mod task;
 
 use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
 
-pub use events::ObjectEvents;
+pub use events::{EventsRead, ObjectEvents, read_events};
 pub use owner::{EndpointPod, ObjectRef, Owners};
 pub use refs::{References, Target, references_of};
 pub use source::SourceStatus;
@@ -129,7 +130,7 @@ impl ClusterIndexes {
     }
 
     /// A reader of the Event index. `None` when the settings give the Events no store:
-    /// a view then reads the Events of its object from the server.
+    /// a view then reads the Events of its object from the server, with [`read_events`].
     pub fn events(&self) -> Option<Reader<Index<ObjectEvents>>> {
         self.events.as_ref().map(|events| events.publisher.reader())
     }

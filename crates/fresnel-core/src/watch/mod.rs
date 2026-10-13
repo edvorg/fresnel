@@ -30,7 +30,7 @@ pub(crate) use gate::ListGate;
 #[cfg(test)]
 pub(crate) use gate::Turn;
 pub(crate) use lanes::{LaneStates, Lanes, follow};
-pub(crate) use source::{GatewaySource, Source};
+pub(crate) use source::{GatewaySource, Page, Source};
 
 use crate::error::CoreError;
 use crate::kinds::{Kind, Object};

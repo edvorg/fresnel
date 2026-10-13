@@ -3,6 +3,11 @@
 //! An Event names its object in `involvedObject`. The index finds the Events of an object
 //! by the UID. Some sources write no UID of the API: the kubelet puts the name of its
 //! node in the place of the UID. The index finds these Events by the kind and the name.
+//!
+//! `on_demand` reads the Events of one object from the server, for a cluster with no
+//! store of the Events.
+
+mod on_demand;
 
 use std::cmp::Reverse;
 use std::collections::BTreeSet;
@@ -10,6 +15,8 @@ use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::Event;
 use k8s_openapi::jiff::Timestamp;
+
+pub use on_demand::{EventsRead, read_events};
 
 use super::links::Links;
 use super::source::Tracked;

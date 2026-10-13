@@ -68,8 +68,18 @@ impl KindInfo {
     /// The path of the kind for all namespaces. A store reads all namespaces, and the
     /// namespace filter works in the app.
     pub fn path(&self) -> String {
-        let Self { group, version, plural, .. } = self;
-        if group.is_empty() { format!("/api/{version}/{plural}") } else { format!("/apis/{group}/{version}/{plural}") }
+        format!("{}/{}", self.group_path(), self.plural)
+    }
+
+    /// The path of the kind in one namespace, for a request about the objects of one
+    /// namespace only.
+    pub fn path_in(&self, namespace: &str) -> String {
+        format!("{}/namespaces/{namespace}/{}", self.group_path(), self.plural)
+    }
+
+    fn group_path(&self) -> String {
+        let Self { group, version, .. } = self;
+        if group.is_empty() { format!("/api/{version}") } else { format!("/apis/{group}/{version}") }
     }
 }
 
@@ -123,6 +133,8 @@ mod tests {
         assert_eq!(Kind::Pod.info().path(), "/api/v1/pods");
         assert_eq!(Kind::Deployment.info().path(), "/apis/apps/v1/deployments");
         assert_eq!(Kind::ApiService.info().path(), "/apis/apiregistration.k8s.io/v1/apiservices");
+        assert_eq!(Kind::Event.info().path_in("shop"), "/api/v1/namespaces/shop/events");
+        assert_eq!(Kind::Job.info().path_in("shop"), "/apis/batch/v1/namespaces/shop/jobs");
         assert_eq!((Kind::Secret.info().tier, Kind::ConfigMap.info().tier), (Tier::B, Tier::B));
     }
 
