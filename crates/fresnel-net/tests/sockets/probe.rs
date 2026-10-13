@@ -36,7 +36,7 @@ async fn a_plain_connect_gives_the_time_of_each_step() {
     let lookup = probe.lookup().await.expect("an address needs no lookup");
     assert_eq!((lookup.time, lookup.addresses.as_slice()), (Duration::ZERO, &[proxy.addr()][..]));
     for protocol in [Protocol::Http2, Protocol::Http1] {
-        let connect = probe.plain(proxy.addr(), protocol).await.expect("the server offers the two protocols");
+        let connect = probe.plain(proxy.addr(), protocol, SECOND).await.expect("the server offers the two protocols");
         assert!(connect.tcp < 30 * MS && connect.tls >= 120 * MS, "{protocol:?}: {connect:?}");
         assert!(connect.tls < SECOND, "{protocol:?}: {connect:?}");
     }
@@ -67,12 +67,11 @@ async fn a_held_connection_stops_a_plain_attempt_and_not_a_hedged_connect() {
     let server = FakeApiServer::start().await.expect("a server");
     let proxy = FaultProxy::start(server.addr()).await.expect("a proxy");
     proxy.set(ProxyMode::HoldNew { probability: 0.3, min: 5 * SECOND, max: 20 * SECOND });
-    let settings = ConnectSettings { attempt_limit: 400 * MS, ..ConnectSettings::default() };
-    let probe = probe(proxy.addr(), trust(&server), settings);
+    let probe = probe(proxy.addr(), trust(&server), ConnectSettings::default());
 
     let mut held = 0;
     for _ in 0..SAMPLES {
-        match probe.plain(proxy.addr(), Protocol::Http2).await {
+        match probe.plain(proxy.addr(), Protocol::Http2, 400 * MS).await {
             Ok(connect) => assert!(connect.tcp + connect.tls < 400 * MS, "{connect:?}"),
             Err(error) => {
                 assert_eq!((error.class(), error.to_string().as_str()), (ErrorClass::Timeout, "no answer in 400ms"));
@@ -138,13 +137,13 @@ async fn a_server_with_no_http2_fails_the_connect_of_a_channel_with_that_reason(
     let probe = probe(address, tls, ConnectSettings::default());
 
     let checks = async {
-        let upgrade = probe.plain(address, Protocol::Http1).await;
+        let upgrade = probe.plain(address, Protocol::Http1, SECOND).await;
         assert!(upgrade.is_ok(), "{upgrade:?}");
         assert!(probe.hedged(Protocol::Http1).await.is_ok());
 
         // The TLS code of this server refuses the handshake. A server that ignores the
         // offer gets the same result from the check of the selected protocol.
-        let error = probe.plain(address, Protocol::Http2).await.expect_err("the server has no HTTP/2");
+        let error = probe.plain(address, Protocol::Http2, SECOND).await.expect_err("the server has no HTTP/2");
         assert_eq!(error.to_string(), "the TLS handshake failed: received fatal alert: NoApplicationProtocol");
         let started = std::time::Instant::now();
         let error = probe.hedged(Protocol::Http2).await.expect_err("the server has no HTTP/2");

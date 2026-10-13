@@ -78,9 +78,13 @@ impl Probe {
     }
 
     /// One connect attempt to one address with no hedge: TCP, then TLS with one protocol.
-    /// An attempt with no answer ends at the attempt limit of the settings.
-    pub async fn plain(&self, address: SocketAddr, protocol: Protocol) -> Result<PlainConnect, NetError> {
-        let limit = self.settings.attempt_limit;
+    /// An attempt with no answer in `limit` is a held connection, and it ends there.
+    pub async fn plain(
+        &self,
+        address: SocketAddr,
+        protocol: Protocol,
+        limit: Duration,
+    ) -> Result<PlainConnect, NetError> {
         let attempt = async {
             let started = Instant::now();
             let tcp = dial::open(address).await.map_err(|error| NetError::because("the TCP connect failed", &error))?;
