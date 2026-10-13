@@ -26,7 +26,8 @@ use crate::light::LightRequests;
 use crate::signal::Listener;
 
 /// Old connections with open streams that the task keeps after GOAWAY. More than this is
-/// a server that sends GOAWAY again and again, and the oldest streams then end.
+/// a server that sends GOAWAY again and again. The streams of each old connection then
+/// end, and only the newest old connection stays.
 const MAX_DRAINING: usize = 4;
 
 /// One light request in progress: its round trip time, or why it got no answer.
