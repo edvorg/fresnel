@@ -18,7 +18,7 @@ use fresnel_core::net::env::{self, EnvSettings, ProcessEnv};
 use fresnel_core::net::task::{TaskReport, Tasks};
 use fresnel_core::net::{NetSettings, WallClock};
 use fresnel_core::published::Disposal;
-use fresnel_core::store::{ClusterStores, StoreParts, StoreSettings};
+use fresnel_core::store::{ClusterStores, StoreParts, StoreSettings, StoreState, Wait};
 use tokio::runtime::Handle;
 use tokio::time::{Instant, sleep_until};
 
@@ -28,7 +28,7 @@ use text::ClusterReport;
 use crate::contexts;
 
 /// Runs the command. With a run time, the exit status is 0 when each store of each
-/// selected cluster is live at the end.
+/// selected cluster works at the end.
 pub(crate) fn run(arguments: &[String]) -> ExitCode {
     match args::parse(arguments) {
         Ok(options) => crate::runtime::run(|runtime| follow(options, runtime)),
@@ -92,7 +92,7 @@ fn start(registry: &Registry, tasks: &Tasks, context: &Context, parts: &StorePar
 }
 
 /// Prints one report each interval, to the end of the run time or to Ctrl+C. Gives true
-/// when each store is live in the last report.
+/// when each store works in the last report.
 ///
 /// Ctrl+C ends the command in the clean way: the caller then stops each task, and a task
 /// ends the process of a credential plugin that runs.
@@ -112,10 +112,18 @@ async fn report_until(watched: &[Watched], options: &Options) -> bool {
             jiff::Timestamp::now().round(jiff::Unit::Second).map_or_else(|_| String::new(), |time| time.to_string());
         print!("{}", text::render(&time, &reports, WallClock::system().now()));
         if last {
-            return reports.iter().all(|cluster| cluster.stores.iter().all(|store| store.state.is_live()));
+            return reports.iter().all(|cluster| cluster.stores.iter().all(|store| works(&store.state)));
         }
         println!();
     }
+}
+
+/// True for a store with an open watch, and for a store between two watches. The server
+/// ends each watch after 60 to 90 s, so at the end of a long run some store of a far
+/// cluster waits for its next watch. A watch that does not start is a failure, and the
+/// store shows it as an other state after 10 s at most.
+fn works(state: &StoreState) -> bool {
+    state.is_live() || *state == StoreState::Waiting(Wait::Stream)
 }
 
 fn report(watched: &Watched) -> ClusterReport {
@@ -123,5 +131,31 @@ fn report(watched: &Watched) -> ClusterReport {
         name: watched.stores.cluster().to_string(),
         connections: watched.link.net.status(),
         stores: watched.stores.statuses(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fresnel_core::CoreError;
+    use fresnel_core::net::ErrorClass;
+
+    use super::*;
+
+    #[test]
+    fn a_store_between_two_watches_works_and_each_other_wait_or_failure_does_not() {
+        assert!(works(&StoreState::Live) && works(&StoreState::Waiting(Wait::Stream)));
+        let reason = CoreError::new(ErrorClass::Network, "the connection broke");
+        let not_working = [
+            StoreState::Waiting(Wait::Channel),
+            StoreState::Waiting(Wait::Credential),
+            StoreState::Waiting(Wait::ListSlot),
+            StoreState::Listing { loaded: 500 },
+            StoreState::Attempt { failures: 1, reason: reason.clone() },
+            StoreState::Forbidden { reason },
+            StoreState::Stopped,
+        ];
+        for state in &not_working {
+            assert!(!works(state), "{state}");
+        }
     }
 }
