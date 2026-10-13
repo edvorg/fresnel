@@ -27,6 +27,8 @@ use fresnel_net::{Listener, Signal, WallClock};
 use futures_util::FutureExt as _;
 
 pub(crate) use gate::ListGate;
+#[cfg(test)]
+pub(crate) use gate::Turn;
 pub(crate) use lanes::{LaneStates, Lanes, follow};
 pub(crate) use source::{GatewaySource, Source};
 
@@ -122,6 +124,9 @@ struct Loop<'a, T, S> {
     retry_now: Listener,
     /// The resource version that the next watch starts after. `None`: a list comes first.
     cursor: Option<String>,
+    /// True after the first list of this run got its slot. Each later list has no
+    /// priority over the lists of the other stores.
+    listed_before: bool,
     /// True after a watch that worked and that the server ended at its timeout. The next
     /// watch is then a renewal: the store stays live while it starts.
     renewal: bool,
@@ -164,6 +169,7 @@ async fn keep_current<T: Object, S: Source<T>>(parts: &Parts<T, S>) -> Result<()
         lanes: parts.lanes.clone(),
         retry_now: parts.signal.listen(),
         cursor: None,
+        listed_before: false,
         renewal: false,
         attempts: Attempts::default(),
     };

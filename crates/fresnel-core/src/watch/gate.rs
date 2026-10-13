@@ -2,8 +2,13 @@
 //!
 //! Many lists at the same moment fill the request queue of an API server, and one slow
 //! list then holds each other one. A list takes a slot for all its pages. When more lists
-//! wait than slots are free, the kind with the highest priority gets the next slot: the
-//! small kinds that each view needs are then ready before the Events.
+//! wait than slots are free, the first list of a store goes before each later one, and the
+//! kind with the highest priority gets the next slot: the small kinds that each view needs
+//! are then ready before the Events.
+//!
+//! A later list of a store waits in the sequence of its request. With the priority of its
+//! kind, eight kinds whose lists fail at their time limit would hold the four slots for
+//! all time, and no kind after them would get its first list.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -12,11 +17,22 @@ use tokio::sync::Notify;
 
 use crate::kinds::Kind;
 
+/// The place of a list among the lists that wait. The sequence of the variants and of
+/// the kinds is the sequence of the slots.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Turn {
+    /// The first list of a store. The sequence of the kinds is its priority.
+    First(Kind),
+    /// Each later list of a store: after a failure, after HTTP 410 or after a refusal.
+    Again,
+}
+
 struct Inner {
     free: usize,
-    /// The lists that wait. The first entry gets the next slot: the sequence of the kinds
-    /// is their priority, and the number makes each entry of one kind unique.
-    waiting: BTreeSet<(Kind, u64)>,
+    /// The lists that wait. The first entry gets the next slot. The number is the
+    /// sequence of the requests: it makes each entry unique, and it is the sequence of
+    /// the later lists.
+    waiting: BTreeSet<(Turn, u64)>,
     next_number: u64,
 }
 
@@ -35,8 +51,8 @@ impl ListGate {
     }
 
     /// Waits for a slot. The caller can drop the wait at each moment.
-    pub(crate) async fn take(self: &Arc<Self>, kind: Kind) -> Slot {
-        let ticket = Ticket::new(self, kind);
+    pub(crate) async fn take(self: &Arc<Self>, turn: Turn) -> Slot {
+        let ticket = Ticket::new(self, turn);
         loop {
             let moved = self.moved.notified();
             tokio::pin!(moved);
@@ -59,19 +75,19 @@ impl ListGate {
 /// dropped the wait.
 struct Ticket<'a> {
     gate: &'a ListGate,
-    entry: (Kind, u64),
+    entry: (Turn, u64),
 }
 
 impl<'a> Ticket<'a> {
-    fn new(gate: &'a ListGate, kind: Kind) -> Self {
+    fn new(gate: &'a ListGate, turn: Turn) -> Self {
         let mut inner = gate.inner();
-        let entry = (kind, inner.next_number);
+        let entry = (turn, inner.next_number);
         inner.next_number += 1;
         inner.waiting.insert(entry);
         Self { gate, entry }
     }
 
-    /// Takes a slot if one is free and no list with a higher priority waits.
+    /// Takes a slot if one is free and no list with an earlier place waits.
     fn try_take(&self) -> bool {
         let mut inner = self.gate.inner();
         let first = inner.waiting.first() == Some(&self.entry);
@@ -111,51 +127,80 @@ mod tests {
 
     use super::*;
 
+    const FIRST_POD: Turn = Turn::First(Kind::Pod);
+
+    /// Waits for a slot, writes `name` into `order` and holds the slot for one more step.
+    async fn list(gate: Arc<ListGate>, turn: Turn, name: &'static str, order: Arc<Mutex<Vec<&'static str>>>) {
+        let slot = gate.take(turn).await;
+        order.lock().expect("a lock").push(name);
+        yield_now().await;
+        drop(slot);
+    }
+
     #[tokio::test]
-    async fn the_lists_that_wait_get_a_slot_in_the_sequence_of_their_kinds() {
+    async fn the_first_lists_get_a_slot_in_the_sequence_of_their_kinds() {
         let gate = ListGate::new(2);
-        let (first, second) = (gate.take(Kind::Event).await, gate.take(Kind::Secret).await);
+        let (first, second) = (gate.take(FIRST_POD).await, gate.take(FIRST_POD).await);
         let order = Arc::new(Mutex::new(Vec::new()));
-        let wait = |kind: Kind| {
-            let (gate, order) = (Arc::clone(&gate), Arc::clone(&order));
-            async move {
-                let slot = gate.take(kind).await;
-                order.lock().expect("a lock").push(kind);
-                // The list runs until the test frees each slot.
-                yield_now().await;
-                drop(slot);
-            }
-        };
         // The Events ask first. Each kind before them in the list gets its slot before them.
-        let lists = [Kind::Event, Kind::Pod, Kind::Secret, Kind::Namespace, Kind::Pod].map(|kind| Box::pin(wait(kind)));
+        let asks =
+            [(Kind::Event, "Event"), (Kind::Pod, "Pod"), (Kind::Secret, "Secret"), (Kind::Namespace, "Namespace")];
+        let lists =
+            asks.map(|(kind, name)| Box::pin(list(Arc::clone(&gate), Turn::First(kind), name, Arc::clone(&order))));
         let mut lists = futures_util::future::join_all(lists);
         assert!((&mut lists).now_or_never().is_none(), "no slot is free");
-        assert_eq!(*order.lock().expect("a lock"), []);
+        assert_eq!(*order.lock().expect("a lock"), [""; 0]);
 
         drop(first);
         assert!((&mut lists).now_or_never().is_none());
-        assert_eq!(*order.lock().expect("a lock"), [Kind::Namespace], "one free slot is one list");
+        assert_eq!(*order.lock().expect("a lock"), ["Namespace"], "one free slot is one list");
         drop(second);
         lists.await;
-        let expected = [Kind::Namespace, Kind::Pod, Kind::Pod, Kind::Secret, Kind::Event];
+        assert_eq!(*order.lock().expect("a lock"), ["Namespace", "Pod", "Secret", "Event"]);
+    }
+
+    /// A kind whose list fails each time asks again and again. With the priority of its
+    /// kind for each of these lists, the kinds after it would never get a slot.
+    #[tokio::test]
+    async fn a_later_list_waits_behind_each_first_list_and_in_the_sequence_of_its_request() {
+        let gate = ListGate::new(1);
+        let held = gate.take(FIRST_POD).await;
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let asks = [
+            (Turn::Again, "the second list of the namespaces"),
+            (Turn::Again, "the second list of the nodes"),
+            (Turn::First(Kind::Event), "the first list of the events"),
+            (Turn::First(Kind::Secret), "the first list of the secrets"),
+        ];
+        let lists = asks.map(|(turn, name)| Box::pin(list(Arc::clone(&gate), turn, name, Arc::clone(&order))));
+        let mut lists = futures_util::future::join_all(lists);
+        assert!((&mut lists).now_or_never().is_none(), "no slot is free");
+        drop(held);
+        lists.await;
+        let expected = [
+            "the first list of the secrets",
+            "the first list of the events",
+            "the second list of the namespaces",
+            "the second list of the nodes",
+        ];
         assert_eq!(*order.lock().expect("a lock"), expected);
     }
 
     #[tokio::test]
     async fn a_wait_that_its_caller_dropped_holds_no_slot_and_no_place() {
         let gate = ListGate::new(1);
-        let held = gate.take(Kind::Pod).await;
-        let mut dropped = Box::pin(gate.take(Kind::Namespace));
+        let held = gate.take(FIRST_POD).await;
+        let mut dropped = Box::pin(gate.take(Turn::First(Kind::Namespace)));
         assert!((&mut dropped).now_or_never().is_none());
-        let mut patient = Box::pin(gate.take(Kind::Event));
+        let mut patient = Box::pin(gate.take(Turn::Again));
         assert!((&mut patient).now_or_never().is_none());
 
         drop(dropped);
         drop(held);
-        let slot = patient.now_or_never().expect("the list with the highest priority is gone");
-        assert!(gate.take(Kind::Pod).now_or_never().is_none(), "the one slot is in use");
+        let slot = patient.now_or_never().expect("the list with the earlier place is gone");
+        assert!(gate.take(FIRST_POD).now_or_never().is_none(), "the one slot is in use");
         drop(slot);
-        assert!(gate.take(Kind::Pod).now_or_never().is_some());
+        assert!(gate.take(FIRST_POD).now_or_never().is_some());
         assert_eq!(ListGate::new(0).inner().free, 1, "a gate has one slot at least");
     }
 }

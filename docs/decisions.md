@@ -498,6 +498,14 @@ does not end it: on the fake server, a list that failed at its second page each 
 again each 100 ms, with all its pages. The good status of a watch does not end it: a server
 can end each stream at once. The pause grows to 3 seconds, with the jitter of each other task.
 
+## Only the first list of a store has the priority of its kind
+
+Four lists of a cluster run at the same time. The first list of each store gets its slot in
+the sequence of the kinds, so the kinds that each view needs are ready first. Each later list
+waits in the sequence of its request. With the priority of its kind for each list, eight
+kinds whose lists got no answer held the four slots for all time on the fake server, and no
+other kind got its first list.
+
 ## A second HTTP 410 gives a pause
 
 After HTTP 410, only a new list gives the current objects, and the first one starts at once.

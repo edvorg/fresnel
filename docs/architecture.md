@@ -128,9 +128,9 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   kind has a store with full objects, a tier B kind with the metadata only: no store holds a
   value of a Secret. Lease and Endpoints (tier C) have no store.
 - **Watch loop**: one task for each store. It reads a list in pages, 4 lists of a cluster at
-  a time in the sequence of the kinds. Then it follows a watch with bookmarks, which the
-  server ends after 60 to 90 s. The next watch starts after the last version of the one
-  before, and the store stays live. Only HTTP 410 gives a new list, and a second one a pause.
+  a time: the first lists in the sequence of the kinds, each later list in its turn. Then it
+  follows a watch with bookmarks, which the server ends after 60 to 90 s. The next watch starts
+  after the last version, and the store stays live. Only HTTP 410 gives a new list.
 - **Failures**: a failure gives a pause that grows to 3 s. A complete list and a watch that
   worked end the count, and the signal of the cluster ends each pause. A watch that worked
   starts again with no pause: the channel counts the loss of a connection, not each watch.

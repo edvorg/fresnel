@@ -1,6 +1,6 @@
 //! The list of one kind, in pages.
 
-use super::gate::Slot;
+use super::gate::{Slot, Turn};
 use super::lanes::{Lane, Readiness};
 use super::recover::Failure;
 use super::source::Source;
@@ -55,8 +55,10 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         loop {
             self.ready(Lane::Requests).await?;
             self.enter(StoreState::Waiting(Wait::ListSlot));
-            let slot = self.parts.gate.take(self.parts.kind).await;
+            let turn = if self.listed_before { Turn::Again } else { Turn::First(self.parts.kind) };
+            let slot = self.parts.gate.take(turn).await;
             if self.lanes.readiness(Lane::Requests, self.parts.clock.now()) == Readiness::Ready {
+                self.listed_before = true;
                 return Ok(slot);
             }
         }

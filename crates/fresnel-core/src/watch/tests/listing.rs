@@ -11,6 +11,9 @@ use crate::kinds::Kind;
 use crate::net::ErrorClass;
 use crate::store::{StoreState, Wait};
 use crate::watch::lanes::{LaneStates, Path};
+use crate::watch::{Turn, WatchSettings};
+
+const FIRST: Turn = Turn::First(Kind::Pod);
 
 #[tokio::test(start_paused = true)]
 async fn the_list_reads_each_page_and_the_watch_starts_after_the_version_of_the_list() {
@@ -35,7 +38,7 @@ async fn a_list_waits_for_a_slot_of_its_cluster_and_shows_it() {
     let gate = Arc::clone(&bench.gate);
     let mut slots = Vec::new();
     for _ in 0..4 {
-        slots.push(gate.take(Kind::Pod).await);
+        slots.push(gate.take(FIRST).await);
     }
     bench.script.page(&[("a", "5")], Some("7"), None);
     bench.until_state("the wait for a slot", |state| *state == StoreState::Waiting(Wait::ListSlot)).await;
@@ -45,7 +48,7 @@ async fn a_list_waits_for_a_slot_of_its_cluster_and_shows_it() {
     slots.pop();
     bench.until_state("the list", |state| *state == StoreState::Waiting(Wait::Stream)).await;
     assert_eq!(bench.script.take_calls(), ["list of 500", "watch after 7 for 60 s"]);
-    assert!(gate.take(Kind::Pod).now_or_never().is_some(), "the list gave its slot back");
+    assert!(gate.take(FIRST).now_or_never().is_some(), "the list gave its slot back");
 }
 
 /// A fault at the worst moment: the connection goes while the list waits for its slot. The
@@ -56,13 +59,13 @@ async fn a_list_whose_connection_goes_while_it_waits_for_a_slot_sends_no_request
     let gate = Arc::clone(&bench.gate);
     let mut slots = Vec::new();
     for _ in 0..4 {
-        slots.push(gate.take(Kind::Pod).await);
+        slots.push(gate.take(FIRST).await);
     }
     bench.until_state("the wait for a slot", |state| *state == StoreState::Waiting(Wait::ListSlot)).await;
     bench.lanes.send_replace(LaneStates { requests: Path::NoChannel, ..LIVE });
     slots.pop();
     bench.until_state("the wait for a channel", |state| *state == StoreState::Waiting(Wait::Channel)).await;
-    assert!(gate.take(Kind::Pod).now_or_never().is_some(), "the list holds no slot while it waits for a channel");
+    assert!(gate.take(FIRST).now_or_never().is_some(), "the list holds no slot while it waits for a channel");
     tokio::time::sleep(30 * SECOND).await;
     assert_eq!(bench.script.take_calls(), Vec::<String>::new(), "no request and no failure of the store");
 
@@ -105,6 +108,31 @@ async fn a_list_that_fails_starts_again_at_its_first_page_after_a_pause() {
     bench.script.watch_fails(broke());
     bench.until_state("the pause", is_pause(1)).await;
     assert_eq!((bench.elapsed(), bench.objects()), (700 * MS, pairs(&[("a", "5"), ("b", "6")])));
+}
+
+/// A slow peer: a kind whose list fails each time asks again and again. Only its first
+/// list has the priority of its kind, so the kinds after it get their first list.
+#[tokio::test(start_paused = true)]
+async fn a_list_after_a_failure_waits_behind_the_first_list_of_each_other_kind() {
+    let mut bench = Bench::start(WatchSettings { lists: 1, ..settings() });
+    let gate = Arc::clone(&bench.gate);
+    bench.script.list_fails(CoreError::new(ErrorClass::Timeout, "no answer in 15 s"));
+    bench.until_state("the pause", |state| matches!(state, StoreState::Backoff { .. })).await;
+    // In the pause, a list of an other store takes the one slot, and the Events ask for
+    // their first list. The Secrets of the bench are before the Events in the list of kinds.
+    let held = gate.take(FIRST).await;
+    let mut events = Box::pin(gate.take(Turn::First(Kind::Event)));
+    assert!((&mut events).now_or_never().is_none());
+    bench.until_state("the wait for a slot", |state| *state == StoreState::Waiting(Wait::ListSlot)).await;
+    assert_eq!(bench.elapsed(), 100 * MS);
+
+    drop(held);
+    let slot = events.now_or_never().expect("the first list of the Events goes before the second one of the Secrets");
+    tokio::time::sleep(SECOND).await;
+    assert_eq!(bench.script.take_calls(), ["list of 500"], "the second list waits for its turn");
+    drop(slot);
+    bench.until_state("the second list", |state| matches!(state, StoreState::Attempt { .. })).await;
+    assert_eq!(bench.script.take_calls(), ["list of 500"]);
 }
 
 /// With no version, the watch would start at "now" and lose a change with no error.
