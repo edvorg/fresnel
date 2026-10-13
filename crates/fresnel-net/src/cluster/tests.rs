@@ -292,3 +292,28 @@ async fn a_panic_in_the_credential_task_gives_a_report_and_the_task_runs_again()
         "{reports:?}"
     );
 }
+
+/// The worst moment for a loss: the server has the write, and its answer did not arrive.
+/// The result is not known, so the layer must not send the write again (design rule 6).
+#[tokio::test(start_paused = true)]
+async fn a_write_whose_connection_breaks_before_the_answer_fails_and_goes_out_one_time() {
+    let mut bed = Bed::start(None).await;
+    bed.server.set_mute(true);
+    let (written, ()) = tokio::join!(bed.send(RequestKind::Write, "/api/v1/namespaces/a/pods"), async {
+        sleep(SECOND).await;
+        bed.server.kill_open();
+        bed.server.set_mute(false);
+    });
+    let error = written.expect_err("no answer to the write");
+    assert_eq!((error.class(), bed.elapsed()), (ErrorClass::Network, SECOND), "the loss shows at once: {error}");
+
+    bed.until("the request channel is live again", |status| {
+        let channel = &status.requests.channels[0];
+        channel.state == ChannelState::Live && channel.connections == 2
+    })
+    .await;
+    sleep(20 * SECOND).await;
+    let writes: Vec<u64> = bed.seen().iter().map(|seen| seen.connection).collect();
+    assert_eq!(writes.len(), 1, "the new connection must not carry the write again: {writes:?}");
+    assert_eq!(bed.fetch(RequestKind::Get, "/api/v1/pods").await.expect("an answer").0, StatusCode::OK);
+}
