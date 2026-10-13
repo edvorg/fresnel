@@ -23,7 +23,13 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         loop {
             let (source, limit) = (&self.parts.source, self.parts.settings.page_size);
             let page = self.answer(source.list_page(limit, token.as_deref())).await?;
-            token = page.metadata.continue_.filter(|token| !token.is_empty());
+            let next = page.metadata.continue_.filter(|next| !next.is_empty());
+            // A server that gives the token of the request back would get that request
+            // again with no pause and with no end.
+            if next.is_some() && next == token {
+                return Err(same_token().into());
+            }
+            token = next;
             let version = page.metadata.resource_version.filter(|version| !version.is_empty());
             // With no version, the watch would start at "now" and lose each change
             // between the list and its own start, with no error.
@@ -45,4 +51,8 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
 
 fn no_version() -> CoreError {
     CoreError::invalid("the list of the server has no resource version")
+}
+
+fn same_token() -> CoreError {
+    CoreError::invalid("the list of the server gave the token of a page two times")
 }

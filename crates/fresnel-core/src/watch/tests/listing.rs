@@ -79,3 +79,16 @@ async fn a_list_with_no_resource_version_or_with_an_object_with_no_name_is_a_fai
     assert_eq!(bench.objects(), pairs(&[]));
     assert_eq!(bench.script.take_calls(), ["list of 500", "list of 500"], "no watch starts with no good list");
 }
+
+/// Bad data of a server: a page that names the token of its own request as the next one.
+/// Such a list has no end, and it would ask the server again with no pause.
+#[tokio::test(start_paused = true)]
+async fn a_list_page_with_the_token_of_its_own_request_is_a_failure() {
+    let mut bench = Bench::start(settings());
+    bench.script.page(&[("a", "5")], None, Some("t1"));
+    bench.script.page(&[("b", "6")], None, Some("t1"));
+    let paused = bench.until_state("the pause", |state| matches!(state, StoreState::Backoff { .. })).await;
+    let expected = "pause after 1 failures: the list of the server gave the token of a page two times";
+    assert_eq!((paused.state.to_string().as_str(), paused.items.len()), (expected, 0));
+    assert_eq!(bench.script.take_calls(), ["list of 500", "list after t1"]);
+}
