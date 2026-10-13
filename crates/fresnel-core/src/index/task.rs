@@ -69,8 +69,9 @@ pub struct Answer<T> {
 /// One index of a cluster as a reader holds it. It does not change.
 #[derive(Clone, Debug)]
 pub struct Index<R> {
-    /// A number that grows each time a relation changes, and only then. A view computes
-    /// again what it read from the index only for a new number.
+    /// A number that grows each time a relation changes, and with the first relations of a
+    /// task that started again. A view computes again what it read from the index only
+    /// for a new number.
     pub generation: u64,
     /// What the task of the index does.
     pub state: IndexState,
@@ -164,14 +165,21 @@ pub(super) async fn run<I: Indexer>(indexer: I, publisher: Publisher<Index<I::Re
 /// Follows the stores with no end. The readers get a new index when a relation changed
 /// or when the index knows a new fact of a store.
 async fn follow<I: Indexer>(mut indexer: I, publisher: &Publisher<Index<I::Relations>>) -> Infallible {
-    // A run after a fault continues the count: a view must not take the new relations
-    // for the ones that it read before.
-    let mut generation = publisher.read().generation;
+    // A run after a fault continues the count, and its first relations get a new number
+    // also when the read found no change: the run built them from nothing, so they can
+    // differ from the ones that a view read before. Without it, the objects that left
+    // the stores during the fault would stay in that view.
+    let (mut generation, mut rebuilt) = {
+        let last = publisher.read();
+        (last.generation, last.state != IndexState::Starting)
+    };
     let mut published: Option<Vec<SourceStatus>> = None;
     loop {
         let read = indexer.read();
-        if read.changed || published.as_ref() != Some(&read.sources) {
-            generation += u64::from(read.changed);
+        let new_relations = read.changed || rebuilt;
+        rebuilt = false;
+        if new_relations || published.as_ref() != Some(&read.sources) {
+            generation += u64::from(new_relations);
             publisher.publish(Index::following(generation, read.sources.clone(), indexer.relations()));
             published = Some(read.sources);
         }

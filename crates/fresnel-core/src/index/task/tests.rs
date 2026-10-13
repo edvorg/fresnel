@@ -162,6 +162,27 @@ async fn a_panic_of_the_task_shows_as_the_state_of_the_index_and_the_task_starts
     assert_eq!((again.generation, again.relations().as_slice()), (2, &["a".to_owned(), "b".to_owned()][..]));
 }
 
+/// A fault at the worst moment: each object leaves the store while the task waits for its
+/// restart. The new run finds no relation, and that is a change for each reader.
+#[tokio::test(start_paused = true)]
+async fn a_run_after_a_fault_gives_its_relations_a_new_number_also_when_it_finds_none() {
+    let mut started = start();
+    started.store.list(vec![object("a", "1")]);
+    while started.next().await.generation == 0 {}
+
+    started.panics.store(true, Ordering::Relaxed);
+    started.store.bookmark();
+    let failed = started.next().await;
+    assert!(matches!(failed.state, IndexState::Failed { .. }), "{:?}", failed.state);
+    assert_eq!((failed.generation, failed.relations().as_slice()), (1, &["a".to_owned()][..]));
+
+    started.store.delete(&object("a", "1"));
+    started.panics.store(false, Ordering::Relaxed);
+    let again = started.next().await;
+    assert_eq!((&again.state, again.relations().len()), (&IndexState::Following, 0));
+    assert!(again.generation > failed.generation, "a view computes again only for a new number");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_stopped_index_keeps_its_relations_and_ends_its_task() {
     let mut started = start();
