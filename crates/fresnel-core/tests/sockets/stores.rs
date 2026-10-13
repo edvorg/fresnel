@@ -6,13 +6,12 @@ use std::time::{Duration, Instant};
 use fresnel_core::kinds::{Kind, Tier};
 use fresnel_core::net::NetSettings;
 use fresnel_core::store::{EventsMode, ObjectKey, StoreSettings, StoreState, StoreStatus};
-use fresnel_testkit::{Fault, FaultProxy, SeenRequest};
+use fresnel_testkit::{Fault, SeenRequest};
 use http::header::{ACCEPT, ACCEPT_ENCODING};
 use k8s_openapi::api::core::v1::{Event, Pod};
-use tokio::runtime::Handle;
 
-use crate::bed::{Bed, Folder, kubeconfig};
-use crate::common::{LIMIT, TestTasks, connect, in_time, registry, until_live};
+use crate::bed::{Bed, ProxyBed};
+use crate::common::{LIMIT, in_time};
 use crate::store_bed::Stores;
 
 const PODS: &str = "/api/v1/pods";
@@ -197,18 +196,11 @@ async fn a_server_that_refuses_or_throttles_shows_as_the_state_of_the_store() {
 /// on a new connection with no new list.
 #[tokio::test]
 async fn a_silent_connection_shows_in_each_store_in_20_seconds_or_less() {
-    let server = fresnel_testkit::FakeApiServer::start().await.expect("a server");
-    let proxy = FaultProxy::start(server.addr()).await.expect("a proxy");
-    let folder = Folder::new("silent-stores");
-    let path = folder.write("config", &kubeconfig(&[("silent", proxy.addr(), &server)]));
-    let tasks = TestTasks::new(&Handle::current());
-    let registry = registry(&tasks, &Handle::current(), &path, NetSettings::default());
-    let link = connect(&registry, "silent");
-    until_live(&link).await;
-    let stores = Stores::start(&tasks, &link, StoreSettings::default());
+    let bed = ProxyBed::start("silent-stores", NetSettings::default()).await;
+    let stores = Stores::start(&bed.tasks, &bed.link, StoreSettings::default());
     stores.until_live(LIMIT).await;
 
-    proxy.silence_open();
+    bed.proxy.silence_open();
     let silent = Instant::now();
     let none_live = |all: &[StoreStatus]| all.iter().all(|status| !status.state.is_live());
     let statuses = stores.until("no store is live", Duration::from_secs(20), none_live).await;
@@ -221,7 +213,7 @@ async fn a_silent_connection_shows_in_each_store_in_20_seconds_or_less() {
     let found = Instant::now();
     stores.until_live(Duration::from_secs(10)).await;
     println!("each store was live again {:?} after that", found.elapsed());
-    let lists = server.requests().iter().filter(|seen| seen.uri.path() != "/version" && !seen.is_watch()).count();
+    let lists = bed.server.requests().iter().filter(|seen| seen.uri.path() != "/version" && !seen.is_watch()).count();
     assert_eq!(lists, STORES, "each watch continued from its last version: no new list");
-    assert_eq!(proxy.task_failures(), Vec::<String>::new());
+    assert_eq!(bed.proxy.task_failures(), Vec::<String>::new());
 }

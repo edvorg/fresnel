@@ -7,7 +7,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use fresnel_core::cluster::{Link, Registry};
 use fresnel_core::net::NetSettings;
-use fresnel_testkit::FakeApiServer;
+use fresnel_testkit::{FakeApiServer, FaultProxy};
 use http::Request;
 use tokio::runtime::Handle;
 
@@ -36,6 +36,33 @@ impl Bed {
         let link = connect(&registry, CONTEXT);
         until_live(&link).await;
         Self { link, registry, tasks, server, folder }
+    }
+}
+
+/// One connected cluster with a fault proxy before its fake server, for a fault of the
+/// network. The fields drop in this sequence: the connections go first, the server last.
+pub(crate) struct ProxyBed {
+    pub(crate) link: Link,
+    _registry: Registry,
+    pub(crate) tasks: TestTasks,
+    pub(crate) proxy: FaultProxy,
+    pub(crate) server: FakeApiServer,
+    _folder: Folder,
+}
+
+impl ProxyBed {
+    /// Starts a fake server and a proxy, and connects a cluster through the proxy. Each
+    /// channel is live at the return. `label` names the folder of the test.
+    pub(crate) async fn start(label: &str, settings: NetSettings) -> Self {
+        let server = FakeApiServer::start().await.expect("a server");
+        let proxy = FaultProxy::start(server.addr()).await.expect("a proxy");
+        let folder = Folder::new(label);
+        let path = folder.write("config", &kubeconfig(&[(CONTEXT, proxy.addr(), &server)]));
+        let tasks = TestTasks::new(&Handle::current());
+        let registry = registry(&tasks, &Handle::current(), &path, settings);
+        let link = connect(&registry, CONTEXT);
+        until_live(&link).await;
+        Self { link, _registry: registry, tasks, proxy, server, _folder: folder }
     }
 }
 
