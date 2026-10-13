@@ -21,7 +21,7 @@ pub(crate) const ENDING: &str = "scene-ending";
 /// The images of the scene come from the network at the first start of a pod.
 const LIMIT: Duration = Duration::from_secs(300);
 /// The cluster gives no signal for its state to a test, so the test asks again.
-const STEP: Duration = Duration::from_millis(500);
+pub(crate) const STEP: Duration = Duration::from_millis(500);
 
 /// What `kubectl get pods` shows for each pod of the scene when the scene is at rest: the
 /// name or the start of the name, the column READY and the column STATUS.

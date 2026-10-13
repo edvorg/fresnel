@@ -9,12 +9,14 @@ use http::header::ACCEPT;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
 use serde_json::Value;
+use tokio::time::sleep;
 
 use super::read::text;
 use super::scene::{self, ENDING, NAMESPACE};
 use crate::bed::{App, Cluster};
 
-/// The most reads for one moment in which the store, the API and kubectl show the same pods.
+/// The most reads for one moment in which the store, the API and kubectl show the same
+/// pods, and the scene is at rest.
 const ATTEMPTS: usize = 40;
 
 /// What the Pod table shows of one pod: Ready, Status, Restarts, and whether the row has
@@ -72,16 +74,23 @@ pub(crate) async fn each_pod_has_the_row_of_kubectl_and_of_the_api(cluster: &Clu
             let row = of_app(before.items.get(&key).expect("the pod of the line is in the store"));
             assert_eq!(row, of_kubectl(line), "{}/{}: the app and kubectl", line.namespace, line.name);
             assert_eq!(row, table[&key].1, "{}/{}: the app and the API server", line.namespace, line.name);
-            // Each pod of the scene is in the state of its line of the scene.
-            let at_rest = scene::at_rest(line).expect("a pod of the scene or of k3s");
-            assert_eq!((row.0.as_str(), row.1.as_str()), at_rest, "{}", line.name);
+        }
+        // Each pod of the scene must be in the state of its line of the scene, so that the
+        // read holds each state of the status rule. A pod in a loop of image pulls or of
+        // restarts leaves its state for a moment at each try: `ErrImagePull` stands in the
+        // place of `ImagePullBackOff` then. Such a read is not the scene at rest.
+        let rests = |line: &&PodLine| scene::at_rest(line) == Some((line.ready.as_str(), line.status.as_str()));
+        if let Some(moved) = lines.iter().find(|line| !rests(line)) {
+            println!("read {attempt}: {} is {} {}, so the scene is not at rest", moved.name, moved.ready, moved.status);
+            sleep(scene::STEP).await;
+            continue;
         }
         let restarted = lines.iter().filter(|line| line.restarted_ago).count();
         println!("{} pods: the app shows the row of kubectl and of the API (read {attempt})", lines.len());
         assert!(restarted >= 2, "the scene has two pods with a last restart, and {restarted} lines show one");
         return;
     }
-    panic!("the pods changed in each of {ATTEMPTS} reads");
+    panic!("the pods changed or the scene was not at rest in each of {ATTEMPTS} reads");
 }
 
 /// The health value of one object of the live scene, read from its store of the app.
