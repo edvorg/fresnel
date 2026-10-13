@@ -125,10 +125,12 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   problem of a file is in the result. A context that the app cannot use stays in the list
   with its error.
 - **Registry**: one entry for each context. It owns the connections of each connected cluster
-  and gives a copy of each state. A `ClusterId` is the name of the context.
+  and gives a copy of each state. It connects one cluster at a time, so a cluster starts one
+  time. A `ClusterId` is the name of the context.
 - **Gateway**: the requests to one cluster, with one function for each request kind: get, list
   page, watch stream, log stream, send and upgrade. The kind gives the connection and the
-  time limits. A failed write tells its fate: not sent, refused or not known.
+  time limits. A failed write tells its fate: not sent, refused or not known. Each read has a
+  size limit.
 - **Probe**: `fresnel_net::probe` measures single steps of a connect with the connect code of
   the app. The `doctor` command uses it.
 

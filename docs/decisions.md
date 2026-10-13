@@ -262,6 +262,21 @@ counts as not known, because a server can fail after it stored the object. A net
 and a timeout also count as not known: the connection layer does not tell yet if the request
 left.
 
+## One connect of a cluster at a time
+
+The registry runs one connect at a time, and a second caller gets the connections of the
+first. In a test, 8 threads that connected one cluster at the same moment started it 8 times:
+up to 24 connections in place of 3. Each start runs the plugin of the user, and a login plugin
+can open a browser window. A connect has its own lock, so a reader of the states never waits
+for a connect.
+
+## Each read of the gateway has a size limit
+
+The gateway holds at most 1 GiB of one answer, 32 MiB of one watch event and 1 MiB of an
+error body. More is an error. A list of 10,000 pods in one page has about 300 MiB, so a good
+answer is far below the limit. Without a limit, one broken answer could use all the memory of
+the app.
+
 ## The doctor measures with the code of the app
 
 The `doctor` command uses the login shell resolve, the kubeconfig loader, the hedged connect,
@@ -269,3 +284,11 @@ the channels and the gateway of the app, so its numbers hold for the app. Each c
 closes after the TLS handshake, and the only request is `GET /version`. A run on a real
 cluster thus reads no object. For the idle close time, the channels for log streams send no
 light request. The text of a plugin shows at the terminal only.
+
+## The doctor counts an idle close from the start of its wait
+
+The kube-apiserver of k3s ends an HTTP/2 connection after its answer to a request with no
+credential. A channel can send its light request before the first token of a plugin, so it
+is on a later connection when it is live. Thus the doctor compares with the connections at
+the start of its idle wait. With no token, it does not wait for the channels. With no HTTP/2
+connection, it takes no sample and starts no session.
