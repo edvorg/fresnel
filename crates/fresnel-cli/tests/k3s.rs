@@ -49,8 +49,8 @@ async fn the_command_measures_a_real_kube_apiserver_through_the_fault_proxy() {
     let token = k3s.kubectl(&["create", "token", "reader", "--namespace", "default"]).await.expect("a token");
     home.write("work/token", token.trim());
 
-    // The context of the cluster admin, with the wait for the close of an idle connection.
-    let run = home.doctor(&["--context", "default", "--samples", "5", "--idle-close", "120"]).await;
+    // The context of the cluster admin, with a client certificate.
+    let run = home.doctor(&["--context", "default", "--samples", "5"]).await;
     println!("{}", run.stdout);
     assert_eq!(run.status, Some(0), "stderr:\n{}", run.stderr);
     let report = home.json("fresnel-doctor.json");
@@ -72,19 +72,16 @@ async fn the_command_measures_a_real_kube_apiserver_through_the_fault_proxy() {
     assert_eq!((&session["stream_limit"], &session["credential"]), (&100.into(), &Value::Null));
     assert_eq!(session["version"]["git_version"], "v1.33.5+k3s1");
     assert!(number(&session["ping_ms"]["min"], "the round trip") >= 40.0, "{session}");
-    // A kube-apiserver closes a connection with no request after 90 s. The light request
-    // of the other channels prevents that.
-    let idle = &session["idle_close"];
-    let closed_after = number(&idle["closed_after_s"], "the time of the close");
-    assert!((85.0..100.0).contains(&closed_after), "{idle}");
-    assert_eq!(
-        (&idle["reason"], &idle["light_request_kept_open"]),
-        (&"the server closed the connection".into(), &true.into())
-    );
+    assert_eq!((&session["ping_error"], &session["idle_close"]), (&Value::Null, &Value::Null));
+    let connections: Vec<_> =
+        session["channels"].as_array().expect("channels").iter().map(|c| &c["connections"]).collect();
+    assert_eq!(connections, [1, 1, 1], "a client certificate needs one connection for each channel");
 
-    // The context with a credential plugin. The login shell gives its folder and the kubeconfig.
+    // The context with a credential plugin, with the wait for the close of an idle
+    // connection. The login shell gives the folder of the plugin and the kubeconfig.
     let json = home.path("plugin.json").display().to_string();
-    let run = home.doctor(&["--context", "with-plugin", "--samples", "0", "--json", &json]).await;
+    let options = ["--context", "with-plugin", "--samples", "0", "--idle-close", "120", "--json", &json];
+    let run = home.doctor(&options).await;
     println!("{}", run.stdout);
     assert_eq!(run.status, Some(0), "stderr:\n{}", run.stderr);
     let report = home.json("plugin.json");
@@ -100,6 +97,16 @@ async fn the_command_measures_a_real_kube_apiserver_through_the_fault_proxy() {
     );
     // The server refuses a request with a bad token, also for this path.
     assert_eq!(session["version"]["git_version"], "v1.33.5+k3s1");
+    // A kube-apiserver closes a connection with no request after 90 s. The light request
+    // of the other channels prevents that. A connection that the server ended before the
+    // first token is not such a close.
+    let idle = &session["idle_close"];
+    let closed_after = number(&idle["closed_after_s"], "the time of the close");
+    assert!((85.0..100.0).contains(&closed_after), "{idle}");
+    assert_eq!(
+        (&idle["reason"], &idle["light_request_kept_open"]),
+        (&"the server closed the connection".into(), &true.into())
+    );
     for output in [&run.stdout, &run.stderr, &home.read("plugin.json")] {
         assert!(!output.contains(token.trim()), "the token is in an output");
     }

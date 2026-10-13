@@ -215,6 +215,37 @@ async fn a_server_that_refuses_each_connection_gives_its_report_with_no_wait() {
     assert_eq!(server.counters().connections, 0);
 }
 
+/// The acceptance of milestone M0: a plugin that hangs shows a timeout. The command ends
+/// after the time limit of the plugin, and no process of the plugin stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plugin_that_hangs_shows_a_timeout_and_leaves_no_process() {
+    let server = FakeApiServer::start().await.expect("a server");
+    server.end_anonymous_connections();
+    let home = home("hang");
+    home.write(
+        "work/kubeconfig.yaml",
+        &kubeconfig(&home, &[("fake", server.addr(), &server, User::Plugin { token: "doctor" })]),
+    );
+    home.write("state/mode", "hang\n");
+
+    let started = Instant::now();
+    let run = home.doctor(&["--context", "fake", "--samples", "0", "--idle-close", "30"]).await;
+    let elapsed = started.elapsed();
+    assert_eq!(run.status, Some(1), "stdout:\n{}\nstderr:\n{}", run.stdout, run.stderr);
+    assert!((Duration::from_secs(20)..Duration::from_secs(25)).contains(&elapsed), "the run took {elapsed:?}");
+    let session = &home.json("fresnel-doctor.json")["clusters"][0]["result"]["session"];
+    let failure = format!("credential plugin `{PLUGIN}`: no answer in 20s");
+    assert_eq!((&session["credential"]["state"], &session["credential"]["plugin_runs"]), (&failure.into(), &1.into()));
+    assert_eq!(session["version"]["error"], session["credential"]["state"]);
+    assert_eq!(session["idle_close"], serde_json::Value::Null, "no idle wait with no live channel");
+    assert!(run.stdout.contains("plugin: fake-plugin: waiting for a login"), "{}", run.stdout);
+    for file in ["state/pid", "state/child"] {
+        let pid = home.read(file);
+        let alive = std::process::Command::new("/bin/kill").args(["-0", pid.trim()]).output().expect("kill runs");
+        assert!(!alive.status.success(), "the process {} of the plugin is alive ({file})", pid.trim());
+    }
+}
+
 /// Headlamp weakness 1: data from the first selected cluster only.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_command_measures_each_selected_cluster_on_its_own_server() {
