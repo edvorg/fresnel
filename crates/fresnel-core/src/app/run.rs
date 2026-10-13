@@ -5,6 +5,7 @@
 //! runs on the threads for blocking calls. A worker thread of the runtime that waits can
 //! stop the timers and the sockets of each cluster.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use fresnel_net::Cause;
@@ -15,7 +16,7 @@ use super::view::{ShellNote, Startup};
 use super::{APP, Command, Inner, Phase, watch};
 use crate::cluster::{ClusterId, LinkState, Registry};
 use crate::error::CoreError;
-use crate::kubeconfig;
+use crate::kubeconfig::{self, Context};
 
 /// One run of the task. After an error or a panic, the next run continues from the state
 /// that the core has: a start that was complete does not run again.
@@ -106,12 +107,29 @@ impl Inner {
             self.journal.warning(APP, format!("{}: {}", problem.path.display(), problem.text));
         }
         let current = loaded.current.filter(|name| loaded.contexts.iter().any(|context| &context.name == name));
+        let contexts = self.with_kept_clusters(registry, loaded.contexts, &loaded.unread);
         let state = self.state();
         // The stop emptied the registry. A load that ends after the stop must not fill it again.
         if state.phase != Phase::Stopped {
-            registry.set_contexts(loaded.contexts);
+            registry.set_contexts(contexts);
         }
         Ok(current)
+    }
+
+    /// Adds the clusters that a file gave before to the contexts of a load in which the
+    /// file does not load (design rule 5). Without them, a syntax error in a file would
+    /// close the connections of each of its clusters.
+    fn with_kept_clusters(&self, registry: &Registry, mut contexts: Vec<Context>, unread: &[PathBuf]) -> Vec<Context> {
+        let before = registry.snapshot().into_iter().map(|cluster| cluster.context);
+        let kept: Vec<Context> = before
+            .filter(|old| unread.contains(&old.source) && contexts.iter().all(|context| context.name != old.name))
+            .collect();
+        if !kept.is_empty() {
+            let text = format!("{} of a file that does not load now stay as they were", count(kept.len(), "cluster"));
+            self.journal.warning(APP, text);
+        }
+        contexts.extend(kept);
+        contexts
     }
 
     /// Starts the detectors of a wake and of a network change. Each one raises the signal

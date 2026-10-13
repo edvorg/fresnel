@@ -9,6 +9,7 @@ use fresnel_core::net::credential::CredentialState;
 use fresnel_testkit::FakeApiServer;
 
 use super::{App, KUBECONFIG, PLUGIN, home, row, states, write_kubeconfig};
+use crate::bed::authority;
 use crate::common::in_time;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -111,4 +112,48 @@ contexts:
     app.core.send(Command::RetryNow(ClusterId::new("late")));
     let repaired = app.until_health("late", Health::Live).await;
     assert_eq!(states(&repaired), [("late", true, Health::Live)], "the context `token` left the file");
+}
+
+/// A second fault during a recovery (design rule 5): the user repairs the kubeconfig entry
+/// of one cluster and leaves a syntax error in the file. Each cluster of the file stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn retry_now_with_a_kubeconfig_file_that_does_not_load_keeps_each_cluster_of_the_file() {
+    let server = FakeApiServer::start().await.expect("a server");
+    let home = home("retry-broken");
+    let (address, good) = (server.addr(), format!("certificate-authority-data: {}", authority(&server)));
+    let file = |late: &str| {
+        format!(
+            "current-context: live
+clusters:
+- {{name: live, cluster: {{server: 'https://{address}', {good}}}}}
+- {{name: late, cluster: {{server: 'https://{address}', {late}}}}}
+contexts:
+- {{name: live, context: {{cluster: live}}}}
+- {{name: late, context: {{cluster: late}}}}
+"
+        )
+    };
+    home.write(KUBECONFIG, &file("certificate-authority: absent.pem")).expect("the kubeconfig");
+    let app = App::started(&home, CoreSettings::default());
+    app.select("late", true);
+    app.until_health("late", Health::Failed).await;
+    app.until_health("live", Health::Live).await;
+
+    home.write(KUBECONFIG, "clusters: [\n").expect("a file with a syntax error");
+    app.core.send(Command::RetryNow(ClusterId::new("late")));
+    let failures = |app: &App| app.texts_of("late").iter().filter(|text| text.starts_with("the connect did")).count();
+    let kept = app.until("the retry ends with a second failure", |_| failures(&app) == 2).await;
+    assert_eq!(states(&kept), [("live", true, Health::Live), ("late", true, Health::Failed)]);
+    assert_eq!((server.counters().connections, server.counters().open_connections), (3, 3), "live keeps its channels");
+    let warnings: Vec<String> =
+        app.journal().into_iter().filter(|(level, ..)| *level == Level::Warning).map(|(.., text)| text).collect();
+    assert!(warnings.iter().any(|text| text.contains(": the file is not a kubeconfig: line 1, ")), "{warnings:?}");
+    assert!(warnings.contains(&"2 clusters of a file that does not load now stay as they were".to_owned()));
+
+    // The second repair is complete.
+    home.write(KUBECONFIG, &file(&good)).expect("the kubeconfig");
+    app.core.send(Command::RetryNow(ClusterId::new("late")));
+    let repaired = app.until_health("late", Health::Live).await;
+    assert_eq!(states(&repaired), [("live", true, Health::Live), ("late", true, Health::Live)]);
+    assert_eq!(server.counters().connections, 6, "live did not connect again");
 }
