@@ -5,13 +5,14 @@ use std::path::Path;
 
 use fresnel_core::cluster::{ClusterId, LinkState, Registry};
 use fresnel_core::kubeconfig;
-use fresnel_core::net::{Cause, ChannelState, ErrorClass, NetSettings, Protocol};
+use fresnel_core::net::credential::CredentialState;
+use fresnel_core::net::{Cause, ChannelState, ClusterStatus, ErrorClass, NetSettings, Protocol};
 use fresnel_testkit::FakeApiServer;
 use k8s_openapi::apimachinery::pkg::version::Info;
 use tokio::runtime::Handle;
 
 use crate::bed::{Bed, CONTEXT, Folder, authority, get, kubeconfig as kubeconfig_text};
-use crate::common::{TestTasks, connect, in_time, registry, until_live};
+use crate::common::{TestTasks, connect, in_time, registry, until, until_live};
 
 fn states(registry: &Registry) -> Vec<(String, &'static str)> {
     let state = |state: &LinkState| match state {
@@ -164,6 +165,65 @@ contexts:
     assert_eq!(exec_info["apiVersion"], "client.authentication.k8s.io/v1");
     assert_eq!(exec_info["spec"]["cluster"]["server"], format!("https://{address}"));
     assert!(exec_info["spec"]["cluster"]["certificate-authority-data"].as_str().is_some_and(|data| data.len() > 100));
+}
+
+/// Two parts of the app can connect one cluster at the same moment. The cluster starts one
+/// time for each round: a second start would run the plugin of the user a second time.
+#[test]
+fn threads_that_connect_one_cluster_at_the_same_moment_start_it_one_time() {
+    const THREADS: usize = 8;
+    const ROUNDS: usize = 25;
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().expect("a runtime");
+    let server = runtime.block_on(FakeApiServer::start()).expect("a server");
+    let folder = Folder::new("race");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fresnel-net/tests/fixtures/fake-plugin");
+    let (address, authority, state) = (server.addr(), authority(&server), folder.path().display());
+    let text = format!(
+        "clusters:
+- {{name: c, cluster: {{server: 'https://{address}', certificate-authority-data: {authority}}}}}
+users:
+- name: u
+  user:
+    exec:
+      command: {}
+      env: [{{name: FAKE_PLUGIN_STATE, value: '{state}'}}]
+contexts:
+- {{name: race, context: {{cluster: c, user: u}}}}
+",
+        fixture.display()
+    );
+    let tasks = TestTasks::new(runtime.handle());
+    let registry = registry(&tasks, runtime.handle(), &folder.write("config", &text), NetSettings::default());
+    let id = ClusterId::new("race");
+
+    for round in 1..=ROUNDS {
+        let start = std::sync::Barrier::new(THREADS);
+        let links: Vec<_> = std::thread::scope(|scope| {
+            let connect_at_start = || {
+                start.wait();
+                connect(&registry, "race")
+            };
+            let threads: Vec<_> = (0..THREADS).map(|_| scope.spawn(connect_at_start)).collect();
+            threads.into_iter().map(|thread| thread.join().expect("the thread connects")).collect()
+        });
+        runtime.block_on(until_live(&links[0]));
+        let has_token = |status: &ClusterStatus| {
+            status
+                .credential
+                .as_ref()
+                .is_some_and(|credential| matches!(credential.state, CredentialState::Valid { .. }))
+        };
+        let status = runtime.block_on(until(&links[0], "the plugin gave a token", has_token));
+        assert_eq!(status.credential.expect("a credential").plugin_runs, 1);
+        let runs = std::fs::read_to_string(folder.path().join("runs")).expect("the runs of the plugin");
+        assert_eq!(runs.lines().count(), round, "one plugin process for each round");
+        assert_eq!(server.counters().connections, 3 * round as u64, "three channels for each round");
+        registry.disconnect(&id);
+        drop(links);
+        runtime.block_on(in_time("each connection closes", server.wait_for(|counters| counters.open_connections == 0)));
+        assert_eq!(tasks.tasks.snapshot(), [], "each task of the cluster stopped");
+    }
 }
 
 /// The UI thread connects a cluster. It has no runtime context.

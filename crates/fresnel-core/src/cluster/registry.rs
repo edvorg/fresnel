@@ -76,6 +76,9 @@ struct Inner {
     env: ProcessEnv,
     settings: NetSettings,
     clusters: Mutex<Vec<Entry>>,
+    /// One connect runs at a time. This lock is not the lock of the list, so a reader of
+    /// the list never waits for a connect.
+    connecting: Mutex<()>,
 }
 
 /// The list of the clusters. A clone is one more handle to the same list.
@@ -88,7 +91,8 @@ impl Registry {
     /// An empty registry. `tasks` starts the tasks of each cluster on `runtime`. `env` is
     /// the resolved environment for the credential plugins. `settings` are for each cluster.
     pub fn new(tasks: Tasks, runtime: Handle, env: ProcessEnv, settings: NetSettings) -> Self {
-        Self { inner: Arc::new(Inner { tasks, runtime, env, settings, clusters: Mutex::new(Vec::new()) }) }
+        let (clusters, connecting) = (Mutex::new(Vec::new()), Mutex::new(()));
+        Self { inner: Arc::new(Inner { tasks, runtime, env, settings, clusters, connecting }) }
     }
 
     /// Takes the contexts of a load of the kubeconfig files. A cluster with the same
@@ -113,7 +117,11 @@ impl Registry {
     /// Connects one cluster and gives its connected parts. A cluster that is connected
     /// gives the parts that it has. The call reads the certificate files of the kubeconfig
     /// entry, so it can block for a short time.
+    ///
+    /// Callers at the same moment connect one after the other. Thus a cluster starts one
+    /// time: a second start would run the plugin of the user a second time.
     pub fn connect(&self, id: &ClusterId) -> Result<Link, CoreError> {
+        let _one_connect = self.inner.connecting.lock().unwrap_or_else(PoisonError::into_inner);
         let (linked, access) = self.read(id, |entry| (entry.link(), entry.context.access.clone()))?;
         if let Some(link) = linked {
             return Ok(link);
@@ -132,13 +140,9 @@ impl Registry {
     ) -> Result<Link, CoreError> {
         let mut clusters = self.clusters();
         let entry = clusters.iter_mut().find(|entry| &entry.id == id).ok_or_else(|| no_cluster(id))?;
-        match &entry.state {
-            // A second caller was faster. The drop of `started` closes its connections.
-            State::On(link) => return Ok(link.clone()),
-            State::Off | State::Failed(_) if entry.context.access != *access => {
-                return Err(CoreError::invalid(format!("the kubeconfig entry of `{id}` changed during the connect")));
-            }
-            State::Off | State::Failed(_) => {}
+        // The drop of `started` closes its connections.
+        if entry.context.access != *access {
+            return Err(CoreError::invalid(format!("the kubeconfig entry of `{id}` changed during the connect")));
         }
         entry.state = match &started {
             Ok(link) => State::On(link.clone()),

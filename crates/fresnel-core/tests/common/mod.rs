@@ -63,18 +63,26 @@ pub(crate) fn connect(registry: &Registry, context: &str) -> Link {
     registry.connect(&ClusterId::new(context)).unwrap_or_else(|error| panic!("{context} connects: {error}"))
 }
 
-/// Waits until each first channel of the cluster is live.
+/// Waits until each channel of the cluster is live.
 pub(crate) async fn until_live(link: &Link) -> ClusterStatus {
+    let live = |status: &ClusterStatus| {
+        let groups = [&status.watches, &status.requests, &status.logs];
+        groups.iter().all(|group| group.channels.iter().all(|channel| channel.state == ChannelState::Live))
+    };
+    until(link, "each channel is live", live).await
+}
+
+/// Waits until the status of the cluster meets the condition.
+pub(crate) async fn until(link: &Link, what: &str, met: impl Fn(&ClusterStatus) -> bool) -> ClusterStatus {
     let mut changes = link.net.changes();
-    let live = async {
+    let wait = async {
         loop {
             let status = link.net.status();
-            let groups = [&status.watches, &status.requests, &status.logs];
-            if groups.iter().all(|group| group.channels.iter().all(|channel| channel.state == ChannelState::Live)) {
+            if met(&status) {
                 return status;
             }
             changes.next().await;
         }
     };
-    timeout(LIMIT, live).await.unwrap_or_else(|_| panic!("each channel is live in time: {:#?}", link.net.status()))
+    timeout(LIMIT, wait).await.unwrap_or_else(|_| panic!("in time: {what}: {:#?}", link.net.status()))
 }
