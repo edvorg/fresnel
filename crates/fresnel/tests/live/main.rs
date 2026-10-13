@@ -125,10 +125,17 @@ fn marks(window: &Window) -> usize {
     window.query_all_by_label_contains("old since ").filter(|node| node.rect().width() < 12.0).count()
 }
 
-/// Weaknesses 1, 7 and 8 of plan section 6, and the acceptance of milestone M1: the rows
-/// of a cluster that is not live get their mark in 20 seconds or less.
-#[test]
-fn the_rows_of_a_cluster_with_a_silent_network_get_their_mark_in_20_seconds_or_less() {
+/// The app on two fake clusters: the window, and the parts that must live as long as it.
+struct Bed {
+    window: Window,
+    ams: Cluster,
+    fra: Cluster,
+    _home: Home,
+    _runtime: Runtime,
+}
+
+/// Starts the app with the pods of the two clusters in its table.
+fn bed() -> Bed {
     let runtime: Runtime = Builder::new_multi_thread().worker_threads(4).enable_all().build().expect("a runtime");
     let (ams, fra) = runtime.block_on(async { (cluster("-ams").await, cluster("-fra").await) });
     let home = home(&ams, &fra);
@@ -151,6 +158,33 @@ fn the_rows_of_a_cluster_with_a_silent_network_get_their_mark_in_20_seconds_or_l
     until(&mut window, "the pods of the two clusters", |window| shows(window, "50 pods"));
     assert!(rows(&window, "-ams") > 0 && rows(&window, "-fra") > 0, "the rows of the two clusters mix by name");
     assert_eq!(marks(&window), 0, "each store is live");
+    Bed { window, ams, fra, _home: home, _runtime: runtime }
+}
+
+/// Deletes the first pod of fra on its server and waits for the table with one pod less:
+/// the watch of the store is open, and its changes arrive.
+fn delete_a_pod_of_fra(window: &mut Window, fra: &Cluster) {
+    let pods: Value = serde_json::from_str(&pod_list("-fra")).expect("JSON");
+    let event = serde_json::json!({"type": "DELETED", "object": pods["items"][0]}).to_string();
+    assert!(fra.server.send_event(PODS, &event) > 0, "the watch of the pods is open");
+    until(window, "one pod less", |window| shows(window, "49 pods"));
+}
+
+/// Stops the core. No task of the app ended in the test: each fault was a state.
+fn stop_with_no_ended_task(window: &Window) {
+    let core = &window.state().core;
+    let journal = core.view().journal;
+    let ended: Vec<&str> =
+        journal.entries.iter().filter(|entry| entry.source == TASK_SOURCE).map(|entry| entry.text.as_str()).collect();
+    assert_eq!(ended, Vec::<&str>::new(), "no task of the app ended");
+    core.stop();
+}
+
+/// Weaknesses 1, 7 and 8 of plan section 6, and the acceptance of milestone M1: the rows
+/// of a cluster that is not live get their mark in 20 seconds or less.
+#[test]
+fn the_rows_of_a_cluster_with_a_silent_network_get_their_mark_in_20_seconds_or_less() {
+    let Bed { mut window, ams: _ams, fra, _home, _runtime } = bed();
 
     // Weaknesses 7 and 8: the network of fra carries no byte and gives no error.
     fra.proxy.set(ProxyMode::Freeze);
@@ -175,21 +209,82 @@ fn the_rows_of_a_cluster_with_a_silent_network_get_their_mark_in_20_seconds_or_l
     assert!(window.query_all_by_label_contains("Pods: ").next().is_none() && shows(&window, "50 pods"));
 
     // A pod that the cluster deletes leaves the table.
-    let gone = pod_list("-fra");
-    let gone: Value = serde_json::from_str(&gone).expect("JSON");
-    let event = serde_json::json!({"type": "DELETED", "object": gone["items"][0]}).to_string();
-    assert!(fra.server.send_event(PODS, &event) > 0, "the watch of the pods is open again");
-    until(&mut window, "one pod less", |window| shows(window, "49 pods"));
+    delete_a_pod_of_fra(&mut window, &fra);
+    stop_with_no_ended_task(&window);
+}
 
-    let core = &window.state().core;
-    let ended: Vec<String> = core
-        .view()
-        .journal
-        .entries
-        .iter()
-        .filter(|entry| entry.source == TASK_SOURCE)
-        .map(|entry| entry.text.clone())
-        .collect();
-    assert_eq!(ended, Vec::<String>::new(), "no task of the app ended");
-    core.stop();
+/// Draws frames for this time. No frame shows a row with a freshness mark.
+fn no_mark_for(window: &mut Window, time: Duration, why: &str) {
+    let started = Instant::now();
+    while started.elapsed() < time {
+        window.run();
+        assert_eq!(marks(window), 0, "{why}, after {:?}", started.elapsed());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Draws frames until the window meets the condition, and then for `more`. In each
+/// frame, each row of fra has its freshness mark: no row of fra looks current.
+fn each_row_of_fra_is_old(window: &mut Window, what: &str, met: impl Fn(&Window) -> bool, more: Duration) {
+    let started = Instant::now();
+    let mut met_at = None;
+    while met_at.is_none_or(|at: Instant| at.elapsed() < more) {
+        window.run();
+        let (marked, of_fra) = (marks(window), rows(window, "-fra"));
+        assert!(
+            marked > 0 && marked == of_fra,
+            "{what}: {marked} of {of_fra} rows are old after {:?}",
+            started.elapsed()
+        );
+        if met_at.is_none() && met(window) {
+            met_at = Some(Instant::now());
+        }
+        assert!(started.elapsed() < LIMIT + more, "in time: {what}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// A slow peer, and a second fault during the recovery (plan section 13). A slow
+/// cluster is not an old one: its rows get no mark while its watch renews through a
+/// network with latency. A network that goes silent again while the store starts its
+/// watch gives no row that looks current, at no moment.
+#[test]
+fn a_slow_cluster_has_no_mark_and_a_second_silence_during_the_recovery_keeps_each_mark() {
+    let Bed { mut window, ams: _ams, fra, _home, _runtime } = bed();
+    let slow = ProxyMode::Latency(Duration::from_millis(300));
+
+    // Each byte of fra arrives 300 ms late, and the server ends each watch, as it does
+    // at the timeout of a watch. The store stays live for the round trip of the renewal.
+    fra.proxy.set(slow);
+    for renewal in 1..=3 {
+        // A watch that the server ends in its first second is a fault for the app.
+        no_mark_for(&mut window, Duration::from_millis(2500), "a slow cluster is live");
+        assert!(fra.server.end_watches() > 0, "renewal {renewal}: the watch of the pods is open");
+    }
+    no_mark_for(&mut window, Duration::from_millis(2500), "the last renewal");
+
+    fra.proxy.set(ProxyMode::Freeze);
+    let marked = until(&mut window, "the mark on each row of fra", |window| marks(window) > 0);
+    eprintln!("live: the rows of the slow cluster got their mark {marked:.1?} after its network went silent");
+    assert!(marked <= Duration::from_secs(20), "the mark came after {marked:?}");
+    let waits = |window: &Window| window.query_all_by_label_contains("Pods: waits for a connection").count() == 1;
+    each_row_of_fra_is_old(&mut window, "the store waits for a connection", waits, Duration::ZERO);
+
+    // The network returns, and it is slow. It goes silent again in the first frame in
+    // which the store does not wait for a connection any more: the request of its watch
+    // is on its way then, and it ends at its time limit of 10 s.
+    fra.proxy.set(slow);
+    each_row_of_fra_is_old(&mut window, "the recovery starts", |window| !waits(window), Duration::ZERO);
+    fra.proxy.set(ProxyMode::Freeze);
+    each_row_of_fra_is_old(&mut window, "the second silence", |_| true, Duration::from_secs(13));
+    assert!(shows(&window, "50 pods"), "the old rows stay (design rule 5)");
+
+    fra.proxy.set(ProxyMode::Pass);
+    let live = until(&mut window, "no mark", |window| marks(window) == 0);
+    eprintln!(
+        "live: after a second silence during the recovery, the rows were current {live:.1?} after the network returned"
+    );
+    assert!(live <= Duration::from_secs(10), "the rows were current after {live:?}");
+    delete_a_pod_of_fra(&mut window, &fra);
+    stop_with_no_ended_task(&window);
 }
