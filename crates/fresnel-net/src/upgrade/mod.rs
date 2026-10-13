@@ -16,6 +16,7 @@ use futures_util::future::join_all;
 use http::{Request, Response};
 use http_body_util::Full;
 use tokio::sync::Notify;
+use tokio::time::sleep;
 
 use crate::body::ResponseBody;
 use crate::channel::Parts;
@@ -190,10 +191,17 @@ impl Shared {
     /// The task of the warm set. It never ends by itself.
     async fn keep(self: Arc<Self>) -> Result<(), NetError> {
         let mut listener = self.parts.signal.listen();
+        // One timer for all turns of the loop. A timer that started again in each turn
+        // would never end while requests take connections faster than the period.
+        let next_refresh = sleep(self.settings.refresh_period);
+        tokio::pin!(next_refresh);
         loop {
             self.fill().await;
             tokio::select! {
-                () = tokio::time::sleep(self.settings.refresh_period) => self.refresh().await,
+                () = &mut next_refresh => {
+                    self.refresh().await;
+                    next_refresh.set(sleep(self.settings.refresh_period));
+                }
                 () = self.changed.notified() => {}
                 // After a wake or a network change, each idle connection can be silent.
                 _cause = listener.raised() => self.drop_idle(),

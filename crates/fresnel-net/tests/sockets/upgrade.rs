@@ -132,3 +132,36 @@ async fn an_upgrade_with_a_refused_token_goes_out_again_with_a_new_token() {
     assert_eq!(tokens, [Some("exec-1"), Some("exec-2")]);
     assert!(upgrades.iter().all(|request| request.version == http::Version::HTTP_11));
 }
+
+/// A forward that opens a connection each moment gives the keeper of the set work all the
+/// time. The refresh must run in spite of that: the server closes a connection that got no
+/// request for 90 s, and the next use of it then costs a new connect.
+#[tokio::test]
+async fn the_warm_set_gets_its_refresh_while_upgrades_use_it_all_the_time() {
+    const PERIOD: Duration = Duration::from_millis(300);
+    let server = FakeApiServer::start().await.expect("a server");
+    let tasks = TestTasks::new();
+    let mut spec = spec("busy-warm", server.addr(), trust(&server));
+    spec.settings.upgrade.refresh_period = PERIOD;
+    let cluster = Cluster::start(&tasks.tasks, spec).expect("a cluster");
+    let _forward = cluster.keep_upgrades_warm();
+    until_warm(&cluster, "two warm connections", |upgrade| upgrade.warm == 2).await;
+
+    // The pause between two upgrades is shorter than the period, for 4 periods.
+    for _ in 0..12 {
+        upgrade_and_echo(&cluster).await;
+        tokio::time::sleep(PERIOD / 3).await;
+    }
+    let light_requests = server
+        .requests()
+        .iter()
+        .filter(|request| request.version == http::Version::HTTP_11 && request.uri.path() == "/version")
+        .count() as u64;
+    // An upgrade on a warm connection sends one light request: the test before the use.
+    // Each light request above that count is the refresh of one idle connection.
+    let status = cluster.status().upgrade;
+    assert!(
+        light_requests >= status.reused + 2,
+        "no refresh in 4 periods: {light_requests} light requests, {status:?}"
+    );
+}
