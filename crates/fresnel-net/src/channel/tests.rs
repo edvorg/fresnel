@@ -16,6 +16,7 @@ use crate::signal::Cause;
 use crate::task::TaskReport;
 use crate::testing::{Connects, MemoryServer};
 
+mod live;
 mod windows;
 
 const SECOND: Duration = Duration::from_secs(1);
@@ -87,25 +88,6 @@ impl Bed {
 
 fn settings() -> ChannelSettings {
     ChannelSettings::for_watches()
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_channel_is_live_only_after_an_answer() {
-    let server = MemoryServer::new();
-    server.set_mute(true);
-    let mut bed = Bed::on(server, settings());
-    bed.until_state(ChannelState::Verifying).await;
-    assert_eq!((bed.server.dials(), bed.elapsed()), (1, Duration::ZERO), "the connection is open at once");
-
-    let status = bed.until("backoff", |status| matches!(status.state, ChannelState::Backoff { .. })).await;
-    assert_eq!(bed.elapsed(), 10 * SECOND, "the first answer has a time limit");
-    assert_eq!(status.last_error.as_deref(), Some("no answer to the light request in 10s"));
-    assert_eq!((status.connections, status.server_stream_limit, status.ping_time), (1, None, None));
-
-    bed.server.set_mute(false);
-    let live = bed.until_state(ChannelState::Live).await;
-    assert_eq!((live.connections, live.server_stream_limit, live.stream_budget), (2, Some(100), 70));
-    assert_eq!(live.ping_time, Some(Duration::ZERO));
 }
 
 #[tokio::test(start_paused = true)]

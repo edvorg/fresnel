@@ -64,6 +64,8 @@ pub(crate) struct Seen {
 struct Script {
     /// Each request with this start of its path gets HTTP 401.
     refused_path: Option<&'static str>,
+    /// Each request with this start of its path gets no answer.
+    muted_path: Option<&'static str>,
     /// The next requests get HTTP 429 with these values of `Retry-After`.
     throttles: VecDeque<&'static str>,
 }
@@ -160,6 +162,11 @@ impl MemoryServer {
 
     pub(crate) fn set_mute(&self, mute: bool) {
         self.shared.mute.store(mute, Ordering::SeqCst);
+    }
+
+    /// Each request whose path starts with `prefix` gets no answer.
+    pub(crate) fn mute_path(&self, prefix: &'static str) {
+        self.shared.script.lock().expect("a lock").muted_path = Some(prefix);
     }
 
     /// The count of connects that gave a connection.
@@ -264,7 +271,8 @@ impl Shared {
         let path = request.uri().path().to_owned();
         let headers = request.headers().clone();
         self.seen.lock().expect("a lock").push(Seen { connection, path: path.clone(), headers });
-        if self.mute.load(Ordering::SeqCst) {
+        let muted_path = self.script.lock().expect("a lock").muted_path.is_some_and(|prefix| path.starts_with(prefix));
+        if muted_path || self.mute.load(Ordering::SeqCst) {
             std::future::pending::<()>().await;
         }
         if let Some(scripted) = self.scripted(&path) {
