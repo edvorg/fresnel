@@ -14,16 +14,16 @@ use crate::bed::{Bed, ProxyBed};
 use crate::common::{LIMIT, in_time};
 use crate::store_bed::Stores;
 
-const PODS: &str = "/api/v1/pods";
+pub(crate) const PODS: &str = "/api/v1/pods";
 const SECRETS: &str = "/api/v1/secrets";
 /// The kinds of tier A and tier B.
-const STORES: usize = 39;
+pub(crate) const STORES: usize = 39;
 
-fn of_path<'a>(requests: &'a [SeenRequest], path: &str) -> Vec<&'a SeenRequest> {
+pub(crate) fn of_path<'a>(requests: &'a [SeenRequest], path: &str) -> Vec<&'a SeenRequest> {
     requests.iter().filter(|seen| seen.uri.path() == path).collect()
 }
 
-fn state_of(statuses: &[StoreStatus], kind: Kind) -> &StoreState {
+pub(crate) fn state_of(statuses: &[StoreStatus], kind: Kind) -> &StoreState {
     &statuses.iter().find(|status| status.kind == kind).expect("the store of the kind").state
 }
 
