@@ -8,6 +8,8 @@
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 mod child;
+#[path = "../common/mod.rs"]
+mod common;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -45,9 +47,7 @@ fn home(server: &FakeApiServer) -> Home {
 }
 
 fn kubeconfig(home: &Home, address: SocketAddr, server: &FakeApiServer) -> String {
-    let certificate = base64(server.certificate_der());
-    let authority =
-        base64(format!("-----BEGIN CERTIFICATE-----\n{certificate}\n-----END CERTIFICATE-----\n").as_bytes());
+    let authority = common::authority(server);
     let state = home.path("state");
     format!(
         "clusters:
@@ -64,20 +64,6 @@ contexts:
 ",
         state.display()
     )
-}
-
-/// Base64 with padding. The test needs it for one certificate, so it has no crate for it.
-fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut text = String::new();
-    for chunk in bytes.chunks(3) {
-        let group = chunk.iter().fold(0_u32, |group, byte| group << 8 | u32::from(*byte)) << (8 * (3 - chunk.len()));
-        for position in 0..4 {
-            let symbol = ALPHABET[(group >> (18 - 6 * position) & 63) as usize];
-            text.push(if position <= chunk.len() { char::from(symbol) } else { '=' });
-        }
-    }
-    text
 }
 
 /// Runs this test program again as the child, with the environment of Finder.

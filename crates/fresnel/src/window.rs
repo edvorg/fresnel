@@ -6,10 +6,11 @@
 use std::sync::Arc;
 
 use eframe::egui;
-use fresnel_core::app::{Core, CoreView};
+use fresnel_core::app::CoreView;
 use fresnel_ui::{Clock, Shell};
 
 use crate::boot::Boot;
+use crate::frame;
 use crate::nap::NapGuard;
 
 const TITLE: &str = "Fresnel";
@@ -43,10 +44,6 @@ struct Window {
 }
 
 impl Window {
-    fn core(&self) -> &Core {
-        self.boot.core()
-    }
-
     /// App Nap stays off while a cluster is selected: its channels have timers.
     fn hold_activity(&mut self, view: &CoreView) {
         self.nap.hold(view.clusters.iter().any(|row| row.selected));
@@ -55,10 +52,7 @@ impl Window {
 
 impl eframe::App for Window {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let view = self.core().view();
-        for command in self.shell.show(ui, &view) {
-            self.core().send(command);
-        }
+        let view = frame::draw(&mut self.shell, self.boot.core(), ui);
         self.hold_activity(&view);
     }
 

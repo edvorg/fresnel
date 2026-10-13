@@ -1,12 +1,14 @@
 //! The desktop program: the window, the tokio runtime and the log setup.
 //!
 //! - [`boot`]: the start before the window, and the quit sequence.
+//! - [`frame`]: one frame of the window, also for a test with no window.
 //! - [`folders`]: where the files are. [`lock`]: one process of the app at a time.
 //! - [`log_file`]: the journal on the disk. [`panic_report`]: a file for each panic.
 //! - [`nap`]: the macOS activity against App Nap. `window`: the window itself.
 
 pub mod boot;
 pub mod folders;
+pub mod frame;
 pub mod lock;
 pub mod log_file;
 pub mod nap;

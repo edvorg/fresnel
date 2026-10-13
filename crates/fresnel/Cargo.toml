@@ -20,6 +20,7 @@ objc2.workspace = true
 objc2-foundation.workspace = true
 
 [dev-dependencies]
+egui_kittest.workspace = true
 fastrand.workspace = true
 fresnel-testkit.workspace = true
 serde_json.workspace = true
@@ -28,6 +29,10 @@ tokio = { workspace = true, features = ["macros"] }
 [[test]]
 name = "finder"
 path = "tests/finder/main.rs"
+
+[[test]]
+name = "live"
+path = "tests/live/main.rs"
 
 [lints]
 workspace = true

@@ -1375,6 +1375,7 @@ name = "fresnel"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "egui_kittest",
  "fastrand",
  "fresnel-core",
  "fresnel-testkit",
