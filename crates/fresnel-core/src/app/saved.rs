@@ -91,6 +91,8 @@ impl Inner {
         if let Err(error) = self.off_worker(move || state_file::save(&path, &SavedState { selected })).await? {
             let file = self.state_file.display();
             self.journal.warning(APP, format!("the selection is not saved: {file}: {error}"));
+            // The repaint of the change came before the write, so the warning asks for its own.
+            self.repaint.request();
         }
         Ok(())
     }

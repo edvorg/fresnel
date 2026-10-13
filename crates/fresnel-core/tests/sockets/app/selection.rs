@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use fresnel_core::app::{CoreSettings, Health, Startup};
+use fresnel_core::app::{CoreSettings, CoreView, Health, Startup};
 use fresnel_core::journal::Level;
 use fresnel_testkit::{FakeApiServer, Home};
 
@@ -124,4 +124,38 @@ async fn a_saved_cluster_that_no_kubeconfig_file_has_stays_in_the_state_file() {
     until_saved(&home, &["a", "b", "other-file"]).await;
     app.select("a", false);
     until_saved(&home, &["b", "other-file"]).await;
+}
+
+/// A write of the state file that fails, as on a disk with no space: the window shows the
+/// warning, the selection works in this run, and the next change writes the selection.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_that_fails_is_a_warning_and_the_next_change_saves_the_selection() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let [a, b, _c] = three_servers().await;
+    let home = home("selection-no-write");
+    write_kubeconfig(&home, "a", &[("a", a.addr(), &a, false), ("b", b.addr(), &b, false)]);
+    let app = App::started(&home, CoreSettings::default());
+    app.until_health("a", Health::Live).await;
+
+    // The folder takes no new file.
+    let folder = home.path(STATE_FILE).parent().expect("the folder of the state file").to_owned();
+    let permit = |mode| std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(mode)).expect("the mode");
+    permit(0o500);
+    app.select("a", false);
+    let not_saved = |view: &CoreView| {
+        let warnings =
+            view.journal.entries.iter().filter(|entry| entry.text.starts_with("the selection is not saved: "));
+        warnings.map(|entry| (entry.level, entry.source.clone())).collect::<Vec<_>>()
+    };
+    let view = app.until("the warning of the failed write", |view| !not_saved(view).is_empty()).await;
+    permit(0o700);
+    assert_eq!(not_saved(&view), [(Level::Warning, "app".to_owned())]);
+    assert_eq!(states(&view), [("a", false, Health::Off), ("b", false, Health::Off)], "the selection works");
+    assert_eq!(saved(&home), None);
+
+    app.select("b", true);
+    until_saved(&home, &["b"]).await;
+    let view = app.until_health("b", Health::Live).await;
+    assert_eq!(not_saved(&view).len(), 1, "one failed write gives one warning");
 }
