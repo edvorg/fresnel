@@ -103,13 +103,13 @@ impl ChannelSettings {
 
     /// The stream budget for a server limit (plan sections 8.6 and 8.7).
     ///
-    /// The budget is also below the count of stream windows that fit into the connection
-    /// window. Thus bodies that nobody reads can fill each stream window, and the
-    /// connection window still has room for one more stream.
+    /// The budget is also one below the count of stream windows that fit into the
+    /// connection window. Thus bodies that nobody reads can fill each stream window, and the
+    /// connection window still has room for one more stream: the test of the connection.
     pub(crate) fn budget(&self, server_limit: usize) -> usize {
         let by_limit = server_limit.saturating_mul(self.stream_budget_percent) / 100;
-        let stream_window = usize::try_from(self.stream_window).unwrap_or(usize::MAX).max(1);
-        let by_window = usize::try_from(self.connection_window.saturating_sub(1)).unwrap_or(usize::MAX) / stream_window;
+        let windows = self.connection_window / self.stream_window.max(1);
+        let by_window = usize::try_from(windows).unwrap_or(usize::MAX).saturating_sub(1);
         by_limit.min(by_window).max(1)
     }
 }

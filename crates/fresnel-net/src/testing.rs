@@ -277,6 +277,11 @@ impl Shared {
             });
             return Response::new(StreamBody::new(events).boxed_unsync());
         }
+        if path.starts_with("/flood") {
+            // A body with no end. Only the windows of the client stop it.
+            let pieces = stream::repeat_with(|| Ok(Frame::data(Bytes::from_static(&[b'x'; 16 * 1024]))));
+            return Response::new(StreamBody::new(pieces).boxed_unsync());
+        }
         if path != "/big" {
             return text(StatusCode::OK, "ok");
         }

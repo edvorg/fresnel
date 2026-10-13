@@ -209,7 +209,8 @@ the old connection until its open streams end.
 ## The stream budget fits into the windows
 
 The windows are fixed: an adaptive window lets one body that nobody reads stop each other
-stream. The stream budget is the smaller of 70 percent of the server limit and the count of
-stream windows that fit into the connection window. In the prototype, 70 unread bodies of
-1 MiB stopped a channel with a window of 64 MiB, and its state stayed live.
+stream. The stream budget is the smaller of 70 percent of the server limit and one less than
+the count of stream windows that fit into the connection window. The test of a connection
+needs that room. In the prototype, 70 unread bodies of 1 MiB stopped a channel with a window
+of 64 MiB, and its state stayed live.
 

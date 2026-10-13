@@ -16,6 +16,8 @@ use crate::signal::Cause;
 use crate::task::TaskReport;
 use crate::testing::{Connects, MemoryServer};
 
+mod windows;
+
 const SECOND: Duration = Duration::from_secs(1);
 const MS: Duration = Duration::from_millis(1);
 
@@ -370,20 +372,4 @@ async fn a_panic_in_the_task_of_a_channel_gives_a_report_and_the_channel_connect
     let request = Request::get("https://memory/api/v1/pods").body(Full::default()).expect("a request");
     let (channel, _stream) = group.stream().await;
     assert!(channel.send(request).await.is_ok(), "the channel works after the restart of its task");
-}
-
-#[test]
-fn the_connection_window_is_above_the_budget_times_the_stream_window() {
-    for settings in [ChannelSettings::for_watches(), ChannelSettings::for_requests(), ChannelSettings::for_logs()] {
-        for server_limit in [1, 2, 100, 250, 1000, 1_000_000, usize::MAX] {
-            let budget = u64::try_from(settings.budget(server_limit)).expect("a small number");
-            assert!(budget >= 1);
-            assert!(
-                budget * u64::from(settings.stream_window) < u64::from(settings.connection_window),
-                "limit {server_limit}: {budget} streams of {} bytes do not fit",
-                settings.stream_window
-            );
-        }
-        assert_eq!(settings.budget(100), 70, "a kube-apiserver permits 100 streams");
-    }
 }
