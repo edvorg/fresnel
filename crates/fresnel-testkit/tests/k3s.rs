@@ -72,6 +72,10 @@ fn container_address(cluster: &K3s) -> String {
 #[ignore = "needs k3s in Docker"]
 async fn the_helper_gives_the_kube_apiserver_and_keeps_its_address_and_removes_the_container() {
     let cluster = K3s::start("kit").await.expect("k3s starts");
+    // A test can make a pod at once: the start waits for the service account of the
+    // namespace. The pod names a node that does not exist, so nothing starts it.
+    let pod = ["run", "kit-pod", "--image=none", "--restart=Never", r#"--overrides={"spec":{"nodeName":"none"}}"#];
+    cluster.kubectl(&pod).await.expect("a pod right after the start");
     let (name, api, kubeconfig) = (cluster.name().to_owned(), cluster.api_addr(), cluster.kubeconfig());
     assert!(name.starts_with("fresnel-test-kit-"), "{name}");
     assert_eq!(docker(&["port", &name]), format!("6444/tcp -> {api}"), "only the kube-apiserver port is published");

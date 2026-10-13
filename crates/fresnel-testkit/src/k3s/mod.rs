@@ -36,8 +36,9 @@ pub struct K3s {
 }
 
 impl K3s {
-    /// Starts a cluster and waits until its API server is ready. `label` becomes a part of
-    /// the container name, so that `docker ps` shows which test owns the container.
+    /// Starts a cluster and waits until its API server is ready and a test can make a pod.
+    /// `label` becomes a part of the container name, so that `docker ps` shows which test
+    /// owns the container.
     pub async fn start(label: &str) -> Result<Self, KitError> {
         let name = format!("{NAME_PREFIX}{label}-{:06x}", fastrand::u32(..0x0100_0000));
         let api = SocketAddr::from((Ipv4Addr::LOCALHOST, free_port()?));

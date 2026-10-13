@@ -44,7 +44,7 @@ async fn the_command_measures_a_real_kube_apiserver_through_the_fault_proxy() {
     home.write("work/kubeconfig.yaml", &admin);
     home.write("work/token.yaml", TOKEN_CONTEXT);
     home.add_program("fresnel-test-token", TOKEN_PLUGIN);
-    // A new cluster has no service account for some seconds, so the test makes its own.
+    // The plugin gives the token of a service account that can read no object.
     k3s.kubectl(&["create", "serviceaccount", "reader", "--namespace", "default"]).await.expect("a service account");
     let token = k3s.kubectl(&["create", "token", "reader", "--namespace", "default"]).await.expect("a token");
     home.write("work/token", token.trim());

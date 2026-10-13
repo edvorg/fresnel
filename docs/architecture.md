@@ -168,7 +168,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - `FaultProxy`: a TCP proxy before a server. Its modes are pass, hold of new connections,
   freeze, latency and a reset each period. It can reset or silence the open connections.
 - `K3s`: k3s in Docker with a fixed address in its own Docker network. It gives a kubeconfig
-  file and the address of the kube-apiserver, and it can restart the cluster.
+  file, the address of the kube-apiserver, `kubectl` and a restart. A test can make a pod at once.
 - `FakeApiServer`: a local server with TLS, HTTP/2, HTTP/1.1, watch streams and the HTTP 101
   upgrade. Its scripted faults are no answer, HTTP 401, HTTP 429, GOAWAY and a low stream limit.
 - `Home`: a home folder with a shell profile, for a start with the environment of Finder.

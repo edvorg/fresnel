@@ -54,16 +54,25 @@ impl Container {
         docker(&[&["exec", &self.name], program].concat()).await
     }
 
-    /// Waits until the API server reports that it is ready. Docker gives no signal for
-    /// this, so the helper asks again.
+    /// Waits until the API server reports that it is ready, and then until the namespace
+    /// `default` has its service account. The account comes some seconds after the server,
+    /// and the server refuses each new pod before it. Docker gives no signal for these
+    /// states, so the helper asks again.
     pub(super) async fn wait_ready(&self) -> Result<(), KitError> {
+        self.wait_for("the API server is not ready", &["get", "--raw", "/readyz"]).await?;
+        let account = ["get", "serviceaccount", "default", "--namespace", "default", "--output", "name"];
+        self.wait_for("the namespace `default` has no service account", &account).await
+    }
+
+    /// Runs a `kubectl` command again and again until it works. `problem` is the text of
+    /// the error at the time limit.
+    async fn wait_for(&self, problem: &str, kubectl: &[&str]) -> Result<(), KitError> {
         let limit = Instant::now() + READY_LIMIT;
         loop {
-            match self.exec(&["kubectl", "get", "--raw", "/readyz", READY_REQUEST_LIMIT]).await {
+            match self.exec(&[&["kubectl"], kubectl, &[READY_REQUEST_LIMIT]].concat()).await {
                 Ok(_) => return Ok(()),
                 Err(error) if Instant::now() >= limit => {
-                    let step = format!("{}: the API server is not ready after {READY_LIMIT:?}", self.name);
-                    return Err(KitError::because(step, error));
+                    return Err(KitError::because(format!("{}: {problem} after {READY_LIMIT:?}", self.name), error));
                 }
                 Err(_not_ready_yet) => sleep(READY_STEP).await,
             }
