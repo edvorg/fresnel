@@ -70,23 +70,42 @@ pub(crate) fn window(view: CoreView) -> Window {
 }
 
 pub(crate) fn window_with(view: CoreView, theme: egui::Theme, pixels_per_point: f32) -> Window {
+    build(view, theme, pixels_per_point, true)
+}
+
+/// The window with no GPU code, for a test that measures the time of its frames. Such a
+/// window cannot give a picture.
+pub(crate) fn window_with_no_gpu(view: CoreView, pixels_per_point: f32) -> Window {
+    build(view, egui::Theme::Dark, pixels_per_point, false)
+}
+
+fn build(view: CoreView, theme: egui::Theme, pixels_per_point: f32, gpu: bool) -> Window {
     let frame = |ui: &mut egui::Ui, core: &mut FakeCore| {
         let shell = core.shell.get_or_insert_with(|| Shell::new(ui.ctx(), Clock::fixed(now()), &core.tasks));
         let commands = shell.show(ui, &core.view);
         core.sent.extend(commands);
     };
-    let mut window = Harness::builder()
+    let builder = Harness::builder()
         .with_size([1280.0, 800.0])
         .with_pixels_per_point(pixels_per_point)
         .with_theme(theme)
         // A worker thread asks for a frame when its rows are there, at any moment. Some
         // frames in sequence are thus no fault; a view that asks with no end still is one.
         .with_max_steps(MOST_FRAMES)
-        .wgpu()
-        .build_ui_state(frame, FakeCore::new(view));
-    // The worker thread of the Pod table gives its first rows, also for no pod.
+        // The frame time of a display. With the longer one of the harness, a repaint that
+        // a view asks for after 200 ms would count as a frame that follows at once.
+        .with_step_dt(1.0 / 60.0);
+    let builder = if gpu { builder.wgpu() } else { builder };
+    let mut window = builder.build_ui_state(frame, FakeCore::new(view));
+    // The worker thread of the Pod table gives its first rows, also for no pod. The
+    // count of the rows shows from then on: "25 pods", or "2 of 25 pods".
     until(&mut window, "the first rows of the Pod table", |window| {
-        window.query_all_by_label_contains(" pod").next().is_some()
+        let is_count = |node: &egui_kittest::Node<'_>| {
+            let text = node.value().unwrap_or_default();
+            text.starts_with(|first: char| first.is_ascii_digit())
+                && (text.ends_with(" pods") || text.ends_with(" pod"))
+        };
+        window.query_all_by_role(egui::accesskit::Role::Label).any(|node| is_count(&node))
     });
     window
 }

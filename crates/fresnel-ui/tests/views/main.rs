@@ -6,6 +6,7 @@
 //!
 //! - `fake`: the fake core and the harness. `data`: the objects of the k3s fixture.
 //! - `connections`, `journal`, `pods`, `shell`: the tests.
+//! - `frame_time`: the time of a frame with 10,000 pods. Its limit holds in a release build.
 //! - `snapshots`: PNG files of the views, for a look by a person.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
@@ -13,6 +14,7 @@
 mod connections;
 mod data;
 mod fake;
+mod frame_time;
 mod journal;
 mod pods;
 mod shell;
