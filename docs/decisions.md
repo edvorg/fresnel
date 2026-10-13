@@ -323,6 +323,28 @@ the cluster, and a login plugin can open a browser window, so the app does not c
 context of the files by itself. The selection is not saved yet. The settings file of a later
 milestone saves it.
 
+## The core reads files on the threads for blocking calls
+
+The task of the core reads the kubeconfig files and the certificate files with
+`spawn_blocking`. A read can wait for a slow disk. A thread of the runtime that waits holds
+the tasks that it woke, and it can leave the timers and the sockets with no thread. Tests with
+a pipe in place of a file prove that the window gets its wake and that a second cluster
+connects during the read.
+
+## The stop of the core is final
+
+The stop can come while the task of the core holds the result of a read, and the task stops
+only at its next wait. Thus the task reads the phase of the core under the lock of the state
+before it gives contexts to the registry and before it keeps a monitor. A stopped core starts
+no task again and drops each command.
+
+## A reload keeps the clusters of a file that does not load
+
+"Retry now" for a cluster whose connect did not start loads the kubeconfig files again. The
+user edits a file at that time, so a syntax error is probable. A file that exists and does
+not load keeps the clusters that it gave before, with their connections, and the journal
+tells the problem. A file that is absent gives no cluster, as for `kubectl`.
+
 ## The journal writes its log line at once
 
 The journal gives each entry to its sink in the task that made the entry, and the log file

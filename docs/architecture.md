@@ -124,19 +124,19 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Kubeconfig**: `kubeconfig::load` reads each file of `KUBECONFIG` of the login shell and then
   `~/.kube/config`, and lists each context. For a name in two files, the first file wins. The
   result has each problem of a file. A context that the app cannot use stays, with its error.
+  At a reload, a file that does not load keeps its clusters.
 - **Registry**: one entry for each context. It owns the connections of each connected cluster
   and gives a copy of each state. It connects one cluster at a time, so a cluster starts one
   time. A `ClusterId` is the name of the context.
 - **Gateway**: the requests to one cluster, with one function for each request kind: get, list
-  page, watch stream, log stream, send and upgrade. The kind gives the connection and the
-  time limits. A failed write tells its fate: not sent, refused or not known. Each read has a
-  size limit.
+  page, watch stream, log stream, send and upgrade. The kind gives the connection and the time
+  limits. A failed write tells its fate: not sent, refused or not known. Each read has a size limit.
 - **Probe**: `fresnel_net::probe` measures single steps of a connect with the connect code of
   the app. The `doctor` command uses it.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. It does no work
   before its start. Then one task reads the login shell environment and the kubeconfig files,
-  connects each selected cluster and runs each command of the UI. One task for each connected
-  cluster puts each change of its one state into the journal.
+  connects each selected cluster and runs each command of the UI. It reads files on the
+  threads for blocking calls. One task for each cluster puts its state changes into the journal.
 - **Journal**: the last 10,000 entries in memory, with counts. A sink takes each entry.
 
 ## Contract between the UI and the core
