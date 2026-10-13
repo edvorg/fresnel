@@ -2,10 +2,11 @@
 //!
 //! - `states`: each state of a store. `table`: sort, filters, counts and the selection.
 //! - `weakness`: the weaknesses of Headlamp of plan section 6 that apply to this view.
-//! - `detail`: the detail panel.
+//! - `detail`: the detail panel. `snapshots`: PNG files of the view.
 
 mod detail;
 pub(crate) mod scenes;
+mod snapshots;
 mod states;
 mod table;
 mod weakness;

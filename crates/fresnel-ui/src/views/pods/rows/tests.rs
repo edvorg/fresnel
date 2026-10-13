@@ -142,6 +142,8 @@ fn a_row_of_a_store_that_is_not_live_has_the_mark_and_no_state_color() {
     let old = cells(row(&all, "fra", "crash"), &scene);
     assert_eq!(old[0].2, Lead::Old("old"));
     assert!(old.iter().all(|(_, tone, _)| *tone == Tone::Faint), "{old:?}");
+    assert_eq!(old[4].2, Lead::Dot(DARK.text_faint), "the dot of the status has no color of a state");
+    assert_eq!(old[2].2, Lead::Dot(DARK.clusters[1]), "the color of the cluster stays");
     let old_texts: Vec<&str> = old.iter().map(|(text, _, _)| text.as_str()).collect();
     assert_eq!((old_texts[2], &old_texts[3..]), ("fra", &texts[3..]), "the values stay (design rule 5)");
 

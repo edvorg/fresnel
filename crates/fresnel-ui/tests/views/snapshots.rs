@@ -1,4 +1,5 @@
-//! PNG files of the views in the dark theme, for a look by a person.
+//! PNG files of the views in the dark theme, for a look by a person. The files of the Pods
+//! view come from `pods/snapshots.rs`.
 //!
 //! The files go to the folder of `FRESNEL_SNAPSHOT_DIR`, or to the test folder of the
 //! build. A test checks only that a frame has the size and is not blank: a comparison of
@@ -8,7 +9,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use egui_kittest::kittest::Queryable as _;
 use fresnel_core::app::{CoreView, Startup};
 use fresnel_core::cluster::LinkState;
 use fresnel_core::journal::Level;
@@ -21,13 +21,13 @@ use crate::fake::{
 };
 
 /// The scale of a Retina display.
-const SCALE: f32 = 2.0;
+pub(crate) const SCALE: f32 = 2.0;
 
 fn folder() -> PathBuf {
     std::env::var_os("FRESNEL_SNAPSHOT_DIR").map_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")), PathBuf::from)
 }
 
-fn save(window: &mut Window, name: &str) {
+pub(crate) fn save(window: &mut Window, name: &str) {
     let image = window.render().expect("a GPU adapter draws the frame");
     assert_eq!((image.width(), image.height()), (2560, 1600));
     let colors: HashSet<_> = image.pixels().collect();
@@ -131,18 +131,10 @@ fn the_cards_of_clusters_with_a_fault_in_the_dark_theme() {
     faults.clusters.retain(|row| row.id.as_str() != "ams-prod");
     faults.clusters.reverse();
     let mut window = window_with(faults, egui::Theme::Dark, SCALE);
-    save(&mut window, "connections-faults");
-}
-
-#[test]
-fn the_journal_tab_in_the_dark_theme() {
-    let mut window = window_with(session(), egui::Theme::Dark, SCALE);
-    window.get_by_label("Journal").click();
-    window.run();
-    // The harness draws a pointer arrow at the last click. A snapshot has none.
+    open_page(&mut window, "Connections");
     window.remove_cursor();
     window.run();
-    save(&mut window, "journal");
+    save(&mut window, "connections-faults");
 }
 
 #[test]
@@ -156,21 +148,8 @@ fn the_window_at_its_start_in_the_dark_theme() {
 #[test]
 fn the_connections_view_in_the_light_theme() {
     let mut window = window_with(session(), egui::Theme::Light, SCALE);
-    save(&mut window, "connections-light");
-}
-
-#[test]
-fn the_pods_view_with_old_rows_and_the_notes_of_three_clusters_in_the_dark_theme() {
-    let mut window = window_with(crate::pods::scenes::session(), egui::Theme::Dark, SCALE);
-    save(&mut window, "pods");
-}
-
-#[test]
-fn the_detail_panel_of_a_pod_in_the_dark_theme() {
-    let mut window = window_with(crate::pods::scenes::session(), egui::Theme::Dark, SCALE);
-    window.get_by_label("crash").click();
-    window.run();
+    open_page(&mut window, "Connections");
     window.remove_cursor();
     window.run();
-    save(&mut window, "pods-detail");
+    save(&mut window, "connections-light");
 }

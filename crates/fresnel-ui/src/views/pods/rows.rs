@@ -225,7 +225,7 @@ impl Model for PodModel {
                 Cell::new(format!("{}/{}", status.ready, status.containers)).tone(tone)
             }
             Some(Field::Status) => {
-                let tone = Tone::of_object(status.health);
+                let tone = if old.is_some() { Tone::Faint } else { Tone::of_object(status.health) };
                 Cell::new(status.text.as_str()).tone(tone).lead(Lead::Dot(tone.color(scene.palette)))
             }
             Some(Field::Restarts) => {
