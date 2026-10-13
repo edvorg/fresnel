@@ -62,7 +62,10 @@ impl<K: DeserializeOwned> WatchStream<K> {
                 Err(error) => return Some(Err(error)),
             }
             if self.buffer.len() > MAX_EVENT_BYTES {
+                // The stream ends here, and the memory of the line is free at once.
                 self.body = None;
+                self.buffer = BytesMut::new();
+                self.scanned = 0;
                 let text = format!("one event of the watch has more than {MAX_EVENT_BYTES} bytes");
                 return Some(Err(CoreError::invalid(text)));
             }
@@ -187,6 +190,19 @@ mod tests {
         }
         assert!(events.next().await.is_none(), "a line with no end is not an event");
         assert!(events.next().await.is_none(), "the stream stays ended");
+    }
+
+    #[tokio::test]
+    async fn a_line_with_no_end_ends_the_stream_at_the_size_limit() {
+        let piece = Bytes::from(vec![b'x'; 1024 * 1024]);
+        let pieces = MAX_EVENT_BYTES / piece.len() + 1;
+        let frames = (0..pieces).map(move |_| Ok::<_, CoreError>(Frame::data(piece.clone())));
+        let mut events = WatchStream::<Value>::over(StreamBody::new(stream::iter(frames)).boxed_unsync());
+        let error = events.next().await.expect("an item").expect_err("the line is too long");
+        let text = "one event of the watch has more than 33554432 bytes";
+        assert_eq!((error.class(), error.to_string().as_str()), (ErrorClass::Invalid, text));
+        assert_eq!(events.buffer.capacity(), 0, "the stream holds no part of the line");
+        assert!(events.next().await.is_none(), "the stream ended");
     }
 
     #[tokio::test]

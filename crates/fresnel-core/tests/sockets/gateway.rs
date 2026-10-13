@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use fresnel_core::CoreError;
 use fresnel_core::cluster::{Fate, WatchEvent};
 use fresnel_core::net::{ErrorClass, Limits, NetSettings};
-use fresnel_testkit::{FakeApiServer, Fault};
+use fresnel_testkit::{FakeApiServer, Fault, FaultProxy};
 use http::header::{SEC_WEBSOCKET_PROTOCOL, UPGRADE};
 use http::{Method, Version};
 use k8s_openapi::api::core::v1::{ConfigMap, Namespace};
@@ -14,7 +14,7 @@ use kube::core::ObjectList;
 use tokio::runtime::Handle;
 
 use crate::bed::{Bed, Folder, get, kubeconfig, post};
-use crate::common::{TestTasks, connect, in_time, registry};
+use crate::common::{TestTasks, connect, in_time, registry, until_live};
 
 const MS: Duration = Duration::from_millis(1);
 const NAMESPACES: &str = "/api/v1/namespaces";
@@ -189,6 +189,41 @@ async fn the_error_of_an_answer_that_does_not_fit_has_no_value_of_the_object() {
     let error =
         bed.link.gateway.send::<Info>(post("/api/v1/namespaces/a/secrets/b", "{}")).await.expect_err("no version");
     assert_eq!((error.fate, error.error.to_string().as_str()), (Fate::Unknown, expected));
+}
+
+/// A fault at the worst moment for a write: the server took the request and gave a good
+/// status, and the connection breaks before the end of the answer. The write does not go
+/// out again on the new connection (design rule 6).
+#[tokio::test]
+async fn a_write_with_a_broken_answer_has_an_unknown_fate_and_goes_out_one_time() {
+    let server = FakeApiServer::start().await.expect("a server");
+    let proxy = FaultProxy::start(server.addr()).await.expect("a proxy");
+    let folder = Folder::new("cut");
+    let path = folder.write("config", &kubeconfig(&[("cut", proxy.addr(), &server)]));
+    let tasks = TestTasks::new(&Handle::current());
+    let registry = registry(&tasks, &Handle::current(), &path, NetSettings::default());
+    let link = connect(&registry, "cut");
+    until_live(&link).await;
+    let gateway = &link.gateway;
+
+    // The fake server answers `watch=true` with a good status and a body that has no end.
+    let write = "/api/v1/namespaces?watch=true";
+    let cut = async {
+        in_time("the server took the write", server.wait_for(|counters| counters.open_watches == 1)).await;
+        // This answer comes after the status of the write, on the same connection.
+        let _: Info = gateway.get(get("/version")).await.expect("the version");
+        in_time("the reset", proxy.reset_all()).await;
+    };
+    let (result, ()) = tokio::join!(gateway.send::<Namespace>(post(write, "{}")), cut);
+    let error = result.expect_err("the answer broke");
+    assert_eq!((error.fate, error.error.class()), (Fate::Unknown, ErrorClass::Network), "{error}");
+    assert!(error.to_string().starts_with("the result of the write is not known: the answer broke: "), "{error}");
+
+    let _: Info = gateway.get(get("/version")).await.expect("the version, on a new connection");
+    until_live(&link).await;
+    assert_eq!(paths(&server, &Method::POST), [write], "the write went out one time");
+    assert_eq!(server.counters().connections, 6, "one new connection for each channel");
+    assert_eq!(proxy.task_failures(), Vec::<String>::new());
 }
 
 /// The fake server answers HTTP 101 with no WebSocket key, so the upgrade itself fails. The

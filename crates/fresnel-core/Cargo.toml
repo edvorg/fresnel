@@ -13,6 +13,7 @@ bytes.workspace = true
 fresnel-net.workspace = true
 futures-util.workspace = true
 http.workspace = true
+http-body.workspace = true
 http-body-util.workspace = true
 k8s-openapi.workspace = true
 # `ws`: the WebSocket handshake of exec, attach and port forward.
@@ -27,7 +28,6 @@ tower-service.workspace = true
 [dev-dependencies]
 fastrand.workspace = true
 fresnel-testkit.workspace = true
-http-body.workspace = true
 rcgen.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
 
