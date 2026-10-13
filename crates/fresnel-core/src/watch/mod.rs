@@ -3,7 +3,8 @@
 //!
 //! The loop reads a list in pages and then follows a watch from the resource version of
 //! the list. After each end of a watch it starts a new one from the last version that it
-//! saw. Only HTTP 410 makes a new list necessary. The store shows each step as its state.
+//! saw. Only HTTP 410 makes a new list necessary. The store shows each step as its state,
+//! and it stays live through the renewal of a watch that the server ended at its timeout.
 //!
 //! - `list`: the list in pages. `stream`: one watch. `recover`: what follows a failure.
 //! - `source`: the two requests. `lanes`: the connections of the cluster. `gate`: the

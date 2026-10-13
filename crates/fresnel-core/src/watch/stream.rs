@@ -28,7 +28,7 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         let renewal = std::mem::take(&mut self.renewal);
         self.ready(Lane::Watches).await.map_err(Failure::Fault)?;
         // A store stays live while the renewal of its watch starts. Each other start of a
-        // watch shows as a state, and so does a renewal that had to wait for its channel.
+        // watch shows as a state, and so does a renewal that had to wait before its request.
         if !(renewal && self.writer.state().is_live()) {
             self.start_request(StoreState::Waiting(Wait::Stream));
         }
