@@ -13,15 +13,18 @@ use crate::api::{self, ConfigMaps, assert_equal_to_the_api};
 use crate::bed::{App, Cluster, LIMIT, RECOVERY, SHOWS_IN, none_live};
 use crate::common::{in_time, until_live};
 
-/// The ConfigMaps of the test. With pages of 25, their list has 13 pages.
+/// The ConfigMaps of the test. With pages of 10, their list has 31 pages.
 const SEEDED: usize = 300;
-/// One way through the proxy. A list page then needs 20 ms at least, so a reset can
-/// come in the middle of a list.
-const LATENCY: Duration = Duration::from_millis(10);
+/// One way through the proxy. A list page then needs 40 ms at least, and the list of the
+/// ConfigMaps more than one second, so a reset can come in the middle of it.
+const LATENCY: Duration = Duration::from_millis(20);
+/// The most starts of the stores for the two resets in the middle of a list. On a busy
+/// machine, the reset of the test can come after the last page, and then it proves nothing.
+const STARTS: usize = 5;
 const SECRET_VALUE: &str = "ZnJlc25lbC10ZXN0LXZhbHVl";
 
 fn settings() -> StoreSettings {
-    StoreSettings { watch: WatchSettings { page_size: 25, ..WatchSettings::default() }, ..StoreSettings::default() }
+    StoreSettings { watch: WatchSettings { page_size: 10, ..WatchSettings::default() }, ..StoreSettings::default() }
 }
 
 fn config_maps(stores: &[StoreStatus]) -> &StoreStatus {
@@ -71,22 +74,44 @@ async fn the_watches_of_each_kind_use_three_connections(cluster: &Cluster, app: 
 
 /// Two resets of each connection, each one in the middle of the list of the ConfigMaps.
 async fn resets_in_the_middle_of_a_list(cluster: &Cluster, app: &mut App) {
-    app.start_stores_again(cluster, settings());
-    for reset in 1..=2 {
-        let in_the_middle = |stores: &[StoreStatus]| matches!(config_maps(stores).state, StoreState::Listing { loaded } if (50..SEEDED).contains(&loaded));
-        let listing = app.stores.until("the list of the ConfigMaps is in progress", LIMIT, in_the_middle).await;
-        in_time("the reset", app.proxy.reset_all()).await;
-        let failed = |stores: &[StoreStatus]| !matches!(config_maps(stores).state, StoreState::Listing { .. });
-        let after = app.stores.until("the list failed", LIMIT, failed).await;
-        let (before, after) = (config_maps(&listing), config_maps(&after));
-        println!("reset {reset} came at `{}`; then the store showed `{}`", before.state, after.state);
-        assert_eq!(after.items, 0, "half of a list is not a list");
-        assert!(!after.state.is_live(), "{}", after.state);
+    let complete = api::versions(&cluster.api.gateway, Kind::ConfigMap).await.len();
+    let mut resets = 0;
+    for start in 1.. {
+        assert!(start <= STARTS, "{resets} of 2 resets came in the middle of a list in {STARTS} starts of the stores");
+        app.start_stores_again(cluster, settings());
+        while resets < 2 && reset_in_the_middle(app, complete).await {
+            resets += 1;
+        }
+        if resets == 2 {
+            break;
+        }
     }
     let reset = Instant::now();
     app.stores.until_live(RECOVERY).await;
     println!("each store was live {:?} after the second reset", reset.elapsed());
     assert_equal_to_the_api(&app.stores.stores, &cluster.api.gateway, LIMIT).await;
+}
+
+/// Resets each connection while the list of the ConfigMaps is in progress, and asserts
+/// that the store shows the failure and no part of the list. False when the reset came
+/// after the last page: the list of `complete` objects was done.
+async fn reset_in_the_middle(app: &App, complete: usize) -> bool {
+    let in_the_middle = |stores: &[StoreStatus]| matches!(config_maps(stores).state, StoreState::Listing { loaded } if (50..SEEDED).contains(&loaded));
+    let listing = app.stores.until("the list of the ConfigMaps is in progress", LIMIT, in_the_middle).await;
+    in_time("the reset", app.proxy.reset_all()).await;
+    let ended = |stores: &[StoreStatus]| !matches!(config_maps(stores).state, StoreState::Listing { .. });
+    let after = app.stores.until("the list ended", LIMIT, ended).await;
+    let (before, after) = (config_maps(&listing), config_maps(&after));
+    println!(
+        "a reset came at `{}`; then the store showed `{}` with {} objects",
+        before.state, after.state, after.items
+    );
+    if after.items == complete {
+        return false;
+    }
+    assert_eq!(after.items, 0, "half of a list is not a list");
+    assert!(!after.state.is_live(), "{}", after.state);
+    true
 }
 
 /// Creates, changes and deletes of ConfigMaps for some seconds, with a reset of each
