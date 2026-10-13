@@ -324,6 +324,11 @@ mod tests {
         let mut alive = 0;
         for file in std::fs::read_dir(&folder).expect("the folder") {
             let text = std::fs::read_to_string(file.expect("an entry").path()).expect("the file of a hook");
+            // A kill can reach a hook after it made its file and before it wrote its id.
+            // That process is gone. One that stayed had the time above for its write.
+            if text.is_empty() {
+                continue;
+            }
             let hook = Pid::from_raw(text.trim().parse().expect("a process id"));
             // The test ends a process that stayed, so that a failure leaves nothing.
             alive += usize::from(nix::sys::signal::kill(hook, Signal::SIGKILL).is_ok());
