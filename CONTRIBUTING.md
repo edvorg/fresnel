@@ -82,6 +82,8 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
   time of such a test is exact.
 - A state of a store tells its reason. No step of the loop hides an error or counts the
   loss of a connection as a failure of its own: the channel counts it.
+- An object shows "change pending" after a write while `Snapshot::is_pending` is true for
+  the answer of that write (`store::Written`). No code puts a mark into a store.
 
 ## Tests
 
