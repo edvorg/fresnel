@@ -84,6 +84,23 @@ async fn a_store_stays_live_while_the_renewal_of_its_watch_starts() {
     bench.until_state("the start of the watch", |state| *state == StoreState::Waiting(Wait::Stream)).await;
 }
 
+/// A renewal that gets no watch is a failure like each other one. The store leaves the
+/// state "live" at once, and the watch after the failure is no renewal.
+#[tokio::test(start_paused = true)]
+async fn a_renewal_that_gets_no_watch_shows_as_a_failure() {
+    let (mut bench, events) = Bench::live(settings()).await;
+    sleep(60 * SECOND).await;
+    drop(events);
+    bench.script.watch_fails(CoreError::new(ErrorClass::Timeout, "Watch request: no answer in 10s"));
+    let paused = bench.until_state("the pause", |state| matches!(state, StoreState::Backoff { failures: 1, .. })).await;
+    assert_eq!((paused.since, paused.items.len()), (bench.clock.now(), 2), "the objects stay");
+
+    let _events = bench.script.watch_opens();
+    let live = bench.until_state("the open watch", StoreState::is_live).await;
+    assert_eq!((live.since, bench.elapsed()), (bench.clock.now(), 60 * SECOND + 100 * MS), "live from this moment");
+    assert_eq!(bench.script.take_calls(), ["watch after 7 for 60 s", "watch after 7 for 60 s"]);
+}
+
 /// Plan section 9.2. At 200 changes in one second, the readers get 30 snapshots and not 200.
 #[tokio::test(start_paused = true)]
 async fn the_changes_of_30_ms_reach_the_readers_as_one_snapshot() {
