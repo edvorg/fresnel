@@ -91,12 +91,15 @@ fn the_load_lists_each_context_of_each_file_and_the_first_file_wins() {
     let second = folder.write("second.yaml", SECOND);
     let absent = folder.0.join("absent.yaml");
     let empty = folder.write("empty.yaml", "# no entry\n");
-    let sources = [first.clone(), broken.clone(), absent.clone(), second.clone(), empty];
+    let not_a_file = folder.0.join("a-folder");
+    std::fs::create_dir(&not_a_file).expect("a folder in place of a file");
+    let sources = [first.clone(), broken.clone(), absent.clone(), second.clone(), empty, not_a_file.clone()];
     let kubeconfig = load(&sources);
 
     let names: Vec<&str> = kubeconfig.contexts.iter().map(|context| context.name.as_str()).collect();
     assert_eq!(names, ["ams", "nyc", "open", "sgp"]);
     assert_eq!((kubeconfig.sources.as_slice(), kubeconfig.absent.as_slice()), (&sources[..], &[absent][..]));
+    assert_eq!(kubeconfig.unread, [broken.clone(), not_a_file.clone()], "the files that exist and did not load");
     assert_eq!(kubeconfig.current.as_deref(), Some("ams"), "the first file that has the value wins");
     let (ams, sgp) = (&kubeconfig.contexts[0], &kubeconfig.contexts[3]);
     assert_eq!((ams.namespace.as_deref(), &ams.source, &sgp.source), (Some("apps"), &first, &second));
@@ -111,7 +114,10 @@ fn the_load_lists_each_context_of_each_file_and_the_first_file_wins() {
         problem(&second, "the user `plugin-user` has an earlier entry, which wins"),
         problem(&second, "the context `ams` has an earlier entry, which wins"),
     ];
-    assert_eq!(kubeconfig.problems, expected);
+    assert_eq!(kubeconfig.problems[..4], expected);
+    let unreadable = &kubeconfig.problems[4];
+    assert!(unreadable.path == not_a_file && unreadable.text.starts_with("cannot read the file: "), "{unreadable:?}");
+    assert_eq!(kubeconfig.problems.len(), 5);
 }
 
 /// `kubectl` reads a variable with no value as an empty value. A file with such an entry

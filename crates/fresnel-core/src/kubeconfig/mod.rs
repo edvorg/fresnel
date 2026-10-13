@@ -53,6 +53,9 @@ pub struct Kubeconfig {
     pub sources: Vec<PathBuf>,
     /// The files that do not exist. `kubectl` skips such a file with no message.
     pub absent: Vec<PathBuf>,
+    /// The files that exist and did not load. `problems` tells why. A caller that loads
+    /// again can keep what such a file gave before.
+    pub unread: Vec<PathBuf>,
     /// Each context of each file, in the sequence of the files.
     pub contexts: Vec<Context>,
     /// The `current-context` of the first file that has one.
@@ -71,6 +74,7 @@ pub fn load(sources: &[PathBuf]) -> Kubeconfig {
     Kubeconfig {
         sources: sources.to_vec(),
         absent: merge.absent,
+        unread: merge.unread,
         contexts,
         current: merge.current,
         problems: merge.problems,
@@ -93,6 +97,7 @@ struct Merge {
     contexts: Vec<Located<ContextEntry>>,
     current: Option<String>,
     absent: Vec<PathBuf>,
+    unread: Vec<PathBuf>,
     problems: Vec<Problem>,
 }
 
@@ -101,13 +106,13 @@ impl Merge {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return self.absent.push(path.to_owned()),
-            Err(error) => return self.problem(path, format!("cannot read the file: {error}")),
+            Err(error) => return self.unread(path, format!("cannot read the file: {error}")),
         };
         let documents = match file::parse(&text) {
             Ok(documents) => documents,
             Err(at) => {
                 let text = format!("the file is not a kubeconfig: line {}, column {}", at.line, at.column);
-                return self.problem(path, text);
+                return self.unread(path, text);
             }
         };
         for document in documents {
@@ -118,7 +123,9 @@ impl Merge {
         }
     }
 
-    fn problem(&mut self, path: &Path, text: String) {
+    /// A file that exists and gives no entry.
+    fn unread(&mut self, path: &Path, text: String) {
+        self.unread.push(path.to_owned());
         self.problems.push(Problem { path: path.to_owned(), text });
     }
 
