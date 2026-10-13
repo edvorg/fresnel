@@ -73,6 +73,16 @@ impl Follower {
         gone
     }
 
+    /// Gives up the snapshots, for a view that is not painted. The next step gets a new
+    /// number: the number is a part of the identity of a request for rows, and the objects
+    /// after a rest are not the objects before it.
+    pub(super) fn rest(&mut self) {
+        if !self.seen.is_empty() {
+            self.seen.clear();
+            self.serial += 1;
+        }
+    }
+
     /// A number that grows each time the objects of a step differ from the step before.
     pub(super) fn serial(&self) -> u64 {
         self.serial

@@ -14,6 +14,7 @@
 //!   of each store.
 //! - The thread frees the results that the table showed before: rows hold objects, and
 //!   the free of them can take longer than a frame.
+//! - The owner can empty the mailbox: a table that is not painted holds no objects.
 
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -108,15 +109,20 @@ impl<In: Clone, Out> Shared<In, Out> {
     }
 
     /// Puts a result into the mailbox. Its request leaves the mailbox, unless a newer
-    /// one took its place.
-    fn finish(&self, done: Done<Out>) {
-        let replaced = {
-            let mut mailbox = self.mailbox();
-            let request = mailbox.wanted.take_if(|(id, _)| *id == done.id);
-            (mailbox.done.replace(done), request)
-        };
+    /// one took its place. Gives false for a result with no reader: the owner emptied
+    /// the mailbox during the computation, and this thread frees the result.
+    fn finish(&self, done: Done<Out>) -> bool {
+        let mut mailbox = self.mailbox();
+        if mailbox.wanted.is_none() {
+            drop(mailbox);
+            return false;
+        }
+        let request = mailbox.wanted.take_if(|(id, _)| *id == done.id);
+        let replaced = (mailbox.done.replace(done), request);
+        drop(mailbox);
         // A result that the table did not take, and the snapshots of the request.
         drop(replaced);
+        true
     }
 
     /// The body of the thread: computes each request to the close of the mailbox.
@@ -125,8 +131,9 @@ impl<In: Clone, Out> Shared<In, Out> {
             let started = Instant::now();
             let output = compute(&request, &Cancel::new(&self.newest_query, id.query));
             drop(request);
-            if let Some(output) = output {
-                self.finish(Done { id, output, time: started.elapsed() });
+            if let Some(output) = output
+                && self.finish(Done { id, output, time: started.elapsed() })
+            {
                 wake();
             }
         }
@@ -191,6 +198,22 @@ impl<In: Clone + Send + 'static, Out: Send + 'static> Worker<In, Out> {
     /// The newest result, if one arrived after the last call.
     pub(crate) fn take(&self) -> Option<Done<Out>> {
         self.door.0.mailbox().done.take()
+    }
+
+    /// Empties the mailbox, for a table that is not painted: a request and a result hold
+    /// objects. The thread frees the result. A computation in progress goes on to its end
+    /// and finds no request in the mailbox then, so its result has no reader.
+    pub(crate) fn clear(&self) {
+        let shared = &self.door.0;
+        let request = {
+            let mut mailbox = shared.mailbox();
+            if let Some(done) = mailbox.done.take() {
+                mailbox.old.push(done.output);
+            }
+            mailbox.wanted.take()
+        };
+        drop(request);
+        shared.changed.notify_one();
     }
 
     /// Gives a result that the table does not show any more to the thread, which frees it.

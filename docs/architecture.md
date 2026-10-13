@@ -149,7 +149,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 3. **Workers.** A view computes its rows on a worker thread: see "Window".
 4. **Repaint.** A new value that a view reads asks for a repaint. One notifier limits the
    repaints to 60 in one second. The core does not know egui: the window gives it the wake.
-5. **Memory.** The UI thread frees no large old snapshot and no rows: a thread takes them.
+5. **Memory.** A thread frees each old snapshot and the rows. A view on a hidden page has none.
 
 ## Window
 

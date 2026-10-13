@@ -4,9 +4,11 @@
 //! - `weakness`: the weaknesses of Headlamp of plan section 6 that apply to this view.
 //! - `detail`: the detail panel. `snapshots`: PNG files of the view.
 //! - `bad_data`: objects that a healthy API server does not give.
+//! - `rest`: the view while the window shows some other page.
 
 mod bad_data;
 mod detail;
+mod rest;
 pub(crate) mod scenes;
 mod snapshots;
 mod states;

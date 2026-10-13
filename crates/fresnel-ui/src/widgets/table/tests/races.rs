@@ -159,3 +159,62 @@ fn a_click_and_a_key_on_older_rows_select_no_object_that_went_away() {
     bed.key(egui::Modifiers::COMMAND, egui::Key::A);
     assert_eq!(bed.selected(), 2);
 }
+
+/// Plan section 7.3: a view that is not painted holds no rows. A selection would keep
+/// each object that goes away in that time, so it goes too.
+#[test]
+fn a_table_at_rest_has_no_rows_and_no_selection_and_its_next_frame_asks_for_rows() {
+    let mut bed = Bed::start(&objects(1..=3), true, false);
+    bed.started();
+    bed.finish();
+    bed.window.step();
+    bed.click("object-2", egui::Modifiers::NONE);
+    assert_eq!((bed.shown().len(), bed.selected()), (3, 1));
+
+    let table = &mut bed.window.state_mut().table;
+    table.rest();
+    // A second call finds nothing to give up.
+    table.rest();
+    assert!(table.rows().is_none() && bed.selected() == 0 && bed.cursor().is_none());
+
+    bed.window.step();
+    assert_eq!(bed.started(), 3, "the frame asks the worker for the rows again");
+    assert!(bed.window.query_by_label("The rows are computed…").is_some(), "no empty table before the rows");
+    bed.finish();
+    bed.window.step();
+    assert_eq!((bed.shown().len(), bed.progress().as_str()), (3, "Current"));
+}
+
+/// A second fault during the recovery: the user sets a new filter in the pause after a
+/// panic, and the thread fails again for the new request. The rows from before the first
+/// fault stay with the reason, and the rows of the new filter come after the defect is gone.
+#[test]
+fn a_second_panic_for_a_new_filter_keeps_the_rows_and_the_rows_of_that_filter_come_then() {
+    let mut bed = Bed::start(&objects(1..=3), false, false);
+    bed.result();
+    bed.window.step();
+    bed.control.broken.store(true, Relaxed);
+    bed.set(&objects(1..=5));
+    let ended = |bed: &Bed| bed.tasks.reports.recv_timeout(LIMIT).expect("the report of a run that ended").end;
+    assert_eq!(ended(&bed), End::Panicked("a defect in the rows".to_owned()));
+
+    bed.window.state_mut().filter = 30;
+    bed.window.step();
+    // A run in progress can be of the first request. The run after it starts after this
+    // frame, so it finds the request of the new filter in the mailbox.
+    for _ in 0..2 {
+        assert_eq!(ended(&bed), End::Panicked("a defect in the rows".to_owned()));
+    }
+    let started = Instant::now();
+    while !bed.progress().starts_with("Failed") {
+        assert!(started.elapsed() < LIMIT, "the table tells the fault");
+        bed.window.step();
+    }
+    assert_eq!(bed.shown(), ["object-1", "object-2", "object-3"], "the rows from before the faults stay");
+
+    bed.control.broken.store(false, Relaxed);
+    bed.result();
+    bed.window.step();
+    assert_eq!(bed.shown(), ["object-3", "object-4", "object-5"]);
+    assert_eq!(bed.progress(), "Current");
+}

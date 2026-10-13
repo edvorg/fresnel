@@ -185,3 +185,41 @@ fn the_drop_of_the_owner_ends_the_thread_and_that_is_no_fault() {
     assert_eq!(running(), 0, "the state of the task went with its owner");
     assert!(bed.reports.recv_timeout(QUIET).is_err(), "a stop is no fault, so it has no report");
 }
+
+/// Plan section 7.3: a table that is not painted holds no rows. Its owner empties the
+/// mailbox, and the result of a computation in progress has no reader then.
+#[test]
+fn an_empty_mailbox_takes_no_result_and_the_thread_frees_each_one() {
+    let bed = TestTasks::new();
+    let ((started_at, started), (release, gate)) = (channel(), channel::<()>());
+    let ((dropped_at, dropped), (wake, woken)) = (channel(), channel());
+    let compute = move |request: &u64, _cancel: &Cancel<'_>| {
+        started_at.send(*request).expect("the test reads each start");
+        gate.recv().expect("the test opens the gate");
+        Some(Tracked(dropped_at.clone()))
+    };
+    let wake: Wake = Arc::new(move || wake.send(()).expect("the test reads each wake"));
+    let worker = Worker::start(&bed.tasks, TaskName::scoped("table rows", "test"), wake, compute);
+    let here = std::thread::current().id();
+    let next = |limit| started.recv_timeout(limit);
+
+    // One result waits in the mailbox, and the computation of a second one is in progress.
+    worker.submit(id(1, 1), 1);
+    assert_eq!(next(LIMIT), Ok(1));
+    release.send(()).expect("the thread waits at the gate");
+    woken.recv_timeout(LIMIT).expect("the first result");
+    worker.submit(id(1, 2), 2);
+    assert_eq!(next(LIMIT), Ok(2));
+
+    worker.clear();
+    assert!(worker.take().is_none(), "the result that waited left the mailbox");
+    release.send(()).expect("the thread waits at the gate");
+    for result in ["the one with no reader", "the one that waited"] {
+        assert_ne!(dropped.recv_timeout(LIMIT).expect(result), here, "{result}");
+    }
+    assert!(woken.recv_timeout(QUIET).is_err() && worker.take().is_none(), "no wake for a result with no reader");
+    assert!(next(QUIET).is_err(), "the request left the mailbox too");
+
+    worker.submit(id(1, 3), 3);
+    assert_eq!(next(LIMIT), Ok(3), "the thread computes the next request as before");
+}

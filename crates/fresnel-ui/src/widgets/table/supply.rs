@@ -154,6 +154,20 @@ impl<M: Model> Supply<M> {
         SLOW.checked_sub(self.behind_since?.elapsed())
     }
 
+    /// Gives up the rows and the objects of the last request, for a table that is not
+    /// painted (plan section 7.3). The worker thread frees the rows, and the next request
+    /// asks for rows again. A call with nothing to give up does nothing.
+    pub(super) fn rest(&mut self) {
+        if self.asked.is_none() && self.shown.is_none() {
+            return;
+        }
+        self.worker.clear();
+        if let Some(shown) = self.shown.take() {
+            self.worker.discard(shown.output);
+        }
+        (self.asked, self.failure, self.behind_since) = (None, None, None);
+    }
+
     /// The rows on the screen. `None` before the first result.
     pub(super) fn rows(&self) -> Option<&Rows<M>> {
         self.shown.as_ref().map(|done| &done.output)

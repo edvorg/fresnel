@@ -732,6 +732,14 @@ such a pod selected it again, with no end. So a table keeps the objects of its l
 request. After a click or a key on older rows, it asks its model for each selected row if
 the objects still have it.
 
+## A view that is not painted holds no rows
+
+While the window showed some other page, the Pods view kept its rows and the snapshots of
+its last frame, so old pods stayed in memory for all that time. The shell now tells the view
+that it is not painted. The view gives its rows to its worker thread, empties the mailbox and
+drops its snapshots. Its selection and its panel go too: no frame would remove a pod that
+goes away. A hidden window is not such a case yet.
+
 ## The freshness mark comes from the state of the store at the paint
 
 A watch that stops changes no object, so the worker computes no rows for it. Thus the mark

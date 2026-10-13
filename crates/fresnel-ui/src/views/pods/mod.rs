@@ -84,6 +84,15 @@ impl PodsView {
         }
     }
 
+    /// Gives up the rows, the snapshots, the selection and the panel. The shell calls
+    /// this in each frame that shows some other page: a view that is not painted holds
+    /// no rows (plan section 7.3). Only the first call after a paint has work.
+    pub(crate) fn rest(&mut self) {
+        self.table.rest();
+        self.follower.rest();
+        self.detail = None;
+    }
+
     /// Reads the snapshot of each selected cluster for this frame, and drops each pod
     /// that went away from the selection. The number of the snapshots grows when the
     /// objects changed, so the table asks its worker for new rows then.

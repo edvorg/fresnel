@@ -95,6 +95,15 @@ impl<M: Model> Table<M> {
         self.selection.clear();
     }
 
+    /// Gives up the rows, the objects of the last request and the selection. A view
+    /// calls this in each frame that does not paint it: it must hold no rows then (plan
+    /// section 7.3), and no frame would remove an object that goes away from the selection.
+    pub(crate) fn rest(&mut self) {
+        self.supply.rest();
+        self.selection.clear();
+        self.reveal = None;
+    }
+
     /// The row of the cursor, if the rows on the screen have its object.
     pub(crate) fn cursor_row(&self) -> Option<&M::Row> {
         let (rows, cursor) = (&self.rows()?.rows, self.selection.cursor()?);
