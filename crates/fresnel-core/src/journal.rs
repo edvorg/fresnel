@@ -1,7 +1,8 @@
 //! The journal: the list of events, warnings and errors that the app shows.
 //!
 //! The list in memory has a limit. An entry that leaves the list stays in the log file, and
-//! the view tells how many entries left. A text of an entry is safe for a log: it never
+//! the view tells how many entries left. The text of one entry has a limit in memory too,
+//! and the log file has the full text. A text of an entry is safe for a log: it never
 //! holds a token, the output of a plugin or a value of an object.
 //!
 //! `reports`: the journal takes the report of each task run that ended.
@@ -15,6 +16,11 @@ use std::time::SystemTime;
 use fresnel_net::WallClock;
 
 pub use reports::TASK_SOURCE;
+
+/// The most bytes of the text of one entry in memory. A watch that fails again and again
+/// can write the long message of a server each time, and 10,000 such entries must not use
+/// the memory of the app.
+const TEXT_BYTES: usize = 4096;
 
 /// The weight of one entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -159,6 +165,8 @@ impl Journal {
         view
     }
 
+    /// Puts the entry into the list, with a short text if its text is long. Gives the
+    /// entry with its full text for the sink.
     fn store(&self, level: Level, source: String, text: String) -> Arc<Entry> {
         let time = self.shared.clock.now();
         let mut ring = lock(&self.shared.ring);
@@ -172,10 +180,22 @@ impl Journal {
         if ring.entries.len() >= self.shared.limit {
             ring.entries.pop_front();
         }
-        ring.entries.push_back(Arc::clone(&entry));
+        ring.entries.push_back(with_short_text(&entry));
         ring.view = None;
         entry
     }
+}
+
+/// The entry for the list in memory: its text has `TEXT_BYTES` bytes at most, and a note
+/// tells how much more the log file has.
+fn with_short_text(entry: &Arc<Entry>) -> Arc<Entry> {
+    if entry.text.len() <= TEXT_BYTES {
+        return Arc::clone(entry);
+    }
+    let end = (0..=TEXT_BYTES).rev().find(|end| entry.text.is_char_boundary(*end)).unwrap_or(0);
+    let kept = entry.text.get(..end).unwrap_or_default();
+    let text = format!("{kept}… ({} more bytes are in the log file)", entry.text.len() - end);
+    Arc::new(Entry { text, source: entry.source.clone(), ..**entry })
 }
 
 impl std::fmt::Debug for Journal {
@@ -240,6 +260,23 @@ mod tests {
         assert_eq!(*lock(&written), ["0 one", "1 two", "2 three", "3 four", "4 five", "flush"]);
         Journal::new(3, clock()).flush();
         assert_eq!(full.entries.len(), 3, "a copy does not change after it was made");
+    }
+
+    #[test]
+    fn a_long_text_is_short_in_memory_and_full_in_the_sink() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let journal = Journal::with_sink(10, clock(), Lines(Arc::clone(&written)));
+        // Each letter has 2 bytes, and the limit is in the middle of a letter.
+        let long = format!("a{}", "é".repeat(4000));
+        journal.error("ams", long.clone());
+        journal.info("ams", "é".repeat(2048));
+
+        let view = journal.view();
+        let short = format!("a{}… (3906 more bytes are in the log file)", "é".repeat(2047));
+        assert_eq!((view.entries[0].text.as_str(), view.entries[0].level), (short.as_str(), Level::Error));
+        assert_eq!(view.entries[1].text.len(), 4096, "a text at the limit stays as it is");
+        assert_eq!((view.total, view.errors), (2, 1));
+        assert_eq!(lock(&written)[0], format!("0 {long}"), "the log file has the full text");
     }
 
     #[test]
