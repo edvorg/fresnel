@@ -86,7 +86,7 @@ async fn fetch(cluster: &Cluster, kind: RequestKind, path: &str) -> (u16, String
 
 #[tokio::test]
 #[ignore = "needs k3s in Docker"]
-async fn the_channels_work_on_a_real_kube_apiserver_and_stay_open_and_show_a_silent_connection() {
+async fn the_channels_work_on_a_real_kube_apiserver_through_an_idle_time_a_silence_and_a_restart() {
     let k3s = K3s::start("net").await.expect("k3s starts");
     let proxy = FaultProxy::start(k3s.api_addr()).await.expect("a proxy");
     let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("a task of the app ended: {report}"));
@@ -150,6 +150,20 @@ async fn the_channels_work_on_a_real_kube_apiserver_and_stay_open_and_show_a_sil
     let shown_after = silent_at.elapsed();
     assert!(shown_after <= Duration::from_secs(20), "the silent connections showed after {shown_after:?}");
     until_live(&cluster).await;
+    let (code, namespaces) = fetch(&cluster, RequestKind::ListPage, "/api/v1/namespaces?limit=500").await;
+    assert!(code == 200 && namespaces.contains(r#""name":"made-in-the-silence""#), "{code}: {namespaces}");
+
+    // A restart of the API server. A server that starts refuses connections, or accepts and
+    // closes them, so each channel connects many times with a pause that grows. Each channel
+    // must be live a short time after the server is ready.
+    k3s.restart().await.expect("k3s starts again");
+    let ready_at = Instant::now();
+    until(&cluster, "each channel is live on a new connection", |status| {
+        first_channels(status).iter().all(|channel| channel.state == ChannelState::Live && channel.connections >= 3)
+    })
+    .await;
+    let live_after = ready_at.elapsed();
+    assert!(live_after <= Duration::from_secs(5), "the channels were live {live_after:?} after the restart");
     let (code, namespaces) = fetch(&cluster, RequestKind::ListPage, "/api/v1/namespaces?limit=500").await;
     assert!(code == 200 && namespaces.contains(r#""name":"made-in-the-silence""#), "{code}: {namespaces}");
     assert_eq!(proxy.task_failures(), Vec::<String>::new());
