@@ -1,10 +1,19 @@
 //! Runs of the `watch` command against the fake API server.
 
+use std::process::Stdio;
+use std::time::Duration;
+
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use fresnel_testkit::{FakeApiServer, Fault};
+use nix::sys::signal::{Signal, kill};
+use nix::unistd::Pid;
+use tokio::time::timeout;
 
-use crate::home::Home;
+use crate::home::{Home, Run};
+
+/// The longest wait for a signal that must arrive.
+const LIMIT: Duration = Duration::from_secs(30);
 
 /// A home folder whose kubeconfig has the one context `fake` for the server.
 fn home(label: &str, server: &FakeApiServer) -> Home {
@@ -72,4 +81,26 @@ async fn the_command_connects_to_nothing_with_no_context_and_refuses_a_bad_comma
         assert!(run.stderr.starts_with(problem), "{}", run.stderr);
     }
     assert_eq!(server.counters().connections, 0, "no run opened a connection");
+}
+
+/// With no run time, Ctrl+C is the end of the command. The command then gives its last
+/// report and stops each task: a signal that only ends the process would leave a
+/// credential plugin that runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn ctrl_c_ends_the_command_with_a_last_report_and_closes_each_connection() {
+    let server = FakeApiServer::start().await.expect("a server");
+    let home = home("watch-stop", &server);
+    let mut command = home.command("watch", &["--context", "fake", "--interval", "3600"]);
+    let child = command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("the program starts");
+    let process = Pid::from_raw(i32::try_from(child.id().expect("a running program")).expect("a process id"));
+    timeout(LIMIT, server.wait_for(|counters| counters.open_watches == 39)).await.expect("each watch opens");
+
+    kill(process, Signal::SIGINT).expect("the signal");
+    let ended = timeout(LIMIT, child.wait_with_output()).await.expect("the program ends in time");
+    let run = Run::of(ended.expect("the output of the program"));
+    // A program that a signal ends has no exit status.
+    assert!(run.status.is_some(), "the signal ended the program: {}", run.stderr);
+    assert_eq!(run.stdout.matches("fresnel-cli watch, ").count(), 1, "{}", run.stdout);
+    assert!(last_report(&run.stdout)[2].starts_with("cluster fake: "), "{}", run.stdout);
+    timeout(LIMIT, server.wait_for(|counters| counters.open_connections == 0)).await.expect("each connection closes");
 }

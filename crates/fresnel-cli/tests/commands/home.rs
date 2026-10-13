@@ -42,8 +42,8 @@ impl Home {
         serde_json::from_str(&self.read(file)).expect("the JSON report")
     }
 
-    /// Runs one command of `fresnel-cli` in this home folder, with the environment of Finder.
-    pub(crate) async fn run(&self, command_name: &str, arguments: &[&str]) -> Run {
+    /// One command of `fresnel-cli` in this home folder, with the environment of Finder.
+    pub(crate) fn command(&self, command_name: &str, arguments: &[&str]) -> Command {
         let folder = self.0.folder();
         let mut command = Command::new("/usr/bin/env");
         command
@@ -54,9 +54,13 @@ impl Home {
             .current_dir(folder)
             .stdin(Stdio::null())
             .kill_on_drop(true);
-        let output =
-            timeout(LIMIT, command.output()).await.expect("the program ends in time").expect("the program starts");
-        Run::of(output)
+        command
+    }
+
+    /// Runs one command to its end.
+    pub(crate) async fn run(&self, command_name: &str, arguments: &[&str]) -> Run {
+        let mut command = self.command(command_name, arguments);
+        Run::of(timeout(LIMIT, command.output()).await.expect("the program ends in time").expect("the program starts"))
     }
 }
 
@@ -68,7 +72,7 @@ pub(crate) struct Run {
 }
 
 impl Run {
-    fn of(output: Output) -> Self {
+    pub(crate) fn of(output: Output) -> Self {
         Self {
             status: output.status.code(),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),

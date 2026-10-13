@@ -1366,6 +1366,7 @@ dependencies = [
  "fresnel-testkit",
  "http",
  "jiff",
+ "nix",
  "serde",
  "serde_json",
  "tokio",

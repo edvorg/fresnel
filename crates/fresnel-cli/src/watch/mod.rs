@@ -91,16 +91,22 @@ fn start(registry: &Registry, tasks: &Tasks, context: &Context, parts: &StorePar
     }
 }
 
-/// Prints one report each interval, to the end of the run time. Gives true when each
-/// store is live in the last report.
+/// Prints one report each interval, to the end of the run time or to Ctrl+C. Gives true
+/// when each store is live in the last report.
+///
+/// Ctrl+C ends the command in the clean way: the caller then stops each task, and a task
+/// ends the process of a credential plugin that runs.
 async fn report_until(watched: &[Watched], options: &Options) -> bool {
     let started = Instant::now();
     let end = options.time.map(|time| started + time);
     let mut next = started;
     loop {
         next += options.interval;
-        let last = end.is_some_and(|end| end <= next);
-        sleep_until(end.filter(|_| last).unwrap_or(next)).await;
+        let at_end = end.is_some_and(|end| end <= next);
+        let last = tokio::select! {
+            () = sleep_until(end.filter(|_| at_end).unwrap_or(next)) => at_end,
+            _signal = tokio::signal::ctrl_c() => true,
+        };
         let reports: Vec<ClusterReport> = watched.iter().map(report).collect();
         let time =
             jiff::Timestamp::now().round(jiff::Unit::Second).map_or_else(|_| String::new(), |time| time.to_string());
