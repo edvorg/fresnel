@@ -55,19 +55,21 @@ impl Resolver {
             self.state().pending.get_or_insert_with(|| (self.lookup)(self.host.clone(), self.port).shared()).clone();
         let result = timeout(self.limit, pending).await;
         let mut state = self.state();
+        // Only a lookup that ended leaves the state. A lookup in progress stays: it can be
+        // a slow one, or a newer one that some other caller started a moment before.
+        if state.pending.as_ref().is_some_and(|pending| pending.peek().is_some()) {
+            state.pending = None;
+        }
         let problem = match result {
             Ok(Ok(addresses)) if !addresses.is_empty() => {
-                *state = State { pending: None, last_good: addresses.clone(), last_error: None };
+                state.last_good.clone_from(&addresses);
+                state.last_error = None;
                 return Ok(addresses);
             }
             Ok(Ok(_)) => "the name has no address".to_owned(),
             Ok(Err(error)) => error,
-            // The lookup stays. The next caller waits for the same one.
             Err(_) => format!("no answer in {:?}", self.limit),
         };
-        if state.pending.as_ref().is_some_and(|pending| pending.peek().is_some()) {
-            state.pending = None;
-        }
         state.last_error = Some(problem.clone());
         if state.last_good.is_empty() {
             return Err(NetError::network(format!("cannot resolve {}: {problem}", self.host)));
@@ -97,6 +99,7 @@ fn system_lookup(host: String, port: u16) -> BoxFuture<'static, Result<Vec<Socke
 
 #[cfg(test)]
 mod tests {
+    use std::pin::pin;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -144,6 +147,24 @@ mod tests {
         assert_eq!(resolver.resolve().await, Ok(vec![address(1)]), "the slow lookup ended and gave its addresses");
         assert_eq!(resolver.status(), (vec![address(1)], None));
         assert_eq!(resolver.resolve().await, Ok(vec![address(2)]));
+    }
+
+    /// Two callers wait for one lookup, and the second one reads its result late.
+    #[tokio::test(start_paused = true)]
+    async fn a_caller_that_reads_a_result_late_does_not_end_a_newer_lookup() {
+        let (resolver, lookups) = resolver(&[Some(1), Some(30), Some(0)]);
+        let (mut first, mut second) = (pin!(resolver.resolve()), pin!(resolver.resolve()));
+        assert!(first.as_mut().now_or_never().is_none() && second.as_mut().now_or_never().is_none());
+        sleep(SECOND).await;
+        assert_eq!(first.as_mut().now_or_never(), Some(Ok(vec![address(0)])));
+
+        // A third caller starts the next lookup before the second caller runs.
+        let mut third = pin!(resolver.resolve());
+        assert!(third.as_mut().now_or_never().is_none());
+        assert_eq!(second.as_mut().now_or_never(), Some(Ok(vec![address(0)])));
+        let mut fourth = pin!(resolver.resolve());
+        assert!(fourth.as_mut().now_or_never().is_none());
+        assert_eq!(lookups.load(Ordering::SeqCst), 2, "one lookup at a time: the fourth caller waits for the second");
     }
 
     #[tokio::test(start_paused = true)]
