@@ -105,3 +105,66 @@ async fn follow(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::{Duration, SystemTime};
+
+    use fresnel_net::task::{TaskReport, Tasks};
+    use k8s_openapi::api::core::v1::Event;
+    use tokio::runtime::Handle;
+    use tokio::time::sleep;
+
+    use super::*;
+    use crate::index::IndexState;
+    use crate::published::{Notice, Publisher};
+    use crate::store::StoreState;
+
+    /// Nothing else tells the window that its rows are old: a state of a channel can stay
+    /// the same for a long time while the pods of the cluster change.
+    #[tokio::test(start_paused = true)]
+    async fn each_new_snapshot_and_each_new_index_ask_for_a_repaint_and_nothing_else_does() {
+        let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("a task ended: {report}"));
+        let disposal = Disposal::start(&tasks);
+        let snapshot = |state| Snapshot::<Pod>::empty(state, SystemTime::UNIX_EPOCH);
+        let index = || {
+            let events = Snapshot::<Event>::empty(StoreState::Live, SystemTime::UNIX_EPOCH);
+            Index::<ObjectEvents>::of_snapshot(&events, IndexState::Following)
+        };
+        let pods = Publisher::new(snapshot(StoreState::Live), disposal.bin(), Notice::new());
+        let events = Publisher::new(index(), disposal.bin(), Notice::new());
+
+        let repaint = Repaint::new();
+        let wakes = Arc::new(AtomicU32::new(0));
+        let count = Arc::clone(&wakes);
+        repaint.set_wake(Arc::new(move || {
+            count.fetch_add(1, Ordering::Relaxed);
+        }));
+        let always = Restart::Always(Backoff::default());
+        let _notifier = tasks.start(TaskName::new("repaint notifier"), always, {
+            let repaint = repaint.clone();
+            move || repaint.clone().run(Duration::from_millis(1))
+        });
+        let _watch = tasks.start(TaskName::new("data watch"), always, {
+            let (pods, events) = (pods.reader(), Some(events.reader()));
+            move || follow(pods.clone(), events.clone(), repaint.clone())
+        });
+        let wakes_after = |pause: Duration| {
+            let wakes = Arc::clone(&wakes);
+            async move {
+                sleep(pause).await;
+                wakes.load(Ordering::Relaxed)
+            }
+        };
+        let moment = Duration::from_millis(10);
+        assert_eq!(wakes_after(moment).await, 1, "the first values");
+
+        pods.publish(snapshot(StoreState::Stopped));
+        assert_eq!(wakes_after(moment).await, 2, "a new snapshot of the pods");
+        events.publish(index());
+        assert_eq!(wakes_after(moment).await, 3, "a new Event index");
+        assert_eq!(wakes_after(Duration::from_secs(3600)).await, 3, "no new value, no repaint");
+    }
+}

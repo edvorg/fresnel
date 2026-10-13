@@ -64,6 +64,8 @@ impl PodsView {
             }
         }
         toolbar::show(ui, palette, &mut self.filter, &self.table);
+        // After the bar: a filter that the user changed in this frame asks for its rows now.
+        self.table.request(&self.filter, self.follower.serial(), || self.follower.data());
         notes::show(ui, palette, scene);
         let cells = pod_scene(scene, palette);
         let acted =
@@ -82,9 +84,9 @@ impl PodsView {
         }
     }
 
-    /// Reads the snapshot of each selected cluster for this frame: asks the worker for
-    /// new rows when the objects changed, and drops each pod that went away from the
-    /// selection.
+    /// Reads the snapshot of each selected cluster for this frame, and drops each pod
+    /// that went away from the selection. The number of the snapshots grows when the
+    /// objects changed, so the table asks its worker for new rows then.
     fn read_stores(&mut self, scene: &Scene<'_>) {
         let selected = scene.view.clusters.iter().filter(|row| row.selected);
         let now = selected.filter_map(|row| Some((row.id.clone(), row.data.as_ref()?.pods.clone()))).collect();
@@ -92,7 +94,6 @@ impl PodsView {
         if !gone.is_empty() {
             self.table.forget(|id| gone.has(id));
         }
-        self.table.request(&self.filter, self.follower.serial(), || self.follower.data());
         // The panel of a pod whose cluster left the view closes. A deleted pod stays, as deleted.
         match self.detail.as_mut().map(|subject| (self.follower.snapshot(&subject.id.cluster), subject)) {
             Some((Some(pods), subject)) => subject.refresh(pods),
