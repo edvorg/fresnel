@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use fresnel_core::app::{CoreSettings, Health};
-use fresnel_core::journal::{Entry, Journal, Level, Sink};
+use fresnel_core::journal::{Entry, Journal, Level, Sink, TASK_SOURCE};
 use fresnel_core::net::WallClock;
 use fresnel_testkit::FakeApiServer;
 
@@ -87,7 +87,7 @@ async fn the_task_of_the_core_starts_again_after_each_panic_and_runs_the_next_co
     let ended: Vec<(Level, String)> = app
         .journal()
         .into_iter()
-        .filter(|(_, source, _)| source == "task")
+        .filter(|(_, source, _)| source == TASK_SOURCE)
         .map(|(level, _, text)| (level, text))
         .collect();
     assert_eq!(ended.len(), 2, "{ended:?}");

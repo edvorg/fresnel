@@ -21,7 +21,7 @@ use std::time::Duration;
 use fresnel_net::NetSettings;
 use fresnel_net::detect::{Detector, Monitor};
 use fresnel_net::env::{EnvSettings, ProcessEnv};
-use fresnel_net::task::{Backoff, End, Restart, TaskHandle, TaskName, TaskReport, Tasks};
+use fresnel_net::task::{Backoff, Reporter, Restart, TaskHandle, TaskName, TaskReport, Tasks};
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
@@ -29,7 +29,7 @@ pub use health::Health;
 pub use view::{ClusterRow, CoreView, ShellNote, Startup};
 
 use crate::cluster::{ClusterId, Registry};
-use crate::journal::{Journal, Level};
+use crate::journal::Journal;
 use repaint::Repaint;
 
 /// The most commands that wait for the task of the core. The UI sends one for each click.
@@ -280,16 +280,11 @@ impl std::fmt::Debug for Core {
     }
 }
 
-/// The journal entry for each run of a task that ended (design rule 1).
-fn reporter(journal: Journal, repaint: Repaint) -> impl Fn(TaskReport) + Send + Sync + 'static {
+/// The journal takes the report of each task run that ended (design rule 1), and the UI
+/// gets a repaint for the new entry.
+fn reporter(journal: Journal, repaint: Repaint) -> impl Reporter {
     move |report: TaskReport| {
-        let level = match (&report.end, report.restart_in) {
-            (End::Failed(_) | End::Panicked(_), _) => Level::Error,
-            // A task that runs again must not end, and a task cannot run with no runtime.
-            (End::Done, Some(_)) | (End::Stopped, _) => Level::Warning,
-            (End::Done, None) => Level::Info,
-        };
-        journal.push(level, "task", report.to_string());
+        journal.report(report);
         repaint.request();
     }
 }
@@ -301,6 +296,7 @@ mod tests {
 
     use super::*;
     use crate::error::CoreError;
+    use crate::journal::Level;
 
     fn core() -> Core {
         Core::new(CoreParts {
@@ -316,26 +312,15 @@ mod tests {
         core.view().journal.entries.iter().map(|entry| (entry.level, entry.text.clone())).collect()
     }
 
-    /// Design rule 1: a task that ends gets a journal entry.
+    /// Design rule 1: the journal of the core is the receiver of the reports of its tasks.
     #[tokio::test(start_paused = true)]
-    async fn each_run_of_a_task_that_ends_is_in_the_journal_with_its_level() {
+    async fn a_task_of_the_core_that_ends_is_in_the_journal() {
         let core = core();
-        let tasks = &core.inner.tasks;
-        let ends = |fails: bool| move || async move { if fails { Err(CoreError::invalid("no luck")) } else { Ok(()) } };
-        let job = tasks.start(TaskName::new("job"), Restart::Never, ends(false));
-        let broken = tasks.start(TaskName::new("broken job"), Restart::Never, ends(true));
-        let pause = Backoff { first: Duration::from_secs(600), ..Backoff::default() };
-        let service = tasks.start(TaskName::new("service"), Restart::Always(pause), ends(false));
+        let fails = || async { Err(CoreError::invalid("no luck")) };
+        let broken = core.inner.tasks.start(TaskName::new("broken job"), Restart::Never, fails);
         sleep(Duration::from_secs(1)).await;
-
-        let mut entries = journal(&core);
-        entries.sort();
-        assert_eq!(entries.len(), 3, "{entries:?}");
-        assert_eq!(entries[0], (Level::Info, "task job ended; no restart".to_owned()));
-        assert_eq!(entries[1].0, Level::Warning, "a task that must stay alive ended: {entries:?}");
-        assert!(entries[1].1.starts_with("task service ended; restart in "), "{entries:?}");
-        assert_eq!(entries[2], (Level::Error, "task broken job failed: no luck; no restart".to_owned()));
-        drop((job, broken, service));
+        assert_eq!(journal(&core), [(Level::Error, "task broken job failed: no luck; no restart".to_owned())]);
+        drop(broken);
     }
 
     #[tokio::test]

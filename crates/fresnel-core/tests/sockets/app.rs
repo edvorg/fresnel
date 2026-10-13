@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use fresnel_core::app::{ClusterRow, Command, Core, CoreParts, CoreSettings, CoreView, Health, Startup};
 use fresnel_core::cluster::ClusterId;
-use fresnel_core::journal::{Journal, Level};
+use fresnel_core::journal::{Journal, Level, TASK_SOURCE};
 use fresnel_core::net::WallClock;
 use fresnel_core::net::detect::{Detector, Disturbance};
 use fresnel_testkit::{FakeApiServer, Home};
@@ -175,7 +175,7 @@ impl App {
 impl Drop for App {
     fn drop(&mut self) {
         if !std::thread::panicking() {
-            let ended = self.texts_of("task");
+            let ended = self.texts_of(TASK_SOURCE);
             assert_eq!(ended.len(), self.expected_task_ends, "a task of the app ended: {ended:?}");
         }
     }

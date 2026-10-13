@@ -3,12 +3,18 @@
 //! The list in memory has a limit. An entry that leaves the list stays in the log file, and
 //! the view tells how many entries left. A text of an entry is safe for a log: it never
 //! holds a token, the output of a plugin or a value of an object.
+//!
+//! `reports`: the journal takes the report of each task run that ended.
+
+mod reports;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::SystemTime;
 
 use fresnel_net::WallClock;
+
+pub use reports::TASK_SOURCE;
 
 /// The weight of one entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
