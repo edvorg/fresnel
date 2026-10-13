@@ -28,6 +28,7 @@ tower-service.workspace = true
 fastrand.workspace = true
 fresnel-testkit.workspace = true
 http-body.workspace = true
+rcgen.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
 
 [lints]

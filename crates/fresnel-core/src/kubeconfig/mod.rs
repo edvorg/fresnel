@@ -13,7 +13,10 @@ mod sources;
 
 use std::path::{Path, PathBuf};
 
+pub(crate) use access::Identity;
 pub use access::{Access, AuthKind, Server};
+#[cfg(test)]
+pub(crate) use material::Material;
 pub use sources::default_sources;
 
 use crate::error::CoreError;

@@ -996,6 +996,7 @@ dependencies = [
  "http-body-util",
  "k8s-openapi",
  "kube",
+ "rcgen",
  "rustls",
  "serde",
  "serde-saphyr",
