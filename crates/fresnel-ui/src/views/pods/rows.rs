@@ -208,6 +208,13 @@ impl Model for PodModel {
         &row.id
     }
 
+    fn has(&self, data: &PodData, row: &PodRow) -> bool {
+        let pods = data.clusters.iter().find(|(cluster, _)| *cluster == row.id.cluster);
+        let pod = pods.and_then(|(_, pods)| pods.items.get(&row.key));
+        // A new pod with the name of the row is an other object.
+        pod.is_some_and(|pod| pod.metadata.uid.as_deref().unwrap_or_default() == &*row.id.uid)
+    }
+
     fn cell<'a>(&self, row: &'a PodRow, column: usize, scene: &'a PodScene) -> Cell<'a> {
         let mark = scene.marks.get(&row.id.cluster);
         let old = mark.map_or(Some(NOT_SELECTED), |mark| mark.old.as_deref());

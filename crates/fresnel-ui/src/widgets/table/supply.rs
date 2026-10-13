@@ -38,8 +38,8 @@ pub(super) struct Supply<M: Model> {
     filter: Option<M::Filter>,
     /// A number that grows with each change of the sort or of the filter.
     query: u64,
-    /// The identity of the last request.
-    asked: Option<RequestId>,
+    /// The identity and the objects of the last request.
+    asked: Option<(RequestId, M::Data)>,
     /// The rows on the screen with the identity of their request. `None` before the
     /// first result.
     shown: Option<Done<Rows<M>>>,
@@ -85,9 +85,10 @@ impl<M: Model> Supply<M> {
             self.query += 1;
         }
         let id = RequestId { query: self.query, data: data_serial };
-        if self.asked != Some(id) {
-            self.asked = Some(id);
-            self.worker.submit(id, Request { sort: self.sort, filter: filter.clone(), data: data() });
+        if self.asked_id() != Some(id) {
+            let data = data();
+            self.worker.submit(id, Request { sort: self.sort, filter: filter.clone(), data: data.clone() });
+            self.asked = Some((id, data));
         }
         self.take_result();
     }
@@ -116,9 +117,22 @@ impl<M: Model> Supply<M> {
         }
     }
 
+    fn asked_id(&self) -> Option<RequestId> {
+        self.asked.as_ref().map(|(id, _)| *id)
+    }
+
     /// True while the rows on the screen are not the rows of the last request.
-    pub(super) fn is_behind(&self) -> bool {
-        self.asked != self.shown.as_ref().map(|done| done.id)
+    fn is_behind(&self) -> bool {
+        self.asked_id() != self.shown.as_ref().map(|done| done.id)
+    }
+
+    /// The rows on the screen with the objects of the last request, while the rows are
+    /// older than these objects: the worker computes, and the frames go on. A row can
+    /// then be the row of an object that went away.
+    pub(super) fn older_rows(&self) -> Option<(&[M::Row], &M::Data)> {
+        let (asked, objects) = self.asked.as_ref()?;
+        let shown = self.shown.as_ref().filter(|shown| shown.id != *asked)?;
+        Some((&shown.output.rows, objects))
     }
 
     pub(super) fn progress(&self) -> Progress<'_> {

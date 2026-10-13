@@ -27,7 +27,7 @@ use fresnel_core::net::task::Tasks;
 
 use self::model::{Column, Model, ObjectId, Sort};
 pub(crate) use self::rows::Rows;
-use self::select::{click, key, position};
+use self::select::{click, forget_gone, key, position};
 pub(crate) use self::selection::Selection;
 pub(crate) use self::supply::Progress;
 use self::supply::Supply;
@@ -156,7 +156,7 @@ impl<M: Model> Table<M> {
         table.show(ui, &mut delegate);
         let (header_clicked, row_clicked) = (delegate.header_clicked, delegate.row_clicked);
 
-        let mut acted = None;
+        let (mut acted, mut by_key) = (None, false);
         if let Some((row, modifiers)) = row_clicked {
             click(model, rows, &mut self.selection, row, modifiers);
             ui.memory_mut(|memory| memory.request_focus(focus_id));
@@ -170,10 +170,18 @@ impl<M: Model> Table<M> {
             let page_rows = (rect.height() / ROW_HEIGHT).floor() as usize;
             if let Some((nav, extend)) = keys::read(ui, page_rows) {
                 acted = key(model, rows, &mut self.selection, nav, extend);
-                // The next frame scrolls to the row of the cursor.
-                self.reveal = self.selection.cursor().filter(|_| acted == Some(Act::Cursor)).cloned();
-                ui.ctx().request_repaint();
+                by_key = true;
             }
+        }
+        if (row_clicked.is_some() || by_key)
+            && let Some((rows, objects)) = self.supply.older_rows()
+        {
+            forget_gone(model, rows, objects, &mut self.selection);
+        }
+        if by_key {
+            // The next frame scrolls to the row of the cursor.
+            self.reveal = self.selection.cursor().filter(|_| acted == Some(Act::Cursor)).cloned();
+            ui.ctx().request_repaint();
         }
         if let Some(column) = header_clicked {
             // The next frame asks the worker for the rows of the new sort.

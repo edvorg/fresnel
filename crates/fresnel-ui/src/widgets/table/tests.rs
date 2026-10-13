@@ -1,17 +1,21 @@
-//! The table with a slow worker and with a worker that fails (plan section 13): frames
-//! go on while a computation waits at a gate, and the test changes the data, the filter
-//! or the sort in that time. No test waits a fixed time for rows.
+//! The table on a model with numbers. With a gate, a computation of the worker waits for
+//! the test, so frames go on while the test changes the data, the filter or the sort. No
+//! test waits a fixed time for rows.
+//!
+//! - `races`: a slow worker and a worker that fails (plan section 13).
+//! - `input`: the sort, the clicks and the keys.
+
+mod input;
+mod races;
 
 use std::cmp::Ordering;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::Instant;
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use fresnel_core::cluster::ClusterId;
-use fresnel_core::net::task::End;
 
 use super::model::{Cell, Computed};
 use super::worker::Cancel;
@@ -69,6 +73,10 @@ impl Model for Numbers {
 
     fn id<'a>(&self, row: &'a Self::Row) -> &'a ObjectId {
         &row.0
+    }
+
+    fn has(&self, data: &Data, row: &Self::Row) -> bool {
+        data.iter().any(|(uid, _)| *uid == row.1)
     }
 
     fn cell<'a>(&self, row: &'a Self::Row, column: usize, _scene: &'a ()) -> Cell<'a> {
@@ -183,177 +191,4 @@ impl Bed {
 
 fn objects(range: std::ops::RangeInclusive<u32>) -> Vec<(u32, i64)> {
     range.map(|uid| (uid, i64::from(uid) * 10)).collect()
-}
-
-/// Defect A1 of the prototype: with snapshots faster than the sort, the table showed
-/// the first rows for all time. Here each computation ends, and the newest data is next.
-#[test]
-fn a_stream_of_snapshots_gives_new_rows_and_the_cursor_stays_on_its_object() {
-    let mut bed = Bed::start(&objects(1..=3), true, false);
-    assert_eq!((bed.started(), bed.shown()), (3, vec![]));
-    assert!(bed.window.query_by_label("The rows are computed…").is_some(), "no empty table before the first rows");
-    bed.finish();
-    bed.window.step();
-    assert_eq!(bed.shown(), ["object-1", "object-2", "object-3"]);
-    assert_eq!(bed.click("object-2", egui::Modifiers::NONE), Some(Act::Cursor));
-    assert_eq!(bed.cursor().as_deref(), Some("2"));
-
-    // Four snapshots arrive while the worker computes the rows of the first of them.
-    bed.set(&[(9, 5), (1, 10), (2, 20), (3, 30)]);
-    assert_eq!(bed.started(), 4);
-    for last in 10..=12 {
-        bed.set(&[vec![(9, 5)], objects(1..=3), objects(10..=last)].concat());
-    }
-    assert_eq!(bed.shown(), ["object-1", "object-2", "object-3"], "the rows stay while the worker computes");
-    bed.finish();
-    bed.window.step();
-    assert_eq!(bed.shown().len(), 4, "the computation in progress gave its rows: new data did not stop it");
-    assert_eq!(bed.started(), 7, "the next computation is of the newest snapshot");
-    bed.finish();
-    bed.window.step();
-    assert_eq!(bed.shown().len(), 7);
-    assert_eq!(bed.shown()[..3], ["object-1", "object-2", "object-3"]);
-    assert_eq!(bed.cursor().as_deref(), Some("2"), "the cursor is an object, and its row moved");
-    assert_eq!(bed.progress(), "Current");
-    assert!(bed.tasks.reports.try_recv().is_err(), "no run of the worker ended");
-}
-
-/// Defects A2 and A7 of the prototype: the UI put a result into a state that changed
-/// after the request. A result of an older filter or sort must never show.
-#[test]
-fn a_result_of_an_older_filter_or_sort_never_shows() {
-    let mut bed = Bed::start(&objects(1..=3), true, false);
-    bed.started();
-    // The rows of the first request are in the mailbox, and no frame took them yet.
-    bed.finish();
-    bed.window.state_mut().filter = 25;
-    bed.window.step();
-    assert_eq!(bed.shown(), Vec::<String>::new(), "the rows of the old filter have two rows too many");
-    assert_eq!(bed.started(), 3);
-    bed.finish();
-    bed.window.step();
-    assert_eq!(bed.shown(), ["object-3"]);
-
-    // The same for the sort: a click on a title while the worker computes for the old sort.
-    bed.window.state_mut().filter = 0;
-    bed.window.step();
-    bed.started();
-    bed.finish();
-    bed.window.step();
-    assert_eq!(bed.shown(), ["object-1", "object-2", "object-3"]);
-    bed.set(&objects(1..=4));
-    bed.started();
-    // The last frame of the click turns the sort. Then the rows of the old sort arrive,
-    // and the next frame finds them in the mailbox.
-    bed.window.get_by_role_and_label(egui::accesskit::Role::Button, "Object").click();
-    bed.window.step();
-    bed.finish();
-    bed.window.step();
-    assert_eq!(bed.shown(), ["object-1", "object-2", "object-3"], "object-4 is of a result for the sort before");
-    assert_eq!(bed.started(), 4, "the computation for the new sort");
-    bed.finish();
-    bed.window.step();
-    assert_eq!(bed.shown(), ["object-4", "object-3", "object-2", "object-1"]);
-}
-
-/// Defect A3 of the prototype, and design rules 1 and 5: a worker that fails keeps the
-/// rows on the screen, tells why, and gives new rows after its restart.
-#[test]
-fn a_worker_panic_keeps_the_rows_and_tells_why_and_new_rows_come_after_the_restart() {
-    let mut bed = Bed::start(&objects(1..=3), false, false);
-    bed.result();
-    bed.window.step();
-    assert_eq!(bed.shown().len(), 3);
-
-    bed.control.broken.store(true, Relaxed);
-    bed.set(&objects(1..=5));
-    let report = bed.tasks.reports.recv_timeout(LIMIT).expect("the report of the run that ended");
-    assert_eq!(report.task.to_string(), "table rows [Numbers]");
-    assert_eq!(report.end, End::Panicked("a defect in the rows".to_owned()));
-    // The worker fails at each start, so some frame finds it in its pause.
-    let started = Instant::now();
-    while !bed.progress().starts_with("Failed") {
-        assert!(started.elapsed() < LIMIT, "the table tells the fault");
-        bed.window.step();
-    }
-    assert_eq!(bed.progress(), r#"Failed("panicked: a defect in the rows; it starts again")"#);
-    assert_eq!(bed.shown().len(), 3, "the rows from before the fault stay");
-
-    bed.control.broken.store(false, Relaxed);
-    bed.result();
-    bed.window.step();
-    assert_eq!((bed.shown().len(), bed.progress().as_str()), (5, "Current"), "the request of the panic got its rows");
-}
-
-#[test]
-fn a_table_with_no_rows_yet_shows_the_fault_of_its_worker_and_not_an_empty_list() {
-    let mut bed = Bed::start(&objects(1..=3), false, true);
-    let text = "The rows are not computed: the worker thread panicked: a defect in the rows; it starts again";
-    let started = Instant::now();
-    while bed.window.query_by_label(text).is_none() {
-        assert!(started.elapsed() < LIMIT, "the table tells the fault");
-        bed.window.step();
-    }
-    assert!(bed.window.query_by_label("no row passes the filter").is_none());
-    bed.control.broken.store(false, Relaxed);
-    bed.result();
-    bed.window.step();
-    assert_eq!(bed.shown().len(), 3);
-}
-
-/// Plan section 11.2: each sort has a fixed last key.
-#[test]
-fn a_click_on_a_title_sorts_and_rows_with_equal_values_keep_one_sequence() {
-    let mut bed = Bed::start(&[(1, 5), (2, 5), (3, 1), (4, 9)], false, false);
-    bed.result();
-    bed.window.step();
-    let sort_by_value = |bed: &mut Bed| {
-        bed.window.get_by_role_and_label(egui::accesskit::Role::Button, "Value").click();
-        bed.window.step();
-        bed.window.step();
-        bed.result();
-        bed.window.step();
-        bed.shown()
-    };
-    assert_eq!(sort_by_value(&mut bed), ["object-3", "object-1", "object-2", "object-4"]);
-    assert_eq!(sort_by_value(&mut bed), ["object-4", "object-1", "object-2", "object-3"], "1 stays before 2");
-
-    bed.window.state_mut().filter = 100;
-    bed.window.step();
-    bed.result();
-    bed.window.step();
-    assert!(bed.window.query_by_label("no row passes the filter").is_some(), "the view tells why no row shows");
-}
-
-#[test]
-fn clicks_and_keys_select_objects_and_escape_clears_the_selection() {
-    let mut bed = Bed::start(&objects(1..=40), false, false);
-    bed.result();
-    bed.window.step();
-    bed.click("object-2", egui::Modifiers::NONE);
-    bed.click("object-4", egui::Modifiers::SHIFT);
-    assert_eq!((bed.selected(), bed.cursor().as_deref()), (3, Some("4")));
-    bed.click("object-3", egui::Modifiers::COMMAND);
-    assert_eq!((bed.selected(), bed.cursor().as_deref()), (2, Some("3")), "Cmd removes one object");
-    bed.click("object-1", egui::Modifiers::NONE);
-
-    assert_eq!(bed.key(egui::Modifiers::NONE, egui::Key::ArrowDown), Some(Act::Cursor));
-    assert_eq!((bed.selected(), bed.cursor().as_deref()), (1, Some("2")));
-    bed.key(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
-    bed.key(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
-    assert_eq!((bed.selected(), bed.cursor().as_deref()), (3, Some("4")), "Shift makes a range from the anchor");
-    bed.key(egui::Modifiers::SHIFT, egui::Key::ArrowUp);
-    assert_eq!((bed.selected(), bed.cursor().as_deref()), (2, Some("3")));
-
-    // The last row is far below the window. The table scrolls to the row of the cursor.
-    assert!(bed.window.query_by_label("object-40").is_none());
-    bed.key(egui::Modifiers::NONE, egui::Key::End);
-    bed.window.step();
-    assert_eq!(bed.cursor().as_deref(), Some("40"));
-    assert!(bed.window.query_by_label("object-40").is_some(), "the row of the cursor shows");
-    assert_eq!(bed.key(egui::Modifiers::NONE, egui::Key::Home), Some(Act::Cursor));
-    assert_eq!(bed.key(egui::Modifiers::COMMAND, egui::Key::A), None);
-    assert_eq!((bed.selected(), bed.cursor().as_deref()), (40, Some("1")), "Cmd+A selects each row");
-    assert_eq!(bed.key(egui::Modifiers::NONE, egui::Key::Escape), Some(Act::Cleared));
-    assert_eq!((bed.selected(), bed.cursor()), (0, None));
 }

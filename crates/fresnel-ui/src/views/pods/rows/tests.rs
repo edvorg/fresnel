@@ -75,6 +75,28 @@ fn a_cancel_ends_the_computation_with_no_rows() {
     assert!(PodModel.rows(&data, &PodFilter::default(), &Cancel::new(&newest, 1)).is_none());
 }
 
+/// The table asks this for a row that is older than the snapshots, so that a click
+/// selects no pod that went away.
+#[test]
+fn the_data_has_the_pod_of_a_row_by_its_cluster_its_name_and_its_uid() {
+    let bed = TestTasks::new();
+    let all = rows(&bed, &PodFilter::default()).rows;
+    let crash = row(&all, "ams", "crash");
+    let data = |cluster: &str, pods: &[Arc<Pod>]| PodData {
+        clusters: vec![(ClusterId::new(cluster), bed.held(snapshot(pods, StoreState::Live)))],
+    };
+    assert!(PodModel.has(&data("ams", &fixture_pods()), crash));
+    assert!(!PodModel.has(&data("fra", &fixture_pods()), crash), "the cluster of the row left the data");
+
+    let mut others = fixture_pods();
+    others.retain(|pod| pod.metadata.name.as_deref() != Some("crash"));
+    assert!(!PodModel.has(&data("ams", &others), crash), "the pod went away");
+    let mut next = Pod::clone(&crash.pod);
+    next.metadata.uid = Some("the-uid-of-a-new-pod".to_owned());
+    others.push(Arc::new(next));
+    assert!(!PodModel.has(&data("ams", &others), crash), "a new pod with the name is an other object");
+}
+
 /// Plan section 11.2: each sort has a fixed last key, and a sort value has no clock.
 #[test]
 fn each_column_has_a_typed_sequence_and_two_pods_are_never_equal() {

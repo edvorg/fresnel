@@ -1,6 +1,8 @@
 //! What a click and a key do to the selection of a table. The selection holds objects,
 //! so each function finds the rows of its objects in the rows on the screen.
 
+use std::collections::HashSet;
+
 use egui::Modifiers;
 
 use super::Act;
@@ -64,5 +66,17 @@ pub(super) fn key<M: Model>(
             }
             Some(Act::Cursor)
         }
+    }
+}
+
+/// Removes from the selection each object of `rows` that `objects` do not have. The
+/// table calls this after a click or a key on rows that are older than the objects: the
+/// view removed the objects that went away one time, at their change, so nothing else
+/// would remove one that the user selects after it.
+pub(super) fn forget_gone<M: Model>(model: &M, rows: &[M::Row], objects: &M::Data, selection: &mut Selection) {
+    let selected = rows.iter().filter(|row| selection.contains(model.id(row)));
+    let gone: HashSet<&ObjectId> = selected.filter(|row| !model.has(objects, row)).map(|row| model.id(row)).collect();
+    if !gone.is_empty() {
+        selection.forget(|id| gone.contains(id));
     }
 }

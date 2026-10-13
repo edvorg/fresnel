@@ -104,7 +104,8 @@ pub(crate) struct Computed<Row, Summary> {
 /// `compare` and `tie`; the UI thread calls the rest.
 pub(crate) trait Model: Send + Sync + 'static {
     /// The objects that the rows come from: the snapshots of the stores. A clone copies
-    /// pointers only.
+    /// pointers only, and a drop frees no object: the table holds the data of its last
+    /// request on the UI thread.
     type Data: Clone + Send + 'static;
     /// What selects the rows: the filters of the view.
     type Filter: Clone + PartialEq + Send + 'static;
@@ -136,6 +137,10 @@ pub(crate) trait Model: Send + Sync + 'static {
 
     /// The identity of the object of a row.
     fn id<'a>(&self, row: &'a Self::Row) -> &'a ObjectId;
+
+    /// True while `data` has the object of this row. The rows on the screen can be older
+    /// than the objects, and the table selects no object that went away.
+    fn has(&self, data: &Self::Data, row: &Self::Row) -> bool;
 
     fn cell<'a>(&self, row: &'a Self::Row, column: usize, scene: &'a Self::Scene) -> Cell<'a>;
 }
