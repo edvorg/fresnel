@@ -7,8 +7,9 @@ that looks current.
 ## Status
 
 The work is in milestone M0 (connect). The repository has the workspace, the lints, CI, the
-function that starts each background task, the test kit and the network layer `fresnel-net`.
-The `doctor` command and the first window come next.
+function that starts each background task, the test kit, the network layer `fresnel-net`, the
+first parts of `fresnel-core` (kubeconfig loader, cluster registry, gateway) and the `doctor`
+command. The first window comes next.
 
 ## Build and test
 
@@ -22,6 +23,22 @@ cargo xtask check-sizes               # size limits of documents and source file
 ```
 
 On Linux, the UI tests need the package `mesa-vulkan-drivers`.
+
+## The doctor command
+
+`doctor` measures the connection to a cluster with the code of the app. It changes nothing,
+and its only request is `GET /version`, so it reads no object.
+
+```sh
+cargo run --package fresnel-cli -- doctor                    # lists the contexts
+cargo run --package fresnel-cli -- doctor --context <name>   # measures one cluster
+cargo run --package fresnel-cli -- doctor --all --idle-close 150
+```
+
+It reports the time of the login shell and of the credential plugin, the address lookup, the
+connect times with and with no hedge, the share of held connects, HTTP/2 with its stream
+limit, the round trip time, the server version and, with `--idle-close`, when the server
+closes an idle connection. It prints a text report and writes `fresnel-doctor.json`.
 
 ## Layout
 

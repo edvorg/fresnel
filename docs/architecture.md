@@ -49,11 +49,13 @@ xtask
   connections, the credential plugin, time limits and connection states. It has no dependency
   on kube. It is the lowest crate, thus it also holds the task start function.
 - `fresnel-core`: the domain. Clusters, the watch loop, stores, indexes, search, operations,
-  forwards, metrics, settings and the journal. It has no dependency on egui.
+  forwards, metrics, settings and the journal. It has no dependency on egui. The crates above
+  it reach the connection layer through the name `fresnel_core::net`.
 - `fresnel-ui`: the egui widgets and views. It uses the object types of `k8s-openapi` and
   never the types of kube.
 - `fresnel`: the desktop program. The window, the tokio runtime and the log setup.
-- `fresnel-cli`: the command line program for tests and fault diagnosis.
+- `fresnel-cli`: the command line program for tests and fault diagnosis. Its command `doctor`
+  measures the connection to a cluster. It sends `GET /version` only, so it reads no object.
 - `fresnel-testkit`: the fault proxy, the helper for k3s in Docker and a fake API server.
   Only tests use it. The test kit can use `fresnel-net`. Thus a test of `fresnel-net` that
   needs the test kit is a file in `tests/`, not a unit test.
@@ -62,7 +64,8 @@ xtask
 ## Borders in the code
 
 - Only one module of `fresnel-core` holds kube clients: `cluster/gateway.rs`. Each function of
-  this module applies its time limit and the rule for writes.
+  this module applies its time limit and the rule for writes. The kubeconfig loader has its
+  own types for the file format.
 - One module wraps each outside UI crate: `egui_table` in `widgets/table.rs`, `egui_tiles` in
   `shell/dock.rs`, `egui_plot` in `widgets/chart.rs`. An egui upgrade then changes few files.
 - Each library crate has one error type with a class: auth, forbidden, conflict, timeout,
@@ -113,6 +116,22 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **State**: `Cluster::status` gives a copy of each state. `Cluster::changes` tells when to
   read again. The text of the plugin is only in `detail()`, never in `Display` or `Debug`.
 
+## Clusters
+
+`fresnel-core` makes a connected cluster from a kubeconfig context.
+
+- **Kubeconfig**: `kubeconfig::load` reads each file of `KUBECONFIG` of the login shell and then
+  `~/.kube/config`, and lists each context. For a name in two files, the first file wins. Each
+  problem of a file is in the result. A context that the app cannot use stays in the list
+  with its error.
+- **Registry**: one entry for each context. It owns the connections of each connected cluster
+  and gives a copy of each state. A `ClusterId` is the name of the context.
+- **Gateway**: the requests to one cluster, with one function for each request kind: get, list
+  page, watch stream, log stream, send and upgrade. The kind gives the connection and the
+  time limits. A failed write tells its fate: not sent, refused or not known.
+- **Probe**: `fresnel_net::probe` measures single steps of a connect with the connect code of
+  the app. The `doctor` command uses it.
+
 ## Contract between the UI and the core
 
 1. **State.** One type publishes each state. The UI gets a copy, never a lock that can stop a
@@ -149,6 +168,8 @@ prints one line for it, and `task_failures` gives the list.
 - **Socket tests** use the fake API server and the fault proxy on 127.0.0.1. They need no
   Docker and run with the unit tests. Real sockets need real time.
 - **UI tests** drive the views through `egui_kittest` with no window.
+- **Program tests** start `fresnel-cli` as a child process with the environment of a program
+  from Finder. The home folder is a folder of the test, so the login shell reads its profile.
 - **Cluster tests** use k3s in Docker through the fault proxy. They have the attribute
   `#[ignore]`, and `cargo test --workspace -- --ignored` runs them.
 - CI runs the format check, the lints, the unit tests, the UI tests and the size check on

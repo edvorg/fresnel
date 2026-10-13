@@ -214,3 +214,58 @@ the count of stream windows that fit into the connection window. The test of a c
 needs that room. In the prototype, 70 unread bodies of 1 MiB stopped a channel with a window
 of 64 MiB, and its state stayed live.
 
+## An own reader for the kubeconfig files
+
+The kubeconfig loader has its own types for the file format and reads YAML with `serde-saphyr`.
+It does not use the loader of kube, so a kube upgrade cannot change which clusters and
+credentials the app sees. The app controls each rule. An entry with no body stays in the list
+with its error. A name in two files gives a problem line. The error of a broken file has
+only the position: the file can hold a key.
+
+## KUBECONFIG and the default file are one list
+
+`kubectl` reads `~/.kube/config` only when `KUBECONFIG` is not set. The app reads the files of
+`KUBECONFIG` and then `~/.kube/config` as one list, in which the first file wins. A desktop app
+shows all clusters of the user, and a project file in `KUBECONFIG` must not hide the other
+clusters. The value comes from the login shell, because a program that starts from Finder has
+no `KUBECONFIG`.
+
+## An entry that the app does not support is an error
+
+A kubeconfig user with a static token, a password, an auth provider or a user to act as shows
+as not usable. The same holds for a cluster with a proxy, with no certificate authority or
+with no check of the server certificate. A connect with less than the entry asks for would
+act as a different user or trust a different server. The error names the entry, so the cause
+shows in the cluster list.
+
+## The gateway reads each answer itself
+
+The gateway uses the kube client for the send and for the WebSocket handshake only. It checks
+the status and reads the JSON itself. The request functions of kube write the body of a bad
+answer to the log, and that body can be a Secret. The watch function of kube gives a bad
+status as the first event, so a watch would show as live too early. A gateway error for
+bad JSON gives the position only.
+
+## The kube client keeps one task of its own
+
+kube keeps its service in a `tower` buffer, and the buffer starts one task with a direct
+`tokio::spawn`. It is the one task outside the start function. It only hands each request to
+the service of the gateway. That service is always ready, and its call only builds a future,
+so the task ends only when the last handle of the client drops. A request runs in the task
+of its caller, where the time limits of its kind apply.
+
+## The fate of a failed write is on the safe side
+
+A failed write tells its fate: not sent, refused or not known. The app can send again only
+after "not sent". A refusal is an answer with a status below 500. A status of 500 or more
+counts as not known, because a server can fail after it stored the object. A network error
+and a timeout also count as not known: the connection layer does not tell yet if the request
+left.
+
+## The doctor measures with the code of the app
+
+The `doctor` command uses the login shell resolve, the kubeconfig loader, the hedged connect,
+the channels and the gateway of the app, so its numbers hold for the app. Each connect sample
+closes after the TLS handshake, and the only request is `GET /version`. A run on a real
+cluster thus reads no object. For the idle close time, the channels for log streams send no
+light request. The text of a plugin shows at the terminal only.

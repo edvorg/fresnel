@@ -55,6 +55,11 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
   the connection and the time limits. A request with no kind is refused.
 - An error text that can go to a log has no text of a child process. Put that text in
   `detail()`, as `PluginError` does.
+- Code above `fresnel-net` sends a request through one of the six functions of
+  `fresnel_core::cluster::Gateway`. Build the request with `kube::core::Request`. No other
+  module holds a kube client.
+- An error text has no value of an object and no part of a kubeconfig file. For JSON or YAML
+  that does not fit, give the position only.
 
 ## Tests
 
@@ -69,6 +74,8 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
 - A time limit of `fresnel-net` gets a unit test with paused time on the server in memory
   (`src/testing.rs`), and the test asserts the exact time.
 - A UI test uses `egui_kittest` and opens no window.
+- A test of `fresnel-cli` starts the program as a child process with `env -i`, the `PATH` of
+  Finder and a home folder of the test. No test reads the home folder of the user.
 - A test that needs k3s or Docker has the attribute `#[ignore = "needs k3s in Docker"]`.
   `cargo test --workspace -- --ignored` runs these tests. CI runs them on Linux.
 - A helper in `tests/` that needs `expect` starts its file with
@@ -90,6 +97,8 @@ Rules for a cluster test:
 - An exact pin (`=`) has a comment that gives its reason.
 - `fresnel-net` does not depend on kube. `fresnel-core` does not depend on egui.
   `fresnel-ui` does not use the types of kube.
+- A crate above `fresnel-core` names the connection layer as `fresnel_core::net`. Its manifest
+  does not list `fresnel-net`.
 
 ## Documents
 
