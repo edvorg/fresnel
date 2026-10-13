@@ -14,6 +14,7 @@ use fresnel_core::cluster::ClusterId;
 use fresnel_core::net::task::End;
 
 use super::model::{Cell, Computed};
+use super::worker::Cancel;
 use super::*;
 use crate::testing::{LIMIT, TestTasks};
 
@@ -168,11 +169,11 @@ impl Bed {
     }
 
     fn cursor(&self) -> Option<String> {
-        self.window.state().table.selection.cursor().map(|id| id.uid.to_string())
+        self.window.state().table.selection().cursor().map(|id| id.uid.to_string())
     }
 
     fn selected(&self) -> usize {
-        self.window.state().table.selection.len()
+        self.window.state().table.selection().len()
     }
 
     fn progress(&self) -> String {

@@ -6,9 +6,9 @@
 //! by the identity of an object, and the keys.
 //!
 //! - `model`: what a kind gives to its table. `worker`: the thread that computes the rows.
-//! - `rows`: a request and its rows. `cells`: the paint of each part.
+//! - `rows`: a request and its rows. `supply`: the last request and the rows on the screen.
+//! - `cells`: the paint of each part. `keys`: the keys.
 //! - `selection`: the selected objects. `select`: what a click and a key do to them.
-//!   `keys`: the keys.
 
 pub(crate) mod cells;
 mod keys;
@@ -16,25 +16,23 @@ pub(crate) mod model;
 mod rows;
 mod select;
 mod selection;
+mod supply;
 pub(crate) mod worker;
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use egui::{EventFilter, Modifiers, RichText, Sense, Ui};
-use fresnel_core::net::task::{TaskName, Tasks};
+use fresnel_core::net::task::Tasks;
 
 use self::model::{Column, Model, ObjectId, Sort};
 pub(crate) use self::rows::Rows;
-use self::rows::{Request, sorted_rows};
 use self::select::{click, key, position};
 pub(crate) use self::selection::Selection;
-use self::worker::{Cancel, Done, RequestId, Wake, Worker};
+pub(crate) use self::supply::Progress;
+use self::supply::Supply;
+use self::worker::Wake;
 use crate::theme::{self, Palette, ROW_HEIGHT};
-
-/// The table tells that it waits for new rows only after this time. The rows of 10,000
-/// objects need some milliseconds, and a note for each of them would flicker.
-const SLOW: Duration = Duration::from_millis(250);
 
 /// What the user did to the cursor of a table in one frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,128 +43,43 @@ pub(crate) enum Act {
     Cleared,
 }
 
-/// How the rows on the screen stand to the last request.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Progress<'a> {
-    /// The rows are the rows of the last request, or the newer ones arrive in a moment.
-    Current,
-    /// The worker computes newer rows, and that takes long.
-    Behind,
-    /// The worker did not give the rows of the last request, for this reason. The rows
-    /// on the screen are older ones (design rules 1 and 5).
-    Failed(&'a str),
-}
-
 /// The table of one kind. It owns its worker thread.
 pub(crate) struct Table<M: Model> {
     /// The title of the kind. It names the worker thread and the saved column widths.
     name: &'static str,
     model: Arc<M>,
-    worker: Worker<Request<M>, Rows<M>>,
-    sort: Sort,
-    /// The filter of the last request.
-    filter: Option<M::Filter>,
-    /// A number that grows with each change of the sort or of the filter.
-    query: u64,
-    /// The identity of the last request.
-    asked: Option<RequestId>,
-    /// The rows on the screen with the identity of their request. `None` before the
-    /// first result.
-    shown: Option<Done<Rows<M>>>,
+    supply: Supply<M>,
     selection: Selection,
     /// The object whose row the next frame scrolls to.
     reveal: Option<ObjectId>,
-    /// Why the worker did not compute. It stays to the next result.
-    failure: Option<String>,
-    /// The moment from which the rows on the screen are not the rows of the last request.
-    behind_since: Option<Instant>,
 }
 
 impl<M: Model> Table<M> {
     /// Starts the worker thread of the table. `wake` asks for a repaint for a result.
     pub(crate) fn new(tasks: &Tasks, wake: Wake, name: &'static str, model: M) -> Self {
         let model = Arc::new(model);
-        let compute = {
-            let model = Arc::clone(&model);
-            move |request: &Request<M>, cancel: &Cancel<'_>| sorted_rows(&*model, request, cancel)
-        };
-        let worker = Worker::start(tasks, TaskName::scoped("table rows", name), wake, compute);
-        let sort = Sort { column: 0, descending: false };
-        Self {
-            name,
-            model,
-            worker,
-            sort,
-            filter: None,
-            query: 0,
-            asked: None,
-            shown: None,
-            selection: Selection::default(),
-            reveal: None,
-            failure: None,
-            behind_since: None,
-        }
+        let supply = Supply::start(tasks, wake, name, Arc::clone(&model));
+        Self { name, model, supply, selection: Selection::default(), reveal: None }
     }
 
     /// Tells the table what its rows come from in this frame, and takes a result of the
     /// worker. `data_serial` grows when the objects change, and `data` gives them.
     pub(crate) fn request(&mut self, filter: &M::Filter, data_serial: u64, data: impl FnOnce() -> M::Data) {
-        if self.filter.as_ref() != Some(filter) {
-            self.filter = Some(filter.clone());
-            self.query += 1;
-        }
-        let id = RequestId { query: self.query, data: data_serial };
-        if self.asked != Some(id) {
-            self.asked = Some(id);
-            self.worker.submit(id, Request { sort: self.sort, filter: filter.clone(), data: data() });
-        }
-        self.take_result();
-    }
-
-    /// Takes the newest result. A result of an older sort or filter does not fit the
-    /// header and the filter that the user sees now, so the table drops it. A result of
-    /// this query for older objects fits: its rows are newer than the rows on the screen.
-    fn take_result(&mut self) {
-        if let Some(done) = self.worker.take() {
-            let old = if done.id.query == self.query {
-                self.failure = None;
-                self.shown.replace(done)
-            } else {
-                Some(done)
-            };
-            // The thread frees the rows: they can hold the last pointer to many objects.
-            old.into_iter().for_each(|old| self.worker.discard(old.output));
-        }
-        if !self.is_behind() {
-            self.behind_since = None;
-            return;
-        }
-        self.behind_since.get_or_insert_with(Instant::now);
-        if let Some(failure) = self.worker.failure() {
-            self.failure = Some(failure);
-        }
-    }
-
-    fn is_behind(&self) -> bool {
-        self.asked != self.shown.as_ref().map(|done| done.id)
+        self.supply.request(filter, data_serial, data);
     }
 
     pub(crate) fn progress(&self) -> Progress<'_> {
-        match &self.failure {
-            Some(failure) => Progress::Failed(failure),
-            None if self.behind_since.is_some_and(|since| since.elapsed() >= SLOW) => Progress::Behind,
-            None => Progress::Current,
-        }
+        self.supply.progress()
     }
 
     /// The rows on the screen. `None` before the first result.
     pub(crate) fn rows(&self) -> Option<&Rows<M>> {
-        self.shown.as_ref().map(|done| &done.output)
+        self.supply.rows()
     }
 
     /// The time that the worker thread took for the rows on the screen.
     pub(crate) fn compute_time(&self) -> Option<Duration> {
-        self.shown.as_ref().map(|done| done.time)
+        self.supply.compute_time()
     }
 
     pub(crate) fn selection(&self) -> &Selection {
@@ -192,21 +105,19 @@ impl<M: Model> Table<M> {
     /// Gives what the user did to the cursor.
     pub(crate) fn show(&mut self, ui: &mut Ui, scene: &M::Scene, empty: impl FnOnce() -> String) -> Option<Act> {
         let palette = theme::palette(ui);
-        if let Some(since) = self.behind_since
-            && let Some(rest) = SLOW.checked_sub(since.elapsed())
-        {
+        if let Some(rest) = self.supply.time_to_slow() {
             // The frame after this time tells that the table waits for its rows.
             ui.ctx().request_repaint_after(rest);
         }
-        let Some(shown) = &self.shown else {
-            let text = match &self.failure {
+        let Some(shown) = self.supply.rows() else {
+            let text = match self.supply.failure() {
                 Some(failure) => format!("The rows are not computed: the worker thread {failure}"),
                 None => "The rows are computed…".to_owned(),
             };
             note(ui, palette, &text);
             return None;
         };
-        let rows = shown.output.rows.as_slice();
+        let rows = shown.rows.as_slice();
         if rows.is_empty() {
             note(ui, palette, &empty());
             return None;
@@ -237,7 +148,7 @@ impl<M: Model> Table<M> {
             scene,
             palette,
             columns,
-            sort: self.sort,
+            sort: self.supply.sort(),
             selection: &self.selection,
             header_clicked: None,
             row_clicked: None,
@@ -245,12 +156,6 @@ impl<M: Model> Table<M> {
         table.show(ui, &mut delegate);
         let (header_clicked, row_clicked) = (delegate.header_clicked, delegate.row_clicked);
 
-        if let Some(column) = header_clicked {
-            self.sort = self.sort.clicked(column);
-            self.query += 1;
-            // The next frame asks the worker for the rows of the new sort.
-            ui.ctx().request_repaint();
-        }
         let mut acted = None;
         if let Some((row, modifiers)) = row_clicked {
             click(model, rows, &mut self.selection, row, modifiers);
@@ -269,6 +174,11 @@ impl<M: Model> Table<M> {
                 self.reveal = self.selection.cursor().filter(|_| acted == Some(Act::Cursor)).cloned();
                 ui.ctx().request_repaint();
             }
+        }
+        if let Some(column) = header_clicked {
+            // The next frame asks the worker for the rows of the new sort.
+            self.supply.set_sort(self.supply.sort().clicked(column));
+            ui.ctx().request_repaint();
         }
         acted
     }
