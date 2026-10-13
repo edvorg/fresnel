@@ -1,5 +1,5 @@
 //! The indexes of one cluster: the relations between its objects that a view asks for
-//! (plan sections 9.8 and 9.9).
+//! (plan sections 9.6, 9.8 and 9.9).
 //!
 //! An index is derived data. One task for each index reads the snapshots of its stores and
 //! applies the differences between two snapshots. A reader gets an [`Index`] through the
@@ -8,11 +8,13 @@
 //!
 //! - `owner`: from an owner to its objects, and from a Service to its pods.
 //! - `refs`: from a ConfigMap, a Secret, a ServiceAccount or a Node to its pods.
+//! - `events`: from an object to its Events.
 //! - `task`: the task of an index, and what a reader holds. `source`: one store as an
 //!   index reads it. `links`: the map of one relation.
 
 #[cfg(test)]
 mod bed;
+mod events;
 mod links;
 mod owner;
 mod refs;
@@ -21,6 +23,7 @@ mod task;
 
 use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
 
+pub use events::ObjectEvents;
 pub use owner::{EndpointPod, ObjectRef, Owners};
 pub use refs::{References, Target, references_of};
 pub use source::SourceStatus;
@@ -31,6 +34,7 @@ use crate::error::CoreError;
 use crate::kinds::Full;
 use crate::published::{Bin, Changes, Notice, Publisher, Reader};
 use crate::store::{ClusterStores, Snapshot};
+use events::EventIndexer;
 use owner::OwnerIndexer;
 use refs::ReferenceIndexer;
 use task::Indexer;
@@ -90,6 +94,7 @@ fn store<K: Full>(stores: &ClusterStores) -> Result<Reader<Snapshot<K>>, CoreErr
 pub struct ClusterIndexes {
     owners: Running<Owners>,
     references: Running<References>,
+    events: Option<Running<ObjectEvents>>,
     notice: Notice,
 }
 
@@ -103,7 +108,9 @@ impl ClusterIndexes {
             move || OwnerIndexer::new(replica_sets.clone(), jobs.clone(), pods.clone(), slices.clone())
         });
         let references = starter.start("reference index", move || ReferenceIndexer::new(pods.clone()));
-        Ok(Self { owners, references, notice: starter.notice })
+        let events =
+            stores.full().map(|events| starter.start("event index", move || EventIndexer::new(events.clone())));
+        Ok(Self { owners, references, events, notice: starter.notice })
     }
 
     /// Tells when an index of the cluster has a new value.
@@ -120,10 +127,16 @@ impl ClusterIndexes {
     pub fn references(&self) -> Reader<Index<References>> {
         self.references.publisher.reader()
     }
+
+    /// A reader of the Event index. `None` when the settings give the Events no store:
+    /// a view then reads the Events of its object from the server.
+    pub fn events(&self) -> Option<Reader<Index<ObjectEvents>>> {
+        self.events.as_ref().map(|events| events.publisher.reader())
+    }
 }
 
 impl std::fmt::Debug for ClusterIndexes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ClusterIndexes").finish_non_exhaustive()
+        f.debug_struct("ClusterIndexes").field("events", &self.events.is_some()).finish_non_exhaustive()
     }
 }

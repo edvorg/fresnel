@@ -43,6 +43,12 @@ macro_rules! kinds {
             /// Each kind, in the sequence of the list.
             pub const ALL: &'static [Kind] = &[$(Kind::$id,)*];
 
+            /// The kind with this name in a manifest, for example `Pod`. `None` for a kind
+            /// that is out of the scope of the app.
+            pub fn named(name: &str) -> Option<Kind> {
+                Self::ALL.iter().copied().find(|kind| kind.info().name == name)
+            }
+
             /// The description of the kind.
             pub fn info(self) -> &'static KindInfo {
                 match self {

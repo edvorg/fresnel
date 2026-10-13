@@ -117,6 +117,9 @@ mod tests {
     fn each_kind_has_its_own_path_and_no_store_holds_the_data_of_a_secret() {
         let paths: BTreeSet<String> = Kind::ALL.iter().map(|kind| kind.info().path()).collect();
         assert_eq!(paths.len(), Kind::ALL.len());
+        // An Event names the kind of its object, so a name is one kind.
+        assert!(Kind::ALL.iter().all(|kind| Kind::named(kind.info().name) == Some(*kind)));
+        assert_eq!(Kind::named("Widget"), None, "a kind out of scope");
         assert_eq!(Kind::Pod.info().path(), "/api/v1/pods");
         assert_eq!(Kind::Deployment.info().path(), "/apis/apps/v1/deployments");
         assert_eq!(Kind::ApiService.info().path(), "/apis/apiregistration.k8s.io/v1/apiservices");
