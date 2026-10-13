@@ -101,5 +101,10 @@ dbg_macro = "deny"
 [profile.dev]
 panic = "unwind"
 
+# No debug data for the crates of other projects. A test build of the workspace is then
+# small enough for the disk of a CI runner, and a backtrace keeps each function name.
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 panic = "unwind"

@@ -84,7 +84,7 @@ mod tests {
         assert!(guard.hold(true) && guard.is_held());
         assert!(!guard.hold(true) && guard.is_held(), "a second call begins no second activity");
         assert!(guard.hold(false) && !guard.is_held());
+        // The drop of a guard that holds the activity ends it.
         assert!(guard.hold(true));
-        drop(guard);
     }
 }
