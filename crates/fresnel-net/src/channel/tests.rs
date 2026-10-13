@@ -209,6 +209,24 @@ async fn failed_connects_wait_longer_each_time_and_the_signal_ends_the_wait() {
     assert_eq!(bed.elapsed(), before);
 }
 
+/// A connect that started before the network returned can wait on a dead path.
+#[tokio::test(start_paused = true)]
+async fn a_signal_starts_a_connect_in_progress_again() {
+    let mut bed = Bed::start(settings());
+    bed.until_state(ChannelState::Live).await;
+    sleep(3 * SECOND).await;
+    bed.server.set_connects(Connects::Lost);
+    bed.server.kill_open();
+    bed.until("a connect in progress", |status| status.connect_attempts == 2).await;
+    bed.server.set_connects(Connects::Work);
+    sleep(5 * SECOND).await;
+    assert_eq!(bed.status().state, ChannelState::Connecting { attempt: 1 }, "the lost connect is still in progress");
+
+    bed.signal.raise(Cause::NetworkChange);
+    let live = bed.until_state(ChannelState::Live).await;
+    assert_eq!((bed.elapsed(), live.connections, live.connect_attempts), (8 * SECOND, 2, 2));
+}
+
 #[tokio::test(start_paused = true)]
 async fn eight_resets_in_one_minute_each_recover_at_once() {
     let mut bed = Bed::start(settings());
@@ -282,40 +300,6 @@ async fn a_request_right_after_goaway_goes_to_the_new_connection_with_no_error()
     sleep(MS).await;
     assert!(bed.open("/api/v1/pods").await.is_ok(), "hyper gives the request back, and the channel sends it again");
     assert_eq!((bed.elapsed(), bed.server.dials()), (3 * SECOND + MS, 2), "no wait for the next look of the channel");
-}
-
-#[tokio::test(start_paused = true)]
-async fn at_the_stream_budget_one_more_connection_opens_and_then_a_request_waits() {
-    let server = MemoryServer::new();
-    server.set_stream_limit(10);
-    let mut bed = Bed::on(server, ChannelSettings { extra_idle: 60 * SECOND, ..settings() });
-    let live = bed.until_state(ChannelState::Live).await;
-    assert_eq!((live.server_stream_limit, live.stream_budget), (Some(10), 7), "70 percent of the limit of the server");
-
-    let mut streams = Vec::new();
-    for _ in 0..21 {
-        let stream = timeout(5 * SECOND, bed.open("/watch/pods")).await.expect("a free stream on some connection");
-        streams.push(stream.expect("a stream"));
-    }
-    let status = bed.group.status();
-    let open: Vec<usize> = status.channels.iter().map(|channel| channel.streams_open).collect();
-    assert_eq!((open, status.waiting, bed.server.dials()), (vec![7, 7, 7], 0, 3), "three connections at most");
-
-    let waits = timeout(5 * SECOND, bed.open("/watch/pods")).await;
-    assert!(waits.is_err(), "request 22 waits for a free stream");
-    let (late, ()) = tokio::join!(bed.open("/watch/pods"), async {
-        sleep(SECOND).await;
-        assert_eq!(bed.group.status().waiting, 1, "the wait shows in the state");
-        streams.pop();
-    });
-    assert!(late.is_ok(), "a stream that ends gives its place to the request that waits");
-    assert_eq!(bed.group.status().waiting, 0);
-
-    // The extra connections close when no stream used them for some time.
-    drop((streams, late));
-    sleep(62 * SECOND).await;
-    assert_eq!(bed.group.status().channels.len(), 1);
-    assert_eq!(bed.status().state, ChannelState::Live, "the first connection stays");
 }
 
 /// A defect in the task of a channel must not leave a state that looks good (design rule 1).

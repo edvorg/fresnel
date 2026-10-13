@@ -48,6 +48,8 @@ pub(crate) enum Connects {
     Refused,
     /// Each connect waits with no end.
     Held,
+    /// A connect that starts now is lost: it waits with no end, also after a change of this value.
+    Lost,
 }
 
 /// One request that the server saw.
@@ -212,6 +214,9 @@ impl MemoryServer {
     /// The server speaks HTTP/2 only. A connect for HTTP/1.1 fails.
     async fn connect(&self, protocol: Protocol) -> Result<Io, NetError> {
         let mut connects = self.connects.subscribe();
+        if *connects.borrow() == Connects::Lost {
+            std::future::pending::<()>().await;
+        }
         let allowed = connects.wait_for(|connects| *connects != Connects::Held).await.map(|connects| *connects);
         if !matches!(allowed, Ok(Connects::Work)) || protocol != Protocol::Http2 {
             return Err(NetError::network("connection refused"));

@@ -216,6 +216,16 @@ async fn the_app_obeys_retry_after_and_shows_the_throttle() {
     assert_eq!(error.to_string(), "the server throttles requests for 20s more (HTTP 429)");
 }
 
+/// The repeats after HTTP 429 have a limit. The caller then gets the answer of the server.
+#[tokio::test(start_paused = true)]
+async fn a_server_that_throttles_each_time_gets_the_request_four_times_and_no_more() {
+    let bed = Bed::start(None).await;
+    bed.server.throttle_next(&["1"; 8]);
+    let (status, _body) = bed.fetch(RequestKind::Write, "/api/v1/namespaces/a/pods").await.expect("an answer");
+    assert_eq!((status, bed.elapsed()), (StatusCode::TOO_MANY_REQUESTS, 3 * SECOND), "three waits of 1 s");
+    assert_eq!((bed.seen().len(), bed.cluster.status().throttle.answers), (4, 4), "the first send and 3 repeats");
+}
+
 #[tokio::test(start_paused = true)]
 async fn an_http_401_of_one_path_does_not_change_other_requests() {
     let bed = Bed::start(Some(&["one", "two"])).await;

@@ -24,6 +24,46 @@ fn one_stream_window_of_the_connection_window_stays_free() {
     assert_eq!(budgets, [70, 70, 70, 2], "a kube-apiserver permits 100 streams");
 }
 
+#[tokio::test(start_paused = true)]
+async fn at_the_stream_budget_one_more_connection_opens_and_then_a_request_waits() {
+    let server = MemoryServer::new();
+    server.set_stream_limit(10);
+    let mut bed = Bed::on(server, ChannelSettings { extra_idle: 60 * SECOND, ..settings() });
+    let live = bed.until_state(ChannelState::Live).await;
+    assert_eq!((live.server_stream_limit, live.stream_budget), (Some(10), 7), "70 percent of the limit of the server");
+
+    let mut streams = Vec::new();
+    for _ in 0..21 {
+        let stream = timeout(5 * SECOND, bed.open("/watch/pods")).await.expect("a free stream on some connection");
+        streams.push(stream.expect("a stream"));
+    }
+    let status = bed.group.status();
+    let open: Vec<usize> = status.channels.iter().map(|channel| channel.streams_open).collect();
+    assert_eq!((open, status.waiting, bed.server.dials()), (vec![7, 7, 7], 0, 3), "three connections at most");
+
+    let waits = timeout(5 * SECOND, bed.open("/watch/pods")).await;
+    assert!(waits.is_err(), "request 22 waits for a free stream");
+    let (late, ()) = tokio::join!(bed.open("/watch/pods"), async {
+        sleep(SECOND).await;
+        assert_eq!(bed.group.status().waiting, 1, "the wait shows in the state");
+        streams.pop();
+    });
+    assert!(late.is_ok(), "a stream that ends gives its place to the request that waits");
+    assert_eq!(bed.group.status().waiting, 0);
+
+    // The extra connections close when no stream used them for some time.
+    drop((streams, late));
+    sleep(62 * SECOND).await;
+    assert_eq!(bed.group.status().channels.len(), 1);
+    assert_eq!(bed.status().state, ChannelState::Live, "the first connection stays");
+
+    // A closed connection leaves its place: the next burst gets three connections again.
+    let burst = futures_util::future::join_all((0..21).map(|_| bed.open("/watch/pods")));
+    let burst = timeout(5 * SECOND, burst).await.expect("a free stream for each request");
+    assert!(burst.iter().all(Result::is_ok));
+    assert_eq!((bed.group.status().channels.len(), bed.server.dials()), (3, 5));
+}
+
 /// A caller that reads slowly, or not at all, fills the window of its stream. That must
 /// not take the connection from the other callers: the state would stay live with no data.
 #[tokio::test(start_paused = true)]
