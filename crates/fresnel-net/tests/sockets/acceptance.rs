@@ -2,18 +2,13 @@
 
 use std::time::{Duration, Instant, SystemTime};
 
-use fresnel_net::{ChannelState, Cluster, ClusterStatus, RequestKind};
+use fresnel_net::{ChannelState, Cluster, RequestKind};
 use fresnel_testkit::{FakeApiServer, FaultProxy, ProxyMode};
 use http_body_util::BodyExt as _;
 
-use crate::common::{TestTasks, fetch, in_time, send, spec, trust, until, until_live};
+use crate::common::{TestTasks, fetch, first_channels, in_time, send, spec, trust, until, until_live};
 
 const WATCH: &str = "/api/v1/pods?watch=true";
-
-/// The first channel of each purpose: watches, requests, logs.
-fn first_channels(status: &ClusterStatus) -> [&fresnel_net::ChannelStatus; 3] {
-    [&status.watches.channels[0], &status.requests.channels[0], &status.logs.channels[0]]
-}
 
 /// "A silent connection shows in 20 seconds or less."
 #[tokio::test]

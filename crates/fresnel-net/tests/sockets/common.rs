@@ -12,8 +12,8 @@ use fresnel_net::credential::PluginSpec;
 use fresnel_net::env::ProcessEnv;
 use fresnel_net::task::Tasks;
 use fresnel_net::{
-    ChannelState, Cluster, ClusterSpec, ClusterStatus, Endpoint, GroupStatus, NetError, NetSettings, RequestKind,
-    ResponseBody, WallClock,
+    ChannelState, ChannelStatus, Cluster, ClusterSpec, ClusterStatus, Endpoint, GroupStatus, NetError, NetSettings,
+    RequestKind, ResponseBody, WallClock,
 };
 use fresnel_testkit::FakeApiServer;
 use http::{Request, Response, StatusCode};
@@ -97,6 +97,11 @@ pub(crate) async fn until(cluster: &Cluster, what: &str, condition: impl Fn(&Clu
         }
     };
     timeout(LIMIT, wait).await.unwrap_or_else(|_| panic!("no state `{what}` in time: {:#?}", cluster.status()))
+}
+
+/// The first channel of each purpose: watches, requests, logs.
+pub(crate) fn first_channels(status: &ClusterStatus) -> [&ChannelStatus; 3] {
+    [&status.watches.channels[0], &status.requests.channels[0], &status.logs.channels[0]]
 }
 
 pub(crate) fn all_live(group: &GroupStatus) -> bool {
