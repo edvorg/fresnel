@@ -31,6 +31,7 @@ async fn a_silent_connection_shows_in_20_seconds_or_less() {
     })
     .await;
     let shown_after = silent_at.elapsed();
+    println!("the silent connections showed after {shown_after:?}");
     assert!(shown_after <= Duration::from_secs(20), "the silent connections showed after {shown_after:?}");
     assert!(
         shown_after >= Duration::from_secs(5),
