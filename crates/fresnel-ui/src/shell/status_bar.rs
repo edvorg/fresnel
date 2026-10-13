@@ -1,6 +1,7 @@
 //! Status bar: the one state of each selected cluster, and the counts of the journal.
 
-use egui::{Align, Button, Layout, RichText, Ui};
+use egui::scroll_area::ScrollBarVisibility;
+use egui::{Align, Button, Layout, RichText, ScrollArea, Ui};
 use fresnel_core::app::ClusterRow;
 
 use super::{Scene, Tab};
@@ -13,7 +14,21 @@ pub(super) const HEIGHT: f32 = 24.0;
 
 pub(super) fn show(ui: &mut Ui, scene: &Scene<'_>, tab: &mut Tab) {
     let palette = theme::palette(ui);
-    ui.horizontal_centered(|ui| {
+    // The counts take their place first, at the right. Many clusters then scroll in the
+    // rest of the bar and cannot push the counts out of the window.
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        ui.add_space(4.0);
+        if journal_counts(ui, palette, scene).clicked() {
+            *tab = Tab::Journal;
+        }
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| cluster_states(ui, palette, scene, tab));
+    });
+}
+
+/// The state of each selected cluster. The list scrolls when it is wider than its place.
+fn cluster_states(ui: &mut Ui, palette: &Palette, scene: &Scene<'_>, tab: &mut Tab) {
+    let list = ScrollArea::horizontal().auto_shrink(false).scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden);
+    list.show(ui, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         ui.add_space(4.0);
         let selected: Vec<&ClusterRow> = scene.view.clusters.iter().filter(|row| row.selected).collect();
@@ -26,12 +41,6 @@ pub(super) fn show(ui: &mut Ui, scene: &Scene<'_>, tab: &mut Tab) {
             }
             ui.add_space(8.0);
         }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.add_space(4.0);
-            if journal_counts(ui, palette, scene).clicked() {
-                *tab = Tab::Journal;
-            }
-        });
     });
 }
 

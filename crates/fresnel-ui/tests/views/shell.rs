@@ -101,6 +101,22 @@ fn the_status_bar_has_one_state_for_each_selected_cluster_and_the_counts_of_the_
     assert_eq!(window.state().sent, [], "a tab change is no command");
 }
 
+/// Design rule 1: the UI shows each state. The counts of the journal keep their place when
+/// the selected clusters need more than the width of the window.
+#[test]
+fn many_selected_clusters_scroll_and_do_not_push_the_counts_out_of_the_window() {
+    let clusters = (0..30).map(|index| connected(&format!("cluster-number-{index}"), live_status())).collect();
+    let mut window = window(view(clusters));
+    let counts = window.get_by_label("0 errors   0 warnings");
+    assert!(counts.rect().right() <= 1280.0, "the counts are in the window: {:?}", counts.rect());
+    counts.click();
+    window.run();
+    assert!(shows(&window, "Entry"), "a click on the counts opens the journal");
+    window.get_by_label("cluster-number-0: live").click();
+    window.run();
+    assert!(shows(&window, "Channel"), "a click on a cluster opens its card");
+}
+
 /// A window that nobody uses must not use the processor: the views ask for a repaint
 /// only for the age of an answer, one time in each second.
 #[test]
