@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::task::{Context, Wake, Waker};
 use std::time::{Duration, Instant};
 
-use fresnel_core::app::{CoreSettings, Health, Startup};
+use fresnel_core::app::{CoreSettings, CoreView, Health, Startup};
 use fresnel_testkit::FakeApiServer;
 
 use super::{App, KUBECONFIG, home, kubeconfig_text, states};
@@ -146,11 +146,17 @@ contexts:
     app.start();
 
     let mut writer = writer_of(&pipe);
-    let during = app.until_health("fast", Health::Live).await;
+    // A second start during the command changes nothing: the task of the command runs on.
+    app.start();
+    // The state watch of a cluster writes this entry. The task of the command starts the watch.
+    let tells_live = |view: &CoreView, cluster: &str| {
+        view.journal.entries.iter().any(|entry| entry.source == cluster && entry.text.starts_with("live: "))
+    };
+    let during = app.until("the journal tells that fast is live", |view| tells_live(view, "fast")).await;
     assert_eq!(states(&during), [("fast", true, Health::Live), ("slow", true, Health::Off)]);
-    assert_eq!(app.texts_of("fast"), ["the channels connect", "live: a request got an answer on each channel"]);
 
     writer.write_all(certificate_pem(&server).as_bytes()).expect("the certificate");
     drop(writer);
-    app.until_health("slow", Health::Live).await;
+    let after = app.until("the journal tells that slow is live", |view| tells_live(view, "slow")).await;
+    assert_eq!(states(&after), [("fast", true, Health::Live), ("slow", true, Health::Live)]);
 }
