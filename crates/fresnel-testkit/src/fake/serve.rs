@@ -85,9 +85,16 @@ impl StreamFutures {
 
 async fn serve_http2(shared: &Arc<Shared>, io: Io, number: u64) -> io::Result<()> {
     let streams = StreamFutures::default();
+    let last_request = Arc::new(Notify::new());
     let service = service_fn(|request: Request<Incoming>| {
-        let shared = Arc::clone(shared);
-        async move { Ok::<_, Infallible>(answer(&shared, number, request).await) }
+        let (shared, last_request) = (Arc::clone(shared), Arc::clone(&last_request));
+        async move {
+            let (response, ends) = answer(&shared, number, request).await;
+            if ends {
+                last_request.notify_one();
+            }
+            Ok::<_, Infallible>(response)
+        }
     });
     let mut builder = http2::Builder::new(streams.clone());
     builder.max_concurrent_streams(shared.stream_limit);
@@ -102,6 +109,7 @@ async fn serve_http2(shared: &Arc<Shared>, io: Io, number: u64) -> io::Result<()
             Some(()) = running.next() => {}
             // The connection takes no new stream and ends after the last open one.
             Ok(()) = go_away.changed() => connection.as_mut().graceful_shutdown(),
+            () = last_request.notified() => connection.as_mut().graceful_shutdown(),
         }
     }
 }
@@ -112,7 +120,7 @@ async fn serve_http1(shared: &Arc<Shared>, io: Io, number: u64) -> io::Result<()
         let on_upgrade = hyper::upgrade::on(&mut request);
         let (shared, upgrade) = (Arc::clone(shared), &upgrade);
         async move {
-            let response = answer(&shared, number, request).await;
+            let (response, _ends) = answer(&shared, number, request).await;
             if response.status() == StatusCode::SWITCHING_PROTOCOLS {
                 *upgrade.lock().unwrap_or_else(PoisonError::into_inner) = Some(on_upgrade);
             }

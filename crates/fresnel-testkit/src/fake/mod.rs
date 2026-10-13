@@ -20,6 +20,7 @@ mod watch;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use fresnel_net::task::TaskHandle;
 use tokio::net::TcpListener;
@@ -131,6 +132,12 @@ impl FakeApiServer {
     /// and closes after its last open stream ends.
     pub fn go_away(&self) {
         self.shared.go_away.send_modify(|count| *count += 1);
+    }
+
+    /// From now on, the server ends an HTTP/2 connection after its answer to a request with
+    /// no credential, with GOAWAY. A kube-apiserver does this to each anonymous request.
+    pub fn end_anonymous_connections(&self) {
+        self.shared.ends_anonymous.store(true, Ordering::Relaxed);
     }
 
     /// The heads of the requests that the server saw, in their sequence.

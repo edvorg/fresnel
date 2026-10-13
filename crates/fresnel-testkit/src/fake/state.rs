@@ -1,9 +1,11 @@
 //! The state that the handle, the driver and the connections of one fake server share.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use bytes::Bytes;
+use http::header::AUTHORIZATION;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, watch};
 use tokio::time::Instant;
@@ -26,6 +28,8 @@ pub(super) struct Shared {
     pub(super) feed: broadcast::Sender<Feed>,
     /// Each change sends GOAWAY on each open HTTP/2 connection.
     pub(super) go_away: watch::Sender<u64>,
+    /// True: an HTTP/2 connection ends after the answer to a request with no credential.
+    pub(super) ends_anonymous: AtomicBool,
     script: Mutex<Script>,
 }
 
@@ -62,6 +66,7 @@ impl Shared {
             counters: watch::Sender::new(FakeCounters::default()),
             feed: broadcast::Sender::new(FEED_EVENTS),
             go_away: watch::Sender::new(0),
+            ends_anonymous: AtomicBool::new(false),
             script: Mutex::new(Script::default()),
         }
     }
@@ -79,6 +84,11 @@ impl Shared {
             counters.open_connections += 1;
         });
         Connection { number, shared: Arc::clone(self) }
+    }
+
+    /// True when the connection of this request must end after its answer.
+    pub(super) fn ends_after(&self, request: &SeenRequest) -> bool {
+        self.ends_anonymous.load(Ordering::Relaxed) && !request.headers.contains_key(AUTHORIZATION)
     }
 
     pub(super) fn add_fault(&self, fault: Fault) {

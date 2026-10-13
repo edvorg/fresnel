@@ -5,10 +5,11 @@ use std::pin::pin;
 
 use fresnel_testkit::{FakeApiServer, FaultProxy};
 use http::StatusCode;
+use http::header::AUTHORIZATION;
 use http_body_util::BodyExt;
 use tokio::time::timeout;
 
-use super::client::{get, in_time, next_line};
+use super::client::{get, in_time, next_line, text};
 use super::{Bed, QUIET};
 
 const PODS: &str = "/api/v1/pods";
@@ -99,6 +100,35 @@ async fn go_away_lets_open_streams_live_and_moves_new_requests_to_a_new_connecti
     assert_eq!(next_line(&mut pods).await, None);
     let counters = bed.counters_when(|counters| counters.open_connections == 1).await;
     assert_eq!(counters.broken, 0, "the old connection closed after its last stream, with no error");
+}
+
+/// A kube-apiserver gives an anonymous request its answer and then ends the connection.
+#[tokio::test]
+async fn a_request_with_no_credential_gets_its_answer_and_ends_its_connection() {
+    let with_token = || {
+        let mut request = get("/version");
+        request.headers_mut().insert(AUTHORIZATION, "Bearer token-1".parse().expect("a header"));
+        request
+    };
+    let bed = Bed::start().await;
+    bed.server.end_anonymous_connections();
+    let mut known = bed.http2().await;
+    assert_eq!(in_time(known.send(with_token())).await.expect("a response").status(), StatusCode::OK);
+
+    let mut anonymous = bed.http2().await;
+    let exchange = async {
+        let answer = anonymous.sender.send_request(get("/version")).await.expect("a response");
+        (answer.status(), text(answer).await)
+    };
+    // The end of the connection can come with the answer, so the two run to their ends.
+    let ((status, body), ended) = in_time(async { tokio::join!(exchange, &mut anonymous.connection) }).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("v1.33.5+fake"), "the answer is complete: {body}");
+    assert!(ended.is_ok(), "the connection ended with GOAWAY and no error: {ended:?}");
+    let counters = bed.counters_when(|counters| counters.open_connections == 1).await;
+    assert_eq!(counters.broken, 0, "the server closed the connection with no error");
+    let again = in_time(known.send(with_token())).await.expect("a response");
+    assert_eq!(again.status(), StatusCode::OK, "a request with a token keeps its connection");
 }
 
 #[tokio::test]

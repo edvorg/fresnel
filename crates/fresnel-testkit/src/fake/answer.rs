@@ -25,9 +25,11 @@ const UNAUTHORIZED: &str = r#"{"kind":"Status","apiVersion":"v1","metadata":{},"
 const TOO_MANY_REQUESTS: &str = r#"{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"Too many requests, please try again later.","reason":"TooManyRequests","code":429}"#;
 
 /// Records the request and gives its answer: the fault that takes it, or the normal answer.
-/// A request with the fault "no answer" never returns from here.
-pub(super) async fn answer<B>(shared: &Arc<Shared>, connection: u64, request: Request<B>) -> Response<Body> {
+/// The flag is true when the connection must end after this answer. A request with the
+/// fault "no answer" never returns from here.
+pub(super) async fn answer<B>(shared: &Arc<Shared>, connection: u64, request: Request<B>) -> (Response<Body>, bool) {
     let seen = SeenRequest::of(connection, &request);
+    let ends = shared.ends_after(&seen);
     let response = match shared.fault_for(&seen) {
         None => normal_answer(shared, &seen),
         Some(FaultAnswer::Unauthorized) => json(StatusCode::UNAUTHORIZED, UNAUTHORIZED.into()),
@@ -43,7 +45,7 @@ pub(super) async fn answer<B>(shared: &Arc<Shared>, connection: u64, request: Re
         }
     };
     shared.record(seen);
-    response
+    (response, ends)
 }
 
 fn normal_answer(shared: &Arc<Shared>, request: &SeenRequest) -> Response<Body> {
