@@ -17,6 +17,7 @@ mod strip;
 mod writer;
 
 pub use cluster::{ClusterStores, EventsMode, StoreParts, StoreSettings};
+pub(crate) use items::Change;
 pub use items::{Items, ObjectKey};
 pub use pending::Written;
 pub use snapshot::{Snapshot, StoreStatus};

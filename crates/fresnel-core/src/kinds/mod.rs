@@ -24,6 +24,7 @@ mod replica_set;
 mod service;
 mod stateful_set;
 
+pub(crate) use endpoint_slice::is_ready;
 pub use health::{Assess, ObjectHealth};
 pub use list::Kind;
 pub(crate) use list::{Visitor, each_store};

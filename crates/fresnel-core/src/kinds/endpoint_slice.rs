@@ -6,7 +6,7 @@ use super::health::{Assess, ObjectHealth};
 
 /// True for an endpoint that takes new connections. The API tells to read an absent
 /// `ready` as ready. An endpoint that ends is not ready.
-fn is_ready(endpoint: &Endpoint) -> bool {
+pub(crate) fn is_ready(endpoint: &Endpoint) -> bool {
     let conditions = endpoint.conditions.as_ref();
     conditions.and_then(|conditions| conditions.ready) != Some(false) && !ends(endpoint)
 }

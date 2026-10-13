@@ -3,7 +3,7 @@
 //! - [`app`]: the app core, which the window reads and commands.
 //! - [`cluster`]: the clusters and the requests to them. [`kubeconfig`]: their source.
 //! - [`kinds`]: the registry of the resource types. [`store`]: the objects of each kind of
-//!   a cluster, which the watch loop keeps current.
+//!   a cluster, which the watch loop keeps current. [`index`]: the relations between them.
 //! - [`published`]: the one type that publishes a state to its readers.
 //! - [`journal`]: the list of events, warnings and errors.
 //! - [`state_file`]: what the app keeps from one run to the next.
@@ -16,6 +16,7 @@ pub mod cluster;
 mod error;
 #[cfg(test)]
 mod fixture;
+pub mod index;
 pub mod journal;
 pub mod kinds;
 pub mod kubeconfig;
