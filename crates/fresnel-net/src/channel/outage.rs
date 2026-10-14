@@ -68,6 +68,9 @@ struct State {
     /// The start of the first connect that failed after the last one that worked, in the
     /// clock of the runtime and in the wall clock. `None` with no outage.
     since: Option<(Instant, SystemTime)>,
+    /// When the last connect that worked ended. A connect that started before it and
+    /// failed tells nothing new: the path worked after its start.
+    worked: Option<Instant>,
     /// The last turn that a channel took. The next turn is one spacing later.
     last_turn: Option<Instant>,
     /// A raise ends each wait for a turn, so the turns of that time are void.
@@ -82,15 +85,17 @@ impl State {
 
 impl Outage {
     pub(crate) fn new(settings: OutageSettings, signal: &Signal, changed: Changed) -> Self {
-        let state = State { since: None, last_turn: None, signal: signal.listen() };
+        let state = State { since: None, worked: None, last_turn: None, signal: signal.listen() };
         Self { settings, state: Mutex::new(state), ends: watch::Sender::new(0), changed }
     }
 
-    /// A connect that started at `started` failed. The first one starts the outage.
+    /// A connect that started at `started` failed. The first one that started after the last
+    /// connect that worked starts the outage.
     pub(super) fn failed(&self, started: Instant) {
         let began = {
             let mut state = self.state();
-            let began = state.since.is_none();
+            let stale = state.worked.is_some_and(|worked| started < worked);
+            let began = state.since.is_none() && !stale;
             if began {
                 let wall = SystemTime::now().checked_sub(started.elapsed()).unwrap_or_else(SystemTime::now);
                 state.since = Some((started, wall));
@@ -108,6 +113,7 @@ impl Outage {
         let ended = {
             let mut state = self.state();
             state.last_turn = None;
+            state.worked = Some(Instant::now());
             state.since.take().is_some()
         };
         if ended {

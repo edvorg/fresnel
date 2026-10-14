@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 
+use futures_util::future::join_all;
 use tokio::time::{sleep, timeout};
 
 use super::*;
@@ -40,31 +41,75 @@ async fn held_channel(outage: &Outage, signal: &Signal, end: Instant) -> Vec<(In
     connects
 }
 
-#[tokio::test(start_paused = true)]
-async fn after_one_minute_the_channels_take_turns_with_one_attempt_each_5_seconds() {
+/// The connects of `count` held channels of one cluster in an outage of 10 minutes, in the
+/// sequence of their starts, with the start of the outage.
+async fn ten_minutes_of(count: usize) -> (Instant, Vec<(Instant, Effort)>) {
     let signal = Signal::new();
     let outage = outage(&signal);
     let start = Instant::now();
-    let end = start + 600 * SECOND;
-    let (one, two, three) = tokio::join!(
-        held_channel(&outage, &signal, end),
-        held_channel(&outage, &signal, end),
-        held_channel(&outage, &signal, end),
-    );
-    let mut connects: Vec<_> = one.into_iter().chain(two).chain(three).collect();
+    let channels = (0..count).map(|_| held_channel(&outage, &signal, start + 600 * SECOND));
+    let mut connects: Vec<_> = join_all(channels).await.into_iter().flatten().collect();
     connects.sort_by_key(|(started, _)| *started);
+    (start, connects)
+}
 
-    let paced = start + 60 * SECOND;
-    let (first, later): (Vec<_>, Vec<_>) = connects.iter().partition(|(started, _)| *started < paced);
-    assert!(first.iter().all(|(_, effort)| *effort == Effort::Race), "the first minute keeps the full races");
-    assert!(later.iter().all(|(_, effort)| *effort == Effort::Single), "after it, each connect has one attempt");
-    for pair in later.windows(2) {
-        let [(one, _), (two, _)] = pair else { continue };
-        let gap = two.duration_since(*one);
-        assert!((4 * SECOND..=6 * SECOND).contains(&gap), "one turn each 5 s with jitter, not {gap:?}");
+/// A group opens up to 3 channels, so a cluster can have 9. The cost of the cluster and the
+/// longest time with no attempt do not grow with the count of its channels.
+#[tokio::test(start_paused = true)]
+async fn after_one_minute_the_channels_take_turns_with_one_attempt_each_5_seconds() {
+    for count in [3, 9] {
+        let (start, connects) = ten_minutes_of(count).await;
+        let paced = start + 60 * SECOND;
+        let (first, later): (Vec<_>, Vec<_>) = connects.iter().partition(|(started, _)| *started < paced);
+        assert!(first.iter().all(|(_, effort)| *effort == Effort::Race), "the first minute keeps the full races");
+        assert!(later.iter().all(|(_, effort)| *effort == Effort::Single), "after it, each connect has one attempt");
+        for pair in later.windows(2) {
+            let [(one, _), (two, _)] = pair else { continue };
+            let gap = two.duration_since(*one);
+            assert!((4 * SECOND..=6 * SECOND).contains(&gap), "{count} channels: one turn each 5 s, not {gap:?}");
+        }
+        // 540 s with one attempt each 4 to 6 s, in place of a race of up to 16 attempts each 13 s.
+        assert!((90..=136).contains(&later.len()), "{count} channels: {} attempts after the first minute", later.len());
     }
-    // 540 s with one attempt each 4 to 6 s, in place of a race of up to 16 attempts each 13 s.
-    assert!((90..=136).contains(&later.len()), "{} attempts after the first minute", later.len());
+}
+
+/// Channel A starts a connect that is held, and channel B connects in that time. The path
+/// worked after A started, so the failure of A tells nothing new.
+#[tokio::test(start_paused = true)]
+async fn a_connect_that_started_before_the_last_one_that_worked_starts_no_outage() {
+    let signal = Signal::new();
+    let outage = outage(&signal);
+    let held = Instant::now();
+    sleep(2 * SECOND).await;
+    let worked = Instant::now();
+    outage.worked();
+    sleep(SECOND).await;
+    outage.failed(held);
+    assert_eq!(outage.status(), None, "the path worked after that connect started");
+
+    // A connect that started at the same instant, or later, tells of a new fault.
+    outage.failed(worked);
+    let since = outage.status().expect("an outage").since;
+    let age = SystemTime::now().duration_since(since).expect("a start in the past");
+    assert_eq!(age.as_secs(), 1, "the start of that connect: {age:?}");
+}
+
+/// A setting can be extreme. A turn of `Duration::MAX` gives a long wait: a sum of two times
+/// that passes the end of the clock would panic and stop the task of the channel each turn.
+#[tokio::test(start_paused = true)]
+async fn a_turn_longer_than_the_clock_can_hold_waits_and_does_not_panic() {
+    let signal = Signal::new();
+    let settings = OutageSettings { turn: Duration::MAX, ..OutageSettings::default() };
+    let outage = Outage::new(settings, &signal, Changed::new());
+    outage.failed(Instant::now());
+    sleep(70 * SECOND).await;
+    let (mut first, mut second) = (signal.listen(), signal.listen());
+    assert_eq!(outage.pause(&mut first, 3 * SECOND, |_| {}).await, Effort::Single, "the first turn is now");
+
+    let shown = RefCell::new(Vec::new());
+    let next = outage.pause(&mut second, 3 * SECOND, |wait| shown.borrow_mut().push(wait));
+    assert!(timeout(3_600 * SECOND, next).await.is_err(), "the next turn is far away");
+    assert!(shown.into_inner().iter().all(|wait| *wait > 3_600 * SECOND), "the state tells a long wait");
 }
 
 #[tokio::test(start_paused = true)]
