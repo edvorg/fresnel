@@ -51,28 +51,44 @@ fn table_right(window: &Window) -> f32 {
     window.ctx.content_rect().right() - 12.0
 }
 
-/// Drags the edge at the right of the title of `title` by `by` points. After each move,
-/// the edge is at the pointer, the left edge of the column did not move, and each other
-/// column has the width that it had before the drag.
-pub(crate) fn drag(window: &mut Window, title: &str, by: f32) {
-    assert!(by.abs() / f32::from(MOVES) > DRAG_START, "the first move starts the drag");
-    let before = spans(window);
-    let span = span_of(&before, title).unwrap_or_else(|| panic!("the title {title} shows"));
-    let y = window.get_by_role_and_label(Role::Button, title).rect().center().y;
-    let start = pos2(span.max, y);
-    window.hover_at(start);
-    window.run();
-    window.drag_at(start);
-    window.run();
-    for step in 1..=MOVES {
-        let pointer = start + egui::vec2(by * f32::from(step) / f32::from(MOVES), 0.0);
+/// A drag of the edge at the right of one title that holds the pointer button.
+pub(crate) struct Drag {
+    title: &'static str,
+    /// Where the pointer took the edge.
+    start: egui::Pos2,
+    /// The span of the column at the start.
+    span: Rangef,
+    /// The span of each column whose title showed at the start.
+    before: Vec<(&'static str, Rangef)>,
+}
+
+impl Drag {
+    /// Takes the edge at the right of the title of `title` with the pointer.
+    pub(crate) fn start(window: &mut Window, title: &'static str) -> Self {
+        let before = spans(window);
+        let span = span_of(&before, title).unwrap_or_else(|| panic!("the title {title} shows"));
+        let y = window.get_by_role_and_label(Role::Button, title).rect().center().y;
+        let start = pos2(span.max, y);
+        window.hover_at(start);
+        window.run();
+        window.drag_at(start);
+        window.run();
+        Self { title, start, span, before }
+    }
+
+    /// Moves the pointer to `by` points from the start. Then the edge is at the pointer
+    /// inside the limits of a width, the left edge of the column did not move, and each
+    /// other column has the width that it had at the start.
+    pub(crate) fn move_to(&self, window: &mut Window, by: f32) {
+        let (title, start, span) = (self.title, self.start, self.span);
+        let pointer = start + egui::vec2(by, 0.0);
         window.hover_at(pointer);
         window.run();
         window.run_steps(QUIET_FRAMES);
         let now = spans(window);
         let shown = span_of(&now, title).unwrap_or_else(|| panic!("the title {title} shows during its drag"));
-        let width = (span.span() + pointer.x - start.x).clamp(WIDTHS.min, WIDTHS.max);
-        let at = format!("{title} after a move of {:+} points", pointer.x - start.x);
+        let width = (span.span() + by).clamp(WIDTHS.min, WIDTHS.max);
+        let at = format!("{title} after a move of {by:+} points");
         assert!((shown.min - span.min).abs() <= NEAR, "{at}: its left edge moved from {} to {}", span.min, shown.min);
         assert!(
             (shown.max - (span.min + width)).abs() <= NEAR,
@@ -80,15 +96,31 @@ pub(crate) fn drag(window: &mut Window, title: &str, by: f32) {
             shown.max,
             pointer.x
         );
-        for (other, was) in before.iter().filter(|(other, _)| *other != title) {
+        for (other, was) in self.before.iter().filter(|(other, _)| *other != title) {
             if let Some(is) = span_of(&now, other) {
                 let (was, is) = (was.span(), is.span());
                 assert!((was - is).abs() <= NEAR, "{at}: {other} changed its width from {was} to {is}");
             }
         }
     }
-    window.drop_at(start + egui::vec2(by, 0.0));
-    window.run();
+
+    /// Lets the edge go at `by` points from the start.
+    pub(crate) fn end(self, window: &mut Window, by: f32) {
+        window.drop_at(self.start + egui::vec2(by, 0.0));
+        window.run();
+    }
+}
+
+/// Drags the edge at the right of the title of `title` by `by` points, in some moves. After
+/// each move, the edge is at the pointer, the left edge of the column did not move, and each
+/// other column has the width that it had before the drag.
+pub(crate) fn drag(window: &mut Window, title: &'static str, by: f32) {
+    assert!(by.abs() / f32::from(MOVES) > DRAG_START, "the first move starts the drag");
+    let drag = Drag::start(window, title);
+    for step in 1..=MOVES {
+        drag.move_to(window, by * f32::from(step) / f32::from(MOVES));
+    }
+    drag.end(window, by);
 }
 
 /// Drags the edge of each column whose edge shows, in this sequence of titles, by `by`
