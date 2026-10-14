@@ -779,10 +779,10 @@ filter moves to the top bar with the tables of the other kinds.
 
 ## The limit of a frame time holds in a release build
 
-The frame time test runs in each build, so each run of the tests proves that 10,000 pods
-scroll, sort and filter. It checks the limit of 16 ms in a release build only. CI builds no
-release: its runners share their processors, so a time there says little. Measured on the
-development machine: the longest frame took 0.9 ms.
+A debug build runs the steps of the time tests and checks no time. CI runs them in a release
+build, one at a time. The limits 16 ms and 50 ms hold on the Mac on which they were set. A
+shared runner is slower and less steady, so each runner has limits of about twice its longest
+time. A frame time that grows with the size of an object is a defect, not a slow runner.
 
 ## The dock is a panel until the user can move a tab
 

@@ -52,9 +52,11 @@ jobs:
         run: cargo xtask check-sizes
 
   # The frame time and the quick search time (plan section 15) in a release build. The
-  # limits 16 ms and 50 ms hold on the Mac on which they were set. A shared runner is slower,
-  # so each runner has its own limits: about twice its longest time in 2 runs of 2026-10-14
-  # (macOS 26 ms and 22 ms, Linux 21 ms and 33 ms, both for ConfigMaps of 70,000 keys).
+  # limits 16 ms and 50 ms hold on the Mac on which they were set (3 ms and 9 ms there). A
+  # shared runner is slower and less steady, so each runner has its own limits: about twice
+  # its longest time in the runs of 2026-10-14. Longest frame: macOS 25 ms (one scroll frame,
+  # median 1 ms), Linux 15 ms. Longest search: macOS 35 ms, Linux 114 ms (30 to 114 ms in 5
+  # runs, so on Linux the check finds only a large regression).
   time:
     name: time (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -65,10 +67,10 @@ jobs:
         include:
           - os: macos-26
             frame: 50
-            search: 50
-          - os: ubuntu-24.04
-            frame: 40
             search: 70
+          - os: ubuntu-24.04
+            frame: 30
+            search: 230
     env:
       FRESNEL_FRAME_LIMIT_MS: ${{ matrix.frame }}
       FRESNEL_SEARCH_LIMIT_MS: ${{ matrix.search }}
