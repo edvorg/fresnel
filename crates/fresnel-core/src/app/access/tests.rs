@@ -10,7 +10,9 @@ fn rules(namespace: &str, verbs: &[&str]) -> Arc<Rules> {
         resource_names: None,
     };
     let status = SubjectRulesReviewStatus { resource_rules: vec![rule], ..Default::default() };
-    Arc::new(Rules::of(namespace, SelfSubjectRulesReview { status: Some(status), ..Default::default() }))
+    Arc::new(
+        Rules::of(namespace, SelfSubjectRulesReview { status: Some(status), ..Default::default() }).expect("rules"),
+    )
 }
 
 #[test]

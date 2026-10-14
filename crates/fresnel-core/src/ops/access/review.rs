@@ -18,14 +18,14 @@ const ACCESS: &str = "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews";
 /// Reads the rules of the user in a namespace.
 pub async fn read_rules(gateway: &Gateway, namespace: &str) -> Result<Rules, CoreError> {
     let review: SelfSubjectRulesReview = gateway.send(rules_request(namespace)?).await.map_err(|error| error.error)?;
-    Ok(Rules::of(namespace, review))
+    Rules::of(namespace, review)
 }
 
 /// Asks the server if the user can make one request.
 pub async fn check(gateway: &Gateway, attributes: &Attributes) -> Result<Decision, CoreError> {
     let review: SelfSubjectAccessReview =
         gateway.send(access_request(attributes)?).await.map_err(|error| error.error)?;
-    Ok(decision(attributes, review))
+    decision(attributes, review)
 }
 
 /// The review of the rules in a namespace. The server refuses one with no namespace.
@@ -61,17 +61,18 @@ fn post(path: &str, body: &Json) -> Result<Request<Vec<u8>>, CoreError> {
 }
 
 /// The answer of an access review. "Not allowed" without "denied" means that no
-/// authorizer had an opinion: the server refuses the request then too.
-fn decision(attributes: &Attributes, review: SelfSubjectAccessReview) -> Decision {
-    let status = review.status.unwrap_or_default();
+/// authorizer had an opinion: the server refuses the request then too. An answer with no
+/// status is no answer, and not a denial.
+fn decision(attributes: &Attributes, review: SelfSubjectAccessReview) -> Result<Decision, CoreError> {
+    let status = review.status.ok_or_else(|| CoreError::invalid("the access review has no status"))?;
     if status.allowed {
-        return Decision::Allowed;
+        return Ok(Decision::Allowed);
     }
     let reason = status.reason.filter(|reason| !reason.is_empty());
-    Decision::Denied(reason.map_or_else(
+    Ok(Decision::Denied(reason.map_or_else(
         || format!("the server does not let you {attributes}"),
         |reason| format!("the server does not let you {attributes}: {reason}"),
-    ))
+    )))
 }
 
 #[cfg(test)]
@@ -138,10 +139,13 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert_eq!(decision(&eviction("shop"), answer(true, None)), Decision::Allowed);
+        let decide = |review| decision(&eviction("shop"), review).expect("a decision");
+        assert_eq!(decide(answer(true, None)), Decision::Allowed);
         let text = "the server does not let you create pods/eviction web-1 in shop: RBAC: no binding";
-        assert_eq!(decision(&eviction("shop"), answer(false, Some("RBAC: no binding"))), Decision::Denied(text.into()));
-        let bare = decision(&eviction("shop"), answer(false, None));
+        assert_eq!(decide(answer(false, Some("RBAC: no binding"))), Decision::Denied(text.into()));
+        let bare = decide(answer(false, None));
         assert_eq!(bare, Decision::Denied("the server does not let you create pods/eviction web-1 in shop".into()));
+        let error = decision(&eviction("shop"), SelfSubjectAccessReview::default()).expect_err("no status");
+        assert_eq!(error.to_string(), "the access review has no status");
     }
 }

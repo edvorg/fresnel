@@ -6,6 +6,7 @@ use std::sync::Arc;
 use k8s_openapi::api::authorization::v1::{ResourceRule, SelfSubjectRulesReview};
 
 use super::{Attributes, Decision};
+use crate::error::CoreError;
 
 /// The answer of a SelfSubjectRulesReview for one namespace.
 #[derive(Clone, Debug, PartialEq)]
@@ -18,10 +19,13 @@ pub struct Rules {
 }
 
 impl Rules {
-    /// The rules of a review of `namespace`.
-    pub fn of(namespace: &str, review: SelfSubjectRulesReview) -> Self {
-        let status = review.status.unwrap_or_default();
-        Self { namespace: namespace.into(), rules: status.resource_rules, incomplete: status.incomplete }
+    /// The rules of a review of `namespace`. An answer with no status has no rules: with
+    /// none, each action would be denied, so it is an error.
+    pub fn of(namespace: &str, review: SelfSubjectRulesReview) -> Result<Self, CoreError> {
+        let status = review.status.ok_or_else(|| CoreError::invalid("the review of the rules has no status"))?;
+        // An authorizer that failed can have rules that the list does not have.
+        let failed = status.evaluation_error.is_some_and(|error| !error.is_empty());
+        Ok(Self { namespace: namespace.into(), rules: status.resource_rules, incomplete: status.incomplete || failed })
     }
 
     /// The namespace of the rules.
@@ -102,7 +106,7 @@ mod tests {
 
     fn rules(namespace: &str, rules: Vec<ResourceRule>, incomplete: bool) -> Rules {
         let status = SubjectRulesReviewStatus { resource_rules: rules, incomplete, ..Default::default() };
-        Rules::of(namespace, SelfSubjectRulesReview { status: Some(status), ..Default::default() })
+        Rules::of(namespace, SelfSubjectRulesReview { status: Some(status), ..Default::default() }).expect("rules")
     }
 
     fn request(
@@ -166,6 +170,23 @@ mod tests {
         node.namespace = "".into();
         assert!(matches!(all.decide(&node), Decision::Unknown(_)), "a cluster role binding can be the source");
         assert_eq!(node.to_string(), "patch nodes pool-a1 in the cluster");
+    }
+
+    #[test]
+    fn an_answer_with_no_status_is_an_error_and_an_evaluation_error_makes_the_rules_incomplete() {
+        let error = Rules::of("shop", SelfSubjectRulesReview::default()).expect_err("no status");
+        assert_eq!(error.to_string(), "the review of the rules has no status");
+        let status = SubjectRulesReviewStatus {
+            resource_rules: vec![rule(&["get"], &[""], &["pods"], &[])],
+            evaluation_error: Some("webhook: no answer".to_owned()),
+            ..Default::default()
+        };
+        let review = SelfSubjectRulesReview { status: Some(status), ..Default::default() };
+        let partial = Rules::of("shop", review).expect("rules");
+        assert!(partial.is_incomplete());
+        assert_eq!(partial.decide(&request("get", "", "pods", "", "web")), Decision::Allowed);
+        let unknown = partial.decide(&request("delete", "", "pods", "", "web"));
+        assert_eq!(unknown, Decision::Unknown("the server gave only a part of the rules".into()), "not denied");
     }
 
     #[test]
