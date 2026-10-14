@@ -22,3 +22,5 @@ mod indexes;
 mod kinds;
 #[path = "../common/stores.rs"]
 mod store_bed;
+#[path = "../common/user.rs"]
+mod user;
