@@ -41,7 +41,7 @@ impl<M: Model> Table<M> {
             return None;
         }
         let layout = TableLayout {
-            widths: widths.map_or_else(|| saved.widths.clone(), |widths| widths.widths),
+            widths: widths.unwrap_or_else(|| saved.widths.clone()),
             columns: choice.unwrap_or_else(|| saved.columns.clone()),
         };
         if layout == *saved {

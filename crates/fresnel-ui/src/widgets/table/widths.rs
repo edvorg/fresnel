@@ -20,6 +20,8 @@
 //!
 //! The state file keeps the widths that the user changed, in whole points (`TableLayout`).
 
+use std::collections::BTreeMap;
+
 use fresnel_core::state_file::TableLayout;
 
 use super::edges::DragWidth;
@@ -135,9 +137,10 @@ impl Widths {
         self.changed
     }
 
-    /// The layout after a change of the user: each width that differs from the width of
-    /// its column in the model. `None` when no width changed after the last layout.
-    pub(super) fn take_layout(&mut self, columns: &[Column]) -> Option<TableLayout> {
+    /// The widths of the layout after a change of the user: each width that differs from
+    /// the width of its column in the model, by its title. `None` when no width changed
+    /// after the last layout.
+    pub(super) fn take_layout(&mut self, columns: &[Column]) -> Option<BTreeMap<String, u32>> {
         if !std::mem::take(&mut self.changed) {
             return None;
         }
@@ -145,7 +148,7 @@ impl Widths {
             let width = points(*width);
             (width != points(width_of(column))).then(|| (column.title.to_owned(), width))
         });
-        Some(TableLayout { widths: differ.collect(), ..TableLayout::default() })
+        Some(differ.collect())
     }
 
     /// Takes the widths of a saved layout. A title that the model does not have changes
@@ -290,12 +293,12 @@ mod tests {
         assert!(widths.changed());
         let layout = widths.take_layout(&COLUMNS).expect("a change");
         let expected = [("Age".to_owned(), 76), ("Name".to_owned(), 260)];
-        assert_eq!(layout.widths.into_iter().collect::<Vec<_>>(), expected, "in whole points");
+        assert_eq!(layout.into_iter().collect::<Vec<_>>(), expected, "in whole points");
         assert_eq!(widths.take_layout(&COLUMNS), None, "one layout for each change");
 
         // A width back at the width of the model leaves the layout.
         widths.set(1, NARROWEST);
-        assert_eq!(widths.take_layout(&COLUMNS).expect("a change").widths.len(), 1);
+        assert_eq!(widths.take_layout(&COLUMNS).expect("a change").len(), 1);
 
         let mut saved = Widths::new(&COLUMNS);
         let layout = TableLayout {
