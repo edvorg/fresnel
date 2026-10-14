@@ -150,6 +150,7 @@ async fn a_shown_kind_gives_its_full_objects_and_a_manifest_read_gives_the_yaml_
         cluster: ClusterId::new(cluster),
         kind: Kind::ConfigMap,
         key: ObjectKey::new("shop", "web"),
+        uid: "u-web".into(),
         managed_fields,
     };
     for (number, managed_fields) in [(1, ManagedFields::Removed), (2, ManagedFields::Kept)] {
@@ -162,6 +163,12 @@ async fn a_shown_kind_gives_its_full_objects_and_a_manifest_read_gives_the_yaml_
     app.core.send(Command::ReadManifest(request("absent", ManagedFields::Removed)));
     let failed = app.until("the failed read", |view| manifest_of(view, 3).is_some()).await;
     assert_eq!(manifest_of(&failed, 3), Some(Err("absent is not connected".to_owned())));
+    // The view asks for the object of a deleted ConfigMap, and the server has a new one.
+    let deleted = ManifestRequest { uid: "u-deleted".into(), ..request("fake", ManagedFields::Removed) };
+    app.core.send(Command::ReadManifest(deleted));
+    let other = app.until("the read of an other object", |view| manifest_of(view, 4).is_some()).await;
+    let text = "the object of this name is an other object now: it has an other UID";
+    assert_eq!(manifest_of(&other, 4), Some(Err(text.to_owned())));
 
     // A view that shows no kind: the view has no full objects of it.
     app.core.send(Command::ShowKinds(BTreeSet::new()));

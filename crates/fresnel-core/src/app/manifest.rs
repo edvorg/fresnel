@@ -25,6 +25,9 @@ pub struct ManifestRequest {
     pub kind: Kind,
     /// The namespace and the name of the object.
     pub key: ObjectKey,
+    /// The UID of the object, or empty for any object of the name. A read that finds an
+    /// other object of the name fails.
+    pub uid: Arc<str>,
     /// What the manifest shows of `managedFields`.
     pub managed_fields: ManagedFields,
 }
@@ -110,7 +113,8 @@ async fn serve(
         let state = match registry.link(&request.cluster) {
             None => ManifestState::Failed(CoreError::invalid(format!("{} is not connected", request.cluster))),
             Some(link) => {
-                let read = manifest::fetch(&link.gateway, request.kind, &request.key, request.managed_fields);
+                let read =
+                    manifest::fetch(&link.gateway, request.kind, &request.key, &request.uid, request.managed_fields);
                 tokio::select! {
                     result = read => result.map_or_else(ManifestState::Failed, |manifest| {
                         ManifestState::Done(Arc::new(manifest))

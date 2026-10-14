@@ -252,10 +252,12 @@ impl<K: Describe> DetailPanel<K> {
     }
 
     fn manifest_tab(&mut self, ui: &mut Ui, palette: &Palette, scene: &mut Scene<'_>) {
+        // The UID keeps the manifest of a new object with the same name out of this panel.
         let request = ManifestRequest {
             cluster: self.id.cluster.clone(),
             kind: K::ID,
             key: self.id.key.clone(),
+            uid: Arc::clone(&self.id.uid),
             managed_fields: self.manifest.managed_fields(),
         };
         let present = self.presence == Presence::Present;

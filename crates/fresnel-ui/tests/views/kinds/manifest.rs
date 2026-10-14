@@ -11,14 +11,15 @@ use fresnel_core::manifest::{ManagedFields, Manifest};
 use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::apps::v1::Deployment;
 
-use super::scene::{deployments, live};
+use super::scene::{deployments, live, uid_of};
 use super::weakness::page;
 use crate::data::changed_object;
 use crate::fake::{Window, error, shows, view};
 
+/// The request of the tab for the Deployment `web`, with its UID.
 fn request(managed_fields: ManagedFields) -> ManifestRequest {
     let (cluster, key) = (ClusterId::new("ams-prod"), ObjectKey::new("scene", "web"));
-    ManifestRequest { cluster, kind: Kind::Deployment, key, managed_fields }
+    ManifestRequest { cluster, kind: Kind::Deployment, key, uid: uid_of(&deployments(), "web"), managed_fields }
 }
 
 /// The count of the reads that the tab asked for.
@@ -82,8 +83,22 @@ fn the_tab_asks_for_each_version_of_its_object_and_shows_the_lines_on_the_screen
     assert_eq!(reads(&window), 4, "the newest version after the end of the read");
 
     // A deleted object asks for no read: its server has no such object.
-    window.state_mut().view = view(vec![live("ams-prod", &others.collect::<Vec<_>>())]);
+    window.state_mut().view = view(vec![live("ams-prod", &others.clone().collect::<Vec<_>>())]);
     window.run();
     assert!(shows(&window, "The object left its store. The tab shows the last manifest that it read."));
     assert_eq!(reads(&window), 4);
+
+    // A new Deployment gets the name: its panel asks with its own UID, so the read of the
+    // deleted one (which the core refuses for the new UID) never shows in its panel.
+    let new = changed_object(&**web, |value| value["metadata"]["uid"] = "the-uid-of-a-new-web".into());
+    window.state_mut().view = view(vec![live("ams-prod", &others.chain([new]).collect::<Vec<_>>())]);
+    window.get_by_label("Close the details").click();
+    window.run();
+    window.get_by_label("web").click();
+    window.run();
+    window.get_by_label("Manifest").click();
+    window.run();
+    let asked = ManifestRequest { uid: "the-uid-of-a-new-web".into(), ..request(ManagedFields::Removed) };
+    assert_eq!(window.state().sent.last(), Some(&Command::ReadManifest(asked)));
+    assert!(!shows(&window, "kind: Deployment"), "the text of the read for the other UID");
 }

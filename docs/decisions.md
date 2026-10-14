@@ -918,7 +918,9 @@ in `ClusterData::objects`. The Pods need no command: each view has them.
 
 The detail panel shows one object, so a new request ends the read in progress. The task does
 not end after a read: a job for each read would give a journal entry for each change of an
-object. A read that fails shows in the panel with its reason.
+object. A read that fails shows in the panel with its reason. A request names the UID of the
+object, and an answer with an other UID fails: a StatefulSet can make a new pod with the old
+name during a read.
 
 ## A count of the sidebar that is not current has the mark of old rows
 

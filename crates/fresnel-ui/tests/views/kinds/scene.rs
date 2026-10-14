@@ -74,3 +74,9 @@ pub(crate) fn with<K: Describe>(name: &str, objects: Snapshot<K>) -> ClusterRow 
 pub(crate) fn live<K: Describe>(name: &str, objects: &[Arc<K>]) -> ClusterRow {
     with(name, store(StoreState::Live, objects))
 }
+
+/// The UID of the object with this name.
+pub(crate) fn uid_of<K: Describe>(objects: &[Arc<K>], name: &str) -> Arc<str> {
+    let object = objects.iter().find(|object| object.metadata().name.as_deref() == Some(name)).expect("the object");
+    object.metadata().uid.as_deref().expect("a UID").into()
+}

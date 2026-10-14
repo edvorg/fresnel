@@ -37,15 +37,18 @@ pub struct Manifest {
 }
 
 /// Reads one object from the server and writes it as YAML. The read has the time limit of
-/// a GET.
+/// a GET. `uid` is the UID of the object that the view shows, or empty for any object of
+/// the name.
 ///
 /// A key with no namespace for a kind in a namespace is an error with no request: its path
-/// would have an empty part. An answer with an other name is an error too, so that no
-/// other object shows as the manifest of this one.
+/// would have an empty part. An answer with an other name or an other UID is an error too,
+/// so that no other object shows as the manifest of this one: a StatefulSet makes a new pod
+/// with the name of the old one during the read.
 pub async fn fetch(
     gateway: &Gateway,
     kind: Kind,
     key: &ObjectKey,
+    uid: &str,
     managed_fields: ManagedFields,
 ) -> Result<Manifest, CoreError> {
     let info = kind.info();
@@ -61,6 +64,9 @@ pub async fn fetch(
     let mut object: Value = gateway.get(request).await?;
     if object.pointer("/metadata/name").and_then(Value::as_str) != Some(&*key.name) {
         return Err(CoreError::invalid("the server answered the read of the manifest with an other object"));
+    }
+    if !uid.is_empty() && object.pointer("/metadata/uid").and_then(Value::as_str) != Some(uid) {
+        return Err(CoreError::invalid("the object of this name is an other object now: it has an other UID"));
     }
     if managed_fields == ManagedFields::Removed
         && let Some(metadata) = object.get_mut("metadata").and_then(Value::as_object_mut)

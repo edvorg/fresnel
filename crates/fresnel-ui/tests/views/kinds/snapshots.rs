@@ -10,7 +10,7 @@ use fresnel_core::manifest::{ManagedFields, Manifest};
 use fresnel_core::store::{ObjectKey, StoreState};
 use k8s_openapi::api::apps::v1::ReplicaSet;
 
-use super::scene::{config_maps, deployments, live, nodes, services, with};
+use super::scene::{config_maps, deployments, live, nodes, services, uid_of, with};
 use crate::data::{empty_store, held, scene, store};
 use crate::fake::{SECOND, Window, error, now, open_page, row, until, view, window_with};
 use crate::pods::scenes::{forbidden, no_answer};
@@ -80,6 +80,7 @@ fn the_manifest_tab_of_a_service() {
         cluster: ClusterId::new("ams-prod"),
         kind: Kind::Service,
         key: ObjectKey::new("scene", "web"),
+        uid: uid_of(&services(), "web"),
         managed_fields: ManagedFields::Removed,
     };
     let manifest = Manifest { text, version: Some("1042".to_owned()), managed_fields: ManagedFields::Removed };
