@@ -9,7 +9,7 @@ use std::any::Any;
 
 use egui::{RichText, Ui};
 use fresnel_core::app::ClusterData;
-use fresnel_core::index::{Answer, Basis, IndexState, references_of};
+use fresnel_core::index::{Answer, Basis, IndexState, ObjectRef, Target, references_of};
 use fresnel_core::kinds::{Describe, Kind};
 use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::core::v1::Pod;
@@ -26,8 +26,24 @@ struct Group {
     title: &'static str,
     noun: &'static str,
     index: &'static str,
-    /// The kind, the identity and the text of each link.
-    answer: Answer<Vec<(Kind, ObjectKey, String)>>,
+    /// The kind, the identity and the text of the first links, the count of all objects
+    /// of the answer and its basis.
+    answer: Answer<Links>,
+}
+
+/// The first links of a list, and the count of all its objects. A DaemonSet can have
+/// thousands of pods, and the panel builds its links in each frame.
+struct Links {
+    first: Vec<(Kind, ObjectKey, String)>,
+    total: usize,
+}
+
+impl Links {
+    fn of<T>(answer: Answer<Vec<T>>, link: impl Fn(T) -> (Kind, ObjectKey, String)) -> Answer<Self> {
+        let total = answer.found.len();
+        let first = answer.found.into_iter().take(ITEM_LIMIT).map(link).collect();
+        Answer { found: Self { first, total }, basis: answer.basis }
+    }
 }
 
 /// Draws a heading and the links of each list of the kind. Gives the object of a link that
@@ -46,18 +62,18 @@ pub(super) fn show<K: Describe>(
             note(ui, palette.warn, &text);
         }
         let found = &group.answer.found;
-        if found.is_empty() && group.answer.basis.is_loaded() {
+        if found.total == 0 && group.answer.basis.is_loaded() {
             ui.label(RichText::new("None.").color(palette.text_faint));
         }
         ui.horizontal_wrapped(|ui| {
             links_only(ui);
-            for (kind, key, text) in found.iter().take(ITEM_LIMIT) {
+            for (kind, key, text) in &found.first {
                 if ui.link(text.as_str()).clicked() {
                     clicked = Some(Link { cluster: id.cluster.clone(), kind: *kind, key: key.clone() });
                 }
             }
         });
-        more(ui, palette, found.len());
+        more(ui, palette, found.total);
         ui.add_space(10.0);
     }
     clicked
@@ -76,14 +92,8 @@ fn groups<K: Describe>(data: &ClusterData, id: &ObjectId, object: &K) -> Vec<Gro
         let text = if kind == Kind::Pod { key.name.to_string() } else { format!("{} {}", kind.info().name, key.name) };
         (kind, key, short(&text, 200).into_owned())
     };
-    let refs = |answer: Answer<Vec<fresnel_core::index::ObjectRef>>| Answer {
-        found: answer.found.into_iter().map(|object| named(object.kind, object.key)).collect(),
-        basis: answer.basis,
-    };
-    let pods = |answer: Answer<Vec<ObjectKey>>| Answer {
-        found: answer.found.into_iter().map(|key| named(Kind::Pod, key)).collect(),
-        basis: answer.basis,
-    };
+    let refs = |answer: Answer<Vec<ObjectRef>>| Links::of(answer, |object| named(object.kind, object.key));
+    let pods = |answer: Answer<Vec<ObjectKey>>| Links::of(answer, |key| named(Kind::Pod, key));
     let (kind, uid) = (K::ID, &*id.uid);
     let pods_below = || Group { title: "PODS", noun: "pods", index: OWNERS, answer: refs(owners.pods_of(kind, uid)) };
     match kind {
@@ -96,18 +106,12 @@ fn groups<K: Describe>(data: &ClusterData, id: &ObjectId, object: &K) -> Vec<Gro
             vec![pods_below()]
         }
         Kind::Service => {
-            let slices = owners.slices_of(&id.key);
-            let slices = Answer {
-                found: slices.found.into_iter().map(|key| named(Kind::EndpointSlice, key)).collect(),
-                basis: slices.basis,
-            };
-            let behind = owners.pods_of_service(&id.key);
+            let slices = Links::of(owners.slices_of(&id.key), |key| named(Kind::EndpointSlice, key));
             let ready = |ready: bool| if ready { "" } else { " (not ready)" };
-            let found = behind.found.into_iter().map(|pod| {
+            let behind = Links::of(owners.pods_of_service(&id.key), |pod| {
                 let text = format!("{}{}", short(&pod.pod.name, 200), ready(pod.ready));
                 (Kind::Pod, pod.pod, text)
             });
-            let behind = Answer { found: found.collect(), basis: behind.basis };
             vec![
                 Group { title: "ENDPOINTSLICES", noun: "EndpointSlices", index: OWNERS, answer: slices },
                 Group { title: "PODS", noun: "pods", index: OWNERS, answer: behind },
@@ -122,13 +126,9 @@ fn groups<K: Describe>(data: &ClusterData, id: &ObjectId, object: &K) -> Vec<Gro
                 return Vec::new();
             };
             // The references come from the spec of the pod itself, so the list is current.
-            let found = references_of(pod).into_iter().map(|target| named(target.kind, target.key)).collect();
-            vec![Group {
-                title: "USES",
-                noun: "objects",
-                index: "pod",
-                answer: Answer { found, basis: Basis::Current },
-            }]
+            let uses = Answer { found: references_of(pod).into_iter().collect(), basis: Basis::Current };
+            let answer = Links::of(uses, |target: Target| named(target.kind, target.key));
+            vec![Group { title: "USES", noun: "objects", index: "pod", answer }]
         }
         _ => Vec::new(),
     }

@@ -13,7 +13,7 @@ const PAD: f32 = 10.0;
 const GAP: f32 = 6.0;
 /// The most characters of a cell that the table lays out: more than the widest column
 /// shows. A value of a cluster can be much longer, for example the reason of a status.
-const TEXT_LIMIT: usize = 400;
+pub(crate) const TEXT_LIMIT: usize = 400;
 
 /// The place of the sort arrow beside a title.
 const ARROW: f32 = 13.0;

@@ -6,7 +6,7 @@
 //! - `weakness`: the weaknesses 1, 3, 7 and 8 of plan section 6 for each of them.
 //! - `sidebar`: the groups, the counts and the kinds that the core holds for the view.
 //! - `columns`: the choice of the columns and the saved layout. `manifest`: the tab.
-//! - `frame_time`: 10,000 Deployments. `snapshots`: PNG files of the pages.
+//! - `frame_time`: 10,000 Deployments, and objects of extreme sizes. `snapshots`: PNG files.
 
 mod columns;
 mod frame_time;
