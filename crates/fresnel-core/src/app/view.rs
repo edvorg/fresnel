@@ -11,6 +11,7 @@ use fresnel_net::ClusterStatus;
 use super::create::CreateJob;
 use super::data::ClusterData;
 use super::health::{self, Health};
+use super::jobs::JobsView;
 use super::manifest::ManifestRead;
 use crate::cluster::{ClusterId, ClusterView, LinkState};
 use crate::config::Config;
@@ -132,6 +133,8 @@ pub struct CoreView {
     pub manifest: Option<Arc<ManifestRead>>,
     /// The last create of a Secret.
     pub create: Option<Arc<CreateJob>>,
+    /// The jobs of the operations, for the Operations tab.
+    pub jobs: Arc<JobsView>,
     /// The journal.
     pub journal: Arc<JournalView>,
 }

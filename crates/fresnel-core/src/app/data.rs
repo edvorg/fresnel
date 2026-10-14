@@ -15,6 +15,8 @@ use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName};
 use futures_util::future::select;
 use k8s_openapi::api::core::v1::Pod;
 
+use super::access::{AccessView, ClusterAccess};
+use super::jobs::ClusterParts;
 use super::keys::{ClusterKeys, KeysHolder, KeysView};
 use super::objects::{Objects, ShownKinds};
 use super::repaint::Repaint;
@@ -24,6 +26,7 @@ use crate::error::CoreError;
 use crate::index::{ClusterIndexes, Index, IndexParts, ObjectEvents, Owners, References};
 use crate::keys::Target;
 use crate::kinds::{Describe, Kind};
+use crate::ops::{Cancel, Parts};
 use crate::published::{Changes, Disposal, Held, Reader};
 use crate::search::Source;
 use crate::store::{ClusterStores, Snapshot, StoreParts, StoreStatus};
@@ -49,6 +52,8 @@ pub struct ClusterData {
     pub objects: Objects,
     /// The object of the key view, when it is an object of this cluster (`Command::ShowKeys`).
     pub keys: Option<Arc<KeysView>>,
+    /// The permissions of the user (`Command::ReadRules`, `Command::CheckAccess`).
+    pub access: Arc<AccessView>,
 }
 
 impl ClusterData {
@@ -99,6 +104,7 @@ impl fmt::Debug for ClusterData {
 /// of the cluster open.
 pub(super) struct Connected {
     keys: ClusterKeys,
+    access: ClusterAccess,
     gateway: Gateway,
     pods: Reader<Snapshot<Pod>>,
     events: Option<Reader<Index<ObjectEvents>>>,
@@ -132,6 +138,7 @@ impl Connected {
         shown_kinds.set(&stores, shown);
         Ok(Self {
             keys: ClusterKeys::default(),
+            access: ClusterAccess::start(tasks, id, link.gateway.clone(), inner.repaint.clone()),
             gateway: link.gateway.clone(),
             pods,
             events: indexes.events(),
@@ -165,6 +172,26 @@ impl Connected {
         self.keys.holder(target)
     }
 
+    /// The permissions of the user in the cluster.
+    pub(super) fn access(&self) -> &ClusterAccess {
+        &self.access
+    }
+
+    /// What a job on an object of the cluster gets: the gateway, the stores that its steps
+    /// follow, its cancel and the permissions.
+    pub(super) fn job_parts(&self, cancel: Cancel) -> ClusterParts {
+        let stores = &self.stores;
+        let parts = Parts {
+            gateway: self.gateway.clone(),
+            deployments: stores.full(),
+            stateful_sets: stores.full(),
+            daemon_sets: stores.full(),
+            jobs: stores.full(),
+            cancel,
+        };
+        (parts, self.access.handle())
+    }
+
     /// A copy of what the views read. The call copies a pointer for each store and index.
     pub(super) fn data(&self) -> ClusterData {
         let sources: Arc<[Source]> = self.stores.sources().into();
@@ -177,6 +204,7 @@ impl Connected {
             sources,
             objects: self.shown.read(),
             keys: self.keys.view(),
+            access: self.access.view(),
         }
     }
 }

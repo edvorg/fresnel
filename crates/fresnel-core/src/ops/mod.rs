@@ -113,6 +113,11 @@ impl Operation {
         }
     }
 
+    /// False for an operation that only reads: a stop of its job changes nothing.
+    pub fn writes(&self) -> bool {
+        !matches!(self, Self::RolloutStatus | Self::History)
+    }
+
     /// True when objects of the kind have the operation: the kind lists its action. A
     /// Deployment has no suspend, so the request would change nothing or fail.
     pub fn fits(&self, kind: Kind) -> bool {

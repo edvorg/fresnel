@@ -16,7 +16,7 @@ use fresnel_net::{Cause, NetSettings};
 use super::data::Connected;
 use super::manifest::{ManifestReader, ManifestRequest};
 use super::view::{ShellNote, Startup};
-use super::{APP, Command, Inner, Phase};
+use super::{APP, Inner, Phase};
 use crate::cluster::{ClusterId, LinkState, Registry};
 use crate::error::CoreError;
 use crate::kinds::Kind;
@@ -167,46 +167,9 @@ impl Inner {
         state.monitor = Some(monitor).filter(|_| state.phase != Phase::Stopped);
     }
 
-    fn next_command(&self) -> Option<Command> {
-        self.state().commands.pop_front()
-    }
-
-    async fn apply(&self, registry: &Registry, command: Command) -> Result<(), CoreError> {
-        match command {
-            Command::Select { cluster, selected } => self.select(cluster, selected),
-            Command::RetryNow(cluster) => self.retry(registry, &cluster).await?,
-            // A layout, the shown kinds, a manifest and a key view change no connection.
-            Command::SaveTable { table, layout } => {
-                self.save_table(table, layout);
-                return Ok(());
-            }
-            Command::ShowKinds(kinds) => {
-                self.show_kinds(kinds);
-                return Ok(());
-            }
-            Command::ReadManifest(request) => {
-                self.read_manifest(registry, request);
-                return Ok(());
-            }
-            Command::ShowKeys(target) => {
-                self.show_keys(target);
-                return Ok(());
-            }
-            Command::SaveKeys(save) => {
-                self.save_keys(save);
-                return Ok(());
-            }
-            Command::CreateSecret(secret) => {
-                self.create_secret(registry, secret);
-                return Ok(());
-            }
-        }
-        self.reconcile(registry).await
-    }
-
     /// Holds the stores of the full objects of these kinds in each connected cluster, and
     /// in each cluster that connects later. The stores of the other kinds stop after their time.
-    fn show_kinds(&self, kinds: BTreeSet<Kind>) {
+    pub(super) fn show_kinds(&self, kinds: BTreeSet<Kind>) {
         let mut state = self.state();
         for connected in state.connected.values_mut() {
             connected.show(&kinds);
@@ -216,7 +179,7 @@ impl Inner {
         self.repaint.request();
     }
 
-    fn read_manifest(&self, registry: &Registry, request: ManifestRequest) {
+    pub(super) fn read_manifest(&self, registry: &Registry, request: ManifestRequest) {
         let mut state = self.state();
         if state.phase == Phase::Stopped {
             return;
@@ -229,7 +192,7 @@ impl Inner {
         self.repaint.request();
     }
 
-    async fn retry(&self, registry: &Registry, cluster: &ClusterId) -> Result<(), CoreError> {
+    pub(super) async fn retry(&self, registry: &Registry, cluster: &ClusterId) -> Result<(), CoreError> {
         if let Some(link) = registry.link(cluster) {
             link.net.signal().raise(Cause::RetryNow);
             let calm = calm_text(&self.settings.net);
@@ -250,7 +213,7 @@ impl Inner {
 
     /// Makes the connections equal to the selection: each selected cluster is connected,
     /// and no other cluster is.
-    async fn reconcile(&self, registry: &Registry) -> Result<(), CoreError> {
+    pub(super) async fn reconcile(&self, registry: &Registry) -> Result<(), CoreError> {
         let clusters = registry.snapshot();
         let (selected, stopped) = {
             let mut state = self.state();
