@@ -68,7 +68,8 @@ pub(super) type ClusterParts = (Parts, AccessHandle);
 
 impl Jobs {
     /// Starts a job. With no `cluster`, the cluster of the order is not connected, and the
-    /// job ends at once as not sent. `cancel` sets the signal of the parts.
+    /// job ends at once as not sent. `cancel` sets the signal of the parts. A list of running
+    /// jobs only takes no new one: the job ends as not sent, and only the journal tells it.
     pub(super) fn start(
         &mut self,
         tasks: &Tasks,
@@ -80,14 +81,14 @@ impl Jobs {
         self.number += 1;
         let report = Report::default();
         let slot: Slot = Arc::new(Mutex::new(Arc::new(JobView { number: self.number, order: order.clone(), report })));
-        let task = match (cluster, self.make_room()) {
-            (Some((parts, access)), Ok(())) => Some(start(tasks, order, parts, access, &slot, ends)),
-            (None, _) => {
+        if let Err(error) = self.make_room() {
+            end_now(&slot, JobState::NotSent(error), &ends);
+            return;
+        }
+        let task = match cluster {
+            Some((parts, access)) => Some(start(tasks, order, parts, access, &slot, ends)),
+            None => {
                 let error = CoreError::invalid(format!("{} is not connected", order.target.cluster));
-                end_now(&slot, JobState::NotSent(error), &ends);
-                None
-            }
-            (_, Err(error)) => {
                 end_now(&slot, JobState::NotSent(error), &ends);
                 None
             }

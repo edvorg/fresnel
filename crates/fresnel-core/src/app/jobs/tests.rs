@@ -59,10 +59,12 @@ async fn a_full_list_drops_its_oldest_ended_job_and_takes_no_job_when_each_one_r
     assert_eq!(view.jobs[2].number, 9999, "a running job stays");
 
     let mut full = Jobs { entries: (0..JOB_LIMIT).map(|_| entry(&running)).collect(), ..Jobs::default() };
-    assert_eq!(
-        full.make_room().map_err(|error| error.to_string()),
-        Err(format!("{JOB_LIMIT} jobs run: the job waits for none"))
-    );
+    full.start(&tasks, order(Operation::Restart), None, Cancel::pair().0, ends.clone());
+    let view = full.view();
+    assert_eq!((view.jobs.len(), view.dropped), (JOB_LIMIT, 0), "the list does not grow over its limit");
+    let last = ends.journal.view().entries.last().map(|entry| entry.text.clone());
+    let text = format!("Restart of Deployment shop/web: not sent: {JOB_LIMIT} jobs run: the job waits for none");
+    assert_eq!(last, Some(text));
 }
 
 #[tokio::test]
