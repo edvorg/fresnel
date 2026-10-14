@@ -68,6 +68,14 @@ impl Listener {
         self.raised.borrow_and_update().1
     }
 
+    /// True when the signal was raised since the last wait or check. It does not wait.
+    pub(crate) fn was_raised(&mut self) -> bool {
+        // An error tells that each `Signal` dropped: no raise came, and none can come.
+        let raised = matches!(self.raised.has_changed(), Ok(true));
+        self.raised.mark_unchanged();
+        raised
+    }
+
     /// Waits for `pause`, or less when the signal is raised. Gives the cause of an early end.
     pub async fn sleep(&mut self, pause: Duration) -> Option<Cause> {
         tokio::select! {

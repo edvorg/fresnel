@@ -1,5 +1,5 @@
 //! The channels of one cluster as a table: state, ping time, streams in use, the age of
-//! the last frame, connect attempts and the last error.
+//! the last frame, connect attempts and the last error. Above it, the outage of the cluster.
 
 use egui::{RichText, Ui};
 use fresnel_core::net::{ChannelState, ChannelStatus, ClusterStatus, GroupStatus};
@@ -22,6 +22,9 @@ const COLUMNS: &[Column] = &[
 const NONE: &str = "—";
 
 pub(super) fn show(ui: &mut Ui, palette: &Palette, status: &ClusterStatus, clock: &Clock) {
+    if let Some(text) = outage_text(status, clock) {
+        ui.label(RichText::new(text).color(palette.warn));
+    }
     mini_table::header(ui, "channels", COLUMNS);
     let groups = [("watches", &status.watches), ("requests", &status.requests), ("log streams", &status.logs)];
     for (purpose, group) in groups {
@@ -72,6 +75,26 @@ fn state_text(channel: &ChannelStatus, clock: &Clock) -> (Tone, String) {
         }
         ChannelState::Retired => (Tone::Faint, "closed, it had no stream".to_owned()),
     }
+}
+
+/// Since when no connect worked. In a long outage the channels connect in turns, so the
+/// time of the next attempt is the end of the shortest pause of a channel.
+fn outage_text(status: &ClusterStatus, clock: &Clock) -> Option<String> {
+    let outage = status.outage?;
+    let since = format!("No connect worked since {}.", clock.time_of_day(outage.since));
+    let Some(turn) = outage.turn else {
+        return Some(since);
+    };
+    let groups = [&status.watches, &status.requests, &status.logs];
+    let pauses = groups.into_iter().flat_map(|group| &group.channels).filter_map(|channel| match channel.state {
+        ChannelState::Backoff { pause, .. } => Some(channel.since + pause),
+        _ => None,
+    });
+    let next = match pauses.min() {
+        Some(at) => format!("the next one starts at {}", clock.time_of_day(at)),
+        None => "one is in progress".to_owned(),
+    };
+    Some(format!("{since} The cluster now gets one connect attempt each {}: {next}.", format::span(turn)))
 }
 
 /// Requests wait only when each connection of the purpose is at its stream budget.

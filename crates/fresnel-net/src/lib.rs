@@ -31,6 +31,7 @@ mod upgrade;
 pub use body::ResponseBody;
 pub use changes::Changes;
 pub use channel::group::GroupStatus;
+pub use channel::outage::{OutageSettings, OutageStatus};
 pub use channel::{ChannelSettings, ChannelState, ChannelStatus};
 pub use clock::WallClock;
 pub use cluster::{Cluster, ClusterSpec, ClusterStatus, NetSettings};

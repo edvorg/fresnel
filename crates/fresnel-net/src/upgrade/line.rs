@@ -12,8 +12,8 @@ use hyper_util::rt::TokioIo;
 use tokio::time::timeout;
 
 use crate::body::ResponseBody;
-use crate::connect::Dial;
 use crate::connect::dial::Protocol;
+use crate::connect::{Dial, Effort};
 use crate::error::NetError;
 
 /// One HTTP/1.1 connection with no request in progress.
@@ -28,7 +28,7 @@ pub(super) struct Line {
 impl Line {
     /// Opens a new connection with the hedged connect of the cluster.
     pub(super) async fn open(dial: &dyn Dial) -> Result<Self, NetError> {
-        let io = dial.dial(Protocol::Http1).await?;
+        let io = dial.dial(Protocol::Http1, Effort::Race).await?;
         let (sender, connection) = http1::handshake(TokioIo::new(io))
             .await
             .map_err(|error| NetError::because("the HTTP/1.1 handshake failed", &error))?;

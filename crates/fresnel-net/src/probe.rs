@@ -11,7 +11,7 @@ use tokio::time::{Instant, timeout};
 
 use crate::connect::dial::{self, Protocol, Tls};
 use crate::connect::resolver::system_lookup;
-use crate::connect::{ConnectSettings, ConnectStatus, Connector, Dial as _, Endpoint, server_name};
+use crate::connect::{ConnectSettings, ConnectStatus, Connector, Dial as _, Effort, Endpoint, server_name};
 use crate::error::NetError;
 
 /// The result of one address lookup.
@@ -100,7 +100,7 @@ impl Probe {
     /// hedged race. The hedge delay follows the connects of this probe.
     pub async fn hedged(&self, protocol: Protocol) -> Result<HedgedConnect, NetError> {
         let started = Instant::now();
-        let (_connection, attempts) = self.connector.connect(protocol).await?;
+        let (_connection, attempts) = self.connector.connect(protocol, Effort::Race).await?;
         Ok(HedgedConnect { time: started.elapsed(), attempts })
     }
 

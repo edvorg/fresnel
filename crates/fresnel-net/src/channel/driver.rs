@@ -2,7 +2,8 @@
 //!
 //! The task connects by itself after each loss. It does not wait for a request. A loss
 //! counts one time, here, and not in each watch that used the connection. Thus the pause
-//! before a connect does not grow with the count of watches.
+//! before a connect does not grow with the count of watches. In a long outage, the
+//! [`Outage`] of the cluster sets the pause.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -19,10 +20,11 @@ use tokio::time::{Instant, MissedTickBehavior, interval_at, timeout};
 
 use super::connection::{Connection, End};
 use super::link::Sender;
+use super::outage::Outage;
 use super::state::ChannelState;
 use super::{Parts, Shared};
-use crate::connect::Dial;
 use crate::connect::dial::Protocol;
+use crate::connect::{Dial, Effort};
 use crate::error::NetError;
 use crate::light::LightRequests;
 use crate::signal::Listener;
@@ -51,6 +53,7 @@ pub(super) struct Driver {
     dial: Arc<dyn Dial>,
     light: Arc<dyn LightRequests>,
     listener: Listener,
+    outage: Arc<Outage>,
     /// Failures in sequence: connects that failed and connections that were lost early.
     failures: u32,
     /// Counts the connections of the channel.
@@ -91,6 +94,7 @@ impl Driver {
             dial: Arc::clone(&parts.dial),
             light: Arc::clone(&parts.light),
             listener: parts.signal.listen(),
+            outage: Arc::clone(&parts.outage),
             failures: 0,
             generation,
         }
@@ -101,16 +105,17 @@ impl Driver {
     pub(super) async fn run(mut self) -> Result<(), NetError> {
         self.shared.link.lost();
         let mut draining = Draining::default();
+        let mut effort = Effort::Race;
         loop {
             if self.shared.streams.is_retired() {
                 self.shared.status.enter(ChannelState::Retired);
                 return std::future::pending().await;
             }
-            let (sender, mut connection) = match draining.during(self.connect()).await {
+            let (sender, mut connection) = match draining.during(self.connect(effort)).await {
                 Ok(connected) => connected,
                 Err(error) => {
                     self.shared.link.connect_failed(error.clone());
-                    draining.during(self.pause_after(error.to_string(), false)).await;
+                    effort = draining.during(self.pause_after(error.to_string(), false)).await;
                     continue;
                 }
             };
@@ -132,41 +137,53 @@ impl Driver {
                     REFUSED.to_owned()
                 }
             };
-            draining.during(self.pause_after(reason, stable)).await;
+            effort = draining.during(self.pause_after(reason, stable)).await;
         }
     }
 
-    /// One connect. A wake or a network change starts it again: a connect that started
-    /// before can wait on a dead path, and a new one is faster.
-    async fn connect(&mut self) -> Result<(Sender, Connection), NetError> {
+    /// One connect, which the outage of the cluster counts. A wake or a network change
+    /// starts it again as a race: a connect that started before can wait on a dead path,
+    /// and a new one is faster.
+    async fn connect(&mut self, mut effort: Effort) -> Result<(Sender, Connection), NetError> {
         let attempt = self.failures.saturating_add(1);
         self.shared.status.write(|facts| {
             facts.state = ChannelState::Connecting { attempt };
             facts.since = SystemTime::now();
             facts.connect_attempts += 1;
         });
-        let io = loop {
+        let started = Instant::now();
+        let dialed = loop {
             tokio::select! {
-                connected = self.dial.dial(Protocol::Http2) => break connected?,
-                _cause = self.listener.raised() => {}
+                connected = self.dial.dial(Protocol::Http2, effort) => break connected,
+                _cause = self.listener.raised() => effort = Effort::Race,
             }
         };
-        Connection::handshake(io, &self.shared.settings).await
+        let connected = match dialed {
+            Ok(io) => Connection::handshake(io, &self.shared.settings).await,
+            Err(error) => Err(error),
+        };
+        match &connected {
+            Ok(_) => self.outage.worked(),
+            Err(_) => self.outage.failed(started),
+        }
+        connected
     }
 
-    /// Records the end of a connect or of a connection, and waits before the next connect.
-    /// After a connection that was live for some time, the next connect starts at once.
-    async fn pause_after(&mut self, reason: String, stable: bool) {
+    /// Records the end of a connect or of a connection, waits before the next connect and
+    /// gives its effort. After a connection that was live for some time, the next connect
+    /// starts at once.
+    async fn pause_after(&mut self, reason: String, stable: bool) -> Effort {
         self.shared.status.write(|facts| facts.last_error = Some(reason));
         if stable {
             self.failures = 0;
-            return;
+            return Effort::Race;
         }
         self.failures = self.failures.saturating_add(1);
-        let pause = self.shared.settings.backoff.pause(self.failures, fastrand::u32(..));
-        self.shared.status.enter(ChannelState::Backoff { failures: self.failures, pause });
-        // The signal of the cluster ends the pause.
-        self.listener.sleep(pause).await;
+        let (failures, status) = (self.failures, &self.shared.status);
+        let own = self.shared.settings.backoff.pause(failures, fastrand::u32(..));
+        // The signal of the cluster and a channel that connects end the pause.
+        let show = |pause| status.enter(ChannelState::Backoff { failures, pause });
+        self.outage.pause(&mut self.listener, own, show).await
     }
 
     /// Serves one connection to its end. Gives the end, and whether the connection was live

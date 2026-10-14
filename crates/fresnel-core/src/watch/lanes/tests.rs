@@ -40,6 +40,7 @@ fn status(watches: &[ChannelState], requests: &[ChannelState], credential: Optio
     ClusterStatus {
         name: "ams".to_owned(),
         connect,
+        outage: None,
         watches: group(watches),
         requests: group(requests),
         logs: group(&[ChannelState::Live]),

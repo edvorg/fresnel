@@ -29,6 +29,8 @@ pub(crate) struct Race {
     /// The race ends after this count of fast failures (refused, reset, TLS error). More
     /// attempts do not help then.
     pub(crate) hard_failures: usize,
+    /// The most attempts of the race. The race ends when the last one ends.
+    pub(crate) max_attempts: usize,
 }
 
 /// The attempt that connected first.
@@ -56,8 +58,11 @@ where
     let mut errors = Vec::new();
     let (mut attempts, mut hard) = (0_usize, 0_usize);
     let mut next_start = started;
+    // The class of the error of the race when its last allowed attempt ended.
+    let mut spent = ErrorClass::Timeout;
     let class = loop {
-        let free = running.len() < plan.max_parallel.max(1);
+        let more = attempts < plan.max_attempts.max(1);
+        let free = more && running.len() < plan.max_parallel.max(1);
         if free && Instant::now() >= next_start {
             let (number, begun) = (attempts, Instant::now());
             let connect = timeout(plan.attempt_limit, attempt(number));
@@ -65,18 +70,24 @@ where
             attempts += 1;
             next_start = begun + plan.delay;
         }
+        if running.is_empty() && attempts >= plan.max_attempts.max(1) {
+            break spent;
+        }
         tokio::select! {
             Some((number, begun, result)) = running.next() => match result {
                 // The drop of `running` closes the sockets of the other attempts.
                 Ok(Ok(io)) => return Ok(Won { io, attempts, time: begun.elapsed() }),
                 Ok(Err(error)) => {
                     note(&mut errors, format!("attempt {}: {}", number + 1, chain(&error)));
-                    hard += 1;
+                    (hard, spent) = (hard + 1, ErrorClass::Network);
                     if hard >= plan.hard_failures.max(1) {
                         break ErrorClass::Network;
                     }
                 }
-                Err(_) => note(&mut errors, format!("attempt {}: no answer in {:?}", number + 1, plan.attempt_limit)),
+                Err(_) => {
+                    note(&mut errors, format!("attempt {}: no answer in {:?}", number + 1, plan.attempt_limit));
+                    spent = ErrorClass::Timeout;
+                }
             },
             () = sleep_until(next_start), if free => {}
             () = sleep_until(deadline) => {
@@ -100,17 +111,20 @@ fn note(errors: &mut Vec<String>, error: String) {
 mod tests {
     use std::cell::Cell;
 
+    use futures_util::FutureExt as _;
     use tokio::time::sleep;
 
     use super::*;
 
     const MS: Duration = Duration::from_millis(1);
+    const SECOND: Duration = Duration::from_secs(1);
     const PLAN: Race = Race {
         delay: Duration::from_millis(300),
         max_parallel: 4,
         attempt_limit: Duration::from_secs(3),
         limit: Duration::from_secs(10),
         hard_failures: 2,
+        max_attempts: usize::MAX,
     };
 
     /// A race where attempt N needs `times_ms[N]` to connect. The last time repeats.
@@ -184,6 +198,20 @@ mod tests {
         let expected =
             "no connection after 301ms and 2 attempts: attempt 1: connection refused; attempt 2: connection refused";
         assert_eq!(error.to_string(), expected);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_race_of_one_attempt_ends_with_that_attempt() {
+        let single = Race { max_attempts: 1, ..PLAN };
+        let started = Instant::now();
+        let held = race(single, |_| sleep(Duration::from_secs(60)).map(|()| Ok(()))).await.expect_err("held");
+        assert_eq!((held.class(), started.elapsed()), (ErrorClass::Timeout, 3 * SECOND));
+        assert_eq!(held.to_string(), "no connection after 3s and 1 attempts: attempt 1: no answer in 3s");
+
+        let started = Instant::now();
+        let refused = race(single, |_| sleep(MS).map(|()| Err::<(), _>(io::Error::other("connection refused"))));
+        let refused = refused.await.expect_err("refused");
+        assert_eq!((refused.class(), started.elapsed()), (ErrorClass::Network, MS), "no wait for a second attempt");
     }
 
     #[tokio::test(start_paused = true)]

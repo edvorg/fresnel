@@ -159,6 +159,13 @@ in one minute, the recovery took 7.8 seconds. Now a loss counts one time, in the
 a connection that was live for 2 seconds connects again with no pause. Eight resets each
 recover in about 20 ms.
 
+## A long outage costs one connect attempt each 5 seconds
+
+In a break of 10 minutes, one cluster made 2,917 connect attempts: each channel ran a hedged
+race of up to 16 attempts after a pause of 3 s at most. Now, after one minute with no connect
+that worked, the channels of a cluster take turns: one attempt for each turn, one turn each 4
+to 6 s. The signal of the cluster and a channel that connects end each wait at once.
+
 ## Live means that a request got an answer
 
 A channel is live only after the answer to a request, most often its own light request. An

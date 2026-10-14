@@ -192,6 +192,7 @@ pub(crate) fn status(channels: [ChannelStatus; 3], credential: Option<Credential
             connects: 3,
             attempts: 3,
         },
+        outage: None,
         watches,
         requests,
         logs,

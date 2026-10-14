@@ -19,6 +19,7 @@ use tokio::time::timeout;
 use crate::body::ResponseBody;
 use crate::changes::{Changed, Changes};
 use crate::channel::group::{Group, GroupStatus};
+use crate::channel::outage::{Outage, OutageSettings, OutageStatus};
 use crate::channel::{ChannelSettings, Parts, Purpose};
 use crate::clock::WallClock;
 use crate::connect::dial::Protocol;
@@ -42,6 +43,8 @@ use light::ClusterLight;
 pub struct NetSettings {
     /// New connections.
     pub connect: ConnectSettings,
+    /// The pace of the connects in an outage.
+    pub outage: OutageSettings,
     /// The channels for watches.
     pub watches: ChannelSettings,
     /// The channels for lists, reads and writes.
@@ -66,6 +69,7 @@ impl Default for NetSettings {
     fn default() -> Self {
         Self {
             connect: ConnectSettings::default(),
+            outage: OutageSettings::default(),
             watches: ChannelSettings::for_watches(),
             requests: ChannelSettings::for_requests(),
             logs: ChannelSettings::for_logs(),
@@ -104,6 +108,8 @@ pub struct ClusterStatus {
     pub name: String,
     /// New connections.
     pub connect: ConnectStatus,
+    /// The outage: no connect of a channel worked since its start. `None` with no outage.
+    pub outage: Option<OutageStatus>,
     /// The channels for watches.
     pub watches: GroupStatus,
     /// The channels for lists, reads and writes.
@@ -123,6 +129,7 @@ struct Inner {
     address: Arc<Address>,
     limits: Limits,
     dial: Arc<dyn Dial>,
+    outage: Arc<Outage>,
     watches: Arc<Group>,
     requests: Arc<Group>,
     logs: Arc<Group>,
@@ -168,6 +175,7 @@ impl Cluster {
         let credentials = source.as_ref().map(credential);
         let light: Arc<dyn LightRequests> =
             Arc::new(ClusterLight { address: Arc::clone(&address), credentials: credentials.clone() });
+        let outage = Arc::new(Outage::new(settings.outage, &signal, changed.clone()));
         let parts = Parts {
             tasks: tasks.clone(),
             cluster: Arc::clone(&name),
@@ -175,6 +183,7 @@ impl Cluster {
             light,
             signal: signal.clone(),
             changed: changed.clone(),
+            outage: Arc::clone(&outage),
         };
         // The channels of the three purposes connect at the same time.
         let group = |purpose, settings| Arc::new(Group::start(parts.clone(), purpose, settings));
@@ -194,6 +203,7 @@ impl Cluster {
             address,
             limits: settings.limits,
             dial,
+            outage,
             watches,
             requests,
             logs,
@@ -219,6 +229,7 @@ impl Cluster {
         ClusterStatus {
             name: inner.name.to_string(),
             connect: inner.dial.status(),
+            outage: inner.outage.status(),
             watches: inner.watches.status(),
             requests: inner.requests.status(),
             logs: inner.logs.status(),

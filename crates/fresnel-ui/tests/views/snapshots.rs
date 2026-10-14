@@ -13,7 +13,7 @@ use fresnel_core::app::{CoreView, Startup};
 use fresnel_core::cluster::LinkState;
 use fresnel_core::journal::Level;
 use fresnel_core::net::credential::{CredentialFailure, CredentialState, PluginError, PluginFailure, RunReason};
-use fresnel_core::net::{ChannelState, ChannelStatus};
+use fresnel_core::net::{ChannelState, ChannelStatus, OutageStatus};
 
 use crate::fake::{
     SECOND, Window, channel, connected, error, journal, live_status, new_channel, now, off, open_page, row, status,
@@ -58,11 +58,14 @@ fn session() -> CoreView {
         last_error: Some(error.to_owned()),
         ..channel(ChannelState::Backoff { failures, pause: pause * SECOND })
     };
+    // An outage of 12 minutes: the channels connect in turns, one attempt each 5 s.
     let no_connection = [
-        lost(3, 3, 7, "connect: no answer in 10s"),
-        lost(3, 2, 7, "connect: no answer in 10s"),
-        lost(2, 1, 6, "the server sent no ping answer in 5s"),
+        lost(97, 4, 97, "connect: no answer in 3s"),
+        lost(96, 9, 96, "connect: no answer in 3s"),
+        lost(95, 14, 95, "connect: no answer in 3s"),
     ];
+    let mut long_outage = status(no_connection, Some(valid()));
+    long_outage.outage = Some(OutageStatus { since: now() - 720 * SECOND, turn: Some(5 * SECOND) });
 
     let detail =
         "Error: Unable to initialize DigitalOcean API client: access token is required. (hint: run 'doctl auth init')";
@@ -77,7 +80,7 @@ fn session() -> CoreView {
     let mut with_journal = view(vec![
         connected("ams-prod", live),
         connected("fra-stage", status(connecting, Some(first_run))),
-        connected("sgp-prod", status(no_connection, Some(valid()))),
+        connected("sgp-prod", long_outage),
         connected("nyc-prod", status(no_token, Some(failed))),
         row(
             "lab",

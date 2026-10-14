@@ -133,6 +133,7 @@ mod tests {
         ClusterStatus {
             name: "ams".to_owned(),
             connect,
+            outage: None,
             watches,
             requests,
             logs,

@@ -3,12 +3,13 @@
 //! - [`Channel`]: one connection with its own connect task ([`driver`]) and one state.
 //! - [`group`]: the channels of one purpose, with the stream budget.
 //! - [`connection`]: the hyper connection. [`link`]: the one shared result of a connect.
-//! - [`streams`]: the count of open streams.
+//! - [`streams`]: the count of open streams. [`outage`]: the pace of connects in an outage.
 
 mod connection;
 mod driver;
 pub(crate) mod group;
 mod link;
+pub(crate) mod outage;
 mod state;
 pub(crate) mod streams;
 
@@ -31,6 +32,7 @@ use crate::light::LightRequests;
 use crate::signal::Signal;
 use crate::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
 use link::LinkBoard;
+use outage::Outage;
 use state::StatusBoard;
 use streams::Streams;
 
@@ -144,6 +146,8 @@ pub(crate) struct Parts {
     pub(crate) light: Arc<dyn LightRequests>,
     pub(crate) signal: Signal,
     pub(crate) changed: Changed,
+    /// The outage of the cluster, which each channel ends or extends with its connects.
+    pub(crate) outage: Arc<Outage>,
 }
 
 /// The state that a channel shares with its task and with its requests.

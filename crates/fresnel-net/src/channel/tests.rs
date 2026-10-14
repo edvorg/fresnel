@@ -19,6 +19,7 @@ use crate::task::TaskReport;
 use crate::testing::{Connects, MemoryServer, NoPlugin};
 
 mod live;
+mod outage;
 mod windows;
 
 const SECOND: Duration = Duration::from_secs(1);

@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable as _;
 use fresnel_core::app::{Command, ShellNote, Startup};
 use fresnel_core::cluster::{ClusterId, LinkState};
 use fresnel_core::net::credential::{CredentialFailure, CredentialState, PluginError, PluginFailure, RunReason};
-use fresnel_core::net::{ChannelState, ChannelStatus};
+use fresnel_core::net::{ChannelState, ChannelStatus, OutageStatus};
 
 use crate::fake::{
     SECOND, absent, channel, connected, connections_window, error, live_channels, live_status, new_channel, now, off,
@@ -97,6 +97,29 @@ fn a_cluster_with_no_connection_shows_the_error_and_the_time_to_the_next_attempt
     ];
     assert_eq!(absent(&window, &texts), Vec::<&str>::new());
     assert!(shows(&window, "sgp-prod: no connection"), "the status bar has the same state");
+}
+
+#[test]
+fn a_long_outage_shows_its_start_and_the_time_of_the_next_attempt_of_the_cluster() {
+    let waits = |failures, ago: u32, pause: u32| ChannelStatus {
+        since: now() - ago * SECOND,
+        ..new_channel(ChannelState::Backoff { failures, pause: pause * SECOND })
+    };
+    let channels = [waits(40, 1, 9), new_channel(ChannelState::Connecting { attempt: 41 }), waits(39, 2, 4)];
+    let mut long = status(channels, Some(valid()));
+    long.outage = Some(OutageStatus { since: now() - 600 * SECOND, turn: Some(5 * SECOND) });
+    let mut short = status([(); 3].map(|()| new_channel(ChannelState::Connecting { attempt: 2 })), Some(valid()));
+    short.outage = Some(OutageStatus { since: now() - 30 * SECOND, turn: None });
+    let window = connections_window(view(vec![connected("ams-prod", long), connected("fra-stage", short)]));
+
+    let texts = [
+        "No connect worked since 07:50:00. The cluster now gets one connect attempt each 5 s: \
+         the next one starts at 08:00:02.",
+        "40 failures, next attempt in 8 s",
+        "39 failures, next attempt in 2 s",
+        "No connect worked since 07:59:30.",
+    ];
+    assert_eq!(absent(&window, &texts), Vec::<&str>::new());
 }
 
 #[test]

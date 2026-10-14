@@ -28,11 +28,13 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, ReadHalf, W
 use tokio::runtime::Handle;
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinSet;
+use tokio::time::Instant;
 
 use crate::changes::Changed;
 use crate::channel::Parts;
+use crate::channel::outage::{Outage, OutageSettings};
 use crate::connect::dial::{Io, Protocol};
-use crate::connect::{ConnectStatus, Dial};
+use crate::connect::{ConnectStatus, Dial, Effort};
 use crate::credential::{Credential, PluginError, TokenSource};
 use crate::error::NetError;
 use crate::light::LightRequests;
@@ -120,6 +122,8 @@ pub(crate) fn big_text() -> String {
 pub(crate) struct MemoryServer {
     connects: watch::Sender<Connects>,
     connections: Mutex<JoinSet<()>>,
+    /// The start and the effort of each connect.
+    tries: Mutex<Vec<(Instant, Effort)>>,
     shared: Arc<Shared>,
 }
 
@@ -152,19 +156,22 @@ impl MemoryServer {
         Arc::new(Self {
             connects: watch::Sender::new(Connects::Work),
             connections: Mutex::new(JoinSet::new()),
+            tries: Mutex::new(Vec::new()),
             shared: Arc::new(shared),
         })
     }
 
     /// The parts of a channel that connects to this server.
     pub(crate) fn parts(self: &Arc<Self>) -> Parts {
+        let (signal, changed) = (Signal::new(), Changed::new());
         Parts {
             tasks: Tasks::new(Handle::current(), |_| {}),
             cluster: "memory".into(),
             dial: Arc::clone(self) as _,
             light: Arc::new(NoPlugin),
-            signal: Signal::new(),
-            changed: Changed::new(),
+            outage: Arc::new(Outage::new(OutageSettings::default(), &signal, changed.clone())),
+            signal,
+            changed,
         }
     }
 
@@ -188,6 +195,11 @@ impl MemoryServer {
     /// The count of connects that gave a connection.
     pub(crate) fn dials(&self) -> u64 {
         self.shared.dials.load(Ordering::SeqCst)
+    }
+
+    /// The start and the effort of each connect, also of each that failed.
+    pub(crate) fn tries(&self) -> Vec<(Instant, Effort)> {
+        self.tries.lock().expect("a lock").clone()
     }
 
     pub(crate) fn seen(&self) -> Vec<Seen> {
@@ -226,7 +238,8 @@ impl MemoryServer {
     }
 
     /// The server speaks HTTP/2 only. A connect for HTTP/1.1 fails.
-    async fn connect(&self, protocol: Protocol) -> Result<Io, NetError> {
+    async fn connect(&self, protocol: Protocol, effort: Effort) -> Result<Io, NetError> {
+        self.tries.lock().expect("a lock").push((Instant::now(), effort));
         let mut connects = self.connects.subscribe();
         if *connects.borrow() == Connects::Lost {
             std::future::pending::<()>().await;
@@ -343,8 +356,8 @@ fn text(status: StatusCode, text: &str) -> Response<UnsyncBoxBody<Bytes, Infalli
 }
 
 impl Dial for MemoryServer {
-    fn dial(&self, protocol: Protocol) -> BoxFuture<'_, Result<Io, NetError>> {
-        self.connect(protocol).boxed()
+    fn dial(&self, protocol: Protocol, effort: Effort) -> BoxFuture<'_, Result<Io, NetError>> {
+        self.connect(protocol, effort).boxed()
     }
 
     fn status(&self) -> ConnectStatus {

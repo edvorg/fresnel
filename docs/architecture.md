@@ -46,8 +46,7 @@ xtask
 - `fresnel-core`: the domain. Clusters, the watch loop, stores, indexes, the kinds and the
   journal; later also search and operations. It has no dependency on egui. The crates above
   it reach the connection layer through the name `fresnel_core::net`.
-- `fresnel-ui`: the egui widgets and views. It uses the object types of `k8s-openapi` and
-  never the types of kube.
+- `fresnel-ui`: the egui widgets and views. It uses the types of `k8s-openapi`, never of kube.
 - `fresnel`: the desktop program. The window, the runtime, the log file and the quit sequence.
 - `fresnel-cli`: the command line program for tests and fault diagnosis: `doctor` and `watch`.
 - `fresnel-testkit`: the tools of the tests. It can use `fresnel-net`. Thus a test of
@@ -95,6 +94,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Upgrade client**: exec, attach and port forward, on warm connections with a test.
 - **Signal**: a wake, a network change and "retry now" raise the one signal of a cluster. It
   ends each retry delay, and each channel tests its connection with a limit of 3 s.
+- **Outage**: after a minute with no connect, a cluster gets one attempt each 5 s, in turns.
 - **State**: `Cluster::status` gives a copy of each state. `Cluster::changes` tells a change.
 
 ## Clusters

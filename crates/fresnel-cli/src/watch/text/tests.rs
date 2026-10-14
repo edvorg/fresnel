@@ -38,6 +38,7 @@ fn connections(watches: &[(ChannelState, usize)], requests: ChannelState) -> Clu
     ClusterStatus {
         name: "ams".to_owned(),
         connect,
+        outage: None,
         watches: group(watches),
         requests: group(&[(requests, 0)]),
         logs: group(&[(ChannelState::Live, 0)]),
