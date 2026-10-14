@@ -5,6 +5,7 @@ use fresnel_core::store::{StoreState, Wait};
 
 use crate::data::{cluster, empty_store, live, many_pods, pods};
 use crate::fake::{SECOND, Window, connected, live_status, now, open_tab, until, view, window_with};
+use crate::pods::mouse::wide_window;
 use crate::pods::resize::drag;
 use crate::pods::scenes::{pods_of, session};
 use crate::snapshots::{SCALE, save};
@@ -39,6 +40,16 @@ fn the_pods_of_two_clusters_after_a_drag_of_three_column_edges() {
     drag(&mut window, "Status", 50.0);
     drag(&mut window, "Node", -70.0);
     save_clean(&mut window, "pods-resized");
+}
+
+/// The window of the report of the user at the scale of a Retina display, after a drag
+/// of the edge right of Namespace: that column is wider, and each other column has its
+/// width. The free width at the right stays empty.
+#[test]
+fn the_wide_window_after_a_drag_of_the_namespace_edge() {
+    let mut window = wide_window(SCALE);
+    drag(&mut window, "Namespace", 90.0);
+    save_clean(&mut window, "resize-2x");
 }
 
 #[test]

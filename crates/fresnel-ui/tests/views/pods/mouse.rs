@@ -30,7 +30,7 @@ const WIDE: egui::Vec2 = egui::vec2(1910.0, 1000.0);
 const ROWS: usize = 35;
 
 /// The window of the user at this scale, with its 35 rows.
-fn wide_window(scale: f32) -> Window {
+pub(crate) fn wide_window(scale: f32) -> Window {
     let mut window = window_with(view(vec![live("ams-prod", &many_pods(ROWS))]), egui::Theme::Dark, scale);
     window.set_size(WIDE);
     until(&mut window, "the 35 rows", |window| shows(window, "35 pods"));
