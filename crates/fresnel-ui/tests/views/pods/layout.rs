@@ -68,3 +68,15 @@ fn a_width_that_the_user_changed_before_the_read_of_the_file_stays_and_is_saved(
     assert_eq!(window.state().sent, [save(&[("Name", 290)])]);
     assert_eq!((width(&window, "Name"), width(&window, "Ready")), (290.0, 56.0), "the widths of the user");
 }
+
+/// A layout that the earlier version of the table saved loads, with a title that the
+/// table no longer has, and a drag with the handles of now keeps each other saved width.
+#[test]
+fn a_layout_of_the_earlier_version_loads_and_a_drag_keeps_its_other_widths() {
+    let mut window = window(before_the_read());
+    window.state_mut().view.tables = saved_pods(&[("Name", 300), ("Ready", 80), ("Gone", 90)]);
+    until(&mut window, "the saved widths", |window| width(window, "Name") == 300.0);
+    drag(&mut window, "Namespace", 30.0);
+    assert_eq!(width(&window, "Namespace"), 150.0);
+    assert_eq!(window.state().sent, [save(&[("Name", 300), ("Namespace", 150), ("Ready", 80)])]);
+}

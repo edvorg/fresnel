@@ -19,10 +19,8 @@ const WIDTHS: Rangef = Rangef { min: 48.0, max: 2000.0 };
 /// The most distance between the edge and the pointer, and the most change of a width
 /// that is not the drag. The accessibility tree gives each rect in whole pixels.
 const NEAR: f32 = 1.0;
-/// The moves of one drag. Each one is longer than the distance that starts a drag.
+/// The moves of one drag. `mouse.rs` has drags in moves of one point.
 const MOVES: u16 = 6;
-/// egui starts a drag after a move of this distance.
-const DRAG_START: f32 = 6.0;
 /// The frames that the window draws after each move with no new input, as a window does
 /// for a repaint of some other cause while the user holds the pointer.
 const QUIET_FRAMES: usize = 4;
@@ -122,7 +120,6 @@ impl Drag {
 /// each move, the edge is at the pointer, the left edge of the column did not move, and each
 /// other column has the width that it had before the drag.
 pub(crate) fn drag(window: &mut Window, title: &'static str, by: f32) {
-    assert!(by.abs() / f32::from(MOVES) > DRAG_START, "the first move starts the drag");
     let drag = Drag::start(window, title);
     for step in 1..=MOVES {
         drag.move_to(window, by * f32::from(step) / f32::from(MOVES));
