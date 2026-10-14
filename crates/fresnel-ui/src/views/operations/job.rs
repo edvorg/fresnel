@@ -17,6 +17,9 @@ use crate::widgets::{self, dot};
 
 /// The most characters of a manifest that the tab shows; the copy has each one.
 const MANIFEST_LIMIT: usize = 4000;
+/// The most characters of an error or of a step. The message of a refusal is a text of the
+/// server, up to 1 MiB, and a label lays out each character in each frame.
+pub(crate) const TEXT_LIMIT: usize = 2000;
 
 pub(super) fn show(ui: &mut Ui, scene: &mut Scene<'_>, job: &JobView) {
     let palette = theme::palette(ui);
@@ -46,7 +49,8 @@ pub(super) fn show(ui: &mut Ui, scene: &mut Scene<'_>, job: &JobView) {
         dot(ui, tone.color(palette));
         ui.label(RichText::new(words).color(tone.color(palette)));
         if let Some(error) = job.report.state.error() {
-            ui.add(Label::new(RichText::new(error.to_string()).color(tone.color(palette))).wrap());
+            let text = short(&error.to_string(), TEXT_LIMIT).into_owned();
+            ui.add(Label::new(RichText::new(text).color(tone.color(palette))).wrap());
         }
     });
     if let JobState::Unknown(_) = job.report.state {
@@ -65,9 +69,9 @@ pub(super) fn show(ui: &mut Ui, scene: &mut Scene<'_>, job: &JobView) {
             };
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(mark).color(tone.color(palette)));
-                ui.label(&step.text);
+                ui.label(short(&step.text, TEXT_LIMIT));
                 if let Some(result) = result.filter(|result| !result.is_empty()) {
-                    ui.label(RichText::new(format!("— {result}")).color(palette.text_muted));
+                    ui.label(RichText::new(format!("— {}", short(result, TEXT_LIMIT))).color(palette.text_muted));
                 }
             });
         }

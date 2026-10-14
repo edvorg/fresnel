@@ -194,3 +194,24 @@ fn the_panel_shows_change_pending_until_the_store_has_the_written_version() {
     window.run();
     assert!(window.query_by_label_contains("Change pending").is_none(), "the store has that version");
 }
+
+/// The message of a refusal is a text of the server, up to 1 MiB, and a step can carry one
+/// too: the tab shows the start of each, so a frame stays short.
+#[test]
+fn a_long_error_of_the_server_shows_its_start() {
+    let deployments = scene::<Deployment>();
+    let web = target("ams-prod", &deployments, "web");
+    let message = "denied by the policy: ".to_owned() + &"y".repeat(1024 * 1024);
+    let steps = [("restart each pod", StepState::Done(message.clone()))];
+    let failed = job(1, web, Operation::Restart, JobState::Failed(error(&message)), &steps);
+    let mut core = view(vec![allowed("ams-prod", &deployments)]);
+    core.jobs = jobs(vec![failed], 0);
+    let mut window = window(core);
+    open_tab(&mut window, "Operations");
+    let texts: Vec<String> =
+        window.query_all_by_label_contains("denied by the policy").filter_map(|node| node.value()).collect();
+    assert_eq!(texts.len(), 2, "the error and the step");
+    for text in texts {
+        assert!(text.chars().count() <= 2003, "{} characters", text.chars().count());
+    }
+}

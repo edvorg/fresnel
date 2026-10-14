@@ -216,7 +216,8 @@ fn environment(ui: &mut Ui, place: &Place<'_>, shown: &Shown<'_>) -> Option<Link
                         }
                     }
                     if let Some(prefix) = source.prefix.as_deref().filter(|prefix| !prefix.is_empty()) {
-                        ui.label(RichText::new(format!("with the prefix {prefix}")).color(palette.text_muted));
+                        let text = format!("with the prefix {}", short(prefix, VALUE_LIMIT));
+                        ui.label(RichText::new(text).color(palette.text_muted));
                     }
                 });
             }

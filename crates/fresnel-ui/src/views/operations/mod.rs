@@ -9,6 +9,8 @@
 
 mod job;
 
+pub(crate) use job::TEXT_LIMIT;
+
 use std::sync::Arc;
 
 use egui::{Frame, Margin, Panel, RichText, ScrollArea, Ui};
