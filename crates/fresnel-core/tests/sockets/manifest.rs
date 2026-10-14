@@ -66,5 +66,28 @@ async fn a_manifest_that_the_server_refuses_is_an_error_with_its_class() {
     assert_eq!(error.class(), ErrorClass::Invalid);
 }
 
+/// Bad input and bad data: a key with no namespace for a kind in a namespace would read the
+/// path `namespaces//pods/web`, and a server can answer a read with some other object, as
+/// the fake server answers a path with no body with an empty list. Neither shows as the
+/// manifest of the object.
+#[tokio::test]
+async fn a_key_with_no_namespace_sends_nothing_and_an_answer_with_an_other_object_is_an_error() {
+    let bed = Bed::start(NetSettings::default()).await;
+    let gateway = &bed.link.gateway;
+    let fetch = async |key: ObjectKey| manifest::fetch(gateway, Kind::Pod, &key, ManagedFields::Removed).await;
+    let reads = || bed.server.requests().into_iter().filter(|seen| seen.uri.path() != "/version").count();
+
+    let no_namespace = fetch(ObjectKey::new("", "web")).await.expect_err("a pod is in a namespace");
+    assert_eq!(no_namespace.class(), ErrorClass::Invalid);
+    assert_eq!(reads(), 0, "no request");
+
+    let list = fetch(ObjectKey::new("shop", "web")).await.expect_err("an empty list is not the pod");
+    assert_eq!(list.class(), ErrorClass::Invalid);
+    bed.server.set_body(POD, r#"{"apiVersion":"v1","kind":"Pod","metadata":{"name":"api","namespace":"shop"}}"#);
+    let other = fetch(ObjectKey::new("shop", "web")).await.expect_err("an other pod");
+    assert_eq!(other.to_string(), "the server answered the read of the manifest with an other object");
+    assert_eq!(reads(), 2);
+}
+
 /// The `managedFields` of the pod of the first test, as the YAML writer gives them.
 const MANAGED: &str = "  managedFields:\n  - manager: kubectl\n    operation: Update\n";

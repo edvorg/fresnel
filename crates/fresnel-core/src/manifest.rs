@@ -38,6 +38,10 @@ pub struct Manifest {
 
 /// Reads one object from the server and writes it as YAML. The read has the time limit of
 /// a GET.
+///
+/// A key with no namespace for a kind in a namespace is an error with no request: its path
+/// would have an empty part. An answer with an other name is an error too, so that no
+/// other object shows as the manifest of this one.
 pub async fn fetch(
     gateway: &Gateway,
     kind: Kind,
@@ -45,10 +49,19 @@ pub async fn fetch(
     managed_fields: ManagedFields,
 ) -> Result<Manifest, CoreError> {
     let info = kind.info();
-    let collection = if info.namespaced { info.path_in(&key.namespace) } else { info.path() };
+    let collection = match (info.namespaced, key.namespace.is_empty()) {
+        (false, _) => info.path(),
+        (true, false) => info.path_in(&key.namespace),
+        (true, true) => {
+            return Err(CoreError::invalid(format!("a {} is in a namespace, and the read has none", info.name)));
+        }
+    };
     let request = Request::new(collection).get(&key.name, &GetParams::default());
     let request = request.map_err(|error| CoreError::invalid(format!("the read of the manifest: {error}")))?;
     let mut object: Value = gateway.get(request).await?;
+    if object.pointer("/metadata/name").and_then(Value::as_str) != Some(&*key.name) {
+        return Err(CoreError::invalid("the server answered the read of the manifest with an other object"));
+    }
     if managed_fields == ManagedFields::Removed
         && let Some(metadata) = object.get_mut("metadata").and_then(Value::as_object_mut)
     {
