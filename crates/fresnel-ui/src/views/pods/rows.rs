@@ -17,8 +17,8 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 use crate::format::{self, Clock};
 use crate::views::objects::{NamespaceSet, Namespaces, Nouns, ObjectFilter, ObjectModel, RowScene, Stores, uid};
 use crate::widgets::table::model::{Cell, Column, Computed, Lead, Model, ObjectId, contains_ignore_case};
-use crate::widgets::table::worker::Cancel;
 use crate::widgets::tone::Tone;
+use crate::widgets::worker::Cancel;
 
 /// The columns of the table, in their sequence.
 #[derive(Clone, Copy)]

@@ -2,7 +2,7 @@
 //! the first from the second.
 
 use super::model::{Computed, Model, Sort};
-use super::worker::Cancel;
+use crate::widgets::worker::Cancel;
 
 /// One request to the worker thread: what the rows come from.
 pub(super) struct Request<M: Model> {

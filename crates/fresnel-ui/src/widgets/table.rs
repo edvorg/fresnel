@@ -2,11 +2,11 @@
 //! module uses that crate, so an upgrade of it changes this file only.
 //!
 //! `egui_table` gives the virtual rows and the fixed header. This module adds the rows from
-//! a worker thread, the sort, the cursor and the selection by the identity of an object,
-//! the keys, the widths of the columns and the handles that change them.
+//! a worker thread (`widgets/worker`), the sort, the cursor and the selection by the
+//! identity of an object, the keys, the widths of the columns and the handles that change them.
 //!
-//! - `model`: what a kind gives to its table. `worker`: the thread that computes the rows.
-//! - `rows`: a request and its rows. `supply`: the last request and the rows on the screen.
+//! - `model`: what a kind gives to its table. `rows`: a request and its rows, which the
+//!   worker computes. `supply`: the last request and the rows on the screen.
 //! - `delegate`: what `egui_table` asks in a frame. `cells`: the paint of each part.
 //! - `keys`: the keys. `widths`: the widths of the columns. `choice`: the columns that show.
 //! - `layout`: the widths and the columns that the state file keeps.
@@ -25,7 +25,6 @@ mod select;
 mod selection;
 mod supply;
 mod widths;
-pub(crate) mod worker;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -44,8 +43,8 @@ pub(crate) use self::selection::Selection;
 pub(crate) use self::supply::Progress;
 use self::supply::Supply;
 use self::widths::{FrameWidths, NARROWEST, WIDEST, Widths};
-use self::worker::Wake;
 use crate::theme::{self, ROW_HEIGHT};
+use crate::widgets::worker::Wake;
 
 /// What the user did to the cursor of a table in one frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

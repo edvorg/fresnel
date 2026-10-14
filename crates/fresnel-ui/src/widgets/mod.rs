@@ -3,6 +3,7 @@
 pub(crate) mod mini_table;
 pub(crate) mod table;
 pub(crate) mod tone;
+pub(crate) mod worker;
 
 use egui::{Color32, Sense, Ui};
 

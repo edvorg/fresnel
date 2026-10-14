@@ -21,7 +21,7 @@ use crate::views::objects::{
 };
 use crate::views::pods::PodModel;
 use crate::widgets::table::model::{Cell, Column, Computed, Model, ObjectId, contains_ignore_case};
-use crate::widgets::table::worker::{Cancel, Wake};
+use crate::widgets::worker::{Cancel, Wake};
 
 /// The count of objects between two reads of the cancel mark.
 const CANCEL_STEP: usize = 1024;

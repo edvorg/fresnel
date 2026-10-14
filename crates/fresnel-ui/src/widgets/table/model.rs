@@ -8,8 +8,8 @@ use egui::Color32;
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::store::ObjectKey;
 
-use super::worker::Cancel;
 use crate::widgets::tone::Tone;
+use crate::widgets::worker::Cancel;
 
 /// The identity of one object in the app: its cluster, its place in the store of its
 /// kind, and its UID (design rule 8). The cursor and the selection of a table hold this

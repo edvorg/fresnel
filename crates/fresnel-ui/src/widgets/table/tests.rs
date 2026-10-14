@@ -19,9 +19,9 @@ use fresnel_core::cluster::ClusterId;
 use fresnel_core::store::ObjectKey;
 
 use super::model::{Cell, Column, Computed};
-use super::worker::Cancel;
 use super::*;
 use crate::testing::{LIMIT, TestTasks};
+use crate::widgets::worker::Cancel;
 
 /// The objects of the test table: a UID and a value.
 type Data = Arc<Vec<(u32, i64)>>;

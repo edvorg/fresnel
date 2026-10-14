@@ -16,8 +16,8 @@ use crate::shell::Scene;
 use crate::theme::{self, Palette};
 use crate::views::detail::{self, DetailPanel};
 use crate::widgets::table::model::ObjectId;
-use crate::widgets::table::worker::Wake;
 use crate::widgets::table::{Act, Table};
+use crate::widgets::worker::Wake;
 
 /// The age of an object changes with no change of a store, so the page asks for a repaint
 /// each time this period ends while it shows a row.

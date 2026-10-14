@@ -1,5 +1,6 @@
-//! The worker thread of a table. It computes the rows, so a sort or a filter of 10,000
-//! objects never holds a frame (plan section 7.3).
+//! A worker thread of a view: the rows of a table, the results of the quick search. It
+//! computes them, so a sort, a filter or a search of 10,000 objects never holds a frame
+//! (plan section 7.3).
 //!
 //! The UI thread puts a request into a mailbox with one place and reads the result in a
 //! later frame. The rules come from the defects of the UI prototype:

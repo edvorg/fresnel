@@ -26,7 +26,7 @@ use crate::theme::{self, ClusterColors};
 use crate::views::journal::JournalTab;
 use crate::views::objects::{self, Link};
 use crate::views::{connections, kinds};
-use crate::widgets::table::worker::Wake;
+use crate::widgets::worker::Wake;
 
 /// The state of the window that is not state of the core: the open page, the open tab,
 /// the filters and the selection.
