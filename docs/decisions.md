@@ -977,3 +977,53 @@ says that the cluster has no such object. A store of a tier B kind starts with t
 The kinds have long names, such as HorizontalPodAutoscalers. At 148 points, half of them were
 cut. The view tests run in a window that is 48 points wider than before, so the drags of the
 column edges have the same places in the table.
+
+## The quick search reads the stores of the app
+
+The quick search sends no request: a worker thread reads the snapshot of each store of each
+selected cluster. A tier B store holds the metadata, so a Secret is found by its name, labels
+and owners, never by a value. A kind of tier C and a store that the server refuses are notes
+with their reason, so no hit is never a proof of no object. 4 clusters with 60,000 objects
+took 12 to 15 ms.
+
+## The command table is in the core
+
+The settings name a command and its key, and the app reports a bad name or a bad key with its
+line and column. So the table, the shortcut type and the list of key names are in
+`fresnel-core`, which has no GUI toolkit. Each key name is a name that egui reads, and a test of
+`fresnel-ui` holds that rule.
+
+## A shortcut needs Cmd, Ctrl or Alt
+
+egui gives the text of a field as text events, and the key events of the same press come too.
+A key with no modifier, or with Shift only, would act while the user types into a filter. So a
+shortcut needs Cmd, Ctrl or Alt; a function key is the one exception. A shortcut with more
+modifiers is read first, because Cmd+K of egui also takes Cmd+Shift+K.
+
+## The settings file comes first, and the app never writes it
+
+The core reads `config.toml` before the login shell, which can take seconds, so the keys of the
+user act from the first frames. The settings view of M8 edits the file; until then the app
+writes none. A parse error or a newer version leaves each setting at its default, with an error
+in the journal. An unknown key is a warning, and the other keys stay in use.
+
+## One namespace filter for each view
+
+The namespace filter moved from the bar of the Pods table to the top bar, as plan section 11.1
+has it, so each page shows the same namespaces. An object with no namespace passes each filter,
+and the Nodes stay visible. The quick search ignores the filter. The menu lists the Namespaces
+of the stores, the namespaces of the page and the namespaces of the filter.
+
+## Back and Forward follow the object of the panel
+
+Each object that the detail panel shows is a visit: by a click, a key, a menu, a link or a hit.
+The same object again is no visit, and a visit after a step back drops the objects after it, as
+in a browser. The history keeps 100 visits. When a filter hides the row of an object that a
+link opened, a note offers to show it.
+
+## The quick search holds snapshots only while it is open
+
+A request to the worker of the quick search holds a snapshot of each store of each selected
+cluster. The dialog empties the mailbox at its close, so a closed search holds no objects (plan
+section 7.3). A new snapshot, a new state or a cluster that comes or goes gives a new request,
+so a hit gets its mark when its store leaves the state live.

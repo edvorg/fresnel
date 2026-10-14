@@ -7,11 +7,11 @@ that looks current.
 ## Status
 
 Milestones M0 (connect) and M1 (live data) are complete, and the work is in M2 (lists). The
-repository has the workspace, the lints, CI, the task start function, the test kit, the network
-layer `fresnel-net`, `fresnel-core` (kubeconfig loader, cluster registry, gateway, app core,
-journal, state file, the 41 kinds, watch loop, stores, indexes, manifest), the commands `doctor`
-and `watch`, and the window: the sidebar with each kind and its count, a live table of each kind
-for all selected clusters, the detail panel with the manifest, the journal and the connections.
+repository has the workspace, the lints, CI, the test kit, `fresnel-net`, `fresnel-core`
+(kubeconfig, registry, gateway, app core, journal, state and settings files, 41 kinds, watch
+loop, stores, indexes, manifest, quick search, command table), `doctor`, `watch` and the window:
+the sidebar with each kind, a live table of each kind for all selected clusters, the detail
+panel, the quick search, Back and Forward, the journal and the connections.
 
 ## The app
 
@@ -26,25 +26,28 @@ keeps the selection and the widths and columns of each table in `state.json`.
 
 - A table shows each selected cluster. A row with an open ring is from a cluster that is
   not live: its values are old, and a note above the table gives the reason.
+- Cmd+K opens the quick search of each kind of each selected cluster. Cmd+[ and Cmd+] move
+  through the visited objects. A right click on a row lists the actions of its kind.
 - Settings folder: `~/Library/Application Support/fresnel`. A debug build uses `fresnel-debug`.
+  Its `config.toml` has `version = 1` and `[shortcuts]`: `back = "Alt+Left"`, `filter = ""`
+  (`commands::TABLE` has each name). The journal tells each problem with its line and column.
 - Log folder: `~/Library/Logs/fresnel`, with `fresnel.log` and a report file for each panic.
 - Only one process runs. `cargo run --package fresnel` starts a debug build next to the app.
 
 ## Build and test
 
-Install [rustup](https://rustup.rs). The file `rust-toolchain.toml` selects the compiler.
+Install [rustup](https://rustup.rs). The file `rust-toolchain.toml` selects the compiler. On
+Linux, the UI tests need the package `mesa-vulkan-drivers`.
 
 ```sh
 cargo build
 cargo test --workspace                # unit tests and UI tests, with no cluster
 FRESNEL_SNAPSHOT_DIR=<folder> cargo test --package fresnel-ui   # also PNG files of the views
 cargo test --workspace -- --ignored   # cluster tests, with k3s in Docker
-cargo test --release --package fresnel-ui --test views frame_time   # 10,000 pods, Deployments
+cargo test --release --package fresnel-ui --test views -- frame_time search::time
 cargo xtask check-sizes               # size limits of documents and source files
 cargo xtask check-borders             # no kube in fresnel-net, no egui in fresnel-core
 ```
-
-On Linux, the UI tests need the package `mesa-vulkan-drivers`.
 
 ## The commands of fresnel-cli
 
@@ -65,13 +68,10 @@ cargo run --package fresnel-cli -- watch --context <name>    # the stores of one
 
 ## Layout
 
-- `crates/fresnel-net`: connections, the credential plugin and the task start function.
-- `crates/fresnel-core`: the domain. Clusters, the app core, the journal, stores and operations.
-- `crates/fresnel-ui`: the egui widgets and views.
-- `crates/fresnel`: the desktop program.
-- `crates/fresnel-cli`: the command line program for tests and fault diagnosis.
-- `crates/fresnel-testkit`: the fault proxy, the helper for k3s in Docker and a fake API server.
-- `xtask`: repository tasks. Run one with `cargo xtask <command>`.
+`crates/` has `fresnel-net` (connections, the credential plugin, the task start function),
+`fresnel-core` (the domain), `fresnel-ui` (the views), the programs `fresnel` and `fresnel-cli`,
+and `fresnel-testkit` (the fault proxy, k3s in Docker, a fake API server). `xtask` has the
+repository tasks: `cargo xtask <command>`.
 
 ## Documents
 
