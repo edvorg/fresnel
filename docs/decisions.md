@@ -960,11 +960,13 @@ Each table has a worker thread and holds rows. The shell keeps the page of the o
 a click on an other kind gives the rows of the old page to its worker and ends the thread. The
 Connections page keeps the page and the store of the kind before it, so the way back is quick.
 
-## The detail panel reads the conditions from the JSON of the object
+## The detail panel reads the conditions from the JSON of the status
 
-Each kind has a condition type of its own. The panel writes its object as JSON one time for each
-new version and reads `status.conditions`, so one section serves each kind. It gives the
-status no color: `True` is good news for `Ready` and bad news for `MemoryPressure`.
+Each kind has a condition type of its own. The panel writes the field `status` of its object
+as JSON one time for each new version and reads `conditions`, so one section serves each kind.
+The JSON of the whole object cost 9 ms in a frame for a ConfigMap of 70,000 keys, and 26 ms on
+a CI runner. The section gives the status no color: `True` is good news for `Ready` and bad
+news for `MemoryPressure`.
 
 ## A link of the panel opens the page of its kind and waits for the object there
 

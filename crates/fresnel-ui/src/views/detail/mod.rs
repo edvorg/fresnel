@@ -10,6 +10,7 @@
 //!
 //! - `fields`: the parts of a section. `sections`: the sections of a kind.
 //! - `conditions`, `related`, `events`: the sections of each kind. `manifest`: the tab.
+//! - `status`: the JSON of the status of an object, for its conditions.
 //! - `actions`: the actions of the command table on the object of the panel.
 
 pub(crate) mod actions;
@@ -19,6 +20,7 @@ pub(crate) mod fields;
 mod manifest;
 mod related;
 mod sections;
+mod status;
 
 use std::sync::Arc;
 use std::time::SystemTime;

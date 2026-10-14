@@ -1,7 +1,8 @@
 //! The conditions of an object (plan section 11.2): the list in its status. Each kind has
-//! a type of its own for them, so the panel reads them from the JSON of the object, one
-//! time for each new version of it. A condition can mean good news with `True`, as `Ready`,
-//! or bad news, as `MemoryPressure`, so the section gives the status no color.
+//! a type of its own for them, so the panel reads them from the JSON of the status (module
+//! `status`), one time for each new version of the object. A condition can mean good news
+//! with `True`, as `Ready`, or bad news, as `MemoryPressure`, so the section gives the
+//! status no color.
 
 use std::time::SystemTime;
 
@@ -11,6 +12,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::fields::{ITEM_LIMIT, NONE, heading, more};
+use super::status;
 use crate::format::{self, Clock, short};
 use crate::theme::{Palette, SMALL};
 
@@ -32,10 +34,10 @@ pub(super) struct Condition {
 /// The conditions in the status of an object, in their sequence, and their count. An
 /// object with no list has none.
 pub(super) fn of<K: Serialize>(object: &K) -> (Vec<Condition>, usize) {
-    let Ok(value) = serde_json::to_value(object) else {
+    let Some(status) = status::of(object) else {
         return (Vec::new(), 0);
     };
-    let Some(list) = value.pointer("/status/conditions").and_then(Value::as_array) else {
+    let Some(list) = status.get("conditions").and_then(Value::as_array) else {
         return (Vec::new(), 0);
     };
     let text = |condition: &Value, field: &str, limit| {

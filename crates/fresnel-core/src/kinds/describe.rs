@@ -49,7 +49,8 @@ impl Sidebar {
 ///
 /// A value of the description comes from the object alone, with no clock and no other
 /// object. Thus a row of a table changes only when its own object changes. A view writes
-/// the object as JSON to read the parts that each kind has, such as its conditions.
+/// the status of an object as JSON to read the parts that each kind has, such as its
+/// conditions.
 pub trait Describe:
     Resource<Scope: Scope> + Metadata<Ty = ObjectMeta> + DeserializeOwned + Serialize + Send + Sync + 'static
 {
