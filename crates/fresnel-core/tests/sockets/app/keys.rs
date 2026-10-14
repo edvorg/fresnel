@@ -57,6 +57,18 @@ pub(super) fn password(view: &CoreView, cluster: &str) -> Option<Vec<u8>> {
     keys.object.as_ref()?.value("password").map(|value| value.bytes().to_vec())
 }
 
+/// Waits until the store of the Secrets of a cluster is live: its watch is open on the
+/// server. An event before that would be lost, and `send_event` counts the open watches of
+/// each kind, so its count does not prove it.
+async fn until_secrets_watch(app: &App, cluster: &str) {
+    app.until("the watch of the Secrets", |view| {
+        let row = view.clusters.iter().find(|row| row.id.as_str() == cluster);
+        let store = row.and_then(|row| row.data.as_ref()).and_then(|data| data.store(Kind::Secret));
+        store.is_some_and(|store| store.state.is_live())
+    })
+    .await;
+}
+
 pub(super) fn requests(server: &FakeApiServer, method: &Method, path: &str) -> usize {
     server.requests().iter().filter(|seen| seen.method == method && seen.uri.path() == path).count()
 }
@@ -82,6 +94,7 @@ async fn the_object_of_the_key_view_loads_while_the_view_is_open_and_a_save_goes
 
     // A new version in the metadata store of the Secrets gives a new read.
     ams.set_body(DB, &secret("db", 42, "YW1zLTI="));
+    until_secrets_watch(&app, "ams").await;
     assert!(ams.send_event(&Kind::Secret.info().path(), &modified(42)) > 0, "the watch of the Secrets");
     let changed = app.until("the new version", |view| password(view, "ams").as_deref() == Some(b"ams-2")).await;
     let object = keys(&changed, "ams").and_then(|keys| keys.object.clone()).expect("the object");
@@ -196,6 +209,7 @@ async fn a_read_that_fails_keeps_the_object_before_and_the_next_version_reads_ag
     app.until("the Secret", |view| password(view, "ams").is_some()).await;
 
     server.add_fault(Fault::forbidden().on_path(DB));
+    until_secrets_watch(&app, "ams").await;
     assert!(server.send_event(&Kind::Secret.info().path(), &modified(42)) > 0, "the watch of the Secrets");
     let failed = app
         .until("the failed read", |view| {
