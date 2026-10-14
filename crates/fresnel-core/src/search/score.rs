@@ -54,10 +54,12 @@ impl Matcher {
             return None;
         }
         let mut extra = Some(extra);
-        let mut total = 0;
+        let mut total: u32 = 0;
         for word in &self.words {
+            // The sum stays at the largest score: a text of millions of words is no
+            // reason for a panic of the worker.
             if let Some(score) = name_score(key.name.as_bytes(), word) {
-                total += score;
+                total = total.saturating_add(score);
                 continue;
             }
             if let Some(extra) = extra.take() {
@@ -70,7 +72,7 @@ impl Matcher {
             if !in_label && !texts.iter().any(|text| contains(text.as_bytes(), word)) {
                 return None;
             }
-            total += FIELD;
+            total = total.saturating_add(FIELD);
         }
         Some(total)
     }
