@@ -12,7 +12,9 @@
 //! - `job`: run a Job again, and the Job of a CronJob that the user triggers.
 //! - `kubectl`: the `kubectl` commands that a user can copy.
 //! - `state`: the state of a job. `procedure`: the steps of each operation.
+//! - `access`: the permissions of the user in a cluster.
 
+pub mod access;
 mod delete;
 mod history;
 mod job;
