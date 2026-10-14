@@ -50,7 +50,7 @@ impl Cancel {
     }
 
     /// Ends when the owner sets the signal, or drops its sender: then no one waits for the job.
-    async fn set(&mut self) {
+    async fn until_set(&mut self) {
         while !*self.0.borrow_and_update() {
             // An error tells that the sender is gone: no one waits for the job, a cancel too.
             if self.0.changed().await.is_err() {
@@ -296,9 +296,12 @@ fn identity(target: &Target) -> ObjectMeta {
     }
 }
 
-/// The JSON text of a manifest for the user to copy.
-fn manifest_text(manifest: &Json) -> Arc<str> {
-    serde_json::to_string_pretty(manifest).unwrap_or_default().into()
+/// The JSON text of a manifest for the user to copy. "Run again" makes it before its
+/// delete: after the delete, an empty text would leave the user with no copy of the Job.
+fn manifest_text(manifest: &Json) -> Result<Arc<str>, CoreError> {
+    let text =
+        serde_json::to_string_pretty(manifest).map_err(|_| CoreError::invalid("the manifest has no JSON text"))?;
+    Ok(text.into())
 }
 
 #[cfg(test)]

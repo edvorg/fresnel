@@ -7,6 +7,7 @@
 use std::pin::pin;
 
 use futures_util::future::{Either, select};
+use k8s_openapi::api::batch::v1::Job;
 use serde_json::Value as Json;
 
 use super::super::rollout::{Rollout, Rolls};
@@ -25,14 +26,16 @@ enum Seen<'a, K> {
     Gone,
     /// The store did not list its objects yet.
     NotYet,
-    /// The store stopped: its cluster is not connected now, and no event comes.
-    Stopped,
+    /// The store follows no object now, so no event comes: the app stopped it (its cluster
+    /// is not connected), or the server refused its list or does not have the kind. A
+    /// wait for an event would not end.
+    Blocked(StoreState),
 }
 
 fn look<'a, K: Object>(snapshot: &'a Snapshot<K>, target: &Target) -> Seen<'a, K> {
     let same = |object: &K| target.uid.is_empty() || object.meta().uid.as_deref() == Some(&*target.uid);
-    if snapshot.state == StoreState::Stopped {
-        return Seen::Stopped;
+    if matches!(snapshot.state, StoreState::Stopped | StoreState::Forbidden { .. } | StoreState::NotSupported { .. }) {
+        return Seen::Blocked(snapshot.state.clone());
     }
     match snapshot.items.get(&target.key) {
         Some(object) if same(object) => Seen::Object(object),
@@ -71,7 +74,7 @@ async fn follow<K: Rolls, P: Progress>(
         let rollout = match look(&reader.read(), target) {
             Seen::Object(object) => Some(object.rollout()),
             Seen::Gone => return Err(JobState::Failed(CoreError::invalid("the object is gone"))),
-            Seen::Stopped => return Err(stopped()),
+            Seen::Blocked(state) => return Err(blocked(K::ID, &state)),
             Seen::NotYet => None,
         };
         if let Some(rollout) = rollout {
@@ -87,7 +90,7 @@ async fn follow<K: Rolls, P: Progress>(
                 Rollout::Waiting(_) => {}
             }
         }
-        if let Either::Right(_) = select(pin!(reader.changed()), pin!(cancel.set())).await {
+        if let Either::Right(_) = select(pin!(reader.changed()), pin!(cancel.until_set())).await {
             return Err(JobState::Cancelled);
         }
     }
@@ -98,12 +101,17 @@ async fn follow<K: Rolls, P: Progress>(
 ///
 /// The server checks the new manifest in a dry run before the delete. After the delete,
 /// the outcome holds the manifest: when the create fails or the user cancels the wait,
-/// the user can copy it.
+/// the user can copy it. Each check that can fail comes before the delete: after it, a
+/// failure leaves the user with no Job.
 pub(super) async fn run_again<P: Progress>(
     target: &Target,
     parts: &Parts,
     job: &mut Steps<'_, P>,
 ) -> Result<(), JobState> {
+    let jobs = parts.jobs.clone().ok_or_else(|| no_store(Kind::Job))?;
+    if let Seen::Blocked(state) = look(&jobs.read(), target) {
+        return Err(blocked(Kind::Job, &state));
+    }
     let old = read(parts, job, "read the Job", request::get(target)).await?;
     let uid = old.pointer("/metadata/uid").and_then(Json::as_str).unwrap_or_default();
     if uid.is_empty() || (!target.uid.is_empty() && uid != &*target.uid) {
@@ -119,18 +127,20 @@ pub(super) async fn run_again<P: Progress>(
         }
     }
     let manifest = job::again(&old, |owner| kept.contains(&owner.get("uid").cloned())).map_err(JobState::Failed)?;
+    let text = manifest_text(&manifest).map_err(JobState::Failed)?;
     let namespace = &target.key.namespace;
     check(parts, job, request::create(Kind::Job, namespace, &job::for_check(&manifest), true)).await?;
-    job.outcome(Outcome::Manifest(manifest_text(&manifest)));
+    job.outcome(Outcome::Manifest(text));
 
     let identity = Target { uid: uid.into(), ..target.clone() };
     send(parts, job, "delete the old Job and its pods", delete::delete(&identity, Propagation::Background)).await?;
     job.done("the server deletes it");
-    wait_gone(&identity, parts, job).await?;
+    wait_gone(&identity, jobs, parts, job).await?;
     write(parts, job, "create the new Job", request::create(Kind::Job, namespace, &manifest, false)).await
 }
 
-/// The dry run of the new Job. The server stores nothing, so no result of it is unknown.
+/// The dry run of the new Job. The server stores nothing, so it fails as a read fails: no
+/// result of it is unknown.
 async fn check<P: Progress>(
     parts: &Parts,
     job: &mut Steps<'_, P>,
@@ -138,10 +148,7 @@ async fn check<P: Progress>(
 ) -> Result<(), JobState> {
     job.begin("check the new Job with a dry run");
     let request = request.map_err(JobState::NotSent)?;
-    parts.gateway.send::<Json>(request).await.map_err(|error| match error.error.status() {
-        Some(_) => JobState::Failed(error.error),
-        None => JobState::NotSent(error.error),
-    })?;
+    parts.gateway.send::<Json>(request).await.map_err(|error| read_failure(error.error))?;
     job.done("the server accepts it");
     Ok(())
 }
@@ -182,17 +189,21 @@ async fn owner_exists<P: Progress>(
 }
 
 /// Waits until the store of the Jobs has no object with the UID of the old Job.
-async fn wait_gone<P: Progress>(target: &Target, parts: &Parts, job: &mut Steps<'_, P>) -> Result<(), JobState> {
-    let mut reader = parts.jobs.clone().ok_or_else(|| no_store(Kind::Job))?;
+async fn wait_gone<P: Progress>(
+    target: &Target,
+    mut reader: Reader<Snapshot<Job>>,
+    parts: &Parts,
+    job: &mut Steps<'_, P>,
+) -> Result<(), JobState> {
     let mut cancel = parts.cancel.clone();
     job.begin("wait until the old Job is gone");
     loop {
         match look(&reader.read(), target) {
             Seen::Gone => break,
-            Seen::Stopped => return Err(stopped()),
+            Seen::Blocked(state) => return Err(blocked(Kind::Job, &state)),
             Seen::Object(_) | Seen::NotYet => {}
         }
-        if let Either::Right(_) = select(pin!(reader.changed()), pin!(cancel.set())).await {
+        if let Either::Right(_) = select(pin!(reader.changed()), pin!(cancel.until_set())).await {
             return Err(JobState::Cancelled);
         }
     }
@@ -206,8 +217,14 @@ fn api_version(kind: Kind) -> String {
     if info.group.is_empty() { info.version.to_owned() } else { format!("{}/{}", info.group, info.version) }
 }
 
-fn stopped() -> JobState {
-    JobState::Failed(CoreError::invalid("the store of the kind stopped: the cluster is not connected now"))
+/// The end of a wait on a store that follows no object (`Seen::Blocked`).
+fn blocked(kind: Kind, state: &StoreState) -> JobState {
+    let name = kind.info().name;
+    let text = match state {
+        StoreState::Stopped => format!("the store of the kind {name} stopped: the cluster is not connected now"),
+        other => format!("the store of the kind {name} follows no object: {other}"),
+    };
+    JobState::Failed(CoreError::invalid(text))
 }
 
 fn no_store(kind: Kind) -> JobState {

@@ -64,13 +64,13 @@ fn the_answer_of_a_write_gives_its_result_for_the_mark_and_the_target_its_identi
 async fn a_cancel_ends_a_wait_and_so_does_the_drop_of_its_sender() {
     let (sender, mut cancel) = Cancel::pair();
     assert!(!cancel.is_set());
-    let waited = tokio::time::timeout(Duration::from_secs(1), cancel.set()).await;
+    let waited = tokio::time::timeout(Duration::from_secs(1), cancel.until_set()).await;
     assert!(waited.is_err(), "no cancel, no end");
     sender.send_replace(true);
-    cancel.set().await;
+    cancel.until_set().await;
     assert!(cancel.is_set());
 
     let (sender, mut cancel) = Cancel::pair();
     drop(sender);
-    cancel.set().await;
+    cancel.until_set().await;
 }
