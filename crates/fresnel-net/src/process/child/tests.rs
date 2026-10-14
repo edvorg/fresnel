@@ -2,6 +2,7 @@
 //! its own, and SIGPIPE ends it as it ends a program of a terminal.
 
 use std::sync::Once;
+use std::time::Duration;
 
 use nix::sys::signal::kill;
 use nix::unistd::{getpgid, getsid};
@@ -53,6 +54,22 @@ async fn a_child_whose_reader_is_gone_ends_with_sigpipe() {
     drop(stdout);
     let status = child.wait().await.expect("an end");
     assert_eq!(status.signal(), Some(Signal::SIGPIPE as c_int), "{status}");
+}
+
+/// The owner kills a child and drops it before its end, as the stop of the core does with
+/// the last plugin. No later child comes to collect it, and a zombie keeps its id.
+#[tokio::test]
+async fn a_child_that_drops_after_its_kill_is_collected_with_no_later_child() {
+    let Started { child, .. } = start(&program("exec sleep 30")).expect("a start");
+    let pid = child.id();
+    kill(pid, Signal::SIGKILL).expect("the child runs");
+    drop(child);
+    let collected = async {
+        while kill(pid, None).is_ok() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), collected).await.expect("the child is collected in time");
 }
 
 #[tokio::test]

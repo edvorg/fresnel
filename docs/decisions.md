@@ -260,6 +260,13 @@ and the kill does not reach it. The command of the exit hook of a login shell st
 reason after 2 of 12 test runs. Thus the process module kills the group again after it
 collected the first process, until the system reports a group with no process.
 
+## A child that drops before its end is collected at once
+
+The drop of a run kills its process group, and the child ends a moment later. Before, only the
+start or the end of a later child collected it. The stop of the core kills the last plugin, so
+that plugin stayed a zombie. Now a thread of the blocking pool of the runtime waits for the
+end. It is not a task of `Tasks`: a drop has none, and SIGKILL cannot be refused.
+
 ## hyper runs inside the task of the channel
 
 hyper gives the socket loop and the future of each request to an executor. The executor of

@@ -53,7 +53,7 @@ pub(super) struct Started {
 }
 
 /// One child process. The owner collects it with [`Child::wait`]. A child that drops
-/// before that is collected at a later start or end, so it does not stay a zombie.
+/// before that is collected by [`collect_later`], so it does not stay a zombie.
 pub(super) struct Child {
     pid: Pid,
     status: Option<ExitStatus>,
@@ -125,12 +125,53 @@ impl Child {
 impl Drop for Child {
     fn drop(&mut self) {
         if self.status.is_none() {
-            UNCOLLECTED.lock().unwrap_or_else(PoisonError::into_inner).push(self.pid);
+            collect_later(self.pid);
         }
     }
 }
 
-/// The children that dropped before their end was collected.
+/// Collects a child that dropped before its end was collected.
+///
+/// The owner kills the process group before the drop of its child (`Group`), so the end
+/// comes a moment later. No later child may come to collect it: the stop of the core kills
+/// the last plugin. Thus a thread of the blocking pool of the runtime waits for the end. It
+/// is not a task of `Tasks`: a drop has none, the wait has no state to show, and SIGKILL
+/// cannot be refused. With no runtime, the list [`UNCOLLECTED`] takes the child.
+fn collect_later(pid: Pid) {
+    let mut dropped = Dropped(Some(pid));
+    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        let wait = move || {
+            if let Some(pid) = dropped.0.take() {
+                wait_blocking(pid);
+            }
+        };
+        // The handle drops: nothing reads the end of a child that its owner gave up.
+        drop(runtime.spawn_blocking(wait));
+    }
+}
+
+/// A child that dropped before its end was collected. One place collects it: the wait on a
+/// thread of the blocking pool or else the list. Two could collect a process id that the
+/// system gave to a new child after the first collect.
+struct Dropped(Option<Pid>);
+
+impl Drop for Dropped {
+    /// With no runtime, or at the shutdown of the runtime, the wait does not run.
+    fn drop(&mut self) {
+        if let Some(pid) = self.0.take() {
+            UNCOLLECTED.lock().unwrap_or_else(PoisonError::into_inner).push(pid);
+        }
+    }
+}
+
+/// Waits in the system for the end of a child and collects it. With no flags, `waitpid`
+/// returns only for an end, an interruption, or an error such as no child with this id.
+fn wait_blocking(pid: Pid) {
+    while waitpid(pid, None) == Err(Errno::EINTR) {}
+}
+
+/// The children that dropped before their end was collected, with no runtime for the wait.
+/// A later start or end collects each one that ended.
 static UNCOLLECTED: Mutex<Vec<Pid>> = Mutex::new(Vec::new());
 
 /// Collects each child of [`UNCOLLECTED`] that ended. A wait with `WNOHANG` does not block.
