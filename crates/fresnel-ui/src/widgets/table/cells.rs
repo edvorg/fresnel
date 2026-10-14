@@ -9,9 +9,14 @@ use crate::widgets::dot;
 
 /// The space between the border of a cell and its text.
 const PAD: f32 = 10.0;
+/// The space between the mark of a cell and its text.
+const GAP: f32 = 6.0;
 /// The most characters of a cell that the table lays out: more than the widest column
 /// shows. A value of a cluster can be much longer, for example the reason of a status.
 const TEXT_LIMIT: usize = 400;
+
+/// The place of the sort arrow beside a title.
+const ARROW: f32 = 13.0;
 
 /// True for a cell that the scroll regions of `egui_table` cut away. The table lays out
 /// such a cell too; a skip saves the time and one more node in the accessibility tree.
@@ -22,6 +27,10 @@ pub(super) fn is_clipped(ui: &Ui) -> bool {
 
 /// Paints the title of one column. `descending` is set for the sort column. Gives true
 /// for a click.
+///
+/// A double click on the edge of a column makes `egui_table` measure each cell in a pass
+/// that sizes only, and gives the column the widest width. A title and a cell then give
+/// their full width; else each one would fit into the narrowest column.
 pub(super) fn header(ui: &mut Ui, palette: &Palette, column: &Column, descending: Option<bool>) -> bool {
     let rect = ui.max_rect();
     let response = ui.interact(rect, ui.id().with("sort"), Sense::click());
@@ -45,6 +54,10 @@ pub(super) fn header(ui: &mut Ui, palette: &Palette, column: &Column, descending
         let arrow =
             vec![center + egui::vec2(0.0, point), center + egui::vec2(-3.5, -point), center + egui::vec2(3.5, -point)];
         painter.add(Shape::convex_polygon(arrow, palette.accent, egui::Stroke::NONE));
+    }
+    if ui.is_sizing_pass() {
+        // Each column has the place of the arrow, so a sort changes no width.
+        ui.set_min_width(PAD + title.width() + ARROW + PAD);
     }
     response.clicked()
 }
@@ -82,7 +95,7 @@ pub(super) fn cell(ui: &mut Ui, palette: &Palette, column: &Column, cell: &Cell<
         if column.numeric { Layout::right_to_left(Align::Center) } else { Layout::left_to_right(Align::Center) };
     ui.with_layout(layout, |ui| {
         ui.add_space(PAD);
-        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.spacing_mut().item_spacing.x = GAP;
         match cell.lead {
             Lead::None => {}
             Lead::Dot(color) => dot(ui, color),
@@ -90,7 +103,15 @@ pub(super) fn cell(ui: &mut Ui, palette: &Palette, column: &Column, cell: &Cell<
         }
         let text = format::short(&cell.text, TEXT_LIMIT);
         // The row takes the click, so the text must not take it.
-        ui.add(Label::new(RichText::new(text).color(color)).truncate().selectable(false));
+        let label = Label::new(RichText::new(text).color(color)).selectable(false);
+        if ui.is_sizing_pass() {
+            // The full text and the space after it: the width for a double click (`header`).
+            // The gap after the text is a part of that space.
+            ui.add(label.extend());
+            ui.add_space(PAD - GAP);
+        } else {
+            ui.add(label.truncate());
+        }
     });
 }
 
@@ -107,4 +128,56 @@ fn old_mark(ui: &mut Ui, palette: &Palette, since: &str) {
     let response = ring(ui, palette);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, since));
     response.on_hover_text(since);
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::{Color32, Rect, UiBuilder};
+    use egui_kittest::Harness;
+
+    use super::*;
+    use crate::theme;
+
+    /// The narrowest column of a table.
+    const NARROW: f32 = 48.0;
+
+    /// The width that a title and a cell give in a narrow column, with the text widths of
+    /// the title and of the cell.
+    fn widths(sizing: bool) -> [f32; 4] {
+        let column = Column::new("Last restart", 100.0).numeric();
+        let measured = std::cell::Cell::new([0.0; 4]);
+        let mut harness = Harness::new_ui(|ui| {
+            let palette = theme::palette(ui);
+            let place = |ui: &mut Ui| {
+                let rect = Rect::from_min_size(ui.cursor().min, egui::vec2(NARROW, 24.0));
+                let builder = UiBuilder::new().max_rect(rect);
+                ui.new_child(if sizing { builder.sizing_pass() } else { builder })
+            };
+            let mut title = place(ui);
+            header(&mut title, palette, &column, None);
+            let text = "CreateContainerConfigError";
+            let mut row = place(ui);
+            cell(&mut row, palette, &column, &super::super::model::Cell::new(text));
+            let width = |text: &str, size| {
+                let font = FontId::proportional(size);
+                ui.fonts_mut(|fonts| fonts.layout_no_wrap(text.to_owned(), font, Color32::WHITE).size().x)
+            };
+            let body = egui::TextStyle::Body.resolve(ui.style()).size;
+            measured.set([title.min_size().x, width(column.title, SMALL), row.min_size().x, width(text, body)]);
+        });
+        harness.run();
+        drop(harness);
+        measured.get()
+    }
+
+    #[test]
+    fn a_title_and_a_cell_give_their_full_width_only_in_a_pass_that_sizes() {
+        let [title, title_text, cell, cell_text] = widths(true);
+        assert!((title - (PAD + title_text + ARROW + PAD)).abs() < 0.5, "the title gives {title}");
+        assert!((cell - (PAD + cell_text + PAD)).abs() < 0.5, "the cell gives {cell}");
+
+        // Else no part is wider than its column: `egui_table` would make the column wider.
+        let [title, _, cell, _] = widths(false);
+        assert!(title <= NARROW && cell <= NARROW, "the title gives {title}, the cell {cell}");
+    }
 }

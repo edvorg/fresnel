@@ -1,17 +1,23 @@
-//! Drags under stress: long moves, new data and a table with no row during a drag, and a
-//! first column wider than the table.
+//! Drags under stress: long moves, new data and a table with no row during a drag, a first
+//! column wider than the table, and a double click on an edge.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use egui::Rangef;
+use egui::accesskit::Role;
+use egui::{Rangef, pos2};
+use egui_kittest::kittest::Queryable as _;
 use fresnel_core::app::{Command, CoreView};
 use fresnel_core::state_file::TableLayout;
 
 use crate::data::{live, pods};
 use crate::fake::{Window, shows, until, view, window};
+use crate::pods::column;
 use crate::pods::resize::{Drag, TITLES, drag, span_of, spans, table_right, width};
 use crate::pods::scenes::pods_of;
+
+/// The space between the border of a cell and its text.
+const PAD: f32 = 10.0;
 
 fn save(widths: &[(&str, u32)]) -> Command {
     let widths = widths.iter().map(|(title, width)| ((*title).to_owned(), *width)).collect();
@@ -103,4 +109,53 @@ fn a_narrow_window_for_a_time_changes_no_width() {
     window.run();
     assert_eq!(width(&window, "Name"), 2000.0, "the saved width");
     assert_eq!(window.state().sent, [], "a window size is no change of the user");
+}
+
+/// Two clicks on the edge at the right of a title.
+fn double_click_edge(window: &mut Window, title: &str) {
+    let rect = window.get_by_role_and_label(Role::Button, title).rect();
+    let at = pos2(rect.right(), rect.center().y);
+    window.hover_at(at);
+    window.run();
+    for _ in 0..2 {
+        window.drag_at(at);
+        window.run();
+        window.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        window.run();
+    }
+}
+
+/// The span of each text below the title of a column and above the dock.
+fn texts_below(window: &Window, title: &str) -> Vec<Rangef> {
+    let header = window.get_by_role_and_label(Role::Button, title).rect();
+    let dock = window.get_by_role_and_label(Role::Button, "Journal").rect();
+    let below = |rect: &egui::Rect| {
+        header.x_range().contains(rect.center().x) && rect.top() > header.bottom() && rect.bottom() < dock.top()
+    };
+    window.query_all_by_role(Role::Label).map(|node| node.rect()).filter(below).map(|rect| rect.x_range()).collect()
+}
+
+/// A double click on an edge gives the column the width of its widest cell on the screen
+/// (`egui_table` does this). The texts are then complete, no other column changes, and the
+/// clicks do not sort the rows.
+#[test]
+fn a_double_click_on_an_edge_fits_the_column_to_its_cells() {
+    let mut window = window(view(vec![live("ams-prod", &pods())]));
+    let (before, names) = (spans(&window), column(&window, "Name"));
+    double_click_edge(&mut window, "Status");
+    assert_eq!(column(&window, "Name"), names, "the sequence of the rows");
+    let status = span(&window, "Status");
+    let texts = texts_below(&window, "Status");
+    let widest = texts.iter().map(|text| text.max).fold(f32::MIN, f32::max);
+    assert!(texts.len() > 10, "the cells of the column: {texts:?}");
+    assert!((status.max - widest - PAD).abs() <= 1.0, "the widest text ends at {widest}, the column at {}", status.max);
+    for (title, was) in before.iter().filter(|(title, _)| *title != "Status") {
+        assert_eq!(width(&window, title), was.span().round(), "{title} keeps its width");
+    }
+    assert_eq!(window.state().sent, [save(&[("Status", status.span().round() as u32)])]);
 }

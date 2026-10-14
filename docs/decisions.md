@@ -819,3 +819,10 @@ could make it wider than the table: then its edge and each other column were off
 screen, and the user could not change that. Now a frame shows the first column inside the
 table, with room for the other columns, and a drag of its edge stops there. The width of
 the user stays: a wider window shows it again.
+
+## A double click on an edge fits the column to its cells
+
+`egui_table` gives a column the width of its widest cell after a double click on its edge.
+It measures each cell in a pass that sizes only, in a place of the narrowest width. The
+cells cut their text to their place, so the column got the narrowest width and the state
+file kept it. In that pass, a title and a cell now give their full width.
