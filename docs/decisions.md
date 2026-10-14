@@ -1172,9 +1172,10 @@ read goes again one time for each new panel, not in a loop.
 ## The confirm dialog lists each target and decides it in each frame
 
 The dialog names the cluster with its color, the namespace, the kind and the name of each
-target, takes the input of the action and tells the warnings of research 08. A target that the
-rules forbid while the dialog is open shows its reason, and the button is off. The end is one
-order for each object, so each job reaches its own cluster and has its own state.
+target, and tells the warnings of research 08. In each frame it reads each target from its
+store and the rules: a target that goes away, that a new object of its name replaces, or that
+the rules forbid shows its reason, and the button is off. So is a count of targets over the
+free places of the job list.
 
 ## The bulk actions are a menu of the selection
 
@@ -1186,9 +1187,10 @@ with scale, restart and delete, each one off when the rules forbid it for one of
 ## The revisions of the panel are the last job that read them
 
 A ControllerRevision has no data in its store, and the ReplicaSets are full objects only on
-their page. So the panel shows the outcome of the last "revision history" job of the object,
-with a rollback to each revision, and a button reads them again. The Operations tab shows the
-same job, so the two never disagree.
+their page. So the panel shows the outcome of the last "revision history" job of the object that
+went out, with a rollback to each revision. A newer job that the core did not send, such as a
+second click while a read runs, is a note. The Operations tab shows the same jobs, so the two
+never disagree.
 
 ## "Copy kubectl command" lists each command of the object
 
