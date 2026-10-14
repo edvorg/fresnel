@@ -13,11 +13,15 @@ use super::state::{StoreState, Wait};
 use crate::cluster::{ClusterId, Gateway};
 use crate::kinds::{Kind, Object};
 use crate::published::{Notice, Publisher, Reader};
+use crate::search::{Searched, Source};
 use crate::watch::{self, GatewaySource, Lanes, ListGate, Parts, WatchSettings};
 
 /// One store with no type of its objects.
 trait AnyStore: Send + Sync {
     fn status(&self) -> StoreStatus;
+
+    /// The snapshot of now, for the quick search.
+    fn source(&self) -> Source;
 
     /// Publishes the final state. What the task publishes after it does not show.
     fn stop(&self);
@@ -31,9 +35,13 @@ struct Store<T> {
     clock: WallClock,
 }
 
-impl<T: Object> AnyStore for Store<T> {
+impl<T: Searched> AnyStore for Store<T> {
     fn status(&self) -> StoreStatus {
         self.publisher.read().status(self.kind)
+    }
+
+    fn source(&self) -> Source {
+        Source::of(self.kind, self.publisher.read())
     }
 
     fn stop(&self) {
@@ -56,6 +64,10 @@ pub(super) struct Running {
 impl Running {
     pub(super) fn status(&self) -> StoreStatus {
         self.store.status()
+    }
+
+    pub(super) fn source(&self) -> Source {
+        self.store.source()
     }
 
     /// A reader of the objects. `None` when the store holds objects of an other type.
@@ -99,7 +111,7 @@ impl Starter {
 
     /// Starts the store of one kind with one task. `fields` is the field selector of its
     /// requests, and `max_items` the most objects that it keeps.
-    pub(super) fn start<T: Object>(
+    pub(super) fn start<T: Searched>(
         &self,
         kind: Kind,
         form: Form,

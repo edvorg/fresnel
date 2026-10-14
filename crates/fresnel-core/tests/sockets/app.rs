@@ -5,7 +5,7 @@
 //! installed app does.
 //!
 //! - `start`: the start and the stop. `commands`: the selection and "Retry now".
-//! - `config`: the settings file.
+//! - `config`: the settings file. `search`: the quick search on the stores of the core.
 //! - `data`: the objects of the selected clusters in the view.
 //! - `network`: a network that goes away and comes back.
 //! - `selection`: the selection of one run is the selection of the next run.
@@ -17,6 +17,7 @@ mod config;
 mod data;
 mod faults;
 mod network;
+mod search;
 mod selection;
 mod slow_disk;
 mod start;

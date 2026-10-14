@@ -15,6 +15,7 @@ use crate::cluster::{ClusterId, Link};
 use crate::error::CoreError;
 use crate::kinds::{Describe, Kind, Meta, Object, Tier, Visit};
 use crate::published::{Bin, Changes, Notice, Reader};
+use crate::search::Source;
 use crate::watch::{self, LaneStates, Lanes, ListGate, WatchSettings};
 
 /// Which Events a cluster keeps (plan section 9.6). Events can be most of the objects of
@@ -137,6 +138,12 @@ impl ClusterStores {
     /// The facts of each store that is always on, in the sequence of the kinds.
     pub fn statuses(&self) -> Vec<StoreStatus> {
         self.stores.iter().map(Running::status).collect()
+    }
+
+    /// The snapshot of each store that is always on, in the sequence of the kinds, for the
+    /// quick search. The call copies one pointer for each store.
+    pub fn sources(&self) -> Vec<Source> {
+        self.stores.iter().map(Running::source).collect()
     }
 
     /// A reader of the store of a tier A kind, with its full objects. `None` for a kind of

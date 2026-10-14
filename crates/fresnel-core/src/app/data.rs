@@ -23,6 +23,7 @@ use crate::error::CoreError;
 use crate::index::{ClusterIndexes, Index, IndexParts, ObjectEvents, Owners, References};
 use crate::kinds::{Describe, Kind};
 use crate::published::{Changes, Disposal, Held, Reader};
+use crate::search::Source;
 use crate::store::{ClusterStores, Snapshot, StoreParts, StoreStatus};
 
 /// The objects of one connected cluster as the views read them, at one moment.
@@ -39,6 +40,9 @@ pub struct ClusterData {
     /// The facts of each store that is always on, in the sequence of the kinds: its state
     /// and its count of objects.
     pub stores: Arc<[StoreStatus]>,
+    /// The snapshot of each store that is always on, in the sequence of the kinds, for the
+    /// quick search: the full objects of a kind of tier A, the metadata of one of tier B.
+    pub sources: Arc<[Source]>,
     /// The full objects of the kinds that the views show (`Command::ShowKinds`).
     pub objects: Objects,
 }
@@ -56,6 +60,18 @@ impl ClusterData {
     /// full objects of a kind of tier C while a view shows it. `None` for an other kind.
     pub fn store(&self, kind: Kind) -> Option<&StoreStatus> {
         self.stores.iter().find(|status| status.kind == kind).or_else(|| self.objects.status(kind))
+    }
+
+    /// The store of each kind that the quick search reads: the full objects of a kind that
+    /// a view shows, after their first complete list, or else the store that is always on.
+    /// A kind with neither has no source.
+    pub fn search_sources(&self) -> Vec<Source> {
+        let source = |kind: Kind| {
+            let shown = self.objects.source(kind);
+            let always = self.sources.iter().find(|source| source.status.kind == kind);
+            shown.filter(|shown| shown.status.listed).or(always).or(shown).cloned()
+        };
+        Kind::ALL.iter().copied().filter_map(source).collect()
     }
 }
 
@@ -128,12 +144,14 @@ impl Connected {
 
     /// A copy of what the views read. The call copies a pointer for each store and index.
     pub(super) fn data(&self) -> ClusterData {
+        let sources: Arc<[Source]> = self.stores.sources().into();
         ClusterData {
             pods: self.pods.read(),
             events: self.events.as_ref().map(Reader::read),
             owners: self.owners.read(),
             references: self.references.read(),
-            stores: self.stores.statuses().into(),
+            stores: sources.iter().map(|source| source.status.clone()).collect(),
+            sources,
             objects: self.shown.read(),
         }
     }

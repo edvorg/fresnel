@@ -4,45 +4,48 @@
 //! such kind in each connected cluster: the store of a tier B or tier C kind runs while a
 //! view shows the kind, and the view reads its snapshot in `ClusterData::objects`.
 
-use std::any::Any;
 use std::collections::BTreeSet;
-use std::sync::Arc;
 
 use crate::kinds::{Describe, Kind, Visit};
 use crate::published::Held;
+use crate::search::Source;
 use crate::store::{ClusterStores, Demand, Snapshot, StoreStatus};
 
 /// The snapshots of the full objects of some kinds of one cluster, at one moment. A view
 /// gets the snapshot of a kind with the type of its objects.
 #[derive(Clone, Default)]
 pub struct Objects {
-    /// The `Held<Snapshot<K>>` of each kind, with the facts of its store.
-    snapshots: Vec<(StoreStatus, Arc<dyn Any + Send + Sync>)>,
+    /// The snapshot of each kind, with the facts of its store.
+    snapshots: Vec<Source>,
 }
 
 impl Objects {
     /// The same objects and this snapshot, in place of an older one of its kind.
     pub fn with<K: Describe>(mut self, snapshot: Held<Snapshot<K>>) -> Self {
-        self.snapshots.retain(|(status, _)| status.kind != K::ID);
-        self.snapshots.push((snapshot.status(K::ID), Arc::new(snapshot)));
+        self.snapshots.retain(|source| source.status.kind != K::ID);
+        self.snapshots.push(Source::full(snapshot));
         self
     }
 
     /// The snapshot of the full objects of a kind. `None` for a kind that no view showed.
     pub fn get<K: Describe>(&self) -> Option<&Held<Snapshot<K>>> {
-        let (_, snapshot) = self.snapshots.iter().find(|(status, _)| status.kind == K::ID)?;
-        snapshot.downcast_ref()
+        self.source(K::ID)?.snapshot()
     }
 
     /// The facts of the store of a kind: its state and its count of objects. `None` for a
     /// kind that no view showed.
     pub fn status(&self, kind: Kind) -> Option<&StoreStatus> {
-        self.snapshots.iter().map(|(status, _)| status).find(|status| status.kind == kind)
+        self.source(kind).map(|source| &source.status)
+    }
+
+    /// The snapshot of a kind for the quick search.
+    pub(super) fn source(&self, kind: Kind) -> Option<&Source> {
+        self.snapshots.iter().find(|source| source.status.kind == kind)
     }
 
     /// The kinds of the snapshots.
     pub fn kinds(&self) -> impl Iterator<Item = Kind> + '_ {
-        self.snapshots.iter().map(|(status, _)| status.kind)
+        self.snapshots.iter().map(|source| source.status.kind)
     }
 }
 

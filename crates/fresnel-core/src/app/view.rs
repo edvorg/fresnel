@@ -16,6 +16,7 @@ use crate::config::Config;
 use crate::error::CoreError;
 use crate::journal::JournalView;
 use crate::kubeconfig::AuthKind;
+use crate::search::ClusterSources;
 use crate::state_file::TableLayout;
 
 /// How far the start of the core is.
@@ -82,6 +83,15 @@ impl ClusterRow {
             LinkState::On(status) => Some(status),
             LinkState::Off | LinkState::Failed(_) => None,
         }
+    }
+
+    /// What the quick search reads of the cluster: its stores, or why it has none.
+    pub fn search_sources(&self) -> ClusterSources {
+        let sources = match &self.data {
+            Some(data) => Ok(data.search_sources()),
+            None => Err(self.reason().unwrap_or_else(|| "the connect starts".to_owned())),
+        };
+        ClusterSources { cluster: self.id.clone(), sources }
     }
 
     /// The time since the last answer of the server on a channel. `None` with no answer yet.
