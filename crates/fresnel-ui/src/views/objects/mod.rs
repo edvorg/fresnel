@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use egui::{Context, Ui};
 use fresnel_core::cluster::ClusterId;
+use fresnel_core::keys::Target;
 use fresnel_core::kinds::{Action, Kind};
 use fresnel_core::store::ObjectKey;
 
@@ -66,4 +67,7 @@ pub(crate) trait Page {
 
     /// The namespaces of the objects of the page, for the namespace filter.
     fn namespaces(&self) -> &[Arc<str>];
+
+    /// The Secret or the ConfigMap of the panel, whose values the core reads while it shows.
+    fn keys(&self) -> Option<&Target>;
 }

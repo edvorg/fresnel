@@ -19,14 +19,14 @@ pub(super) const ITEM_LIMIT: usize = 100;
 /// The text of no value.
 pub(crate) const NONE: &str = "–";
 
-pub(super) fn heading(ui: &mut Ui, palette: &Palette, title: &str) {
+pub(crate) fn heading(ui: &mut Ui, palette: &Palette, title: &str) {
     ui.label(RichText::new(title).size(11.0).color(palette.text_faint));
     ui.add_space(2.0);
 }
 
 /// One line of a section: the label at the left and the value at the right. A long value
 /// wraps below itself and not below the label.
-pub(super) fn field(ui: &mut Ui, palette: &Palette, label: &str, value: impl FnOnce(&mut Ui)) {
+pub(crate) fn field(ui: &mut Ui, palette: &Palette, label: &str, value: impl FnOnce(&mut Ui)) {
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         ui.allocate_ui_with_layout(egui::vec2(LABEL_WIDTH, 20.0), Layout::left_to_right(Align::Center), |ui| {

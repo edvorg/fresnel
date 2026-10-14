@@ -83,6 +83,11 @@ impl Clock {
         Self { now: WallClock::new(move || now), zone: TimeZone::UTC }
     }
 
+    /// The time of now.
+    pub(crate) fn now(&self) -> SystemTime {
+        self.now.now()
+    }
+
     /// The time from now to `later`. Zero when `later` is in the past.
     pub(crate) fn until(&self, later: SystemTime) -> Duration {
         later.duration_since(self.now.now()).unwrap_or_default()

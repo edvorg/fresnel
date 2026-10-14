@@ -1,7 +1,8 @@
 //! The detail panel of one object (plan section 11.2): a header with the kind, the name,
 //! the state and the cluster of the object, and the tabs Overview and Manifest. Overview
 //! has the metadata with the owners as links, the sections of the kind, the conditions,
-//! the related objects with links from the indexes, and the Events.
+//! the related objects with links from the indexes, and the Events. A Secret and a ConfigMap
+//! have the section of their keys (`views/keys`) after the metadata.
 //!
 //! The panel reads its object from the snapshot of each frame, and builds its data again
 //! for each new version of the object. In the UI prototype, the panel built its data one
@@ -27,6 +28,7 @@ use std::time::SystemTime;
 
 use egui::{Align, Button, Frame, Label, Layout, Margin, RichText, ScrollArea, Ui};
 use fresnel_core::app::{ClusterRow, ManifestRequest};
+use fresnel_core::keys::{self, KeyKind};
 use fresnel_core::kinds::{Action, Describe, Kind, Object};
 use fresnel_core::store::{ObjectKey, Snapshot};
 
@@ -36,6 +38,7 @@ use self::manifest::ManifestTab;
 use crate::format::{self, short};
 use crate::shell::Scene;
 use crate::theme::{self, Palette, SMALL};
+use crate::views::keys::KeyPanel;
 use crate::views::objects::{Link, Nouns, old_since, uid};
 use crate::widgets::table::cells::ring;
 use crate::widgets::table::model::ObjectId;
@@ -76,17 +79,28 @@ pub(crate) struct DetailPanel<K: Describe> {
     conditions: (Vec<Condition>, usize),
     tab: Tab,
     manifest: ManifestTab,
+    /// The keys of a Secret or a ConfigMap. `None` for each other kind.
+    keys: Option<KeyPanel>,
 }
 
 impl<K: Describe> DetailPanel<K> {
     pub(crate) fn new(id: ObjectId, object: Arc<K>) -> Self {
         let conditions = conditions::of(&*object);
         let manifest = ManifestTab::default();
-        Self { id, object, presence: Presence::Present, conditions, tab: Tab::Overview, manifest }
+        let keys = KeyKind::of(K::ID).map(|kind| {
+            let (cluster, key, uid) = (id.cluster.clone(), id.key.clone(), Arc::clone(&id.uid));
+            KeyPanel::new(keys::Target { cluster, kind, key, uid })
+        });
+        Self { id, object, presence: Presence::Present, conditions, tab: Tab::Overview, manifest, keys }
     }
 
     pub(crate) fn id(&self) -> &ObjectId {
         &self.id
+    }
+
+    /// The object whose values the core reads for the panel: a Secret or a ConfigMap.
+    pub(crate) fn key_target(&self) -> Option<&keys::Target> {
+        self.keys.as_ref().map(KeyPanel::target)
     }
 
     /// True while the store of the cluster has the object.
@@ -112,6 +126,10 @@ impl<K: Describe> DetailPanel<K> {
                 let command = fresnel_core::ops::kubectl::get(cluster, K::ID, key);
                 ctx.copy_text(command.clone());
                 Ok(Some(format!("Copied: {command}")))
+            }
+            Action::EditKeys | Action::AddKey | Action::RemoveKey if self.keys.is_some() => {
+                self.tab = Tab::Overview;
+                Ok(self.keys.as_mut().and_then(|keys| keys.act(action)))
             }
             other => Err(actions::later(other)),
         }
@@ -223,17 +241,21 @@ impl<K: Describe> DetailPanel<K> {
 
     /// The tab Overview. Gives the object of a link that the user clicked.
     fn overview(
-        &self,
+        &mut self,
         ui: &mut Ui,
         palette: &Palette,
-        scene: &Scene<'_>,
+        scene: &mut Scene<'_>,
         cluster: Option<&ClusterRow>,
     ) -> Option<Link> {
         let mut clicked = self.metadata(ui, palette, scene);
         ui.add_space(14.0);
+        let data = cluster.and_then(|row| row.data.as_ref());
+        if let Some(keys) = &mut self.keys {
+            keys.show(ui, palette, scene, data);
+            ui.add_space(14.0);
+        }
         let (conditions, total) = &self.conditions;
         conditions::show(ui, palette, scene.clock, conditions, *total);
-        let data = cluster.and_then(|row| row.data.as_ref());
         if let Some(data) = data {
             clicked = related::show(ui, palette, data, &self.id, &*self.object).or(clicked);
         }

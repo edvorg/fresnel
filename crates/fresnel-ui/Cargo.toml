@@ -8,6 +8,8 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
+# "Copy value" of a binary value of a Secret or a ConfigMap gives its base64 text.
+base64.workspace = true
 egui.workspace = true
 egui_table.workspace = true
 fresnel-core.workspace = true
@@ -22,6 +24,8 @@ serde_json.workspace = true
 [dev-dependencies]
 egui_kittest.workspace = true
 image.workspace = true
+# A made-up certificate chain for the view of a TLS Secret.
+rcgen.workspace = true
 # The YAML of a manifest for a picture of the tab, as the core writes it.
 serde-saphyr.workspace = true
 # The fake core of the view tests needs the handle of a runtime for the task start function.

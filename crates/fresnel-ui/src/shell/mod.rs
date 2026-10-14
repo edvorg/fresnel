@@ -6,7 +6,9 @@
 //! It holds the page of the open kind only: a page that is not painted holds no rows.
 //!
 //! The shell runs the commands of the command table (plan section 11.5): their keys, the
-//! quick search and the history of the visited objects for Back and Forward.
+//! quick search and the history of the visited objects for Back and Forward. It names the
+//! Secret or the ConfigMap of the open panel to the core, which reads its values while the
+//! panel shows it.
 //!
 //! - `top_bar`, `sidebar`, `dock`, `status_bar`: the parts of the window. `namespaces`:
 //!   the namespace filter of each view. `keys`: the key of each command. `history`: Back
@@ -26,6 +28,7 @@ use std::sync::Arc;
 use egui::{CentralPanel, Frame, Margin, Panel, Ui};
 use fresnel_core::app::{Command, CoreView};
 use fresnel_core::commands::CommandId;
+use fresnel_core::keys::Target;
 use fresnel_core::kinds::Kind;
 use fresnel_core::net::task::Tasks;
 
@@ -55,6 +58,8 @@ pub struct Shell {
     /// The namespaces whose objects each view shows. Empty: each namespace.
     namespaces: BTreeSet<Arc<str>>,
     search: QuickSearch,
+    /// The object whose values the core reads for the key view, as far as the shell knows.
+    keys: Option<Target>,
     history: History,
     colors: ClusterColors,
     tasks: Tasks,
@@ -91,6 +96,7 @@ impl Shell {
             shown: BTreeSet::new(),
             namespaces: BTreeSet::new(),
             search: QuickSearch::new(tasks, Arc::clone(&wake)),
+            keys: None,
             history: History::default(),
             colors: ClusterColors::default(),
             tasks: tasks.clone(),
@@ -169,6 +175,7 @@ impl Shell {
             None => {}
         }
         commands.extend(self.show_kinds());
+        commands.extend(self.show_keys());
         commands
     }
 
@@ -213,6 +220,18 @@ impl Shell {
         }
         self.shown.clone_from(&wanted);
         Some(Command::ShowKinds(wanted))
+    }
+
+    /// The command that names the Secret or the ConfigMap of the open panel to the core, when
+    /// it changed. A closed panel names none, and the Connections page has no panel, so the
+    /// core drops the values (plan section 9.4).
+    fn show_keys(&mut self) -> Option<Command> {
+        let wanted = self.open.keys().cloned();
+        if wanted == self.keys {
+            return None;
+        }
+        self.keys.clone_from(&wanted);
+        Some(Command::ShowKeys(wanted))
     }
 }
 

@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use egui::{CentralPanel, Context, Frame, Panel, RichText, Ui};
 use fresnel_core::app::ClusterRow;
+use fresnel_core::keys::Target;
 use fresnel_core::kinds::{Action, Describe, Kind, Object};
 use fresnel_core::net::task::Tasks;
 
@@ -314,6 +315,10 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
 
     fn namespaces(&self) -> &[Arc<str>] {
         self.table.rows().map(|rows| rows.summary.names.as_slice()).unwrap_or_default()
+    }
+
+    fn keys(&self) -> Option<&Target> {
+        self.detail.as_ref().and_then(DetailPanel::key_target)
     }
 }
 
