@@ -781,3 +781,11 @@ development machine: the longest frame took 0.9 ms.
 Milestone M1 has two tabs below the center. A panel of egui with a tab bar draws them, and
 the user changes its height with the pointer. `egui_tiles` comes with the tabs that the user
 can move to some other place. Then `shell/dock.rs` wraps it, and no view changes.
+
+## A filler after the last column takes the free width
+
+In M1 the Name column took the free width. A drag that made some other column wider took
+the same width from Name: the edge stayed, the columns moved the other way, and each frame
+of the drag added more width. Now no column of a model takes the free width: a drag changes
+one column, and its edge stays at the pointer. A filler without a title takes the rest, and
+a narrow table scrolls to the side.

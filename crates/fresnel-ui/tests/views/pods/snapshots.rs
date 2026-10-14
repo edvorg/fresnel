@@ -5,6 +5,7 @@ use fresnel_core::store::{StoreState, Wait};
 
 use crate::data::{cluster, empty_store, live, many_pods, pods};
 use crate::fake::{SECOND, Window, connected, live_status, now, open_tab, until, view, window_with};
+use crate::pods::resize::drag;
 use crate::pods::scenes::{pods_of, session};
 use crate::snapshots::{SCALE, save};
 
@@ -27,6 +28,17 @@ fn the_pods_of_two_live_clusters_above_the_connections_tab() {
     let mut window = window_with(view(clusters), egui::Theme::Dark, SCALE);
     open_tab(&mut window, "Connections");
     save_clean(&mut window, "pods-live");
+}
+
+/// The edges of three columns after a drag: Name and Status are wider, Node is narrower.
+#[test]
+fn the_pods_of_two_clusters_after_a_drag_of_three_column_edges() {
+    let clusters = vec![live("ams-prod", &pods()), live("fra-stage", &pods_of("fra"))];
+    let mut window = window_with(view(clusters), egui::Theme::Dark, SCALE);
+    drag(&mut window, "Name", 70.0);
+    drag(&mut window, "Status", 50.0);
+    drag(&mut window, "Node", -70.0);
+    save_clean(&mut window, "pods-resized");
 }
 
 #[test]

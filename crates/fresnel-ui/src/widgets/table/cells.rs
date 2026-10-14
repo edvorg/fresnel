@@ -26,9 +26,8 @@ pub(super) fn header(ui: &mut Ui, palette: &Palette, column: &Column, descending
     let rect = ui.max_rect();
     let response = ui.interact(rect, ui.id().with("sort"), Sense::click());
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, column.title));
+    filler_header(ui, palette);
     let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, palette.bg_chrome);
-    painter.hline(rect.x_range(), rect.bottom() - 0.5, (1.0, palette.border));
 
     let active = descending.is_some() || response.hovered();
     let color = if active { palette.text } else { palette.text_faint };
@@ -48,6 +47,14 @@ pub(super) fn header(ui: &mut Ui, palette: &Palette, column: &Column, descending
         painter.add(Shape::convex_polygon(arrow, palette.accent, egui::Stroke::NONE));
     }
     response.clicked()
+}
+
+/// Paints the background of a title. Alone, it is the title of the filler after the last
+/// column, so the bar of the titles goes on to the edge of the table.
+pub(super) fn filler_header(ui: &Ui, palette: &Palette) {
+    let rect = ui.max_rect();
+    ui.painter().rect_filled(rect, 0.0, palette.bg_chrome);
+    ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, (1.0, palette.border));
 }
 
 /// Paints the background of a row and gives its click.

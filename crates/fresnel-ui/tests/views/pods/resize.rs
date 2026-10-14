@@ -1,0 +1,170 @@
+//! The widths of the columns. A drag of the edge at the right of a title moves that edge
+//! with the pointer, and no other column changes its width: in the first frames after the
+//! table shows and later, from left to right and from right to left, and in a window that
+//! is wider and one that is narrower than the sum of the columns. The widths stay through
+//! new data, a sort and a filter.
+
+use egui::accesskit::Role;
+use egui::{Rangef, pos2};
+use egui_kittest::kittest::Queryable as _;
+
+use crate::data::{live, pod, pods};
+use crate::fake::{Window, shows, until, view, window};
+
+const TITLES: [&str; 9] =
+    ["Name", "Namespace", "Cluster", "Ready", "Status", "Restarts", "Last restart", "Node", "Age"];
+/// The widths that a column can have.
+const WIDTHS: Rangef = Rangef { min: 48.0, max: 2000.0 };
+/// The most distance between the edge and the pointer, and the most change of a width
+/// that is not the drag. The accessibility tree gives each rect in whole pixels.
+const NEAR: f32 = 1.0;
+/// The moves of one drag. Each one is longer than the distance that starts a drag.
+const MOVES: u16 = 6;
+/// egui starts a drag after a move of this distance.
+const DRAG_START: f32 = 6.0;
+/// The frames that the window draws after each move with no new input, as a window does
+/// for a repaint of some other cause while the user holds the pointer.
+const QUIET_FRAMES: usize = 4;
+
+/// The span of each column whose title shows, from the rect of the title.
+fn spans(window: &Window) -> Vec<(&'static str, Rangef)> {
+    let span = |title: &&'static str| {
+        let node = window.query_by_role_and_label(Role::Button, title)?;
+        Some((*title, node.rect().x_range()))
+    };
+    TITLES.iter().filter_map(span).collect()
+}
+
+fn span_of(spans: &[(&str, Rangef)], title: &str) -> Option<Rangef> {
+    spans.iter().find(|(name, _)| *name == title).map(|(_, span)| *span)
+}
+
+/// The right end of the rows: the right edge of the window, less the scroll bar.
+fn table_right(window: &Window) -> f32 {
+    window.ctx.content_rect().right() - 12.0
+}
+
+/// Drags the edge at the right of the title of `title` by `by` points. After each move,
+/// the edge is at the pointer, the left edge of the column did not move, and each other
+/// column has the width that it had before the drag.
+pub(crate) fn drag(window: &mut Window, title: &str, by: f32) {
+    assert!(by.abs() / f32::from(MOVES) > DRAG_START, "the first move starts the drag");
+    let before = spans(window);
+    let span = span_of(&before, title).unwrap_or_else(|| panic!("the title {title} shows"));
+    let y = window.get_by_role_and_label(Role::Button, title).rect().center().y;
+    let start = pos2(span.max, y);
+    window.hover_at(start);
+    window.run();
+    window.drag_at(start);
+    window.run();
+    for step in 1..=MOVES {
+        let pointer = start + egui::vec2(by * f32::from(step) / f32::from(MOVES), 0.0);
+        window.hover_at(pointer);
+        window.run();
+        window.run_steps(QUIET_FRAMES);
+        let now = spans(window);
+        let shown = span_of(&now, title).unwrap_or_else(|| panic!("the title {title} shows during its drag"));
+        let width = (span.span() + pointer.x - start.x).clamp(WIDTHS.min, WIDTHS.max);
+        let at = format!("{title} after a move of {:+} points", pointer.x - start.x);
+        assert!((shown.min - span.min).abs() <= NEAR, "{at}: its left edge moved from {} to {}", span.min, shown.min);
+        assert!(
+            (shown.max - (span.min + width)).abs() <= NEAR,
+            "{at}: its right edge is at {}, and the pointer at {}",
+            shown.max,
+            pointer.x
+        );
+        for (other, was) in before.iter().filter(|(other, _)| *other != title) {
+            if let Some(is) = span_of(&now, other) {
+                let (was, is) = (was.span(), is.span());
+                assert!((was - is).abs() <= NEAR, "{at}: {other} changed its width from {was} to {is}");
+            }
+        }
+    }
+    window.drop_at(start + egui::vec2(by, 0.0));
+    window.run();
+}
+
+/// Drags the edge of each column whose edge shows, in this sequence of titles, to the
+/// right and back to the left.
+fn drag_each(window: &mut Window, titles: impl Iterator<Item = &'static str>, right: f32) {
+    for title in titles {
+        let Some(span) = span_of(&spans(window), title) else {
+            continue;
+        };
+        if span.max + 60.0 > right {
+            continue;
+        }
+        drag(window, title, 60.0);
+        drag(window, title, -60.0);
+    }
+}
+
+fn resized_in(size: egui::Vec2) -> Window {
+    let mut window = window(view(vec![live("ams-prod", &pods())]));
+    window.set_size(size);
+    window.run();
+    window
+}
+
+#[test]
+fn a_drag_in_the_first_frames_moves_the_edge_with_the_pointer() {
+    // The builder of the window draws frames until the first rows show, and no frame more.
+    let mut window = window(view(vec![live("ams-prod", &pods())]));
+    drag(&mut window, "Namespace", 80.0);
+    drag(&mut window, "Status", -50.0);
+    drag(&mut window, "Name", 40.0);
+}
+
+#[test]
+fn each_edge_follows_the_pointer_in_a_window_wider_than_the_columns() {
+    let mut window = resized_in(egui::vec2(1800.0, 900.0));
+    let right = table_right(&window);
+    let age = span_of(&spans(&window), "Age").expect("the last column shows");
+    assert!(age.max + 300.0 < right, "the columns end at {}, and the window is wider: {right}", age.max);
+    drag_each(&mut window, TITLES.into_iter(), right);
+    drag_each(&mut window, TITLES.into_iter().rev(), right);
+}
+
+#[test]
+fn each_edge_follows_the_pointer_in_a_window_narrower_than_the_columns() {
+    let mut window = resized_in(egui::vec2(900.0, 900.0));
+    let right = table_right(&window);
+    let all_show = TITLES.iter().all(|title| span_of(&spans(&window), title).is_some_and(|span| span.max <= right));
+    assert!(!all_show, "the columns are wider than the window");
+    drag_each(&mut window, TITLES.into_iter(), right);
+    drag_each(&mut window, TITLES.into_iter().rev(), right);
+}
+
+#[test]
+fn the_widths_stay_through_new_data_a_sort_and_a_filter() {
+    let mut window = resized_in(egui::vec2(1800.0, 900.0));
+    drag(&mut window, "Name", 70.0);
+    drag(&mut window, "Node", -40.0);
+    drag(&mut window, "Age", 50.0);
+    let resized = spans(&window);
+
+    let fewer: Vec<_> = pods().into_iter().filter(|pod| pod.metadata.name.as_deref() != Some("crash")).collect();
+    window.state_mut().view = view(vec![live("ams-prod", &fewer)]);
+    until(&mut window, "the rows of the new data", |window| shows(window, "24 pods"));
+    assert_eq!(spans(&window), resized, "after new data");
+
+    window.get_by_role_and_label(Role::Button, "Age").click();
+    window.run();
+    window.get_by_role_and_label(Role::Button, "Age").click();
+    until(&mut window, "the sort by age", |window| {
+        crate::pods::column(window, "Name").last().is_some_and(|name| name == "tick-manual-d6v5w")
+    });
+    assert_eq!(spans(&window), resized, "after a sort");
+
+    window.get_by_label("Filter pods").click();
+    window.run();
+    window.get_by_label("Filter pods").type_text("-crash");
+    until(&mut window, "the rows of the filter", |window| shows(window, "1 of 24 pods"));
+    assert_eq!(spans(&window), resized, "after a filter");
+    window.state_mut().view = view(vec![live("ams-prod", &[pod("crash")])]);
+    until(&mut window, "no row passes the filter", |window| shows(window, "0 of 1 pod"));
+    window.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    window.key_press(egui::Key::Backspace);
+    until(&mut window, "the one row", |window| shows(window, "1 pod"));
+    assert_eq!(spans(&window), resized, "after a table with no row");
+}

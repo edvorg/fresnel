@@ -7,7 +7,7 @@
 //!
 //! - `model`: what a kind gives to its table. `worker`: the thread that computes the rows.
 //! - `rows`: a request and its rows. `supply`: the last request and the rows on the screen.
-//! - `cells`: the paint of each part. `keys`: the keys.
+//! - `cells`: the paint of each part. `keys`: the keys. `widths`: the widths of the columns.
 //! - `selection`: the selected objects. `select`: what a click and a key do to them.
 
 pub(crate) mod cells;
@@ -17,6 +17,7 @@ mod rows;
 mod select;
 mod selection;
 mod supply;
+mod widths;
 pub(crate) mod worker;
 
 use std::sync::Arc;
@@ -31,6 +32,7 @@ use self::select::{click, forget_gone, key, position};
 pub(crate) use self::selection::Selection;
 pub(crate) use self::supply::Progress;
 use self::supply::Supply;
+use self::widths::{NARROWEST, WIDEST, Widths};
 use self::worker::Wake;
 use crate::theme::{self, Palette, ROW_HEIGHT};
 
@@ -52,6 +54,7 @@ pub(crate) struct Table<M: Model> {
     selection: Selection,
     /// The object whose row the next frame scrolls to.
     reveal: Option<ObjectId>,
+    widths: Widths,
 }
 
 impl<M: Model> Table<M> {
@@ -59,7 +62,8 @@ impl<M: Model> Table<M> {
     pub(crate) fn new(tasks: &Tasks, wake: Wake, name: &'static str, model: M) -> Self {
         let model = Arc::new(model);
         let supply = Supply::start(tasks, wake, name, Arc::clone(&model));
-        Self { name, model, supply, selection: Selection::default(), reveal: None }
+        let widths = Widths::new(model.columns());
+        Self { name, model, supply, selection: Selection::default(), reveal: None, widths }
     }
 
     /// Tells the table what its rows come from in this frame, and takes a result of the
@@ -138,8 +142,7 @@ impl<M: Model> Table<M> {
         let focus_id = ui.make_persistent_id((self.name, "keys"));
         let focus = ui.interact(rect, focus_id, Sense::focusable_noninteractive());
 
-        let table_columns: Vec<egui_table::Column> =
-            columns.iter().enumerate().map(|(i, c)| self.column(i, c)).collect();
+        let table_columns = self.table_columns(rect.width());
         let mut table = egui_table::Table::new()
             .id_salt(self.name)
             .num_rows(rows.len() as u64)
@@ -150,7 +153,8 @@ impl<M: Model> Table<M> {
         if let Some(row) = self.reveal.take().and_then(|target| position(model, rows, &target)) {
             table = table.scroll_to_row(row as u64, None);
         }
-        prepare_widths(ui, table.get_id(ui), &table_columns, rect.width());
+        let table_id = table.get_id(ui);
+        write_widths(ui, table_id, &table_columns);
         let mut delegate = Delegate {
             model,
             rows,
@@ -164,6 +168,7 @@ impl<M: Model> Table<M> {
         };
         table.show(ui, &mut delegate);
         let (header_clicked, row_clicked) = (delegate.header_clicked, delegate.row_clicked);
+        read_widths(ui, table_id, &table_columns, &mut self.widths);
 
         let (mut acted, mut by_key) = (None, false);
         if let Some((row, modifiers)) = row_clicked {
@@ -202,14 +207,18 @@ impl<M: Model> Table<M> {
         acted
     }
 
-    /// The column of `egui_table` for a column of the model. The first column takes the
-    /// width that the other ones leave, so the user cannot change its width.
-    fn column(&self, index: usize, column: &Column) -> egui_table::Column {
-        egui_table::Column::new(column.width)
-            .range(48.0..=2000.0)
-            .resizable(index > 0)
-            // With an identity, a column keeps its width when the columns change.
-            .id(egui::Id::new((self.name, column.title)))
+    /// The columns of `egui_table`: one for each column of the model, with the width of
+    /// the table, and the filler that takes the free width of a table of this width.
+    fn table_columns(&self, available: f32) -> Vec<egui_table::Column> {
+        let columns = self.model.columns().iter().zip(self.widths.iter()).map(|(column, width)| {
+            // The identity keys the width in the state of `egui_table`.
+            egui_table::Column::new(width).range(NARROWEST..=WIDEST).id(egui::Id::new((self.name, column.title)))
+        });
+        let filler = egui_table::Column::new(self.widths.filler(available))
+            .range(0.0..=f32::INFINITY)
+            .resizable(false)
+            .id(egui::Id::new((self.name, "filler")));
+        columns.chain([filler]).collect()
     }
 }
 
@@ -218,23 +227,32 @@ fn note(ui: &mut Ui, palette: &Palette, text: &str) {
     ui.centered_and_justified(|ui| ui.label(RichText::new(text).color(palette.text_muted)));
 }
 
-/// The width of the scroll bar of the table.
-const SCROLL_BAR: f32 = 12.0;
-
-/// Stores the widths of the columns before `egui_table` reads them. That crate gives a
-/// column that it does not know the width of its content, so the layout would follow the
-/// rows on the screen. The first column takes the width that the other ones leave, but
-/// not less than its own: a narrow table scrolls to the side.
-fn prepare_widths(ui: &Ui, table_id: egui::Id, columns: &[egui_table::Column], available: f32) {
+/// Gives `egui_table` the width of each column before it reads them. That crate keeps
+/// the widths in its own state, and it would give a column that it does not know the
+/// width of its content: the layout would then follow the rows on the screen.
+fn write_widths(ui: &Ui, table_id: egui::Id, columns: &[egui_table::Column]) {
     let mut state = egui_table::TableState::load(ui.ctx(), table_id).unwrap_or_default();
-    let mut others = 0.0;
-    for (index, column) in columns.iter().enumerate().skip(1) {
-        others += *state.col_widths.entry(column.id_for(index)).or_insert(column.current);
-    }
-    if let Some(first) = columns.first() {
-        state.col_widths.insert(first.id_for(0), first.current.max(available - others - SCROLL_BAR));
+    for (index, column) in columns.iter().enumerate() {
+        state.col_widths.insert(column.id_for(index), column.current);
     }
     state.store(ui.ctx(), table_id);
+}
+
+/// Takes the widths that a drag of the user gave to `egui_table` in this frame. A pass
+/// that only measures gives each column the width of its content, and that is no width of
+/// the user. The filler is no column of the model, so `Widths::set` ignores it.
+fn read_widths(ui: &Ui, table_id: egui::Id, columns: &[egui_table::Column], widths: &mut Widths) {
+    if ui.is_sizing_pass() {
+        return;
+    }
+    let Some(state) = egui_table::TableState::load(ui.ctx(), table_id) else {
+        return;
+    };
+    for (index, column) in columns.iter().enumerate() {
+        if let Some(width) = state.col_widths.get(&column.id_for(index)) {
+            widths.set(index, *width);
+        }
+    }
 }
 
 struct Delegate<'a, M: Model> {
@@ -261,7 +279,11 @@ impl<M: Model> Delegate<'_, M> {
 impl<M: Model> egui_table::TableDelegate for Delegate<'_, M> {
     fn header_cell_ui(&mut self, ui: &mut Ui, cell: &egui_table::HeaderCellInfo) {
         let index = cell.col_range.start;
-        let Some(column) = self.columns.get(index).filter(|_| !cells::is_clipped(ui)) else {
+        if cells::is_clipped(ui) {
+            return;
+        }
+        let Some(column) = self.columns.get(index) else {
+            cells::filler_header(ui, self.palette);
             return;
         };
         let descending = (self.sort.column == index).then_some(self.sort.descending);

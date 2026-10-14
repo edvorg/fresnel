@@ -8,6 +8,7 @@
 
 mod bad_data;
 mod detail;
+pub(crate) mod resize;
 mod rest;
 pub(crate) mod scenes;
 mod snapshots;
