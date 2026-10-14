@@ -1,7 +1,7 @@
 //! The handle of each edge at its limits: a press beside the line, the last edge past the
 //! right side of the table, the narrowest width, a double click on each edge, a window that
-//! changes its size during a drag, a click near an edge, and columns that the detail panel
-//! hides and shows again.
+//! changes its size during a drag, a click near an edge, columns that the detail panel hides
+//! and shows again, and the scroll bar below the rows.
 
 use egui::accesskit::Role;
 use egui::{CursorIcon, Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, TouchPhase, pos2};
@@ -266,4 +266,44 @@ fn columns_that_the_detail_panel_hides_show_again_with_their_widths_and_handles(
     drag.slide(&mut window, -40.0);
     drag.release(&mut window);
     assert_eq!(width(&window, "Age"), age);
+}
+
+/// The place of the scroll bar below the rows: the lowest place of the table, above the
+/// handle of the dock.
+fn scroll_bar_y(window: &mut Window, x: f32) -> f32 {
+    let dock = window.get_by_role_and_label(Role::Button, "Journal").rect().top();
+    let mut y = dock;
+    while cursor_at(window, pos2(x, y)) == CursorIcon::ResizeVertical {
+        y -= 1.0;
+    }
+    let bar = window.ctx.global_style().spacing.scroll.bar_width;
+    y - bar / 2.0
+}
+
+/// In a window narrower than the columns, a drag on the scroll bar below the rows scrolls
+/// the table, also at the place of an edge. No handle covers the scroll bar.
+#[test]
+fn a_drag_on_the_scroll_bar_below_the_rows_scrolls_also_at_an_edge() {
+    let mut window = window_with(view(vec![live("ams-prod", &many_pods(35))]), egui::Theme::Dark, 2.0);
+    window.set_size(egui::vec2(900.0, 900.0));
+    window.run();
+    let before = spans(&window);
+    let edge = edge_of(&window, "Namespace");
+    let y = scroll_bar_y(&mut window, edge + 40.0);
+    for x in [edge + 40.0, edge] {
+        let at = pos2(x, y);
+        assert_ne!(cursor_at(&mut window, at), CursorIcon::ResizeColumn, "on the scroll bar at {x}");
+        window.drag_at(at);
+        window.run();
+        for step in 1..=10_u8 {
+            window.hover_at(at + egui::vec2(6.0 * f32::from(step), 0.0));
+            window.run();
+        }
+        window.drop_at(at + egui::vec2(60.0, 0.0));
+        window.run();
+        assert_eq!(span_of(&spans(&window), "Namespace"), None, "a drag at {x} scrolls the table");
+        assert_eq!(window.state().sent, [], "a drag at {x} changes no width");
+        scroll_to_the_side(&mut window, -2000.0);
+        until(&mut window, "the left end of the table", |window| spans(window) == before);
+    }
 }

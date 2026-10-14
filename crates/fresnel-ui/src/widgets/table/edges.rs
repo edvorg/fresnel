@@ -10,6 +10,7 @@
 //!   and Escape gives the column the width that it had at the press.
 //! - The handle is on top of the titles and the rows, and it takes no click: a click on
 //!   an edge does not sort and does not select a row.
+//! - The handle ends at the scroll bars of the rows, so a drag of a scroll bar scrolls.
 
 use egui::{CursorIcon, Id, Key, PointerButton, Rect, Sense, Stroke, Ui};
 
@@ -26,9 +27,38 @@ struct Drag {
 
 /// One edge on the screen: the right side of a column.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Edge {
-    pub(super) column: usize,
-    pub(super) x: f32,
+struct Edge {
+    column: usize,
+    x: f32,
+}
+
+/// What one frame of the table showed: the edge of each title that shows, the top of the
+/// titles, and the right side and the bottom of the place of the rows. A scroll bar is no
+/// part of that place.
+#[derive(Debug, Default)]
+pub(super) struct Seen {
+    edges: Vec<Edge>,
+    top: Option<f32>,
+    rows: Option<(f32, f32)>,
+}
+
+impl Seen {
+    /// Takes a title of the frame, and its edge if it shows. `width` is the width of its
+    /// column in this frame: a pass that measures lays a title out narrower.
+    pub(super) fn title(&mut self, ui: &Ui, column: usize, width: Option<f32>) {
+        self.top = Some(ui.max_rect().top());
+        if let Some(edge) = width.and_then(|width| of_title(ui, column, width)) {
+            self.edges.push(edge);
+        }
+    }
+
+    /// Takes a row of the frame. The rows of the part that scrolls end at its scroll bars,
+    /// the rows of the first column at the bottom of the table.
+    pub(super) fn row(&mut self, ui: &Ui) {
+        let clip = ui.clip_rect();
+        let (right, bottom) = self.rows.unwrap_or((clip.right(), clip.bottom()));
+        self.rows = Some((right.max(clip.right()), bottom.min(clip.bottom())));
+    }
 }
 
 /// The handles of one table.
@@ -70,22 +100,19 @@ impl Edges {
         self.fit = None;
     }
 
-    /// Puts a handle on each edge of this frame, after the layout of the table, and draws
-    /// its line from `top` to `bottom`. `id` names the handle of a column, and `widths`
-    /// gives the width of each column in this frame.
-    pub(super) fn handles(
-        &mut self,
-        ui: &Ui,
-        edges: &[Edge],
-        span: (f32, f32),
-        id: impl Fn(usize) -> Id,
-        widths: &[f32],
-    ) {
-        let (top, bottom) = span;
+    /// Puts a handle on each edge that the frame showed, after the layout of the table, and
+    /// draws its line. `table` is the place of the table: with no row on the screen, the
+    /// lines end at its bottom. `id` names the handle of a column, and `widths` gives the
+    /// width of each column in this frame.
+    pub(super) fn handles(&mut self, ui: &Ui, seen: &Seen, table: Rect, id: impl Fn(usize) -> Id, widths: &[f32]) {
+        let Some(top) = seen.top else {
+            return;
+        };
+        let (right, bottom) = seen.rows.unwrap_or((table.right(), table.bottom()));
         let grab = ui.style().interaction.resize_grab_radius_side;
         let busy = ui.input(|input| input.pointer.any_down());
-        for edge in edges {
-            let rect = Rect::from_x_y_ranges(edge.x - grab..=edge.x + grab, top..=bottom);
+        for edge in seen.edges.iter().filter(|edge| edge.x <= right) {
+            let rect = Rect::from_x_y_ranges(edge.x - grab..=(edge.x + grab).min(right), top..=bottom);
             let response = ui.interact(rect, id(edge.column), Sense::drag());
             if response.drag_started()
                 && let (Some(press), Some(width)) =
@@ -120,10 +147,9 @@ fn stroke(ui: &Ui, dragged: bool, hovered: bool) -> Stroke {
 }
 
 /// The edge at the right of a title, if it shows: a title in the part that scrolls to the
-/// side has its edge there only right of the fixed first column. `width` is the width of
-/// the column in this frame: a pass that measures lays a title out narrower.
-pub(super) fn of_title(ui: &Ui, column: usize, width: f32) -> Option<Edge> {
+/// side has its edge there only right of the fixed first column.
+fn of_title(ui: &Ui, column: usize, width: f32) -> Option<Edge> {
     let x = ui.max_rect().left() + width;
-    let clip = ui.clip_rect().x_range();
-    (x > clip.min && x <= clip.max).then_some(Edge { column, x })
+    let clip = ui.clip_rect();
+    (x > clip.left() && x <= clip.right()).then_some(Edge { column, x })
 }
