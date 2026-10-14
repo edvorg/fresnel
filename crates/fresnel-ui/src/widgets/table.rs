@@ -278,10 +278,10 @@ fn write_widths(ui: &Ui, table_id: egui::Id, columns: &[egui_table::Column]) {
 }
 
 /// Takes the widths that a drag or a double click of the user gave to `egui_table` in this
-/// frame: each width that differs from the width that the frame gave. The first column of a narrow
-/// table keeps the width of the user that way. A pass that only measures gives each column
-/// the width of its content, and that is no width of the user. The filler is no column of
-/// the model, so `Widths::set` ignores it.
+/// frame: each width that differs from the width that the frame gave. The first column of a
+/// narrow table keeps the width of the user that way. A pass that only measures gives each
+/// column the width of its content, and that is no width of the user. The filler is no
+/// column of the model, so `Widths::set` ignores it.
 fn read_widths(ui: &Ui, table_id: egui::Id, columns: &[egui_table::Column], widths: &mut Widths) {
     if ui.is_sizing_pass() {
         return;
