@@ -4,12 +4,12 @@
 //!
 //! - `model`: what a kind gives to its page. `page`: the page with its table and panel.
 //! - `follow`: the changes of the stores from frame to frame. `filter`: the filters.
-//! - `toolbar`: the count, the filters and the columns. `notes`: the state of each store.
-//! - `menu`: the menu of a row, from the command table.
+//! - `toolbar`: the count, the filters, the columns and the bulk actions. `notes`: the state
+//!   of each store. `acts`: the actions of the page, from the command table.
 
+mod acts;
 mod filter;
 mod follow;
-mod menu;
 mod model;
 mod notes;
 mod page;
@@ -61,6 +61,9 @@ pub(crate) trait Page {
 
     /// Runs an action of the command table on the object of the panel.
     fn act(&mut self, ctx: &Context, action: Action);
+
+    /// True while a dialog of an action is open: the keys of the commands wait.
+    fn has_dialog(&self) -> bool;
 
     /// Puts the focus into the text filter in the next frame.
     fn focus_filter(&mut self);

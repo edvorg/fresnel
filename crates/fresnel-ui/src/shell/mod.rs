@@ -41,6 +41,7 @@ use crate::theme::{self, ClusterColors};
 use crate::views::journal::JournalTab;
 use crate::views::keys::new_secret::NewSecretDialog;
 use crate::views::objects::{self, Link};
+use crate::views::operations::OperationsTab;
 use crate::views::search::{Choice, QuickSearch};
 use crate::views::{connections, kinds};
 use crate::widgets::worker::Wake;
@@ -52,6 +53,7 @@ pub struct Shell {
     page: Page,
     tab: Tab,
     journal: JournalTab,
+    operations: OperationsTab,
     /// The page of the kind that the sidebar opened last. The Connections page keeps it.
     open: Box<dyn objects::Page>,
     /// The kinds whose full objects the core holds for the views, as far as the shell knows.
@@ -97,6 +99,7 @@ impl Shell {
             page: Page::Kind(Kind::Pod),
             tab: Tab::Journal,
             journal: JournalTab::default(),
+            operations: OperationsTab::default(),
             open: kinds::page(Kind::Pod, tasks, Arc::clone(&wake)),
             shown: BTreeSet::new(),
             namespaces: BTreeSet::new(),
@@ -118,6 +121,7 @@ impl Shell {
         // A dialog takes the keys of the user.
         if !self.search.is_open()
             && !self.new_secret.is_open()
+            && !self.open.has_dialog()
             && let Some((command, presses)) = keys::pressed(ui.ctx(), &view.config.keys)
         {
             let times = if matches!(command, CommandId::Back | CommandId::Forward) { presses } else { 1 };
@@ -157,6 +161,7 @@ impl Shell {
             dock::tab_bar(ui, &mut self.tab);
             // The center can show the same view, so the two have widgets with different identities.
             ui.push_id("dock", |ui| match self.tab {
+                Tab::Operations => self.operations.show(ui, &mut scene),
                 Tab::Journal => self.journal.show(ui, &view.journal, &self.clock),
                 Tab::Connections => connections::show(ui, &mut scene),
             });
@@ -194,6 +199,10 @@ impl Shell {
         }
         commands.extend(self.show_kinds());
         commands.extend(self.show_keys());
+        // A job that the user started shows its steps in the Operations tab.
+        if commands.iter().any(|command| matches!(command, Command::Run(_))) {
+            self.tab = Tab::Operations;
+        }
         commands
     }
 
@@ -231,6 +240,8 @@ impl Shell {
     fn show_kinds(&mut self) -> Option<Command> {
         let wanted = match self.page {
             Page::Kind(Kind::Pod) => BTreeSet::new(),
+            // The panel of a CronJob shows the state of each of its Jobs.
+            Page::Kind(Kind::CronJob) => BTreeSet::from([Kind::CronJob, Kind::Job]),
             Page::Kind(kind) => BTreeSet::from([kind]),
             Page::Connections => return None,
         };

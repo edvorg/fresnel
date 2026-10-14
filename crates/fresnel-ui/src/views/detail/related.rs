@@ -1,6 +1,6 @@
 //! The objects that relate to the object of the panel (plan sections 9.8 and 9.9), from
-//! the indexes of its cluster: the objects below a workload, the pods behind a Service, the
-//! pods that use an object, and what a pod uses. Each one is a link to its panel.
+//! the indexes of its cluster: the ReplicaSets of a Deployment, the pods behind a Service,
+//! the pods that use an object, and what a pod uses. Each one is a link to its panel.
 //!
 //! Each answer of an index tells what it is good for, and the section shows that next to
 //! the links: "no pods" and "the pods are not loaded" never look the same.
@@ -81,7 +81,7 @@ pub(super) fn show<K: Describe>(
 
 /// Makes the links of a list links and not texts to select: the selection of a text of
 /// several words gives the link the role of a text in the accessibility tree.
-pub(super) fn links_only(ui: &mut Ui) {
+pub(crate) fn links_only(ui: &mut Ui) {
     ui.style_mut().interaction.selectable_labels = false;
 }
 
@@ -95,15 +95,12 @@ fn groups<K: Describe>(data: &ClusterData, id: &ObjectId, object: &K) -> Vec<Gro
     let refs = |answer: Answer<Vec<ObjectRef>>| Links::of(answer, |object| named(object.kind, object.key));
     let pods = |answer: Answer<Vec<ObjectKey>>| Links::of(answer, |key| named(Kind::Pod, key));
     let (kind, uid) = (K::ID, &*id.uid);
-    let pods_below = || Group { title: "PODS", noun: "pods", index: OWNERS, answer: refs(owners.pods_of(kind, uid)) };
     match kind {
-        Kind::Deployment | Kind::CronJob => {
-            let (title, noun) =
-                if kind == Kind::Deployment { ("REPLICASETS", "ReplicaSets") } else { ("JOBS", "Jobs") };
-            vec![Group { title, noun, index: OWNERS, answer: refs(owners.owned(kind, uid)) }, pods_below()]
-        }
-        Kind::ReplicaSet | Kind::StatefulSet | Kind::DaemonSet | Kind::Job | Kind::ReplicationController => {
-            vec![pods_below()]
+        // The pods of a workload, with their state, and the Jobs of a CronJob are parts of
+        // the kind (`views/workloads`).
+        Kind::Deployment => {
+            let answer = refs(owners.owned(kind, uid));
+            vec![Group { title: "REPLICASETS", noun: "ReplicaSets", index: OWNERS, answer }]
         }
         Kind::Service => {
             let slices = Links::of(owners.slices_of(&id.key), |key| named(Kind::EndpointSlice, key));
@@ -139,7 +136,7 @@ const OWNERS: &str = "owner index";
 
 /// What a list of an index is good for, when it is not the state of now. `what` names the
 /// objects of the list, for example `pods` or `Events`.
-pub(super) fn basis_note(what: &str, index: &str, basis: &Basis) -> Option<String> {
+pub(crate) fn basis_note(what: &str, index: &str, basis: &Basis) -> Option<String> {
     match basis {
         Basis::Current => None,
         Basis::Old(source) => Some(format!("The {what} can be old: their store {}.", source.state)),

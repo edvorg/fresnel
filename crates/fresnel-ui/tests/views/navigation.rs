@@ -121,8 +121,12 @@ fn the_menu_of_a_row_has_the_actions_of_its_kind_and_runs_one() {
     for action in ["View manifest", "Copy name", "Logs", "Evict…", "Delete…"] {
         assert!(window.query_by_label_contains(action).is_some(), "the menu has {action}");
     }
-    assert!(window.get_by_label_contains("Delete…").accesskit_node().is_disabled(), "a later milestone");
+    assert!(window.get_by_label_contains("Logs").accesskit_node().is_disabled(), "a later milestone");
+    assert!(!window.get_by_label_contains("Delete…").accesskit_node().is_disabled(), "a delete runs in M3");
     window.get_by_label_contains("Copy kubectl command").click();
+    window.run();
+    // The dialog has each command of the pod; a click copies one.
+    window.get_by_label("Copy get").click();
     window.run();
     let command = "kubectl --context ams-prod get pods --namespace scene crash --output yaml";
     assert!(shows(&window, &format!("Copied: {command}")));

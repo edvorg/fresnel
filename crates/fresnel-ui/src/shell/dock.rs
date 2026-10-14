@@ -13,15 +13,17 @@ pub(super) const SMALLEST: f32 = BAR_HEIGHT;
 /// One tab of the dock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Tab {
+    Operations,
     Journal,
     Connections,
 }
 
 impl Tab {
-    const ALL: [Self; 2] = [Self::Journal, Self::Connections];
+    const ALL: [Self; 3] = [Self::Operations, Self::Journal, Self::Connections];
 
     fn title(self) -> &'static str {
         match self {
+            Self::Operations => "Operations",
             Self::Journal => "Journal",
             Self::Connections => "Connections",
         }

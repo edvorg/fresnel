@@ -89,9 +89,36 @@ pub(crate) fn header(ui: &mut Ui, id_salt: impl egui::AsIdSalt, columns: &[Colum
 /// Draws one row. A cell that is too narrow for its text cuts the text and shows all of
 /// it at the pointer.
 pub(crate) fn row(ui: &mut Ui, id_salt: impl egui::AsIdSalt, columns: &[Column], cells: &[Text]) {
+    let line = line(ui, ROW_HEIGHT);
+    cells_of(ui, id_salt, line, columns, cells);
+}
+
+/// Draws one row that the user can choose with a click, with the background of a chosen
+/// row. `name` is its name in the accessibility tree. Gives the response of the row.
+pub(crate) fn row_to_choose(
+    ui: &mut Ui,
+    id_salt: impl egui::AsIdSalt + Copy,
+    columns: &[Column],
+    cells: &[Text],
+    (chosen, name): (bool, &str),
+) -> egui::Response {
+    let palette = theme::palette(ui);
+    let id = ui.make_persistent_id(id_salt).with("row");
+    let line = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_HEIGHT), Sense::hover()).0;
+    let response = ui.interact(line, id, Sense::click());
+    super::name(&response, name);
+    if chosen {
+        ui.painter().rect_filled(line, 0.0, palette.accent_bg);
+    } else if response.hovered() {
+        ui.painter().rect_filled(line, 0.0, palette.bg_raised);
+    }
+    cells_of(ui, id_salt, line, columns, cells);
+    response
+}
+
+fn cells_of(ui: &mut Ui, id_salt: impl egui::AsIdSalt, line: egui::Rect, columns: &[Column], cells: &[Text]) {
     let palette = theme::palette(ui);
     let id = ui.make_persistent_id(id_salt);
-    let line = line(ui, ROW_HEIGHT);
     ui.painter().hline(line.x_range(), line.bottom() - 0.5, (1.0, palette.border.gamma_multiply(0.45)));
     for (index, ((column, rect), text)) in columns.iter().zip(cell_rects(line, columns)).zip(cells).enumerate() {
         let color = text.tone.color(palette);

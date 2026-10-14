@@ -24,6 +24,11 @@ impl Selection {
         self.ids.len()
     }
 
+    /// The selected objects, in no fixed sequence: the objects of a bulk action.
+    pub(crate) fn ids(&self) -> impl Iterator<Item = &ObjectId> {
+        self.ids.iter()
+    }
+
     pub(crate) fn contains(&self, id: &ObjectId) -> bool {
         self.ids.contains(id)
     }

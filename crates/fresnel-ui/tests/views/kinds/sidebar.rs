@@ -133,7 +133,12 @@ fn a_click_on_each_kind_in_each_frame_leaves_the_last_page_with_its_rows() {
     let mut shown = BTreeSet::new();
     let mut expected = Vec::new();
     for kind in clicks {
-        let wanted = if kind == Kind::Pod { BTreeSet::new() } else { BTreeSet::from([kind]) };
+        let wanted = match kind {
+            Kind::Pod => BTreeSet::new(),
+            // The panel of a CronJob shows the state of each of its Jobs.
+            Kind::CronJob => BTreeSet::from([Kind::CronJob, Kind::Job]),
+            kind => BTreeSet::from([kind]),
+        };
         if wanted != shown {
             shown.clone_from(&wanted);
             expected.push(Command::ShowKinds(wanted));

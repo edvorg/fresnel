@@ -19,27 +19,31 @@ mod conditions;
 mod events;
 pub(crate) mod fields;
 mod manifest;
-mod related;
-mod sections;
+pub(crate) mod related;
+pub(crate) mod sections;
 mod status;
 
 use std::sync::Arc;
 use std::time::SystemTime;
 
 use egui::{Align, Button, Frame, Label, Layout, Margin, RichText, ScrollArea, Ui};
-use fresnel_core::app::{ClusterRow, ManifestRequest};
+use fresnel_core::app::{ClusterRow, CoreView, ManifestRequest};
 use fresnel_core::keys::{self, KeyKind};
 use fresnel_core::kinds::{Action, Describe, Kind, Object};
+use fresnel_core::ops::{Outcome, Target};
 use fresnel_core::store::{ObjectKey, Snapshot};
 
 use self::conditions::Condition;
 use self::fields::{NONE, VALUE_LIMIT, chips, field, heading, text_field};
 use self::manifest::ManifestTab;
+use self::sections::{Context, Pick};
 use crate::format::{self, short};
 use crate::shell::Scene;
 use crate::theme::{self, Palette, SMALL};
+use crate::views::act::{Ask, Facts, Gate, Permits, Subject, facts};
 use crate::views::keys::KeyPanel;
 use crate::views::objects::{Link, Nouns, old_since, uid};
+use crate::views::pod_spec;
 use crate::widgets::table::cells::ring;
 use crate::widgets::table::model::ObjectId;
 use crate::widgets::tone::Tone;
@@ -51,6 +55,8 @@ pub(crate) enum Act {
     Close,
     /// A click on a link.
     Open(Link),
+    /// A click on an action.
+    Ask(Ask),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,17 +87,22 @@ pub(crate) struct DetailPanel<K: Describe> {
     manifest: ManifestTab,
     /// The keys of a Secret or a ConfigMap. `None` for each other kind.
     keys: Option<KeyPanel>,
+    /// What the actions read of the version of the object.
+    facts: Facts,
+    /// What the panel asked of the permissions of the user.
+    permits: Permits,
 }
 
 impl<K: Describe> DetailPanel<K> {
     pub(crate) fn new(id: ObjectId, object: Arc<K>) -> Self {
-        let conditions = conditions::of(&*object);
-        let manifest = ManifestTab::default();
+        let (conditions, facts) = (conditions::of(&*object), facts::of(&*object));
+        let (manifest, permits) = (ManifestTab::default(), Permits::default());
         let keys = KeyKind::of(K::ID).map(|kind| {
             let (cluster, key, uid) = (id.cluster.clone(), id.key.clone(), Arc::clone(&id.uid));
             KeyPanel::new(keys::Target { cluster, kind, key, uid })
         });
-        Self { id, object, presence: Presence::Present, conditions, tab: Tab::Overview, manifest, keys }
+        let tab = Tab::Overview;
+        Self { id, object, presence: Presence::Present, conditions, tab, manifest, keys, facts, permits }
     }
 
     pub(crate) fn id(&self) -> &ObjectId {
@@ -108,11 +119,11 @@ impl<K: Describe> DetailPanel<K> {
         self.presence == Presence::Present
     }
 
-    /// Runs an action of the command table on the object. Gives a note of what it did
-    /// when the panel does not show that, and the reason of an action that this version
-    /// does not run.
-    pub(crate) fn act(&mut self, ctx: &egui::Context, action: Action) -> Result<Option<String>, String> {
-        let (cluster, key) = (&self.id.cluster, &self.id.key);
+    /// Runs an action that needs no job and no dialog: the Manifest tab, the copy of the name
+    /// and the keys of the key view. Gives a note. Gives back each other action: the page
+    /// starts it.
+    pub(crate) fn act(&mut self, ctx: &egui::Context, action: Action) -> Result<Option<String>, Action> {
+        let key = &self.id.key;
         match action {
             Action::ViewManifest => {
                 self.tab = Tab::Manifest;
@@ -122,17 +133,35 @@ impl<K: Describe> DetailPanel<K> {
                 ctx.copy_text(key.name.to_string());
                 Ok(Some(format!("Copied the name {}.", key.name)))
             }
-            Action::CopyCommand => {
-                let command = fresnel_core::ops::kubectl::get(cluster, K::ID, key);
-                ctx.copy_text(command.clone());
-                Ok(Some(format!("Copied: {command}")))
-            }
             Action::EditKeys | Action::AddKey | Action::RemoveKey if self.keys.is_some() => {
                 self.tab = Tab::Overview;
                 Ok(self.keys.as_mut().and_then(|keys| keys.act(action)))
             }
-            other => Err(actions::later(other)),
+            other => Err(other),
         }
+    }
+
+    /// The object of the panel as the object of an action.
+    pub(crate) fn subject(&self) -> Subject {
+        let target = Target {
+            cluster: self.id.cluster.clone(),
+            kind: K::ID,
+            key: self.id.key.clone(),
+            uid: Arc::clone(&self.id.uid),
+        };
+        Subject { target, facts: self.facts.clone() }
+    }
+
+    /// The gate of an action on the object: an object that left its store has only the
+    /// actions that need no object (plan section 11.2).
+    pub(crate) fn gate(&mut self, action: Action, scene: &mut Scene<'_>) -> Gate {
+        if !self.is_present() && !actions::works_on_gone(action) {
+            let text = format!("The {} is not in its store now: its actions are off.", K::ID.info().name);
+            return Gate::Closed(text);
+        }
+        let target = self.subject().target;
+        let permits = &mut self.permits;
+        Gate::of(action, &self.facts, || permits.decide(scene.view, &target, action, scene.commands))
     }
 
     /// Reads the object from the snapshot of this frame. An object with the same name and
@@ -142,7 +171,7 @@ impl<K: Describe> DetailPanel<K> {
         self.presence = match found {
             Some(object) => {
                 if !Arc::ptr_eq(object, &self.object) {
-                    self.conditions = conditions::of(&**object);
+                    (self.conditions, self.facts) = (conditions::of(&**object), facts::of(&**object));
                     self.object = Arc::clone(object);
                 }
                 Presence::Present
@@ -176,8 +205,18 @@ impl<K: Describe> DetailPanel<K> {
             let name = short(&self.id.key.name, VALUE_LIMIT);
             ui.add(Label::new(RichText::new(name).heading().strong()).truncate());
             let data = cluster.and_then(|row| row.data.as_ref());
-            let old = data.and_then(|data| data.snapshot::<K>()).and_then(|store| old_since(&store, scene.clock));
+            let store = data.and_then(|data| data.snapshot::<K>());
+            let old = store.as_ref().and_then(|store| old_since(store, scene.clock));
             self.state_line(ui, palette, scene, nouns, old.as_deref());
+            if store.is_some_and(|store| pending(scene.view, &self.id, &store)) {
+                let text = "Change pending: the server stored a change, and the watch did not bring it yet.";
+                ui.label(RichText::new(text).color(palette.info));
+            }
+            ui.add_space(4.0);
+            let view = scene.view;
+            if let Some(action) = actions::bar(ui, K::ID, &view.config.keys, |action| self.gate(action, scene)) {
+                act = Act::Ask(Ask { action, revision: None });
+            }
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.tab, Tab::Overview, "Overview");
                 ui.selectable_value(&mut self.tab, Tab::Manifest, "Manifest");
@@ -189,10 +228,10 @@ impl<K: Describe> DetailPanel<K> {
         match self.tab {
             Tab::Overview => {
                 ScrollArea::vertical().id_salt("detail").auto_shrink(false).show(ui, |ui| {
-                    Frame::new().inner_margin(inner).show(ui, |ui| {
-                        if let Some(link) = self.overview(ui, palette, scene, cluster) {
-                            act = Act::Open(link);
-                        }
+                    Frame::new().inner_margin(inner).show(ui, |ui| match self.overview(ui, palette, scene, cluster) {
+                        Some(Pick::Open(link)) => act = Act::Open(link),
+                        Some(Pick::Ask(ask)) => act = Act::Ask(ask),
+                        None => {}
                     });
                 });
             }
@@ -239,28 +278,33 @@ impl<K: Describe> DetailPanel<K> {
         }
     }
 
-    /// The tab Overview. Gives the object of a link that the user clicked.
+    /// The tab Overview: the metadata, the keys of a Secret or a ConfigMap, the details of the
+    /// kind, the conditions, the related objects, the parts of the kind and the Events. Gives
+    /// what the user clicked.
     fn overview(
         &mut self,
         ui: &mut Ui,
         palette: &Palette,
         scene: &mut Scene<'_>,
         cluster: Option<&ClusterRow>,
-    ) -> Option<Link> {
-        let mut clicked = self.metadata(ui, palette, scene);
-        ui.add_space(14.0);
+    ) -> Option<Pick> {
         let data = cluster.and_then(|row| row.data.as_ref());
+        let cx = Context { palette, view: scene.view, clock: scene.clock, id: &self.id, data };
+        let mut picked = self.metadata(ui, palette, scene).map(Pick::Open);
+        ui.add_space(14.0);
         if let Some(keys) = &mut self.keys {
             keys.show(ui, palette, scene, data);
             ui.add_space(14.0);
         }
+        picked = sections::details(ui, &cx, &*self.object).or(picked);
         let (conditions, total) = &self.conditions;
         conditions::show(ui, palette, scene.clock, conditions, *total);
         if let Some(data) = data {
-            clicked = related::show(ui, palette, data, &self.id, &*self.object).or(clicked);
+            picked = related::show(ui, palette, data, &self.id, &*self.object).map(Pick::Open).or(picked);
         }
+        picked = sections::parts(ui, &cx, &*self.object).or(picked);
         events::show(ui, palette, scene.clock, &events::Source { kind: K::ID, id: &self.id, data });
-        clicked
+        picked
     }
 
     /// The metadata, with each owner as a link. Gives the owner that the user clicked.
@@ -277,7 +321,13 @@ impl<K: Describe> DetailPanel<K> {
             format!("{} ({} ago)", scene.clock.date_time(at), format::span(scene.clock.since(at)))
         });
         text_field(ui, palette, "Created", created.as_deref().unwrap_or(NONE));
-        sections::fields(ui, palette, &*self.object);
+        // An object that stays in its delete waits for its finalizers (research 08 section 4.8).
+        if let Some(time) = &meta.deletion_timestamp {
+            text_field(ui, palette, "Deleting since", &pod_spec::texts::at(time, scene.clock));
+            let finalizers = meta.finalizers.as_deref().unwrap_or_default();
+            let text = if finalizers.is_empty() { NONE.to_owned() } else { finalizers.join(", ") };
+            text_field(ui, palette, "Finalizers", &text);
+        }
         let mut clicked = None;
         field(ui, palette, "Controlled by", |ui| {
             let owners = meta.owner_references.iter().flatten();
@@ -318,4 +368,18 @@ impl<K: Describe> DetailPanel<K> {
         let version = present.then(|| self.object.meta().resource_version.as_deref().unwrap_or_default());
         self.manifest.show(ui, palette, scene, manifest::Target { request, version });
     }
+}
+
+/// True while a job of this object wrote a change that its store does not show yet (plan
+/// section 9.10).
+fn pending<K: Describe>(view: &CoreView, id: &ObjectId, store: &Snapshot<K>) -> bool {
+    view.jobs.jobs.iter().any(|job| {
+        let target = &job.order.target;
+        let same = target.cluster == id.cluster && target.kind == K::ID && target.key == id.key;
+        let written = match &job.report.outcome {
+            Outcome::Written(Some(written)) => Some(written),
+            _ => None,
+        };
+        same && written.is_some_and(|written| store.is_pending(written))
+    })
 }

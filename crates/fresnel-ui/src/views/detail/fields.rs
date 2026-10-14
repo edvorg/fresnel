@@ -12,10 +12,10 @@ use crate::theme::{self, Palette};
 const LABEL_WIDTH: f32 = 104.0;
 /// The most characters of one value. The value of an annotation can be a full manifest,
 /// and no other text of an object has a limit that each server holds.
-pub(super) const VALUE_LIMIT: usize = 240;
+pub(crate) const VALUE_LIMIT: usize = 240;
 /// The most chips of the labels or of the annotations, and the most links of a list. An
 /// object can have thousands of them.
-pub(super) const ITEM_LIMIT: usize = 100;
+pub(crate) const ITEM_LIMIT: usize = 100;
 /// The text of no value.
 pub(crate) const NONE: &str = "–";
 
@@ -46,12 +46,12 @@ pub(crate) fn text_field(ui: &mut Ui, palette: &Palette, label: &str, value: &st
 }
 
 /// A note in the tone of a state, for a part that the panel cannot show as current.
-pub(super) fn note(ui: &mut Ui, color: egui::Color32, text: &str) {
+pub(crate) fn note(ui: &mut Ui, color: egui::Color32, text: &str) {
     ui.add(Label::new(RichText::new(text).color(color)).wrap());
 }
 
 /// The note of the items of a list that do not show.
-pub(super) fn more(ui: &mut Ui, palette: &Palette, total: usize) {
+pub(crate) fn more(ui: &mut Ui, palette: &Palette, total: usize) {
     if let Some(more) = total.checked_sub(ITEM_LIMIT).filter(|more| *more > 0) {
         ui.label(RichText::new(format!("and {} more", format::thousands(more as u64))).color(palette.text_muted));
     }
@@ -60,7 +60,7 @@ pub(super) fn more(ui: &mut Ui, palette: &Palette, total: usize) {
 /// One chip for each label or annotation, or the mark of no value. A chip has a fixed
 /// size, so a line of chips breaks between two of them. The first chips show, and a note
 /// has the count of the other ones: each chip is a layout in each frame.
-pub(super) fn chips(ui: &mut Ui, palette: &Palette, values: Option<&BTreeMap<String, String>>) {
+pub(crate) fn chips(ui: &mut Ui, palette: &Palette, values: Option<&BTreeMap<String, String>>) {
     let Some(values) = values.filter(|values| !values.is_empty()) else {
         ui.add_space(1.0);
         ui.label(RichText::new(NONE).color(palette.text_faint));

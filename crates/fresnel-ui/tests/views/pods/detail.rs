@@ -87,7 +87,9 @@ fn the_panel_shows_each_change_of_its_pod_and_a_pod_that_went_away_as_deleted() 
     window.state_mut().view = view(vec![live("ams-prod", &pods_with("db-0", Some(evicted)))]);
     window.step();
     assert!(in_panel(&window, "Evicted"), "the panel reads the snapshot of each frame");
-    until(&mut window, "the row of the new version", |window| window.query_all_by_label("Evicted").count() == 2);
+    until(&mut window, "the row of the new version", |window| {
+        crate::pods::column(window, "Status").contains(&"Evicted".to_owned())
+    });
 
     window.state_mut().view = view(vec![live("ams-prod", &pods_with("db-0", None))]);
     window.step();

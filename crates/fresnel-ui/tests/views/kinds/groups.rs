@@ -59,7 +59,8 @@ fn a_node_shows_its_conditions_with_no_namespace_and_a_link_of_a_pod_on_it_opens
         in_panel(window, "db-0") && in_panel(window, "Pod") && shows(window, "25 pods")
     });
     assert!(in_panel(&window, "StatefulSet db"));
-    assert_eq!(window.state().sent.last(), Some(&Command::ShowKinds(BTreeSet::new())));
+    let shown = window.state().sent.iter().rev().find(|command| matches!(command, Command::ShowKinds(_))).cloned();
+    assert_eq!(shown, Some(Command::ShowKinds(BTreeSet::new())));
 }
 
 #[test]

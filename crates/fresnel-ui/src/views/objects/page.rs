@@ -12,13 +12,16 @@ use fresnel_core::keys::Target;
 use fresnel_core::kinds::{Action, Describe, Kind, Object};
 use fresnel_core::net::task::Tasks;
 
+use super::acts::Acts;
 use super::filter::ObjectFilter;
 use super::follow::Follower;
 use super::notes::{self, Facts, old_since};
-use super::{ClusterMark, Link, Nouns, ObjectModel, Page, RowScene, menu, toolbar, uid};
+use super::toolbar::{self, Picked};
+use super::{ClusterMark, Link, Nouns, ObjectModel, Page, RowScene, uid};
 use crate::shell::Scene;
 use crate::theme::{self, Palette};
-use crate::views::detail::{self, DetailPanel};
+use crate::views::act::{Ask, Gate, Subject};
+use crate::views::detail::{self, DetailPanel, actions};
 use crate::widgets::table::model::ObjectId;
 use crate::widgets::table::{Act, Table};
 use crate::widgets::tone::Tone;
@@ -45,6 +48,8 @@ pub(crate) struct ObjectPage<M: ObjectModel> {
     opened: Option<Link>,
     /// True when the text filter takes the focus in the next frame.
     focus: bool,
+    /// The action of this frame, its dialog and the permissions of the menus.
+    acts: Acts,
 }
 
 impl<M: ObjectModel> ObjectPage<M> {
@@ -61,6 +66,7 @@ impl<M: ObjectModel> ObjectPage<M> {
             note: None,
             opened: None,
             focus: false,
+            acts: Acts::default(),
         }
     }
 
@@ -125,9 +131,7 @@ impl<M: ObjectModel> ObjectPage<M> {
     /// The object of the menu of a row: it becomes the object of the panel, and the action
     /// acts on it. An object that went away since the frame of the menu gets a note.
     fn act_on_row(&mut self, ctx: &Context, id: ObjectId, action: Action) {
-        let store = self.follower.snapshot(&id.cluster);
-        let object = store.and_then(|store| store.items.get(&id.key)).filter(|object| uid(object.meta()) == &*id.uid);
-        match object.map(Arc::clone) {
+        match stored(&self.follower, &id).map(Arc::clone) {
             Some(object) => {
                 self.show_object(id, object);
                 self.act(ctx, action);
@@ -138,6 +142,22 @@ impl<M: ObjectModel> ObjectPage<M> {
                 self.note = Some((Tone::Warn, text));
             }
         }
+    }
+
+    /// The selected objects that their stores still have, as the objects of a bulk action.
+    fn selected(&self) -> Vec<Subject> {
+        selected(&self.table, &self.follower)
+    }
+
+    /// The gate of each bulk action of the kind while more than one row is selected.
+    fn bulk_gates(&mut self, scene: &mut Scene<'_>) -> Vec<(Action, Gate)> {
+        let count = self.table.selection().len();
+        if count < 2 {
+            return Vec::new();
+        }
+        let (table, follower) = (&self.table, &self.follower);
+        let kind = <M::Object as Describe>::ID;
+        self.acts.bulk_gates(kind, count, || selected(table, follower), scene.view, scene.commands)
     }
 
     /// The note of the last link or action.
@@ -233,13 +253,16 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
                     self.table.clear_selection();
                 }
                 detail::Act::Open(target) => link = Some(target),
+                detail::Act::Ask(ask) => self.acts.ask(ask),
                 detail::Act::None => {}
             }
         }
-        if let Some(command) =
-            toolbar::show(ui, palette, &self.nouns, &mut self.filter, &mut self.table, &mut self.focus)
-        {
-            scene.asked = Some(command);
+        let gates = self.bulk_gates(scene);
+        let mut bulk = None;
+        match toolbar::show(ui, palette, &self.nouns, &mut self.filter, &mut self.table, &mut self.focus, &gates) {
+            Some(Picked::Create(command)) => scene.asked = Some(command),
+            Some(Picked::Bulk(action)) => bulk = Some(action),
+            None => {}
         }
         // The namespace filter of the top bar is one filter for each page.
         if self.filter.namespaces != *scene.namespaces {
@@ -251,16 +274,23 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
         self.note_line(ui, palette);
         self.hidden_line(ui, palette, scene);
         let cells = self.row_scene(scene, palette);
-        let (kind, keys) = (<M::Object as Describe>::ID, &scene.view.config.keys);
-        let mut chosen = None;
+        let (kind, view) = (<M::Object as Describe>::ID, scene.view);
+        let (mut chosen, mut asks) = (None, Vec::new());
+        let (follower, acts) = (&self.follower, &mut self.acts);
         let mut menu = |ui: &mut Ui, id: &ObjectId| {
-            if let Some(action) = menu::show(ui, kind, keys) {
+            let subject = stored(follower, id).map(|object| Subject::of(id, &**object));
+            let gate = |action| match &subject {
+                Some(subject) => acts.gate(view, subject, action, &mut asks),
+                None => Gate::Closed("The object went away.".to_owned()),
+            };
+            if let Some(action) = actions::entries(ui, kind, &view.config.keys, gate) {
                 chosen = Some((id.clone(), action));
             }
         };
         let (filter, nouns, follower) = (&self.filter, &self.nouns, &self.follower);
         let empty = || empty_text(scene, filter, nouns, follower);
         let acted = CentralPanel::no_frame().show(ui, |ui| self.table.show(ui, &cells, empty, &mut menu));
+        scene.commands.extend(asks);
         scene.commands.extend(self.table.save_layout(ui));
         match acted.inner {
             Some(Act::Cursor) => {
@@ -279,6 +309,16 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
             self.act_on_row(ui.ctx(), id, action);
             ui.ctx().request_repaint();
         }
+        if let Some(action) = bulk {
+            let subjects = self.selected();
+            self.acts.bulk(action, subjects);
+        }
+        if let Some(note) = self.acts.begin(self.detail.as_mut(), scene) {
+            self.note = Some(note);
+        }
+        if let Some(note) = self.acts.show_dialog(ui.ctx(), scene) {
+            self.note = Some(note);
+        }
         if self.table.rows().is_some_and(|rows| !rows.rows.is_empty()) {
             ui.ctx().request_repaint_after(AGE_REPAINT);
         }
@@ -289,6 +329,7 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
     fn rest(&mut self) {
         self.table.rest();
         self.follower.rest();
+        self.acts.rest();
         (self.detail, self.wanted, self.note, self.opened, self.focus) = (None, None, None, None, false);
     }
 
@@ -307,10 +348,14 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
             self.note = Some((Tone::Warn, text));
             return;
         };
-        self.note = match panel.act(ctx, action) {
-            Ok(done) => done.map(|done| (Tone::Info, done)),
-            Err(reason) => Some((Tone::Warn, reason)),
-        };
+        match panel.act(ctx, action) {
+            Ok(done) => self.note = done.map(|done| (Tone::Info, done)),
+            Err(action) => self.acts.ask(Ask { action, revision: None }),
+        }
+    }
+
+    fn has_dialog(&self) -> bool {
+        self.acts.has_dialog()
     }
 
     fn focus_filter(&mut self) {
@@ -324,6 +369,19 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
     fn keys(&self) -> Option<&Target> {
         self.detail.as_ref().and_then(DetailPanel::key_target)
     }
+}
+
+/// The selected objects of a table that their stores still have.
+fn selected<M: ObjectModel>(table: &Table<M>, follower: &Follower<M::Object>) -> Vec<Subject> {
+    let ids = table.selection().ids();
+    ids.filter_map(|id| stored(follower, id).map(|object| Subject::of(id, &**object))).collect()
+}
+
+/// The object of an identity in the snapshot of its cluster: an object of the same name and
+/// an other UID is an other object.
+fn stored<'a, T: Object>(follower: &'a Follower<T>, id: &ObjectId) -> Option<&'a Arc<T>> {
+    let object = follower.snapshot(&id.cluster).and_then(|store| store.items.get(&id.key));
+    object.filter(|object| uid(object.meta()) == &*id.uid)
 }
 
 /// The link of an object of the kind `K`.

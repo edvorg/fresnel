@@ -6,6 +6,7 @@
 use egui::accesskit::Role;
 use egui::{CursorIcon, Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, TouchPhase, pos2};
 use egui_kittest::kittest::Queryable as _;
+use fresnel_core::app::Command;
 
 use crate::data::{live, many_pods};
 use crate::fake::{Window, until, view, window_with};
@@ -248,7 +249,11 @@ fn columns_that_the_detail_panel_hides_show_again_with_their_widths_and_handles(
     let mut drag = MouseDrag::press(&mut window, "Age", Grip::Rows);
     drag.slide(&mut window, 40.0);
     drag.release(&mut window);
-    let (before, sent) = (spans(&window), window.state().sent.clone());
+    let tables = |window: &Window| -> Vec<Command> {
+        let sent = window.state().sent.iter();
+        sent.filter(|command| matches!(command, Command::SaveTable { .. })).cloned().collect()
+    };
+    let (before, sent) = (spans(&window), tables(&window));
 
     let name = window.get_by_role_and_label(Role::Button, "Name").rect();
     click(&mut window, pos2(name.center().x, name.bottom() + 40.0));
@@ -261,7 +266,7 @@ fn columns_that_the_detail_panel_hides_show_again_with_their_widths_and_handles(
     window.get_by_label("Close the details").click();
     until(&mut window, "no detail panel", |window| window.query_by_label("Close the details").is_none());
     assert_eq!(spans(&window), before, "after the panel");
-    assert_eq!(window.state().sent, sent, "the panel changes no width");
+    assert_eq!(tables(&window), sent, "the panel changes no width");
     let mut drag = MouseDrag::press(&mut window, "Age", Grip::Title);
     drag.slide(&mut window, -40.0);
     drag.release(&mut window);

@@ -34,7 +34,9 @@ fn pods_with_no_uid_and_pods_with_one_uid_are_objects_of_their_own() {
     window.run();
     assert_eq!(window.query_all_by_label("crash-twin").count(), 2, "the row and the heading of the panel");
     assert!(!shows(&window, DELETED) && window.query_all_by_label_contains(" selected").next().is_none());
-    window.get_by_label("crash").click_modifiers(egui::Modifiers::COMMAND);
+    // The row, and not the container of the same name in the panel.
+    let row = window.query_all_by_label("crash").min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()));
+    row.expect("the row of crash").click_modifiers(egui::Modifiers::COMMAND);
     window.run();
     assert!(shows(&window, "2 selected"));
 

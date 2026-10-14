@@ -1,16 +1,18 @@
-//! The bar above the table of a kind: the count of rows, the state of the rows, the button
-//! of a new object, the filters and the choice of the columns. The namespace filter is in
-//! the top bar: it is one filter for each page.
+//! The bar above the table of a kind: the count of rows, the state of the rows, the bulk
+//! actions on the selected rows, the button of a new object, the filters and the choice of
+//! the columns. The namespace filter is in the top bar: it is one filter for each page.
 
 use egui::containers::menu::{MenuButton, MenuConfig};
 use egui::{Align, Frame, Id, Layout, Margin, PopupCloseBehavior, RichText, TextEdit, Ui, UiBuilder};
 use fresnel_core::commands::{self, CommandId};
-use fresnel_core::kinds::{Describe, Kind};
+use fresnel_core::kinds::{Action, Describe, Kind};
 
 use super::filter::ObjectFilter;
 use super::{Nouns, ObjectModel};
 use crate::format;
 use crate::theme::{BAR_HEIGHT, Palette};
+use crate::views::act::Gate;
+use crate::views::detail::actions;
 use crate::widgets;
 use crate::widgets::table::{Progress, Table};
 
@@ -20,8 +22,16 @@ fn create_command(kind: Kind) -> Option<CommandId> {
     (kind == Kind::Secret).then_some(CommandId::NewSecret)
 }
 
-/// Draws the bar. `focus` asks for the focus of the text filter, one time. Gives the
-/// command of the button of a new object, when the user clicked it.
+/// What the user chose in the bar.
+pub(super) enum Picked {
+    /// The command of the button of a new object.
+    Create(CommandId),
+    /// A bulk action on the selected rows.
+    Bulk(Action),
+}
+
+/// Draws the bar. `focus` asks for the focus of the text filter, one time. `bulk` has the
+/// gate of each bulk action on the selected rows. Gives what the user clicked.
 pub(super) fn show<M: ObjectModel>(
     ui: &mut Ui,
     palette: &Palette,
@@ -29,8 +39,9 @@ pub(super) fn show<M: ObjectModel>(
     filter: &mut ObjectFilter,
     table: &mut Table<M>,
     focus: &mut bool,
-) -> Option<CommandId> {
-    let mut asked = None;
+    bulk: &[(Action, Gate)],
+) -> Option<Picked> {
+    let mut chosen = None;
     Frame::new().inner_margin(Margin::symmetric(12, 0)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.set_height(BAR_HEIGHT);
@@ -41,15 +52,15 @@ pub(super) fn show<M: ObjectModel>(
                     ui.label(format!("The worker thread computed the rows in {}.", format::short_time(time)));
                 });
             }
+
             if table.selection().len() > 1 {
-                let selected = format!("{} selected", format::thousands(table.selection().len() as u64));
-                ui.label(RichText::new(selected).color(palette.accent));
+                chosen = bulk_menu(ui, palette, table.selection().len(), bulk).map(Picked::Bulk);
             }
             let create = create_command(<M::Object as Describe>::ID).and_then(commands::entry);
             if let Some(entry) = create
                 && ui.small_button(entry.label).clicked()
             {
-                asked = Some(entry.id);
+                chosen = Some(Picked::Create(entry.id));
             }
             match table.progress() {
                 Progress::Current => {}
@@ -78,7 +89,38 @@ pub(super) fn show<M: ObjectModel>(
             });
         });
     });
-    asked
+    chosen
+}
+
+/// The menu of the selected rows with a button for each bulk action and its gate. A menu
+/// needs no more room in the bar, and a line of its own would move the rows under the
+/// pointer when a click with Cmd adds the second row. Gives the action of a click.
+fn bulk_menu(ui: &mut Ui, palette: &Palette, count: usize, bulk: &[(Action, Gate)]) -> Option<Action> {
+    let selected = RichText::new(format!("{} selected", format::thousands(count as u64))).color(palette.accent);
+    let config = MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside);
+    let (_, inner) = MenuButton::new(selected).config(config).ui(ui, |ui| bulk_buttons(ui, bulk));
+    inner.and_then(|inner| inner.inner)
+}
+
+/// A button for each bulk action, with its gate. Gives the action of a click.
+fn bulk_buttons(ui: &mut Ui, bulk: &[(Action, Gate)]) -> Option<Action> {
+    let mut chosen = None;
+    if bulk.is_empty() {
+        ui.label("This kind has no bulk action.");
+    }
+    for (action, gate) in bulk {
+        let button = ui.add_enabled(!gate.is_closed(), egui::Button::new(actions::label(*action)));
+        widgets::name(&button, &format!("{} the selected", action.label()));
+        let button = match gate.hint() {
+            Some(hint) => button.on_hover_text(&hint).on_disabled_hover_text(hint),
+            None => button,
+        };
+        if button.clicked() {
+            chosen = Some(*action);
+            ui.close();
+        }
+    }
+    chosen
 }
 
 /// "56 of 1,204 pods": the rows after the filters, and the objects of the selected clusters.
