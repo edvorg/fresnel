@@ -11,7 +11,8 @@ use fresnel_core::store::ObjectKey;
 pub(crate) struct ObjectFilter {
     /// A part of a text of a row: the name, the namespace, the cluster or a text column.
     pub(crate) text: String,
-    /// The namespaces whose objects show. Empty: each namespace.
+    /// The namespaces whose objects show. Empty: each namespace. The namespace filter of
+    /// the top bar sets it for each page.
     pub(crate) namespaces: BTreeSet<Arc<str>>,
     /// True to show only the objects that are not healthy.
     pub(crate) problems: bool,
@@ -23,10 +24,12 @@ impl ObjectFilter {
         self.text.trim().to_ascii_lowercase()
     }
 
-    /// True when the namespace filter and the problems filter let the object pass. The
-    /// text filter is the work of the model: the texts of a row differ from kind to kind.
+    /// True when the namespace filter and the problems filter let the object pass. An
+    /// object with no namespace passes each namespace filter. The text filter is the work
+    /// of the model: the texts of a row differ from kind to kind.
     pub(crate) fn passes(&self, key: &ObjectKey, health: ObjectHealth) -> bool {
-        let in_namespace = self.namespaces.is_empty() || self.namespaces.contains(&key.namespace);
+        let in_namespace =
+            self.namespaces.is_empty() || key.namespace.is_empty() || self.namespaces.contains(&key.namespace);
         in_namespace && (!self.problems || health.is_problem())
     }
 }
@@ -73,6 +76,7 @@ mod tests {
         assert!(!filter.passes(&key, ObjectHealth::Progressing) && filter.passes(&key, ObjectHealth::Warning));
         filter.namespaces.insert("other".into());
         assert!(!filter.passes(&key, ObjectHealth::Failed));
+        assert!(filter.passes(&ObjectKey::new("", "node-1"), ObjectHealth::Failed), "a node has no namespace");
 
         let keys = [ObjectKey::new("", "node-1"), ObjectKey::new("b", "x"), ObjectKey::new("a", "y")];
         let mut set = NamespaceSet::default();

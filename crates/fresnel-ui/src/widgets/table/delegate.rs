@@ -7,7 +7,7 @@ use egui::{Modifiers, Ui};
 
 use super::cells;
 use super::edges::Seen;
-use super::model::{Column, Model, Sort};
+use super::model::{Column, Model, ObjectId, Sort};
 use super::selection::Selection;
 use crate::theme::Palette;
 
@@ -34,6 +34,8 @@ pub(super) struct Delegate<'a, M: Model> {
     /// pass that measures it.
     pub(super) fit: Option<usize>,
     pub(super) fitted: f32,
+    /// Draws the menu of the row of an object.
+    pub(super) menu: &'a mut dyn FnMut(&mut Ui, &ObjectId),
 }
 
 impl<M: Model> Delegate<'_, M> {
@@ -86,17 +88,19 @@ impl<M: Model> Delegate<'_, M> {
         self.measure(ui, index);
     }
 
-    /// The background of a row, and its click.
+    /// The background of a row, its click and its menu.
     pub(super) fn row_background(&mut self, ui: &mut Ui, row_nr: u64) {
         let Some((index, row)) = self.row(row_nr) else {
             return;
         };
-        let id = self.model.id(row);
-        let (selected, is_cursor) = (self.selection.contains(id), self.selection.cursor() == Some(id));
+        let id = self.model.id(row).clone();
+        let (selected, is_cursor) = (self.selection.contains(&id), self.selection.cursor() == Some(&id));
         self.seen.row(ui);
-        if cells::row(ui, self.palette, selected, is_cursor).clicked() {
+        let response = cells::row(ui, self.palette, selected, is_cursor);
+        if response.clicked() {
             self.row_clicked = Some((index, ui.input(|input| input.modifiers)));
         }
+        response.context_menu(|ui| (self.menu)(ui, &id));
     }
 
     /// The cell of a row at this position of the screen.

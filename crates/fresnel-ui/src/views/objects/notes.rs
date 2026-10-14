@@ -27,13 +27,16 @@ const LINES: f32 = 4.0;
 /// Since when the rows of a store are old, for the mark of each row. `None` for a live
 /// store: its rows are current.
 pub(crate) fn old_since<T>(snapshot: &Snapshot<T>, clock: &Clock) -> Option<String> {
-    if snapshot.state.is_live() {
-        return None;
-    }
-    Some(match snapshot.last_contact {
+    (!snapshot.state.is_live()).then(|| old_text(snapshot.last_contact, clock))
+}
+
+/// The mark of an object of a store that is not live, from the last data of the store:
+/// the same words in a row, in the panel and in a hit of the quick search.
+pub(crate) fn old_text(last_contact: Option<SystemTime>, clock: &Clock) -> String {
+    match last_contact {
         Some(time) => format!("old since {}", clock.time_of_day(time)),
         None => "old: the server gave no answer yet".to_owned(),
-    })
+    }
 }
 
 /// What a note reads of the store of the kind of one cluster.

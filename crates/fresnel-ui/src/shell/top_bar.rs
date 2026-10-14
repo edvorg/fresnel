@@ -1,37 +1,64 @@
-//! Top bar: the clusters of the kubeconfig files, each with its switch.
+//! Top bar: the clusters of the kubeconfig files, each with its switch, and at the right
+//! the namespace filter and the button of the quick search.
 //!
 //! The selection is a set: the user selects many clusters, and each view shows all of them.
 
-use egui::{Align2, FontId, RichText, Sense, StrokeKind, Ui, WidgetInfo, WidgetType};
-use fresnel_core::app::{ClusterRow, Command, Startup};
+use std::sync::Arc;
 
-use super::Scene;
+use egui::{Align, Align2, Button, FontId, Layout, RichText, Sense, StrokeKind, Ui, WidgetInfo, WidgetType};
+use fresnel_core::app::{ClusterRow, Command, Startup};
+use fresnel_core::commands::CommandId;
+
+use super::{Scene, keys, namespaces};
 use crate::theme::{self, Palette};
 use crate::widgets;
 
 pub(super) const HEIGHT: f32 = 40.0;
 
-pub(super) fn show(ui: &mut Ui, scene: &mut Scene<'_>) {
+/// Draws the bar. `on_page` are the namespaces of the objects of the open page. Gives true
+/// for a click on the button of the quick search.
+pub(super) fn show(ui: &mut Ui, scene: &mut Scene<'_>, on_page: &[Arc<str>]) -> bool {
     let palette = theme::palette(ui);
-    ui.horizontal_centered(|ui| {
+    let mut search = false;
+    // The filter and the search take their place first, at the right. Many clusters then
+    // scroll in the rest of the bar.
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
         ui.add_space(4.0);
-        ui.label(RichText::new("fresnel").size(15.0).strong().color(palette.accent));
-        ui.add_space(8.0);
-        if scene.view.clusters.is_empty() {
-            ui.label(RichText::new(startup_text(scene.view.startup)).color(palette.text_muted));
-            return;
+        let key = keys::text(ui.ctx(), &scene.view.config.keys, CommandId::QuickSearch);
+        let text = key.as_ref().map_or_else(|| "Search".to_owned(), |key| format!("Search  {key}"));
+        let button = ui.add(Button::new(text));
+        widgets::name(&button, "Quick search");
+        if let Some(key) = &key {
+            // A screen reader reads the key as the value of the button.
+            button.ctx.accesskit_node_builder(button.id, |node| node.set_value(key.as_str()));
         }
-        select_all(ui, scene, true, "All", "Select all clusters");
-        select_all(ui, scene, false, "None", "Select no cluster");
-        ui.add_space(4.0);
-        egui::ScrollArea::horizontal().auto_shrink(false).show(ui, |ui| {
-            for row in &scene.view.clusters {
-                let color = scene.colors.color(&row.id, palette);
-                if chip(ui, palette, row, color).clicked() {
-                    scene.commands.push(Command::Select { cluster: row.id.clone(), selected: !row.selected });
-                }
+        search = button.clicked();
+        namespaces::menu(ui, scene.view, on_page, scene.namespaces);
+        ui.add_space(8.0);
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| clusters(ui, scene, palette));
+    });
+    search
+}
+
+/// The name of the app and the switch of each cluster.
+fn clusters(ui: &mut Ui, scene: &mut Scene<'_>, palette: &Palette) {
+    ui.add_space(4.0);
+    ui.label(RichText::new("fresnel").size(15.0).strong().color(palette.accent));
+    ui.add_space(8.0);
+    if scene.view.clusters.is_empty() {
+        ui.label(RichText::new(startup_text(scene.view.startup)).color(palette.text_muted));
+        return;
+    }
+    select_all(ui, scene, true, "All", "Select all clusters");
+    select_all(ui, scene, false, "None", "Select no cluster");
+    ui.add_space(4.0);
+    egui::ScrollArea::horizontal().auto_shrink(false).show(ui, |ui| {
+        for row in &scene.view.clusters {
+            let color = scene.colors.color(&row.id, palette);
+            if chip(ui, palette, row, color).clicked() {
+                scene.commands.push(Command::Select { cluster: row.id.clone(), selected: !row.selected });
             }
-        });
+        }
     });
 }
 

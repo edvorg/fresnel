@@ -125,7 +125,7 @@ impl Bed {
         let view = View { table, data: Arc::new(objects.to_vec()), serial: 1, filter: i64::MIN, acted: None };
         let frame = |ui: &mut egui::Ui, view: &mut View| {
             view.table.request(&view.filter, view.serial, || Arc::clone(&view.data));
-            let acted = view.table.show(ui, &(), || "no row passes the filter".to_owned());
+            let acted = view.table.show(ui, &(), || "no row passes the filter".to_owned(), &mut |_, _| {});
             view.acted = acted.or(view.acted);
         };
         let mut window = Harness::builder().with_size([600.0, 400.0]).build_ui_state(frame, view);

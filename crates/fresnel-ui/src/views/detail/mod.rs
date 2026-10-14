@@ -10,7 +10,9 @@
 //!
 //! - `fields`: the parts of a section. `sections`: the sections of a kind.
 //! - `conditions`, `related`, `events`: the sections of each kind. `manifest`: the tab.
+//! - `actions`: the actions of the command table on the object of the panel.
 
+pub(crate) mod actions;
 mod conditions;
 mod events;
 pub(crate) mod fields;
@@ -23,7 +25,7 @@ use std::time::SystemTime;
 
 use egui::{Align, Button, Frame, Label, Layout, Margin, RichText, ScrollArea, Ui};
 use fresnel_core::app::{ClusterRow, ManifestRequest};
-use fresnel_core::kinds::{Describe, Kind, Object};
+use fresnel_core::kinds::{Action, Describe, Kind, Object};
 use fresnel_core::store::{ObjectKey, Snapshot};
 
 use self::conditions::Condition;
@@ -83,6 +85,34 @@ impl<K: Describe> DetailPanel<K> {
 
     pub(crate) fn id(&self) -> &ObjectId {
         &self.id
+    }
+
+    /// True while the store of the cluster has the object.
+    pub(crate) fn is_present(&self) -> bool {
+        self.presence == Presence::Present
+    }
+
+    /// Runs an action of the command table on the object. Gives a note of what it did
+    /// when the panel does not show that, and the reason of an action that this version
+    /// does not run.
+    pub(crate) fn act(&mut self, ctx: &egui::Context, action: Action) -> Result<Option<String>, String> {
+        let (cluster, key) = (&self.id.cluster, &self.id.key);
+        match action {
+            Action::ViewManifest => {
+                self.tab = Tab::Manifest;
+                Ok(None)
+            }
+            Action::CopyName => {
+                ctx.copy_text(key.name.to_string());
+                Ok(Some(format!("Copied the name {}.", key.name)))
+            }
+            Action::CopyCommand => {
+                let command = actions::kubectl(cluster, K::ID, key);
+                ctx.copy_text(command.clone());
+                Ok(Some(format!("Copied: {command}")))
+            }
+            other => Err(actions::later(other)),
+        }
     }
 
     /// Reads the object from the snapshot of this frame. An object with the same name and

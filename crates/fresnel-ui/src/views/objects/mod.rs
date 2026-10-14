@@ -5,9 +5,11 @@
 //! - `model`: what a kind gives to its page. `page`: the page with its table and panel.
 //! - `follow`: the changes of the stores from frame to frame. `filter`: the filters.
 //! - `toolbar`: the count, the filters and the columns. `notes`: the state of each store.
+//! - `menu`: the menu of a row, from the command table.
 
 mod filter;
 mod follow;
+mod menu;
 mod model;
 mod notes;
 mod page;
@@ -15,17 +17,20 @@ mod toolbar;
 
 pub(crate) use filter::{NamespaceSet, Namespaces, ObjectFilter};
 pub(crate) use model::{ClusterMark, Nouns, ObjectModel, RowScene, Stores, uid};
-pub(crate) use notes::old_since;
+pub(crate) use notes::{old_since, old_text};
 pub(crate) use page::ObjectPage;
 
-use egui::Ui;
+use std::sync::Arc;
+
+use egui::{Context, Ui};
 use fresnel_core::cluster::ClusterId;
-use fresnel_core::kinds::Kind;
+use fresnel_core::kinds::{Action, Kind};
 use fresnel_core::store::ObjectKey;
 
 use crate::shell::Scene;
 
-/// An object that the user wants to see: a link of the detail panel names it.
+/// An object that the user wants to see: a link of the detail panel, a hit of the quick
+/// search or a step of the history names it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Link {
     pub(crate) cluster: ClusterId,
@@ -48,4 +53,17 @@ pub(crate) trait Page {
     /// Selects the object of a link of this kind and opens its panel, when the store of
     /// its cluster has it.
     fn open(&mut self, link: Link);
+
+    /// The object that the panel shows, once after each change: a click, a key, a menu or
+    /// a link opened it. The history of Back and Forward keeps it.
+    fn opened(&mut self) -> Option<Link>;
+
+    /// Runs an action of the command table on the object of the panel.
+    fn act(&mut self, ctx: &Context, action: Action);
+
+    /// Puts the focus into the text filter in the next frame.
+    fn focus_filter(&mut self);
+
+    /// The namespaces of the objects of the page, for the namespace filter.
+    fn namespaces(&self) -> &[Arc<str>];
 }

@@ -1,12 +1,9 @@
 //! The bar above the table of a kind: the count of rows, the state of the rows, the
-//! filters and the choice of the columns.
-
-use std::collections::BTreeSet;
-use std::sync::Arc;
+//! filters and the choice of the columns. The namespace filter is in the top bar: it is
+//! one filter for each page.
 
 use egui::containers::menu::{MenuButton, MenuConfig};
-use egui::{Align, Frame, Layout, Margin, PopupCloseBehavior, RichText, ScrollArea, TextEdit, Ui};
-use fresnel_core::kinds::Describe;
+use egui::{Align, Frame, Layout, Margin, PopupCloseBehavior, RichText, TextEdit, Ui};
 
 use super::filter::ObjectFilter;
 use super::{Nouns, ObjectModel};
@@ -15,12 +12,14 @@ use crate::theme::{BAR_HEIGHT, Palette};
 use crate::widgets;
 use crate::widgets::table::{Progress, Table};
 
+/// Draws the bar. `focus` asks for the focus of the text filter, one time.
 pub(super) fn show<M: ObjectModel>(
     ui: &mut Ui,
     palette: &Palette,
     nouns: &Nouns,
     filter: &mut ObjectFilter,
     table: &mut Table<M>,
+    focus: &mut bool,
 ) {
     Frame::new().inner_margin(Margin::symmetric(12, 0)).show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -48,9 +47,12 @@ pub(super) fn show<M: ObjectModel>(
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let field = TextEdit::singleline(&mut filter.text).hint_text("Filter").desired_width(200.0);
-                widgets::name(&ui.add(field), &format!("Filter {}", nouns.many));
+                let field = ui.add(field);
+                widgets::name(&field, &format!("Filter {}", nouns.many));
+                if std::mem::take(focus) {
+                    field.request_focus();
+                }
                 columns(ui, table);
-                namespaces(ui, filter, table);
                 let problems = ui.toggle_value(&mut filter.problems, "Problems");
                 problems.on_hover_text(format!("Shows only the {} that are not healthy", nouns.many));
             });
@@ -82,42 +84,4 @@ fn columns<M: ObjectModel>(ui: &mut Ui, table: &mut Table<M>) {
     for (index, shown) in chosen {
         table.show_column(index, shown);
     }
-}
-
-/// The menu of the namespace filter. It lists each namespace with an object, and each
-/// namespace of the filter: a namespace whose last object went away stays in the menu, so
-/// the user can remove it from the filter. A kind with no namespace has no menu.
-fn namespaces<M: ObjectModel>(ui: &mut Ui, filter: &mut ObjectFilter, table: &Table<M>) {
-    if !<M::Object as Describe>::ID.info().namespaced {
-        return;
-    }
-    let with_objects = table.rows().map(|rows| rows.summary.names.as_slice()).unwrap_or_default();
-    let listed: BTreeSet<&Arc<str>> = with_objects.iter().chain(&filter.namespaces).collect();
-    let title = match filter.namespaces.len() {
-        0 => "All namespaces".to_owned(),
-        1 => filter.namespaces.first().map_or_else(String::new, |only| format!("Namespace: {only}")),
-        more => format!("{more} namespaces"),
-    };
-    // The menu stays open at a click: the user selects more than one namespace.
-    let config = MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside);
-    let mut selected = filter.namespaces.clone();
-    MenuButton::new(title).config(config).ui(ui, |ui| {
-        if ui.button("All namespaces").clicked() {
-            selected.clear();
-        }
-        ui.separator();
-        ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-            for namespace in listed {
-                let mut on = selected.contains(namespace);
-                if ui.checkbox(&mut on, &**namespace).changed() {
-                    if on {
-                        selected.insert(Arc::clone(namespace));
-                    } else {
-                        selected.remove(namespace);
-                    }
-                }
-            }
-        });
-    });
-    filter.namespaces = selected;
 }

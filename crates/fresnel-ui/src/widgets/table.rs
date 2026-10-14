@@ -141,9 +141,21 @@ impl<M: Model> Table<M> {
         rows.iter().find(|row| self.model.id(row) == cursor)
     }
 
-    /// Draws the table into the rest of `ui`. `empty` tells why the table has no row.
-    /// Gives what the user did to the cursor.
-    pub(crate) fn show(&mut self, ui: &mut Ui, scene: &M::Scene, empty: impl FnOnce() -> String) -> Option<Act> {
+    /// True when the rows on the screen are the rows of the last request and none of them
+    /// is the row of this object: a filter hides it.
+    pub(crate) fn hides(&self, id: &ObjectId) -> bool {
+        self.supply.is_current() && self.rows().is_some_and(|rows| position(&*self.model, &rows.rows, id).is_none())
+    }
+
+    /// Draws the table into the rest of `ui`. `empty` tells why the table has no row, and
+    /// `menu` draws the menu of the row of an object. Gives what the user did to the cursor.
+    pub(crate) fn show(
+        &mut self,
+        ui: &mut Ui,
+        scene: &M::Scene,
+        empty: impl FnOnce() -> String,
+        menu: &mut dyn FnMut(&mut Ui, &ObjectId),
+    ) -> Option<Act> {
         let palette = theme::palette(ui);
         if let Some(rest) = self.supply.time_to_slow() {
             // The frame after this time tells that the table waits for its rows.
@@ -184,7 +196,13 @@ impl<M: Model> Table<M> {
             .num_sticky_cols(1)
             .headers([egui_table::HeaderRow::new(ROW_HEIGHT + 2.0)])
             .auto_size_mode(egui_table::AutoSizeMode::Never);
-        if let Some(row) = self.reveal.take().and_then(|target| position(model, rows, &target)) {
+        // The object of a link can wait for the rows of a new filter. It stays until the
+        // rows of the last request are on the screen.
+        let reveal = self.reveal.as_ref().and_then(|target| position(model, rows, target));
+        if reveal.is_some() || self.supply.is_current() {
+            self.reveal = None;
+        }
+        if let Some(row) = reveal {
             table = table.scroll_to_row(row as u64, None);
         }
         let table_id = table.get_id(ui);
@@ -205,6 +223,7 @@ impl<M: Model> Table<M> {
             seen: Seen::default(),
             fit,
             fitted: 0.0,
+            menu,
         };
         table.show(ui, &mut delegate);
         let (header_clicked, row_clicked) = (delegate.header_clicked, delegate.row_clicked);

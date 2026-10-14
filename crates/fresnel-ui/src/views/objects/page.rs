@@ -1,22 +1,26 @@
 //! The page of one kind: the bar, the notes, the table and the detail panel.
+//!
+//! The page opens the object of a link (plan section 11.5): it selects its row and shows
+//! its panel. When a filter hides that row, a note says so and offers to show it.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use egui::{CentralPanel, Frame, Panel, RichText, Ui};
+use egui::{CentralPanel, Context, Frame, Panel, RichText, Ui};
 use fresnel_core::app::ClusterRow;
-use fresnel_core::kinds::{Describe, Kind, Object};
+use fresnel_core::kinds::{Action, Describe, Kind, Object};
 use fresnel_core::net::task::Tasks;
 
 use super::filter::ObjectFilter;
 use super::follow::Follower;
 use super::notes::{self, Facts, old_since};
-use super::{ClusterMark, Link, Nouns, ObjectModel, Page, RowScene, toolbar, uid};
+use super::{ClusterMark, Link, Nouns, ObjectModel, Page, RowScene, menu, toolbar, uid};
 use crate::shell::Scene;
 use crate::theme::{self, Palette};
 use crate::views::detail::{self, DetailPanel};
 use crate::widgets::table::model::ObjectId;
 use crate::widgets::table::{Act, Table};
+use crate::widgets::tone::Tone;
 use crate::widgets::worker::Wake;
 
 /// The age of an object changes with no change of a store, so the page asks for a repaint
@@ -32,8 +36,12 @@ pub(crate) struct ObjectPage<M: ObjectModel> {
     detail: Option<DetailPanel<M::Object>>,
     /// The object of a link, until the store of its cluster has a complete list.
     wanted: Option<Link>,
-    /// Why the object of the last link has no panel.
-    missing: Option<String>,
+    /// What the last link or action did not do, and why; or what it copied.
+    note: Option<(Tone, String)>,
+    /// The object of the panel after a change, until the shell takes it.
+    opened: Option<Link>,
+    /// True when the text filter takes the focus in the next frame.
+    focus: bool,
 }
 
 impl<M: ObjectModel> ObjectPage<M> {
@@ -47,7 +55,9 @@ impl<M: ObjectModel> ObjectPage<M> {
             filter: ObjectFilter::default(),
             detail: None,
             wanted: None,
-            missing: None,
+            note: None,
+            opened: None,
+            focus: false,
         }
     }
 
@@ -78,8 +88,8 @@ impl<M: ObjectModel> ObjectPage<M> {
         let name = format!("{} {}", <M::Object as Describe>::ID.info().name, link.key.name);
         let Some(snapshot) = self.follower.snapshot(&link.cluster) else {
             if !scene.view.clusters.iter().any(|row| row.id == link.cluster && row.selected) {
-                self.missing = Some(format!("The {name} is of {}, which is not selected.", link.cluster));
-                self.wanted = None;
+                let text = format!("The {name} is of {}, which is not selected.", link.cluster);
+                (self.note, self.wanted) = (Some((Tone::Warn, text)), None);
             }
             return;
         };
@@ -87,15 +97,70 @@ impl<M: ObjectModel> ObjectPage<M> {
             Some(object) => {
                 let (cluster, key) = (link.cluster.clone(), link.key.clone());
                 let id = ObjectId { cluster, key, uid: uid(object.meta()).into() };
-                self.table.select(id.clone());
-                self.detail = Some(DetailPanel::new(id, Arc::clone(object)));
-                (self.wanted, self.missing) = (None, None);
-            }
-            None if snapshot.listed => {
-                self.missing = Some(format!("{} has no {name}.", link.cluster));
+                let object = Arc::clone(object);
+                self.show_object(id, object);
                 self.wanted = None;
             }
+            None if snapshot.listed => {
+                (self.note, self.wanted) = (Some((Tone::Warn, format!("{} has no {name}.", link.cluster))), None);
+            }
             None => {}
+        }
+    }
+
+    /// Selects an object, scrolls to its row and shows its panel.
+    fn show_object(&mut self, id: ObjectId, object: Arc<M::Object>) {
+        self.table.select(id.clone());
+        self.opened = Some(link_of::<M::Object>(&id));
+        self.detail = Some(DetailPanel::new(id, object));
+        self.note = None;
+    }
+
+    /// The object of the menu of a row: it becomes the object of the panel, and the action
+    /// acts on it.
+    fn act_on_row(&mut self, ctx: &Context, id: ObjectId, action: Action) {
+        let store = self.follower.snapshot(&id.cluster);
+        let object = store.and_then(|store| store.items.get(&id.key)).filter(|object| uid(object.meta()) == &*id.uid);
+        if let Some(object) = object.map(Arc::clone) {
+            self.show_object(id, object);
+            self.act(ctx, action);
+        }
+    }
+
+    /// The note of the last link or action.
+    fn note_line(&self, ui: &mut Ui, palette: &Palette) {
+        if let Some((tone, text)) = &self.note {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(RichText::new(text).color(tone.color(palette)));
+            });
+        }
+    }
+
+    /// A note when the filters hide the row of the object of the panel, with an action
+    /// that changes them so the row shows.
+    fn hidden_line(&mut self, ui: &mut Ui, palette: &Palette, scene: &mut Scene<'_>) {
+        let Some(panel) = &self.detail else {
+            return;
+        };
+        if !panel.is_present() || !self.table.hides(panel.id()) {
+            return;
+        }
+        let id = panel.id().clone();
+        let mut show = false;
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            let text = format!("The filters hide the row of this {}.", self.nouns.one);
+            ui.label(RichText::new(text).color(palette.warn));
+            show = ui.small_button("Show it").clicked();
+        });
+        if show {
+            (self.filter.text, self.filter.problems) = (String::new(), false);
+            if !scene.namespaces.is_empty() && !id.key.namespace.is_empty() {
+                scene.namespaces.insert(Arc::clone(&id.key.namespace));
+            }
+            self.table.select(id);
+            ui.ctx().request_repaint();
         }
     }
 
@@ -158,32 +223,44 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
                 detail::Act::None => {}
             }
         }
-        toolbar::show(ui, palette, &self.nouns, &mut self.filter, &mut self.table);
+        toolbar::show(ui, palette, &self.nouns, &mut self.filter, &mut self.table, &mut self.focus);
+        // The namespace filter of the top bar is one filter for each page.
+        if self.filter.namespaces != *scene.namespaces {
+            self.filter.namespaces.clone_from(scene.namespaces);
+        }
         // After the bar: a filter that the user changed in this frame asks for its rows now.
         self.table.request(&self.filter, self.follower.serial(), || self.follower.data());
         notes::show(ui, palette, scene, &self.nouns, |cluster| self.follower.snapshot(cluster).map(Facts::of));
-        if let Some(missing) = &self.missing {
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.label(RichText::new(missing).color(palette.warn));
-            });
-        }
+        self.note_line(ui, palette);
+        self.hidden_line(ui, palette, scene);
         let cells = self.row_scene(scene, palette);
+        let (kind, keys) = (<M::Object as Describe>::ID, &scene.view.config.keys);
+        let mut chosen = None;
+        let mut menu = |ui: &mut Ui, id: &ObjectId| {
+            if let Some(action) = menu::show(ui, kind, keys) {
+                chosen = Some((id.clone(), action));
+            }
+        };
         let (filter, nouns, follower) = (&self.filter, &self.nouns, &self.follower);
         let empty = || empty_text(scene, filter, nouns, follower);
-        let acted = CentralPanel::no_frame().show(ui, |ui| self.table.show(ui, &cells, empty));
+        let acted = CentralPanel::no_frame().show(ui, |ui| self.table.show(ui, &cells, empty, &mut menu));
         scene.commands.extend(self.table.save_layout(ui));
         match acted.inner {
             Some(Act::Cursor) => {
                 let model = self.table.model();
                 let row = self.table.cursor_row();
                 self.detail = row.map(|row| DetailPanel::new(model.id(row).clone(), Arc::clone(model.object(row))));
-                self.missing = None;
+                self.opened = self.detail.as_ref().map(|panel| link_of::<M::Object>(panel.id()));
+                self.note = None;
                 // The panel is before the table in a frame, so the next frame shows it.
                 ui.ctx().request_repaint();
             }
             Some(Act::Cleared) => self.detail = None,
             None => {}
+        }
+        if let Some((id, action)) = chosen {
+            self.act_on_row(ui.ctx(), id, action);
+            ui.ctx().request_repaint();
         }
         if self.table.rows().is_some_and(|rows| !rows.rows.is_empty()) {
             ui.ctx().request_repaint_after(AGE_REPAINT);
@@ -195,11 +272,40 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
     fn rest(&mut self) {
         self.table.rest();
         self.follower.rest();
-        (self.detail, self.wanted, self.missing) = (None, None, None);
+        (self.detail, self.wanted, self.note, self.opened) = (None, None, None, None);
     }
 
     fn open(&mut self, link: Link) {
         self.wanted = Some(link);
-        self.missing = None;
+        self.note = None;
     }
+
+    fn opened(&mut self) -> Option<Link> {
+        self.opened.take()
+    }
+
+    fn act(&mut self, ctx: &Context, action: Action) {
+        let Some(panel) = &mut self.detail else {
+            let text = format!("No {} is open in the panel. {} acts on that object.", self.nouns.one, action.label());
+            self.note = Some((Tone::Warn, text));
+            return;
+        };
+        self.note = match panel.act(ctx, action) {
+            Ok(done) => done.map(|done| (Tone::Info, done)),
+            Err(reason) => Some((Tone::Warn, reason)),
+        };
+    }
+
+    fn focus_filter(&mut self) {
+        self.focus = true;
+    }
+
+    fn namespaces(&self) -> &[Arc<str>] {
+        self.table.rows().map(|rows| rows.summary.names.as_slice()).unwrap_or_default()
+    }
+}
+
+/// The link of an object of the kind `K`.
+fn link_of<K: Describe>(id: &ObjectId) -> Link {
+    Link { cluster: id.cluster.clone(), kind: K::ID, key: id.key.clone() }
 }
