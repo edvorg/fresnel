@@ -4,9 +4,9 @@
 //! Each cluster has 10,000 made-up pods and the metadata of 5,000 made-up Secrets: 60,000
 //! objects, more than the 59,000 rows of the store prototype. The time runs from the key to
 //! the frame that shows the hits, so it has the frames, the request, the worker thread and
-//! its wake of the window. The limit holds in a release build:
+//! its wake of the window. The limit holds in a release build on the Mac of the 16 ms frame:
 //! `cargo test --release --package fresnel-ui --test views search::time -- --nocapture`.
-//! A debug build runs the same steps and checks no time.
+//! A debug build runs the same steps and checks no time. CI gives the limit of its runner.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -21,8 +21,11 @@ use k8s_openapi::api::core::v1::Secret;
 use super::{metadata, secrets, with_sources};
 use crate::data::{changed_object, held, live, many_pods, store};
 use crate::fake::{Window, view, window_with_no_gpu};
+use crate::frame_time::limit;
 
 const LIMIT: Duration = Duration::from_millis(50);
+/// The variable with the limit of a slower machine, in milliseconds.
+const LIMIT_VARIABLE: &str = "FRESNEL_SEARCH_LIMIT_MS";
 const CLUSTERS: usize = 4;
 const PODS: usize = 10_000;
 const SECRETS: usize = 5_000;
@@ -86,5 +89,6 @@ fn the_hits_of_4_clusters_with_60000_objects_show_in_50_ms_or_less() {
     if cfg!(debug_assertions) {
         return;
     }
-    assert!(one <= LIMIT && broad <= LIMIT, "{one:?} and {broad:?}, the limit is {LIMIT:?}");
+    let limit = limit(LIMIT_VARIABLE, LIMIT);
+    assert!(one <= limit && broad <= limit, "{one:?} and {broad:?}, the limit is {limit:?}");
 }

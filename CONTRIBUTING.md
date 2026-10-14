@@ -10,7 +10,7 @@ cargo test --workspace
 cargo xtask check-sizes && cargo xtask check-borders
 ```
 
-CI runs the same commands on macOS and Linux. The file `rust-toolchain.toml` pins the compiler.
+CI runs these commands on macOS and Linux, with the time tests in a release build (job `time`).
 
 ## Code
 

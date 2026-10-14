@@ -6,10 +6,11 @@
 //! time. The worker thread computes the rows, so a sort or a filter must not make a frame
 //! long: the test draws frames with no pause while the worker computes.
 //!
-//! The limit holds in a release build:
+//! The limit holds in a release build on a known machine, the Mac on which it was set:
 //! `cargo test --release --package fresnel-ui --test views frame_time -- --nocapture`.
 //! A debug build runs the same steps and checks no time, so each run of the tests proves
-//! that 10,000 pods scroll, sort and filter.
+//! that 10,000 pods scroll, sort and filter. CI runs them in a release build with the limits
+//! of each runner in `FRESNEL_FRAME_LIMIT_MS` and `FRESNEL_SEARCH_LIMIT_MS` (see `limit`).
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -24,6 +25,8 @@ use crate::pods::column;
 
 /// The frame time of a display with 60 pictures in one second.
 const LIMIT: Duration = Duration::from_millis(16);
+/// The variable with the frame time limit of a slower machine, in milliseconds.
+const LIMIT_VARIABLE: &str = "FRESNEL_FRAME_LIMIT_MS";
 const PODS: usize = 10_000;
 /// The longest wait for the rows of the worker thread.
 const ROWS_LIMIT: Duration = Duration::from_secs(60);
@@ -85,7 +88,19 @@ impl Step {
         if cfg!(debug_assertions) {
             return;
         }
-        assert!(longest <= LIMIT, "{}: a frame took {longest:.2?}, the limit is {LIMIT:?}", self.name);
+        let limit = limit(LIMIT_VARIABLE, LIMIT);
+        assert!(longest <= limit, "{}: a frame took {longest:.2?}, the limit is {limit:?}", self.name);
+    }
+}
+
+/// A time limit of a release build: `known` holds on the Mac on which it was set, and the
+/// variable gives the limit of some other machine, in milliseconds. A shared CI runner is
+/// slower, so the CI file sets it for each runner from the times that its runs print.
+pub(crate) fn limit(variable: &str, known: Duration) -> Duration {
+    match std::env::var(variable) {
+        Ok(text) => Duration::from_millis(text.parse().unwrap_or_else(|_| panic!("{variable} is not a count: {text}"))),
+        Err(std::env::VarError::NotPresent) => known,
+        Err(error) => panic!("{variable}: {error}"),
     }
 }
 

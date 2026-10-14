@@ -45,10 +45,48 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # One build for the unit tests and the UI tests. A build for one package has other
       # features of the shared crates, and a second copy of them does not fit on the disk.
+      # The time tests run in the job `time`: a time limit holds in a release build only.
       - name: Unit tests and UI tests
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked -- --skip frame_time --skip search::time
       - name: Size limits
         run: cargo xtask check-sizes
+
+  # The frame time and the quick search time (plan section 15) in a release build. The
+  # limits 16 ms and 50 ms hold on the Mac on which they were set. A shared runner is slower,
+  # so each runner has its own limits: about twice its longest time in 2 runs of 2026-10-14
+  # (macOS 26 ms and 22 ms, Linux 21 ms and 33 ms, both for ConfigMaps of 70,000 keys).
+  time:
+    name: time (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            frame: 50
+            search: 50
+          - os: ubuntu-24.04
+            frame: 40
+            search: 70
+    env:
+      FRESNEL_FRAME_LIMIT_MS: ${{ matrix.frame }}
+      FRESNEL_SEARCH_LIMIT_MS: ${{ matrix.search }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain of rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: time-${{ matrix.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml') }}
+      # One test at a time: the frames of a test do not wait for the threads of an other one.
+      - name: Time tests in a release build
+        run: cargo test --release --locked --package fresnel-ui --test views -- frame_time search::time --nocapture --test-threads 1
 
   # The tests with the attribute `#[ignore]`: k3s in Docker and the fault proxy.
   cluster:
