@@ -16,7 +16,7 @@ pub(super) fn show(ui: &mut Ui, kind: Kind, keys: &Keys) -> Option<Action> {
         let CommandId::Object(action) = entry.id else {
             continue;
         };
-        if !kind.actions().any(|of_kind| of_kind == action) {
+        if !entry.kinds().any(|of_entry| of_entry == kind) {
             continue;
         }
         let label = match entry.confirm {

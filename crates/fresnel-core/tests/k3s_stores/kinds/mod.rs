@@ -4,9 +4,11 @@
 //! - `scene`: an object of each kind that k3s does not have by itself.
 //! - `tables`: the tables of the server, the comparison with the columns of the app, and
 //!   their copy for the unit tests. `reader`: a user who cannot read one kind.
+//! - `search`: the quick search on the stores of the cluster.
 
 mod reader;
 mod scene;
+mod search;
 mod tables;
 
 use std::pin::Pin;
@@ -41,9 +43,11 @@ async fn each_kind_lists_with_the_columns_of_the_server_and_a_forbidden_kind_lea
     each_kind_lists_its_objects(&app.stores.stores, &cluster).await;
     tables::each_column_has_the_text_of_the_server(&cluster).await;
     tables::write_if_asked(&cluster).await;
+    search::a_secret_name_gives_a_hit(&app.stores.stores);
 
     let as_reader = reader.app(&cluster);
     one_kind_is_forbidden_and_each_other_one_is_live(&as_reader.stores).await;
+    search::a_forbidden_kind_is_a_note_and_the_other_hits_stay(&as_reader.stores.stores);
     drop(as_reader);
     assert_eq!(app.proxy.task_failures(), Vec::<String>::new());
 }
