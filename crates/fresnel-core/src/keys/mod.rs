@@ -28,6 +28,8 @@ pub use draft::{Change, Conflict, Draft, DraftKey, KeyState, KeyWrite, Refusal, 
 pub use object::{Entry, KeyKind, KeyObject, Place, Target};
 pub use pull::Registry;
 pub use remote::{WriteState, create, read, save};
+/// The operations send the same name, so `managedFields` shows one manager for the app.
+pub(crate) use request::FIELD_MANAGER;
 pub use secret_type::{NewSecret, SERVICE_ACCOUNT_ANNOTATION, SecretType};
 pub use special::Special;
 pub use tls::Certificate;
