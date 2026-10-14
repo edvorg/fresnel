@@ -3,11 +3,13 @@
 //! - `states`: each state of a store. `table`: sort, filters, counts and the selection.
 //! - `weakness`: the weaknesses of Headlamp of plan section 6 that apply to this view.
 //! - `detail`: the detail panel. `snapshots`: PNG files of the view.
+//! - `resize`: a drag of the edge of a column. `layout`: the widths in the state file.
 //! - `bad_data`: objects that a healthy API server does not give.
 //! - `rest`: the view while the window shows some other page.
 
 mod bad_data;
 mod detail;
+mod layout;
 pub(crate) mod resize;
 mod rest;
 pub(crate) mod scenes;

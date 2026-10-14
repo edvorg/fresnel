@@ -804,3 +804,10 @@ Version 2 of `state.json` has the layout of each table that the user changed: th
 each column that differs from the width that its table gives, in whole points, by the title
 of the column. A column that is not in the file has the width of its table, and a title that
 the table does not have changes nothing. The app reads a file of version 1 too.
+
+## A table saves its widths after a drag and reads the saved ones one time
+
+A drag changes a width in each frame. The table sends `SaveTable` when no pointer button is
+down, so the core writes the file one time for each drag. The table takes the saved layout one
+time, after the core read the file. A later layout of the core only repeats the commands of
+the table, and a table that took it could undo a drag in progress.

@@ -12,6 +12,10 @@
 //! narrow table, a narrower column would make the content narrower than that place: the
 //! scroll area would then move each column to the right, the edge would stay away from the
 //! pointer, and each frame would take more width from the column.
+//!
+//! The state file keeps the widths that the user changed, in whole points (`TableLayout`).
+
+use fresnel_core::state_file::TableLayout;
 
 use super::model::Column;
 
@@ -31,6 +35,8 @@ const NO_SCROLL: f32 = 0.5;
 pub(super) struct Widths {
     columns: Vec<f32>,
     shown: Option<Shown>,
+    /// True when the user changed a width after the last layout.
+    changed: bool,
 }
 
 /// What one frame showed of the table.
@@ -45,7 +51,7 @@ struct Shown {
 impl Widths {
     /// The width that each column of the model gives.
     pub(super) fn new(columns: &[Column]) -> Self {
-        Self { columns: columns.iter().map(|column| column.width.clamp(NARROWEST, WIDEST)).collect(), shown: None }
+        Self { columns: columns.iter().map(width_of).collect(), shown: None, changed: false }
     }
 
     pub(super) fn iter(&self) -> impl Iterator<Item = f32> + '_ {
@@ -78,13 +84,53 @@ impl Widths {
         if let Some(old) = self.columns.get_mut(index)
             && width.is_finite()
         {
-            *old = width.clamp(NARROWEST, WIDEST);
+            let width = width.clamp(NARROWEST, WIDEST);
+            self.changed |= *old != width;
+            *old = width;
+        }
+    }
+
+    /// True when the user changed a width after the last layout.
+    pub(super) fn changed(&self) -> bool {
+        self.changed
+    }
+
+    /// The layout after a change of the user: each width that differs from the width of
+    /// its column in the model. `None` when no width changed after the last layout.
+    pub(super) fn take_layout(&mut self, columns: &[Column]) -> Option<TableLayout> {
+        if !std::mem::take(&mut self.changed) {
+            return None;
+        }
+        let differ = columns.iter().zip(&self.columns).filter_map(|(column, width)| {
+            let width = points(*width);
+            (width != points(width_of(column))).then(|| (column.title.to_owned(), width))
+        });
+        Some(TableLayout { widths: differ.collect() })
+    }
+
+    /// Takes the widths of a saved layout. A title that the model does not have changes
+    /// nothing: a later version of the table can have other columns.
+    pub(super) fn restore(&mut self, columns: &[Column], layout: &TableLayout) {
+        for (column, width) in columns.iter().zip(&mut self.columns) {
+            if let Some(saved) = layout.widths.get(column.title) {
+                *width = (*saved as f32).clamp(NARROWEST, WIDEST);
+            }
         }
     }
 
     fn sum(&self) -> f32 {
         self.columns.iter().sum()
     }
+}
+
+/// The width that a column of the model gives.
+fn width_of(column: &Column) -> f32 {
+    column.width.clamp(NARROWEST, WIDEST)
+}
+
+/// A width in whole points. The limits of a width make the value fit.
+fn points(width: f32) -> u32 {
+    width.round() as u32
 }
 
 #[cfg(test)]
@@ -94,7 +140,7 @@ mod tests {
     const COLUMNS: [Column; 3] = [Column::new("Name", 200.0), Column::new("Age", 20.0), Column::new("Node", 3000.0)];
 
     fn widths(columns: &[f32]) -> Widths {
-        Widths { columns: columns.to_vec(), shown: None }
+        Widths { columns: columns.to_vec(), shown: None, changed: false }
     }
 
     #[test]
@@ -142,5 +188,34 @@ mod tests {
         // And a wider window shows more of the columns.
         widths.shown(900.0, 0.0);
         assert_eq!(widths.filler(1000.0), 0.0);
+    }
+
+    #[test]
+    fn a_layout_has_each_width_that_the_user_changed_and_loads_again() {
+        let mut widths = Widths::new(&COLUMNS);
+        assert_eq!(widths.take_layout(&COLUMNS), None, "no change");
+        widths.set(0, 200.0);
+        assert!(!widths.changed(), "the same width is no change");
+        widths.set(0, 260.4);
+        widths.set(1, 75.5);
+        assert!(widths.changed());
+        let layout = widths.take_layout(&COLUMNS).expect("a change");
+        let expected = [("Age".to_owned(), 76), ("Name".to_owned(), 260)];
+        assert_eq!(layout.widths.into_iter().collect::<Vec<_>>(), expected, "in whole points");
+        assert_eq!(widths.take_layout(&COLUMNS), None, "one layout for each change");
+
+        // A width back at the width of the model leaves the layout.
+        widths.set(1, NARROWEST);
+        assert_eq!(widths.take_layout(&COLUMNS).expect("a change").widths.len(), 1);
+
+        let mut saved = Widths::new(&COLUMNS);
+        let layout = TableLayout {
+            widths: [("Name", 260), ("Node", 9999), ("Gone", 90)]
+                .map(|(title, width)| (title.to_owned(), width))
+                .into(),
+        };
+        saved.restore(&COLUMNS, &layout);
+        assert_eq!(saved.columns, [260.0, NARROWEST, WIDEST], "a title that the model does not have changes nothing");
+        assert!(!saved.changed(), "a saved layout is no change of the user");
     }
 }

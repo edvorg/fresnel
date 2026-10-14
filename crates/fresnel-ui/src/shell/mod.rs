@@ -92,7 +92,7 @@ impl Shell {
             });
         });
         CentralPanel::default().frame(Frame::new().fill(palette.bg_surface)).show(ui, |ui| match self.page {
-            Page::Pods => self.pods.show(ui, &scene),
+            Page::Pods => self.pods.show(ui, &mut scene),
             Page::Connections => {
                 self.pods.rest();
                 connections::show(ui, &mut scene);

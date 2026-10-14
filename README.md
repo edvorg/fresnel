@@ -22,7 +22,7 @@ cargo xtask install --to <folder>     # the same into some other folder
 
 The earlier bundle stays as `Fresnel.app.prev`. At its first start, the app selects the
 current context of the kubeconfig files. The top bar has a switch for each cluster. The app
-saves the selection in `state.json` of its settings folder and starts with it again.
+keeps the selection and the widths of the columns in `state.json` of its settings folder.
 
 - The Pods table shows each selected cluster. A row with an open ring is from a cluster
   that is not live: its values are old, and a note above the table gives the reason.

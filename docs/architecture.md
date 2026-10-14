@@ -153,12 +153,12 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 ## Window
 
-`fresnel_ui::Shell` draws one frame from a `CoreView`: the top bar with a switch for each
-cluster, the sidebar with the pages, the center, the dock (Journal, Connections) and the
-status bar. `fresnel::frame::draw` is one frame of the window, also for a test.
+`fresnel_ui::Shell` draws one frame from a `CoreView`: the top bar, the sidebar, the center,
+the dock (Journal, Connections) and the status bar. `fresnel::frame::draw` is one frame.
 
 - **Table**: `widgets/table.rs` wraps `egui_table`. A kind gives a `Model`: columns, rows,
   their sequence and cells. The cursor and the selection hold objects (cluster, name, UID).
+  The table owns the widths, a filler takes the free width, and a drag ends in `SaveTable`.
 - **Worker**: one thread for each table computes the rows. Its mailbox has one request and
   one result. New data does not stop a computation; a new sort or filter does. After a
   panic, the thread starts again with the request that waits, and the table tells why.

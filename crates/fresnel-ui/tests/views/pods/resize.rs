@@ -2,14 +2,15 @@
 //! with the pointer, and no other column changes its width: in the first frames after the
 //! table shows and later, from left to right and from right to left, and in a window that
 //! is wider and one that is narrower than the sum of the columns, also at the right end of
-//! a table that scrolls to the side. The widths stay through new data, a sort and a filter.
+//! a table that scrolls to the side. The widths stay through new data, a sort, a filter and
+//! a page that hides the table.
 
 use egui::accesskit::Role;
 use egui::{Rangef, pos2};
 use egui_kittest::kittest::Queryable as _;
 
 use crate::data::{live, pod, pods};
-use crate::fake::{Window, shows, until, view, window};
+use crate::fake::{Window, open_page, shows, until, view, window};
 
 const TITLES: [&str; 9] =
     ["Name", "Namespace", "Cluster", "Ready", "Status", "Restarts", "Last restart", "Node", "Age"];
@@ -37,6 +38,12 @@ fn spans(window: &Window) -> Vec<(&'static str, Rangef)> {
 
 fn span_of(spans: &[(&str, Rangef)], title: &str) -> Option<Rangef> {
     spans.iter().find(|(name, _)| *name == title).map(|(_, span)| *span)
+}
+
+/// The width of the column with this title in whole points, as the state file keeps it.
+/// Its title must show.
+pub(crate) fn width(window: &Window, title: &str) -> f32 {
+    window.get_by_role_and_label(Role::Button, title).rect().width().round()
 }
 
 /// The right end of the rows: the right edge of the window, less the scroll bar.
@@ -164,7 +171,7 @@ fn each_edge_follows_the_pointer_in_a_narrow_window_at_the_right_end_of_the_tabl
 }
 
 #[test]
-fn the_widths_stay_through_new_data_a_sort_and_a_filter() {
+fn the_widths_stay_through_new_data_a_sort_a_filter_and_an_other_page() {
     let mut window = resized_in(egui::vec2(1800.0, 900.0));
     drag(&mut window, "Name", 70.0);
     drag(&mut window, "Node", -40.0);
@@ -195,4 +202,9 @@ fn the_widths_stay_through_new_data_a_sort_and_a_filter() {
     window.key_press(egui::Key::Backspace);
     until(&mut window, "the one row", |window| shows(window, "1 pod"));
     assert_eq!(spans(&window), resized, "after a table with no row");
+
+    open_page(&mut window, "Connections");
+    open_page(&mut window, "Pods");
+    until(&mut window, "the rows again", |window| shows(window, "1 pod"));
+    assert_eq!(spans(&window), resized, "after a page that hid the table");
 }

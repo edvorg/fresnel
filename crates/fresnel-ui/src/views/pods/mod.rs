@@ -50,9 +50,10 @@ impl PodsView {
         }
     }
 
-    pub(crate) fn show(&mut self, ui: &mut Ui, scene: &Scene<'_>) {
+    pub(crate) fn show(&mut self, ui: &mut Ui, scene: &mut Scene<'_>) {
         let palette = theme::palette(ui);
         self.read_stores(scene);
+        self.table.restore(scene.view.tables.as_deref());
         // The panel comes first, so it has the full height of the view.
         if let Some(subject) = &self.detail {
             let cluster = scene.view.clusters.iter().find(|row| row.id == subject.id.cluster);
@@ -70,6 +71,7 @@ impl PodsView {
         let cells = pod_scene(scene, palette);
         let acted =
             CentralPanel::no_frame().show(ui, |ui| self.table.show(ui, &cells, || empty_text(scene, &self.filter)));
+        scene.commands.extend(self.table.save_layout(ui));
         match acted.inner {
             Some(Act::Cursor) => {
                 self.detail = self.table.cursor_row().map(Subject::of);

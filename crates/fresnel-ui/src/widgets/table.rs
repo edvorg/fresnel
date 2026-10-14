@@ -3,7 +3,7 @@
 //!
 //! `egui_table` gives the virtual rows, the fixed header and the widths of the columns.
 //! This module adds the rows from a worker thread, the sort, the cursor and the selection
-//! by the identity of an object, and the keys.
+//! by the identity of an object, the keys, and the saved widths.
 //!
 //! - `model`: what a kind gives to its table. `worker`: the thread that computes the rows.
 //! - `rows`: a request and its rows. `supply`: the last request and the rows on the screen.
@@ -20,11 +20,14 @@ mod supply;
 mod widths;
 pub(crate) mod worker;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use egui::{EventFilter, Modifiers, RichText, Sense, Ui};
+use fresnel_core::app::Command;
 use fresnel_core::net::task::Tasks;
+use fresnel_core::state_file::TableLayout;
 
 use self::model::{Column, Model, ObjectId, Sort};
 pub(crate) use self::rows::Rows;
@@ -55,6 +58,9 @@ pub(crate) struct Table<M: Model> {
     /// The object whose row the next frame scrolls to.
     reveal: Option<ObjectId>,
     widths: Widths,
+    /// The layout that the core has of this table, as far as the table knows. `None` before
+    /// the core read the state file.
+    saved: Option<TableLayout>,
 }
 
 impl<M: Model> Table<M> {
@@ -63,7 +69,33 @@ impl<M: Model> Table<M> {
         let model = Arc::new(model);
         let supply = Supply::start(tasks, wake, name, Arc::clone(&model));
         let widths = Widths::new(model.columns());
-        Self { name, model, supply, selection: Selection::default(), reveal: None, widths }
+        Self { name, model, supply, selection: Selection::default(), reveal: None, widths, saved: None }
+    }
+
+    /// Takes the saved layout of the table one time, when the core read the state file
+    /// (`CoreView::tables`). A width that the user changed before that stays.
+    pub(crate) fn restore(&mut self, tables: Option<&BTreeMap<String, TableLayout>>) {
+        let Some(tables) = tables.filter(|_| self.saved.is_none()) else {
+            return;
+        };
+        let layout = tables.get(self.name).cloned().unwrap_or_default();
+        if !self.widths.changed() {
+            self.widths.restore(self.model.columns(), &layout);
+        }
+        self.saved = Some(layout);
+    }
+
+    /// The command that saves the widths that the user changed. It comes one time, after
+    /// the end of the drag, and only after `restore`: the core does not write the file
+    /// before it read it.
+    pub(crate) fn save_layout(&mut self, ui: &Ui) -> Option<Command> {
+        let saved = self.saved.as_mut()?;
+        if ui.input(|input| input.pointer.any_down()) {
+            return None;
+        }
+        let layout = self.widths.take_layout(self.model.columns()).filter(|layout| layout != saved)?;
+        saved.clone_from(&layout);
+        Some(Command::SaveTable { table: self.name.to_owned(), layout })
     }
 
     /// Tells the table what its rows come from in this frame, and takes a result of the

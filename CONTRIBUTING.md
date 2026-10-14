@@ -1,7 +1,6 @@
 # Contributing
 
-Read [docs/architecture.md](docs/architecture.md) first. It gives the design rules and the
-borders between the crates.
+Read [docs/architecture.md](docs/architecture.md) first: the design rules and the crate borders.
 
 ## Checks before each push
 
@@ -85,6 +84,7 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
 ## Views and tables
 
 - A table is a `Table` with the `Model` of its kind (`widgets/table/model.rs`).
+- A view calls `Table::restore` before `show`, and sends the command of `save_layout` after it.
 - `Model::rows` and `Model::compare` run on the worker thread of the table. A sort value comes
   from the object alone, and `Model::tie` gives two objects one sequence.
 - A cursor and a selection hold an `ObjectId`, never a row number. A hidden view calls `rest`.
