@@ -177,8 +177,8 @@ dock (Operations, Journal, Connections) and status bar. `ShowKinds` names the ki
   Enter waits for the hits of the text. A hit opens its object, with a note while its store lists,
   or "Show it" when a filter hides its row. The top bar has one namespace filter for each page.
 - **Keys** (`views/keys`): the panel of a Secret or a ConfigMap names its object (`ShowKeys`) and
-  edits a `Draft`: a hidden value of a Secret until "Show", add, remove, the diff in a dialog
-  before a save, a choice for each conflict. The command `new-secret` opens the New Secret dialog.
+  edits a `Draft` behind the gate of "Edit keys": a hidden value until "Show", add, remove, the
+  diff in a dialog before a save, a choice for each conflict. The New Secret dialog is `new-secret`.
 - **Program**: the folders, the lock of the process, the log file, the panic hook, the runtime
   and the core, which starts after the window is open. The quit stops each task of the core.
 

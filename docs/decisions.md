@@ -1099,6 +1099,21 @@ the lines that each changed key loses and gets. It holds its save, so the save t
 one that the user saw. The bar with Save and the state of the last save is above the keys: a
 long list of keys would hide it below the dock.
 
+## The keys pass the gate of the panel and wait for a save
+
+A change of the keys is the action "Edit keys" of the panel, so its gate decides it: the rules,
+an access review when they cannot tell, and an object that left its store. The dialog of a save
+reads that gate in each frame. While a save is on its way, the keys and Discard wait: an edit
+then would meet the answer of the save as a change of the server, a conflict with the own save.
+
+## A create of a Secret is pending from its click
+
+The core takes a command a moment after the click, and later while it connects a cluster. A
+second click in that time would send the create again, and the server would refuse it as
+"already exists" for the Secret of the first one. So the dialog shows the create as pending
+until the view has a newer job. Two rows with one key name stop the create: the Secret would
+keep one value with no word of the server.
+
 ## New Secret is a command of the command table
 
 Cmd+Shift+N, the quick search and a button of the Secrets page open one dialog over each page.
