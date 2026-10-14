@@ -6,9 +6,11 @@
 //! - `changes`: add and remove a key, the states of a save, and a conflict.
 //! - `marks`: an immutable object, a forbidden change, a binary value, the special views
 //!   and "used by". `new_secret`: the dialog of a new Secret. `snapshots`: PNG files.
+//! - `faults`: a delete, a save and fast input at the worst moment, and bad data.
 
 mod changes;
 mod editor;
+mod faults;
 mod marks;
 mod new_secret;
 pub(crate) mod scene;
