@@ -42,6 +42,16 @@ pub struct JobsView {
     pub dropped: u64,
 }
 
+impl JobsView {
+    /// How many new jobs the list takes now. A new job pushes out a job that ended, never
+    /// one that runs, so a bulk action on more objects would end the rest as not sent, with
+    /// only a journal entry: the confirm dialog refuses it first.
+    pub fn room(&self) -> usize {
+        let running = self.jobs.iter().filter(|job| !job.report.state.is_final()).count();
+        JOB_LIMIT.saturating_sub(running)
+    }
+}
+
 type Slot = Arc<Mutex<Arc<JobView>>>;
 
 fn lock(slot: &Slot) -> MutexGuard<'_, Arc<JobView>> {

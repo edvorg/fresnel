@@ -57,8 +57,10 @@ async fn a_full_list_drops_its_oldest_ended_job_and_takes_no_job_when_each_one_r
     assert_eq!((view.jobs.len(), view.dropped), (JOB_LIMIT, 1));
     assert_eq!(view.jobs[0].number, 2, "the oldest job that ended left");
     assert_eq!(view.jobs[2].number, 9999, "a running job stays");
+    assert_eq!(view.room(), JOB_LIMIT - 1, "each job that ended makes room");
 
     let mut full = Jobs { entries: (0..JOB_LIMIT).map(|_| entry(&running)).collect(), ..Jobs::default() };
+    assert_eq!(full.view().room(), 0);
     full.start(&tasks, order(Operation::Restart), None, Cancel::pair().0, ends.clone());
     let view = full.view();
     assert_eq!((view.jobs.len(), view.dropped), (JOB_LIMIT, 0), "the list does not grow over its limit");
