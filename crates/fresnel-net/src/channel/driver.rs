@@ -37,8 +37,20 @@ const MAX_DRAINING: usize = 4;
 /// The text of the end of a connection after HTTP 401 to its light request.
 const REFUSED: &str = "the server refused the light request (HTTP 401)";
 
-/// One light request in progress: its answer, or why it got none.
-type Check = Pin<Box<dyn Future<Output = Result<Answer, NetError>> + Send>>;
+/// One light request in progress. Its start and its limit tell if it ends in time for a test.
+struct Check {
+    /// Its answer, or why it got none.
+    answer: Pin<Box<dyn Future<Output = Result<Answer, NetError>> + Send>>,
+    started: Instant,
+    limit: Duration,
+}
+
+impl Check {
+    /// The time until its limit ends.
+    fn left(&self) -> Duration {
+        self.limit.saturating_sub(self.started.elapsed())
+    }
+}
 
 /// What the server said to a light request.
 enum Answer {
@@ -238,9 +250,12 @@ impl Driver {
                     }
                 }
                 // After a wake or a network change, an open connection can be silent. With
-                // no token, only the ping tests it.
+                // no token, only the ping tests it. A request in progress that ends in the
+                // limit of a test is the test: a new one each raise would keep a silent
+                // connection open until the ping, as the detectors can raise each 2 s.
                 _cause = self.listener.raised() => {
-                    if let Some(test) = self.check(&sender, settings.test_limit) {
+                    let in_time = check.as_ref().is_some_and(|check| check.left() <= settings.test_limit);
+                    if !in_time && let Some(test) = self.check(&sender, settings.test_limit) {
                         check = Some(test);
                     }
                 }
@@ -293,8 +308,8 @@ impl Driver {
     fn check(&self, sender: &Sender, limit: Duration) -> Option<Check> {
         let (mut sender, request) = (sender.clone(), self.light.build(Protocol::Http2)?);
         let (light, token) = (Arc::clone(&self.light), request.headers().get(AUTHORIZATION).cloned());
-        Some(Box::pin(async move {
-            let started = Instant::now();
+        let started = Instant::now();
+        let answer = Box::pin(async move {
             let exchange = async {
                 let (head, mut body) = sender.send_request(request).await?.into_parts();
                 while let Some(frame) = body.frame().await {
@@ -313,14 +328,15 @@ impl Driver {
                 Ok(Err(error)) => Err(NetError::because("the light request failed", &error)),
                 Err(_) => Err(NetError::timeout(format!("no answer to the light request in {limit:?}"))),
             }
-        }))
+        });
+        Some(Check { answer, started, limit })
     }
 }
 
 /// Waits for the light request in progress. With none, it waits with no end.
 async fn in_progress(check: &mut Option<Check>) -> Result<Answer, NetError> {
     match check.as_mut() {
-        Some(check) => check.await,
+        Some(check) => check.answer.as_mut().await,
         None => std::future::pending().await,
     }
 }
@@ -339,7 +355,7 @@ impl Draining {
         }
         let answer = async {
             let Some(check) = check else { return };
-            match check.await {
+            match check.answer.await {
                 // The check gave an HTTP 401 to the credential. The connection is closed in
                 // each case, so no other result changes something.
                 Ok(Answer::Accepted(_) | Answer::Refused) | Err(_) => {}

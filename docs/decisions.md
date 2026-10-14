@@ -173,6 +173,13 @@ wait of each channel and started its connect again as a race. In a long outage w
 channels, a raise each 2 s gave 240 rounds and 720 races in 8 minutes. Now a raise starts a
 round only 10 s after the last one: 48 rounds. The first raise after a calm time acts at once.
 
+## A raise does not give the test of a connection a new limit
+
+After a raise, a live channel tests its connection with a limit of 3 s. Each raise started a new
+test, so a raise each 2 s kept a silent connection open until the ping ended it, 15 s after its
+last frame. Now a light request in progress that ends inside the limit of a test is the test,
+and a silent connection ends 3 s after the first raise.
+
 ## Live means that a request got an answer
 
 A channel is live only after the answer to a request, most often its own light request. An

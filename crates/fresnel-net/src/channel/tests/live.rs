@@ -37,3 +37,29 @@ async fn the_answer_to_a_request_of_a_caller_makes_the_channel_live() {
     assert_eq!((bed.elapsed(), live.connections), (SECOND, 1));
     assert_eq!((live.server_stream_limit, live.ping_time), (Some(100), None), "no light request gave a time");
 }
+
+/// The detectors can tell a change each 2 s. A raise during the test of a connection does
+/// not give the test a new limit, so a silent connection ends 3 s after the first raise,
+/// and not at the ping 15 s after its last frame.
+#[tokio::test(start_paused = true)]
+async fn a_raise_each_2_seconds_does_not_keep_a_silent_connection_in_its_test() {
+    let mut bed = Bed::start(settings());
+    bed.until_state(ChannelState::Live).await;
+    let _stream = bed.open("/watch/pods").await.expect("a stream");
+    bed.server.silence_open();
+    let silent_at = bed.elapsed();
+    let signal = bed.signal.clone();
+    let storm = async move {
+        for _ in 0..10 {
+            signal.raise(Cause::NetworkChange);
+            sleep(2 * SECOND).await;
+        }
+    };
+    let lost = async {
+        let status = bed.until("the loss of the connection", |status| status.last_error.is_some()).await;
+        (status, bed.elapsed())
+    };
+    let ((status, lost_at), ()) = tokio::join!(lost, storm);
+    assert_eq!(lost_at - silent_at, 3 * SECOND, "{:?}", status.last_error);
+    assert_eq!(status.last_error.as_deref(), Some("no answer to the light request in 3s"));
+}
