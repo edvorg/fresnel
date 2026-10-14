@@ -42,7 +42,7 @@ pub(crate) fn wide_window(scale: f32) -> Window {
 
 /// Where the button goes down on an edge.
 #[derive(Clone, Copy)]
-enum Grip {
+pub(crate) enum Grip {
     /// On the bar of the titles.
     Title,
     /// On the line between two cells, in the middle of the rows.
@@ -50,11 +50,11 @@ enum Grip {
 }
 
 /// One drag of the edge at the right of a column, from the press to the release.
-struct MouseDrag {
+pub(crate) struct MouseDrag {
     title: &'static str,
     scale: f32,
     /// The pointer now.
-    pointer: Pos2,
+    pub(crate) pointer: Pos2,
     /// The edge at the press, and the pointer there.
     edge: f32,
     press: f32,
@@ -68,7 +68,12 @@ struct MouseDrag {
 
 impl MouseDrag {
     /// The pointer comes to the edge at the right of `title`, and the button goes down.
-    fn press(window: &mut Window, title: &'static str, grip: Grip) -> Self {
+    pub(crate) fn press(window: &mut Window, title: &'static str, grip: Grip) -> Self {
+        Self::press_beside(window, title, grip, 0.0)
+    }
+
+    /// The button goes down `beside` points to the right of the edge at the right of `title`.
+    pub(crate) fn press_beside(window: &mut Window, title: &'static str, grip: Grip, beside: f32) -> Self {
         let scale = window.ctx.pixels_per_point();
         let before = spans(window);
         let span = span_of(&before, title).unwrap_or_else(|| panic!("the title {title} shows"));
@@ -77,7 +82,7 @@ impl MouseDrag {
             Grip::Title => header.center().y,
             Grip::Rows => header.bottom() + 300.0,
         };
-        let pointer = pos2(on_pixel(span.max, scale), on_pixel(y, scale));
+        let pointer = pos2(on_pixel(span.max + beside, scale), on_pixel(y, scale));
         window.hover_at(pointer);
         window.run();
         window.drag_at(pointer);
@@ -89,7 +94,7 @@ impl MouseDrag {
 
     /// Moves the pointer by `by` points in `moves` moves of one frame, and draws the frames
     /// that the window draws after that input.
-    fn frame(&mut self, window: &mut Window, by: f32, moves: u16) {
+    pub(crate) fn frame(&mut self, window: &mut Window, by: f32, moves: u16) {
         let start = self.pointer.x;
         for step in 1..=moves {
             let x = on_pixel(start + by * f32::from(step) / f32::from(moves), self.scale);
@@ -104,14 +109,14 @@ impl MouseDrag {
     }
 
     /// Moves the pointer by `by` points in one frame, and checks nothing.
-    fn frame_with_no_check(&mut self, window: &mut Window, by: f32) {
+    pub(crate) fn frame_with_no_check(&mut self, window: &mut Window, by: f32) {
         self.pointer.x = on_pixel(self.pointer.x + by, self.scale);
         window.hover_at(self.pointer);
         window.run();
     }
 
     /// Moves the pointer by `by` points, one point or less in each frame.
-    fn slide(&mut self, window: &mut Window, by: f32) {
+    pub(crate) fn slide(&mut self, window: &mut Window, by: f32) {
         let frames = by.abs().ceil() as u16;
         for _ in 0..frames {
             self.frame(window, by / f32::from(frames), 1);
@@ -119,13 +124,13 @@ impl MouseDrag {
     }
 
     /// The button goes up where the pointer is.
-    fn release(self, window: &mut Window) {
+    pub(crate) fn release(self, window: &mut Window) {
         window.drop_at(self.pointer);
         window.run();
         self.check(window, "after the release");
     }
 
-    fn check(&self, window: &Window, at: &str) {
+    pub(crate) fn check(&self, window: &Window, at: &str) {
         let (title, scale) = (self.title, self.scale);
         let at = format!("{title} at scale {scale}, {at}");
         let now = spans(window);
@@ -158,7 +163,7 @@ impl MouseDrag {
 }
 
 /// The place of a pixel edge of a display with this scale: a mouse gives no other place.
-fn on_pixel(x: f32, scale: f32) -> f32 {
+pub(crate) fn on_pixel(x: f32, scale: f32) -> f32 {
     (x * scale).round() / scale
 }
 
