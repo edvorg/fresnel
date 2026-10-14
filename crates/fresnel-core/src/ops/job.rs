@@ -45,6 +45,12 @@ pub(super) fn again(job: &Json, owner_exists: impl Fn(&Json) -> bool) -> Result<
         }
     }
     if manifest.pointer("/spec/manualSelector") != Some(&Json::Bool(true)) {
+        // The server copies the labels of the template into a Job with no labels. A Job
+        // with those labels gets none, so that the server copies the new ones again.
+        let copied = manifest.pointer("/metadata/labels") == manifest.pointer("/spec/template/metadata/labels");
+        if let Some(metadata) = manifest.get_mut("metadata").and_then(Json::as_object_mut).filter(|_| copied) {
+            metadata.remove("labels");
+        }
         if let Some(spec) = manifest.get_mut("spec").and_then(Json::as_object_mut) {
             spec.remove("selector");
         }

@@ -6,10 +6,12 @@ use super::*;
 fn served(manual_selector: bool) -> Json {
     let generated = json!({"batch.kubernetes.io/controller-uid": "u1", "batch.kubernetes.io/job-name": "once",
         "controller-uid": "u1", "job-name": "once", "team": "shop"});
+    let mut own = generated.clone();
+    own["tier"] = json!("batch");
     json!({
         "apiVersion": "batch/v1", "kind": "Job",
         "metadata": {"name": "once", "namespace": "shop", "uid": "u1", "resourceVersion": "42",
-            "creationTimestamp": "2026-10-01T00:00:00Z", "generation": 1, "labels": generated.clone(),
+            "creationTimestamp": "2026-10-01T00:00:00Z", "generation": 1, "labels": own,
             "annotations": {"note": "kept"}, "managedFields": [{"manager": "kubectl"}],
             "ownerReferences": [{"kind": "CronJob", "name": "nightly", "uid": "c1", "controller": true},
                 {"kind": "CronJob", "name": "gone", "uid": "c2"}]},
@@ -25,7 +27,7 @@ fn a_job_again_has_no_field_of_the_server_no_generated_label_and_only_the_owners
     let manifest = again(&served(false), |owner| owner["uid"] == "c1").expect("a manifest");
     let expected = json!({
         "apiVersion": "batch/v1", "kind": "Job",
-        "metadata": {"name": "once", "namespace": "shop", "labels": {"team": "shop"}, "annotations": {"note": "kept"},
+        "metadata": {"name": "once", "namespace": "shop", "labels": {"team": "shop", "tier": "batch"}, "annotations": {"note": "kept"},
             "ownerReferences": [{"kind": "CronJob", "name": "nightly", "uid": "c1", "controller": true}]},
         "spec": {"manualSelector": false, "backoffLimit": 2, "newerField": {"a": 1},
             "template": {"metadata": {"labels": {"team": "shop"}}, "spec": {"containers": [{"name": "c", "image": "busybox"}]}}},
@@ -33,6 +35,14 @@ fn a_job_again_has_no_field_of_the_server_no_generated_label_and_only_the_owners
     assert_eq!(manifest, expected);
     let alone = again(&served(false), |_| false).expect("a manifest");
     assert_eq!(alone["metadata"].get("ownerReferences"), None, "no owner left, no empty list");
+
+    // The server copied the labels of the template: the new Job gets none, and the server
+    // copies its new ones.
+    let mut copied = served(false);
+    copied["spec"]["template"]["metadata"]["labels"] = copied["metadata"]["labels"].clone();
+    let manifest = again(&copied, |_| true).expect("a manifest");
+    assert_eq!(manifest["metadata"].get("labels"), None);
+    assert_eq!(manifest["spec"]["template"]["metadata"]["labels"], json!({"team": "shop", "tier": "batch"}));
 }
 
 #[test]
