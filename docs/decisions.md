@@ -789,3 +789,11 @@ the same width from Name: the edge stayed, the columns moved the other way, and 
 of the drag added more width. Now no column of a model takes the free width: a drag changes
 one column, and its edge stays at the pointer. A filler without a title takes the rest, and
 a narrow table scrolls to the side.
+
+## The filler holds the place of a scrolled table
+
+At the right end of a narrow table, a narrower column made the content narrower than the
+place on the screen. The scroll area then moved each column to the right, the edge stayed
+away from the pointer, and each frame took more width. Now the filler keeps the width of
+the place that the last frame showed. It never makes the content wider than before, so a
+scroll to the right cannot add width without an end.

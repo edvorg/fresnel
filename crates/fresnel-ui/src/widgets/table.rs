@@ -142,7 +142,8 @@ impl<M: Model> Table<M> {
         let focus_id = ui.make_persistent_id((self.name, "keys"));
         let focus = ui.interact(rect, focus_id, Sense::focusable_noninteractive());
 
-        let table_columns = self.table_columns(rect.width());
+        let filler = self.widths.filler(rect.width());
+        let table_columns = self.table_columns(filler);
         let mut table = egui_table::Table::new()
             .id_salt(self.name)
             .num_rows(rows.len() as u64)
@@ -165,9 +166,13 @@ impl<M: Model> Table<M> {
             selection: &self.selection,
             header_clicked: None,
             row_clicked: None,
+            columns_end: None,
         };
         table.show(ui, &mut delegate);
         let (header_clicked, row_clicked) = (delegate.header_clicked, delegate.row_clicked);
+        if let Some(end) = delegate.columns_end {
+            self.widths.shown(end - rect.left(), filler);
+        }
         read_widths(ui, table_id, &table_columns, &mut self.widths);
 
         let (mut acted, mut by_key) = (None, false);
@@ -208,13 +213,13 @@ impl<M: Model> Table<M> {
     }
 
     /// The columns of `egui_table`: one for each column of the model, with the width of
-    /// the table, and the filler that takes the free width of a table of this width.
-    fn table_columns(&self, available: f32) -> Vec<egui_table::Column> {
+    /// the table, and the filler after them.
+    fn table_columns(&self, filler: f32) -> Vec<egui_table::Column> {
         let columns = self.model.columns().iter().zip(self.widths.iter()).map(|(column, width)| {
             // The identity keys the width in the state of `egui_table`.
             egui_table::Column::new(width).range(NARROWEST..=WIDEST).id(egui::Id::new((self.name, column.title)))
         });
-        let filler = egui_table::Column::new(self.widths.filler(available))
+        let filler = egui_table::Column::new(filler)
             .range(0.0..=f32::INFINITY)
             .resizable(false)
             .id(egui::Id::new((self.name, "filler")));
@@ -265,6 +270,8 @@ struct Delegate<'a, M: Model> {
     selection: &'a Selection,
     header_clicked: Option<usize>,
     row_clicked: Option<(usize, Modifiers)>,
+    /// Where the title of the filler starts on the screen: the end of the columns.
+    columns_end: Option<f32>,
 }
 
 impl<M: Model> Delegate<'_, M> {
@@ -279,6 +286,12 @@ impl<M: Model> Delegate<'_, M> {
 impl<M: Model> egui_table::TableDelegate for Delegate<'_, M> {
     fn header_cell_ui(&mut self, ui: &mut Ui, cell: &egui_table::HeaderCellInfo) {
         let index = cell.col_range.start;
+        if index == self.columns.len() {
+            // `egui_table` lays out a title in the fixed part and in the part that scrolls
+            // to the side. The part that scrolls gives the smaller place.
+            let left = ui.max_rect().left();
+            self.columns_end = Some(self.columns_end.map_or(left, |end| end.min(left)));
+        }
         if cells::is_clipped(ui) {
             return;
         }

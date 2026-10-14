@@ -1,8 +1,8 @@
 //! The widths of the columns. A drag of the edge at the right of a title moves that edge
 //! with the pointer, and no other column changes its width: in the first frames after the
 //! table shows and later, from left to right and from right to left, and in a window that
-//! is wider and one that is narrower than the sum of the columns. The widths stay through
-//! new data, a sort and a filter.
+//! is wider and one that is narrower than the sum of the columns, also at the right end of
+//! a table that scrolls to the side. The widths stay through new data, a sort and a filter.
 
 use egui::accesskit::Role;
 use egui::{Rangef, pos2};
@@ -84,19 +84,26 @@ pub(crate) fn drag(window: &mut Window, title: &str, by: f32) {
     window.run();
 }
 
-/// Drags the edge of each column whose edge shows, in this sequence of titles, to the
-/// right and back to the left.
-fn drag_each(window: &mut Window, titles: impl Iterator<Item = &'static str>, right: f32) {
+/// Drags the edge of each column whose edge shows, in this sequence of titles, by `by`
+/// points and back.
+fn drag_each(window: &mut Window, titles: impl Iterator<Item = &'static str>, by: f32, right: f32) {
     for title in titles {
         let Some(span) = span_of(&spans(window), title) else {
             continue;
         };
-        if span.max + 60.0 > right {
+        if span.max + by.abs() > right {
             continue;
         }
-        drag(window, title, 60.0);
-        drag(window, title, -60.0);
+        drag(window, title, by);
+        drag(window, title, -by);
     }
+}
+
+/// Drags each edge to the right and back from left to right, and then to the left and
+/// back from right to left.
+fn drag_each_way(window: &mut Window, right: f32) {
+    drag_each(window, TITLES.into_iter(), 60.0, right);
+    drag_each(window, TITLES.into_iter().rev(), -60.0, right);
 }
 
 fn resized_in(size: egui::Vec2) -> Window {
@@ -121,8 +128,7 @@ fn each_edge_follows_the_pointer_in_a_window_wider_than_the_columns() {
     let right = table_right(&window);
     let age = span_of(&spans(&window), "Age").expect("the last column shows");
     assert!(age.max + 300.0 < right, "the columns end at {}, and the window is wider: {right}", age.max);
-    drag_each(&mut window, TITLES.into_iter(), right);
-    drag_each(&mut window, TITLES.into_iter().rev(), right);
+    drag_each_way(&mut window, right);
 }
 
 #[test]
@@ -131,8 +137,30 @@ fn each_edge_follows_the_pointer_in_a_window_narrower_than_the_columns() {
     let right = table_right(&window);
     let all_show = TITLES.iter().all(|title| span_of(&spans(&window), title).is_some_and(|span| span.max <= right));
     assert!(!all_show, "the columns are wider than the window");
-    drag_each(&mut window, TITLES.into_iter(), right);
-    drag_each(&mut window, TITLES.into_iter().rev(), right);
+    drag_each_way(&mut window, right);
+}
+
+/// At the right end of a narrow table, a narrower column would make the content narrower
+/// than the place that the table showed. The scroll offset of the table must then not move
+/// the columns under the pointer.
+#[test]
+fn each_edge_follows_the_pointer_in_a_narrow_window_at_the_right_end_of_the_table() {
+    let mut window = resized_in(egui::vec2(900.0, 900.0));
+    let name = window.get_by_role_and_label(Role::Button, "Name").rect();
+    window.hover_at(pos2(name.right() + 100.0, name.bottom() + 100.0));
+    window.run();
+    let to_the_right = egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(-2000.0, 0.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    };
+    window.event(to_the_right);
+    until(&mut window, "the right end of the table", |window| {
+        span_of(&spans(window), "Namespace").is_none() && span_of(&spans(window), "Age").is_some()
+    });
+    let right = table_right(&window);
+    drag_each_way(&mut window, right);
 }
 
 #[test]
