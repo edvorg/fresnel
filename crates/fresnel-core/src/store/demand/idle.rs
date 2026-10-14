@@ -58,12 +58,18 @@ impl<R> Entries<R> {
     }
 
     /// Takes each store whose time is over out of the map. Gives them, and the end of the
-    /// next time that runs.
+    /// next time that runs. A time that the clock cannot add to a moment never ends, so an
+    /// extreme setting keeps the stores, and the task that calls this does not panic.
     pub(super) fn take_idle(&mut self, now: Instant, linger: Duration) -> (Vec<R>, Option<Instant>) {
-        let over = |entry: &Entry<R>| entry.idle_since.is_some_and(|since| since + linger <= now);
-        let kinds: Vec<Kind> = self.stores.iter().filter(|(_, entry)| over(entry)).map(|(kind, _)| *kind).collect();
+        let end = |entry: &Entry<R>| entry.idle_since.and_then(|since| since.checked_add(linger));
+        let kinds: Vec<Kind> = self
+            .stores
+            .iter()
+            .filter(|(_, entry)| end(entry).is_some_and(|end| end <= now))
+            .map(|(kind, _)| *kind)
+            .collect();
         let stopped = kinds.iter().filter_map(|kind| self.stores.remove(kind)).map(|entry| entry.running).collect();
-        let next = self.stores.values().filter_map(|entry| entry.idle_since).min().map(|since| since + linger);
+        let next = self.stores.values().filter_map(end).min();
         (stopped, next)
     }
 
@@ -108,6 +114,18 @@ mod tests {
         assert_eq!(entries.take_idle(Instant::now(), LINGER), (vec!["leases"], None), "exactly at the end");
         assert_eq!(starts, 1);
         assert!(!entries.release(Kind::Lease), "a holder of a store that ended changes nothing");
+    }
+
+    /// An extreme setting: a time that the clock cannot add to a moment keeps the store,
+    /// and the task that stops idle stores does not panic.
+    #[tokio::test(start_paused = true)]
+    async fn a_time_past_the_end_of_the_clock_never_ends() {
+        let mut entries = Entries::default();
+        entries.hold_or_start(Kind::Lease, || "leases");
+        entries.release(Kind::Lease);
+        advance(LINGER).await;
+        assert_eq!(entries.take_idle(Instant::now(), Duration::MAX), (vec![], None));
+        assert_eq!(entries.take_idle(Instant::now(), Duration::ZERO), (vec!["leases"], None), "no time");
     }
 
     #[tokio::test(start_paused = true)]

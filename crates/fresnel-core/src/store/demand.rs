@@ -151,10 +151,10 @@ impl Drop for Demands {
 /// next end or for the next store that loses its last holder.
 async fn stop_idle(shared: Weak<Shared>, released: Arc<Notify>) -> Result<(), CoreError> {
     loop {
-        let released = released.notified();
-        tokio::pin!(released);
+        let next_release = released.notified();
+        tokio::pin!(next_release);
         // The registration comes before the read, so that no release is lost.
-        released.as_mut().enable();
+        next_release.as_mut().enable();
         let Some(shared) = shared.upgrade() else {
             // The stores of the cluster stopped, and the stop of this task follows.
             return std::future::pending().await;
@@ -165,11 +165,11 @@ async fn stop_idle(shared: Weak<Shared>, released: Arc<Notify>) -> Result<(), Co
         match next {
             Some(end) => {
                 tokio::select! {
-                    () = &mut released => {}
+                    () = &mut next_release => {}
                     () = sleep_until(end) => {}
                 }
             }
-            None => released.await,
+            None => next_release.await,
         }
     }
 }
