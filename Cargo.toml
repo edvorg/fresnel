@@ -51,6 +51,10 @@ base64 = "0.22.1"
 # the line and the column.
 toml = { version = "1.1", default-features = false, features = ["parse"] }
 
+# The certificates of a TLS Secret: subject, issuer, validity and names. The parse needs no
+# crypto feature. rcgen of the tests uses the same version.
+x509-parser = { version = "0.18.1", default-features = false }
+
 # The map of a store. A copy shares each part that did not change, so a snapshot of 10,000
 # objects costs no copy. The store prototype measured this crate.
 imbl = "7.0.2"
