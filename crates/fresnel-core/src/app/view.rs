@@ -2,6 +2,7 @@
 //!
 //! Each value is a copy. The UI never holds a lock that a task needs.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,6 +14,7 @@ use crate::cluster::{ClusterId, ClusterView, LinkState};
 use crate::error::CoreError;
 use crate::journal::JournalView;
 use crate::kubeconfig::AuthKind;
+use crate::state_file::TableLayout;
 
 /// How far the start of the core is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,6 +110,9 @@ pub struct CoreView {
     pub shell_problem: Option<ShellNote>,
     /// Each cluster of the kubeconfig files, in the sequence of the files.
     pub clusters: Vec<ClusterRow>,
+    /// The layout of each table that the user changed, by the name of the table: from the
+    /// state file and from the commands of this run. `None` before the core read the file.
+    pub tables: Option<Arc<BTreeMap<String, TableLayout>>>,
     /// The journal.
     pub journal: Arc<JournalView>,
 }

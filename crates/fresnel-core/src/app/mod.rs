@@ -5,7 +5,7 @@
 //! so the UI thread starts no network work and reads no file.
 //!
 //! - `run`: the task that starts the core and runs each command.
-//! - `saved`: the selection of clusters in the state file.
+//! - `saved`: the selection of clusters and the table layouts in the state file.
 //! - `data`: the stores and the indexes of each connected cluster.
 //! - `watch`: one task for each connected cluster, for the journal and the repaint.
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
@@ -18,7 +18,7 @@ mod saved;
 mod view;
 mod watch;
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
@@ -37,6 +37,7 @@ pub use view::{ClusterRow, CoreView, ShellNote, Startup};
 use crate::cluster::{ClusterId, Registry};
 use crate::journal::Journal;
 use crate::published::Disposal;
+use crate::state_file::TableLayout;
 use crate::store::StoreSettings;
 use data::Connected;
 use repaint::Repaint;
@@ -81,8 +82,8 @@ pub struct CoreParts {
     pub base_env: ProcessEnv,
     /// The journal. The program gives it the log file as its sink.
     pub journal: Journal,
-    /// The state file: the core reads the selection of the last run from it, and writes
-    /// each change of the selection to it.
+    /// The state file: the core reads the selection and the table layouts of the last run
+    /// from it, and writes each change of them to it.
     pub state_file: PathBuf,
     /// The detectors of a wake and of a network change.
     pub detectors: Vec<Box<dyn Detector>>,
@@ -104,6 +105,14 @@ pub enum Command {
     /// "Retry now" for one cluster: each retry delay ends, and a failed plugin runs again.
     /// For a cluster whose connect did not start, the kubeconfig files load again.
     RetryNow(ClusterId),
+    /// Saves the layout of a table that the user changed. An empty layout removes the table
+    /// from the state file.
+    SaveTable {
+        /// The name of the table.
+        table: String,
+        /// What the user changed of it.
+        layout: TableLayout,
+    },
 }
 
 /// The life of the core. It goes one way.
@@ -127,6 +136,8 @@ struct State {
     saved: saved::Saved,
     /// The selection in the state file, also with the clusters that no kubeconfig file has now.
     in_state_file: BTreeSet<ClusterId>,
+    /// The layout of each table that the user changed. `None` before the read of the state file.
+    tables: Option<Arc<BTreeMap<String, TableLayout>>>,
     commands: VecDeque<Command>,
     /// The stores, the indexes and the tasks of each connected cluster.
     connected: HashMap<ClusterId, Connected>,
@@ -181,6 +192,7 @@ impl Core {
             selected: BTreeSet::new(),
             saved: saved::Saved::Current,
             in_state_file: BTreeSet::new(),
+            tables: None,
             commands: VecDeque::new(),
             connected: HashMap::new(),
             detectors: Some(detectors),
@@ -242,11 +254,11 @@ impl Core {
 
     /// A copy of the state of the app.
     pub fn view(&self) -> CoreView {
-        let (startup, shell_problem, selected, mut data) = {
+        let (startup, shell_problem, selected, tables, mut data) = {
             let state = self.inner.state();
             let data: HashMap<ClusterId, ClusterData> =
                 state.connected.iter().map(|(id, connected)| (id.clone(), connected.data())).collect();
-            (state.startup, state.shell_problem.clone(), state.selected.clone(), data)
+            (state.startup, state.shell_problem.clone(), state.selected.clone(), state.tables.clone(), data)
         };
         let clusters = self.inner.registry.get().map(Registry::snapshot).unwrap_or_default();
         let row = |cluster: crate::cluster::ClusterView| {
@@ -258,6 +270,7 @@ impl Core {
             startup,
             shell_problem,
             clusters: clusters.into_iter().map(row).collect(),
+            tables,
             journal: self.inner.journal.view(),
         }
     }

@@ -366,8 +366,8 @@ file has stays in the file, because a kubeconfig file can be absent for one run.
 
 A state file with a different version number, with a key that this version does not know or
 with broken JSON can be the file of a newer version of the app. The journal tells the problem
-with its line and column. The app starts as with no file and does not save the selection in
-that run. Each write goes to a new file that then gets the name of the state file.
+with its line and column. The app starts as with no file and does not save its state in that
+run. Each write goes to a new file that then gets the name of the state file.
 
 ## The core reads files on the threads for blocking calls
 
@@ -797,3 +797,10 @@ place on the screen. The scroll area then moved each column to the right, the ed
 away from the pointer, and each frame took more width. Now the filler keeps the width of
 the place that the last frame showed. It never makes the content wider than before, so a
 scroll to the right cannot add width without an end.
+
+## The state file keeps the widths that the user gave to columns
+
+Version 2 of `state.json` has the layout of each table that the user changed: the width of
+each column that differs from the width that its table gives, in whole points, by the title
+of the column. A column that is not in the file has the width of its table, and a title that
+the table does not have changes nothing. The app reads a file of version 1 too.

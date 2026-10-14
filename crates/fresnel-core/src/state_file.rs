@@ -1,11 +1,11 @@
 //! The file `state.json`: what the app keeps from one run to the next (plan section 12.5).
 //!
-//! Its first value is the selection of clusters. Later milestones add the layout of the
-//! window. The file has a version number, and a key that this version does not know is an
-//! error. The app does not write over a file that it cannot read: such a file can be from
-//! a newer version of the app.
+//! It has the selection of clusters and the layout of each table that the user changed.
+//! Later milestones add the layout of the window. The file has a version number, and a key
+//! that this version does not know is an error. The app does not write over a file that it
+//! cannot read: such a file can be from a newer version of the app.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{self, Read as _, Write as _};
 use std::path::Path;
@@ -17,8 +17,9 @@ use crate::error::CoreError;
 
 /// The name of the file in the settings folder of the app.
 pub const FILE_NAME: &str = "state.json";
-/// The version of the format that this code reads and writes.
-const VERSION: u32 = 1;
+/// The version of the format that this code writes. Version 2 added the tables, and the
+/// code reads version 1 too.
+const VERSION: u32 = 2;
 /// A larger file is not a state file of the app. The limit keeps it out of the memory.
 const MAX_BYTES: u64 = 1024 * 1024;
 
@@ -27,6 +28,17 @@ const MAX_BYTES: u64 = 1024 * 1024;
 pub struct SavedState {
     /// The clusters that the user selected.
     pub selected: BTreeSet<ClusterId>,
+    /// The layout of each table that the user changed, by the name of the table.
+    pub tables: BTreeMap<String, TableLayout>,
+}
+
+/// What the user changed of one table.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TableLayout {
+    /// The width in points of each column that the user changed, by the title of the column.
+    /// A column that is not in the map has the width that its table gives.
+    pub widths: BTreeMap<String, u32>,
 }
 
 /// The only key that each version of the format has.
@@ -35,12 +47,22 @@ struct Versioned {
     version: u32,
 }
 
-/// The format of version 1.
+/// The format of version 1: the selection only.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Version1 {
+    #[serde(rename = "version")]
+    _version: u32,
+    selected_clusters: Vec<String>,
+}
+
+/// The format of version 2.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Document {
     version: u32,
     selected_clusters: Vec<String>,
+    tables: BTreeMap<String, TableLayout>,
 }
 
 /// Reads the file. `None` when it is absent: the app did not run before.
@@ -52,19 +74,29 @@ pub fn load(path: &Path) -> Result<Option<SavedState>, CoreError> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(CoreError::invalid(format!("cannot read the file: {error}"))),
     };
-    let found = serde_json::from_str::<Versioned>(&text).map_err(|error| position(&error))?.version;
-    if found != VERSION {
-        return Err(CoreError::invalid(format!("the format has the version {found}, and this app reads {VERSION}")));
-    }
-    let document: Document = serde_json::from_str(&text).map_err(|error| position(&error))?;
-    Ok(Some(SavedState { selected: document.selected_clusters.into_iter().map(ClusterId::new).collect() }))
+    let found = serde_json::from_str::<Versioned>(&text).map_err(|error| position(&error, VERSION))?.version;
+    let (selected, tables) = match found {
+        1 => {
+            let document: Version1 = serde_json::from_str(&text).map_err(|error| position(&error, 1))?;
+            (document.selected_clusters, BTreeMap::new())
+        }
+        VERSION => {
+            let document: Document = serde_json::from_str(&text).map_err(|error| position(&error, VERSION))?;
+            (document.selected_clusters, document.tables)
+        }
+        _ => {
+            let text = format!("the format has the version {found}, and this app reads the versions 1 and {VERSION}");
+            return Err(CoreError::invalid(text));
+        }
+    };
+    Ok(Some(SavedState { selected: selected.into_iter().map(ClusterId::new).collect(), tables }))
 }
 
 /// Writes the file. The text goes to a new file that then gets the name of the state file,
 /// so the state file is complete at each moment, also after a crash in the middle of a write.
 pub fn save(path: &Path, state: &SavedState) -> Result<(), CoreError> {
     let selected_clusters = state.selected.iter().map(|cluster| cluster.as_str().to_owned()).collect();
-    let document = Document { version: VERSION, selected_clusters };
+    let document = Document { version: VERSION, selected_clusters, tables: state.tables.clone() };
     let mut text = serde_json::to_string_pretty(&document)
         .map_err(|error| CoreError::invalid(format!("cannot write the state as JSON: {error}")))?;
     text.push('\n');
@@ -85,9 +117,9 @@ fn read(path: &Path) -> io::Result<String> {
     Ok(text)
 }
 
-fn position(error: &serde_json::Error) -> CoreError {
+fn position(error: &serde_json::Error, version: u32) -> CoreError {
     let (line, column) = (error.line(), error.column());
-    CoreError::invalid(format!("line {line}, column {column} does not fit the format of version {VERSION}"))
+    CoreError::invalid(format!("line {line}, column {column} does not fit the format of version {version}"))
 }
 
 #[cfg(test)]
@@ -123,7 +155,7 @@ mod tests {
     }
 
     fn selection(names: &[&str]) -> SavedState {
-        SavedState { selected: names.iter().map(|name| ClusterId::new(*name)).collect() }
+        SavedState { selected: names.iter().map(|name| ClusterId::new(*name)).collect(), tables: BTreeMap::new() }
     }
 
     fn error_of(folder: &Folder, text: &str) -> String {
@@ -138,10 +170,16 @@ mod tests {
 
         save(&path, &selection(&["fra-stage", "ams-prod"])).expect("a write");
         let text = fs::read_to_string(&path).expect("the file");
-        assert_eq!(
-            text,
-            "{\n  \"version\": 1,\n  \"selected_clusters\": [\n    \"ams-prod\",\n    \"fra-stage\"\n  ]\n}\n"
-        );
+        let expected = r#"{
+  "version": 2,
+  "selected_clusters": [
+    "ams-prod",
+    "fra-stage"
+  ],
+  "tables": {}
+}
+"#;
+        assert_eq!(text, expected);
         assert_eq!(load(&path), Ok(Some(selection(&["ams-prod", "fra-stage"]))));
 
         // An empty selection is a state too: the user selected no cluster.
@@ -153,22 +191,43 @@ mod tests {
     }
 
     #[test]
+    fn the_widths_of_a_table_load_again_and_a_file_of_version_1_has_no_table() {
+        let folder = Folder::new("tables");
+        let path = folder.0.join(FILE_NAME);
+        let widths = BTreeMap::from([("Name".to_owned(), 300), ("Age".to_owned(), 60)]);
+        let state =
+            SavedState { tables: BTreeMap::from([("Pods".to_owned(), TableLayout { widths })]), ..selection(&[]) };
+        save(&path, &state).expect("a write");
+        let text = fs::read_to_string(&path).expect("the file");
+        assert!(text.contains("\"tables\": {\n    \"Pods\": {\n      \"widths\": {\n        \"Age\": 60,"), "{text}");
+        assert_eq!(load(&path), Ok(Some(state)));
+
+        let first = folder.with_text(r#"{"version": 1, "selected_clusters": ["ams-prod"]}"#);
+        assert_eq!(load(&first), Ok(Some(selection(&["ams-prod"]))), "the file of an app of milestone M1");
+    }
+
+    #[test]
     fn a_file_that_does_not_fit_gives_the_position_and_no_part_of_its_text() {
         let folder = Folder::new("format");
         let broken = error_of(&folder, "{\n  \"version\": 1,\n  \"selected_clusters\": [\"secret-name\",\n}\n");
-        assert_eq!(broken, "line 4, column 1 does not fit the format of version 1");
+        assert_eq!(broken, "line 4, column 1 does not fit the format of version 2", "a text with no version");
         let unknown_key = error_of(&folder, r#"{"version": 1, "selected_clusters": [], "layout": "secret-name"}"#);
         assert_eq!(unknown_key, "line 1, column 48 does not fit the format of version 1");
+        let tables_in_1 = error_of(&folder, r#"{"version": 1, "selected_clusters": [], "tables": {}}"#);
+        assert_eq!(tables_in_1, "line 1, column 48 does not fit the format of version 1");
+        let unknown_in_table =
+            error_of(&folder, r#"{"version": 2, "selected_clusters": [], "tables": {"Pods": {"hidden": ["Age"]}}}"#);
+        assert_eq!(unknown_in_table, "line 1, column 68 does not fit the format of version 2");
         let no_version = error_of(&folder, r#"{"selected_clusters": ["secret-name"]}"#);
-        assert_eq!(no_version, "line 1, column 38 does not fit the format of version 1");
-        assert_eq!(error_of(&folder, ""), "line 1, column 0 does not fit the format of version 1");
+        assert_eq!(no_version, "line 1, column 38 does not fit the format of version 2");
+        assert_eq!(error_of(&folder, ""), "line 1, column 0 does not fit the format of version 2");
     }
 
     #[test]
     fn a_file_of_some_other_version_or_of_a_large_size_is_an_error() {
         let folder = Folder::new("version");
-        let newer = error_of(&folder, r#"{"version": 2, "selection": {"clusters": ["ams-prod"]}}"#);
-        assert_eq!(newer, "the format has the version 2, and this app reads 1");
+        let newer = error_of(&folder, r#"{"version": 3, "selection": {"clusters": ["ams-prod"]}}"#);
+        assert_eq!(newer, "the format has the version 3, and this app reads the versions 1 and 2");
         let large = error_of(&folder, &" ".repeat(1024 * 1024 + 1));
         assert_eq!(large, "cannot read the file: it has more than 1048576 bytes");
         let folder_as_file = load(&folder.0).expect_err("a folder is not a state file").to_string();

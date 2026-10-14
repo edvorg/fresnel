@@ -29,7 +29,7 @@ pub(super) async fn run(inner: Arc<Inner>) -> Result<(), CoreError> {
             inner.apply(&registry, command).await?;
         }
         // One write for all commands of the queue: the button "All" sends one for each cluster.
-        inner.save_selection(&registry).await?;
+        inner.save_state(&registry).await?;
         inner.command_sent.notified().await;
     }
 }
@@ -48,7 +48,7 @@ impl Inner {
         self.enter(Startup::Kubeconfig);
         let saved = self.load_saved_state().await?;
         let current = self.load_kubeconfig(&env, registry).await?;
-        self.select_at_start(saved, current, registry);
+        self.restore_at_start(saved, current, registry);
         self.start_monitor(registry);
         self.reconcile(registry).await?;
         self.enter(Startup::Ready);
@@ -168,6 +168,11 @@ impl Inner {
         match command {
             Command::Select { cluster, selected } => self.select(cluster, selected),
             Command::RetryNow(cluster) => self.retry(registry, &cluster).await?,
+            Command::SaveTable { table, layout } => {
+                // A layout changes no connection.
+                self.save_table(table, layout);
+                return Ok(());
+            }
         }
         self.reconcile(registry).await
     }
@@ -315,7 +320,7 @@ mod tests {
 
         core.stop();
         inner.reconcile(&registry).await.expect("the reconcile");
-        inner.save_selection(&registry).await.expect("no write");
+        inner.save_state(&registry).await.expect("no write");
         assert_eq!(inner.state().selected.iter().collect::<Vec<_>>(), [&b], "the selection of the user");
         assert!(!home.path("state/state.json").exists(), "a stopped core wrote the state file");
     }

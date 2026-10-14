@@ -110,7 +110,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   before its start. Then one task reads the login shell environment and the kubeconfig files,
   connects each selected cluster and runs each command of the UI. A connected cluster has its
   stores, its indexes and one task that puts its state changes into the journal.
-- **State file** and **journal**: the selection of the last run, and the last 10,000 entries.
+- **State file**: the selection and column widths of the last run. **Journal**: 10,000 entries.
 
 ## Stores and indexes
 
