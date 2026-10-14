@@ -223,6 +223,44 @@ fn a_revision_of_the_list_rolls_back_to_that_revision() {
     assert_eq!(runs(&window), [Order::new(web, Operation::Rollback(1)).expect("an order")]);
 }
 
+/// A fast double click on "Read again" gives a second read that the core does not send while
+/// the first one runs. That second job is a note: the panel keeps the read that runs, and
+/// then its revisions.
+#[test]
+fn a_second_read_of_the_revisions_that_the_core_did_not_send_hides_no_read() {
+    let deployments = scene::<Deployment>();
+    let web = target("ams-prod", &deployments, "web");
+    let not_sent = || {
+        let error = crate::fake::error("job 4 runs the same operation on the object");
+        job(5, web.clone(), Operation::History, JobState::NotSent(error), &[])
+    };
+    let mut session = view(vec![allowed("ams-prod", &deployments)]);
+    session.jobs = jobs(vec![job(4, web.clone(), Operation::History, JobState::Pending, &[]), not_sent()], 0);
+    let mut window = window(session);
+    open(&mut window, "Deployments", "web");
+    assert!(in_panel(&window, "Job 4 reads the revisions…"));
+    let note = "Job 5 did not read the revisions: job 4 runs the same operation on the object";
+    assert!(in_panel(&window, note));
+
+    let mut read = job(4, web.clone(), Operation::History, JobState::Done, &[]);
+    let revision = Revision {
+        number: 1,
+        name: "web-1".to_owned(),
+        created: None,
+        change_cause: Some("x".repeat(100_000)),
+        images: vec!["rancher/mirrored-pause:3.6".to_owned()],
+        current: true,
+        template: Arc::new(Value::Null),
+    };
+    Arc::make_mut(&mut read).report.outcome = Outcome::Revisions(vec![revision].into());
+    window.state_mut().view.jobs = jobs(vec![read, not_sent()], 0);
+    window.run();
+    assert!(in_panel(&window, "current") && in_panel(&window, note));
+    // The change cause is an annotation of any length: the panel shows its start.
+    let cause = window.query_all_by_label_contains("xxxx").next().and_then(|node| node.value()).expect("the cause");
+    assert!(cause.chars().count() <= 241, "{} characters", cause.chars().count());
+}
+
 /// The same action from a key of the settings, from the menu of a row, and from the quick
 /// search: each one opens the same dialog for the object of the panel.
 #[test]
