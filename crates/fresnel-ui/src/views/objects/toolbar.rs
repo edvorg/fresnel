@@ -3,7 +3,7 @@
 //! one filter for each page.
 
 use egui::containers::menu::{MenuButton, MenuConfig};
-use egui::{Align, Frame, Layout, Margin, PopupCloseBehavior, RichText, TextEdit, Ui};
+use egui::{Align, Frame, Id, Layout, Margin, PopupCloseBehavior, RichText, TextEdit, Ui, UiBuilder};
 
 use super::filter::ObjectFilter;
 use super::{Nouns, ObjectModel};
@@ -45,7 +45,11 @@ pub(super) fn show<M: ObjectModel>(
                     ui.label(RichText::new(text).color(palette.error));
                 }
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            // The id of a widget counts the widgets before it. A note before the filters that
+            // comes and goes, as "updating…" for a slow worker, thus gave them new ids: the
+            // field lost the focus and the next keys, and an open menu closed. These are fixed.
+            let id = Id::new(("filters of the bar", nouns.title));
+            ui.scope_builder(UiBuilder::new().id(id).layout(Layout::right_to_left(Align::Center)), |ui| {
                 let field = TextEdit::singleline(&mut filter.text).hint_text("Filter").desired_width(200.0);
                 let field = ui.add(field);
                 widgets::name(&field, &format!("Filter {}", nouns.many));

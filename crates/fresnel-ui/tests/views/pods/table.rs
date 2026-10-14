@@ -188,3 +188,53 @@ fn the_selection_follows_its_objects_and_drops_the_ones_that_go_away() {
     until(&mut window, "the rows of the new pods", |window| shows(window, "21 pods"));
     assert!(!shows(&window, "Close"), "the last selected pod went away, and its panel tells it");
 }
+
+/// A note of the bar before the filter comes and goes: here the count of the selected rows,
+/// and "updating…" while a worker takes more than 250 ms. The menu of the columns stays
+/// open, and the filter keeps its focus and each key. The id of each one counted the notes
+/// before it: in a debug build on Linux, a filter of 10,000 Deployments lost its keys.
+#[test]
+fn the_menu_and_the_focus_of_the_filter_stay_while_a_note_of_the_bar_comes_and_goes() {
+    let mut window = tall(vec![live("ams-prod", &pods())]);
+    let without = |gone: &[&str]| -> Vec<_> {
+        pods().into_iter().filter(|pod| !gone.contains(&pod.metadata.name.as_deref().unwrap_or_default())).collect()
+    };
+    // The rows from crash to `last`, in the sequence of the names.
+    let select = |window: &mut Window, last: &str, count: &str| {
+        window.get_by_label("crash").click();
+        window.get_by_label(last).click_modifiers(egui::Modifiers::SHIFT);
+        window.run();
+        assert!(shows(window, count), "{count}");
+    };
+    // Of the pods crash, db-0, db-1 and done, three go away, and with them the note.
+    let note_goes = |window: &mut Window| {
+        window.state_mut().view = view(vec![live("ams-prod", &without(&["db-0", "db-1", "done"]))]);
+        until(window, "no note of a selection", |window| {
+            window.query_all_by_label_contains(" selected").next().is_none()
+        });
+    };
+
+    select(&mut window, "done", "4 selected");
+    window.get_by_role_and_label(Role::Button, "Columns").click();
+    window.run();
+    assert!(window.query_by_role_and_label(Role::CheckBox, "Restarts").is_some(), "the menu is open");
+    note_goes(&mut window);
+    assert!(window.query_by_role_and_label(Role::CheckBox, "Restarts").is_some(), "the menu stays open");
+    window.get_by_role_and_label(Role::Button, "Columns").click();
+    window.run();
+
+    window.state_mut().view = view(vec![live("ams-prod", &pods())]);
+    until(&mut window, "each pod again", |window| shows(window, "25 pods"));
+    // The panel shows the deleted pod done, so the selection ends at db-1.
+    select(&mut window, "db-1", "3 selected");
+    window.get_by_label("Filter pods").click();
+    window.run();
+    window.get_by_label("Filter pods").type_text("cr");
+    window.run();
+    note_goes(&mut window);
+    assert!(window.get_by_label("Filter pods").is_focused(), "the filter keeps the focus");
+    window.get_by_label("Filter pods").type_text("ash");
+    window.run();
+    assert_eq!(window.get_by_label("Filter pods").value().as_deref(), Some("crash"), "each key arrived");
+    until(&mut window, "the rows of the filter", |window| shows(window, "2 of 22 pods"));
+}
