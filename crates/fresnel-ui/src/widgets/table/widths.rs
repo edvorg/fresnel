@@ -27,8 +27,6 @@ use super::model::Column;
 pub(super) const NARROWEST: f32 = 48.0;
 /// The widest column.
 pub(super) const WIDEST: f32 = 2000.0;
-/// The width of the vertical scroll bar of the table. The filler leaves it free.
-const SCROLL_BAR: f32 = 12.0;
 /// The place that the first column leaves for the columns that scroll to the side.
 const SCROLLED_PLACE: f32 = NARROWEST;
 /// A smaller distance to the side is no scroll: the table and `egui_table` add the widths
@@ -71,26 +69,27 @@ impl Widths {
         Self { columns: columns.iter().map(width_of).collect(), shown: None, changed: false }
     }
 
-    /// The widths of a frame in a table of this width: the first column inside the table,
-    /// and the filler after the last column.
-    pub(super) fn for_frame(&self, available: f32) -> FrameWidths {
-        let first_widest = (available - SCROLL_BAR - SCROLLED_PLACE).clamp(NARROWEST, WIDEST);
+    /// The widths of a frame whose columns have the width `place` on the screen: the table
+    /// less its vertical scroll bar. The first column stays inside that place, and the
+    /// filler comes after the last column.
+    pub(super) fn for_frame(&self, place: f32) -> FrameWidths {
+        let first_widest = (place - SCROLLED_PLACE).clamp(NARROWEST, WIDEST);
         let mut columns = self.columns.clone();
         if let Some(first) = columns.first_mut() {
             *first = first.min(first_widest);
         }
-        let filler = self.filler(available, columns.iter().sum());
+        let filler = self.filler(place, columns.iter().sum());
         FrameWidths { columns, first_widest, filler }
     }
 
-    /// The width of the filler after columns of the width `sum` in a table of this width:
-    /// the free width, or the width that keeps the place that the last frame showed of a
-    /// scrolled table. That place is never wider than the last content, so a scroll to the
-    /// right cannot make the table wider.
-    fn filler(&self, available: f32, sum: f32) -> f32 {
-        let free = available - sum - SCROLL_BAR;
+    /// The width of the filler after columns of the width `sum` in this place: the free
+    /// width, or the width that keeps the place that the last frame showed of a scrolled
+    /// table. That place is never wider than the last content, so a scroll to the right
+    /// cannot make the table wider.
+    fn filler(&self, place: f32, sum: f32) -> f32 {
+        let free = place - sum;
         let scrolled = self.shown.filter(|shown| shown.scrolled >= NO_SCROLL);
-        let keep = scrolled.map_or(0.0, |shown| shown.content.min(shown.scrolled + available) - sum);
+        let keep = scrolled.map_or(0.0, |shown| shown.content.min(shown.scrolled + place) - sum);
         free.max(keep).max(0.0)
     }
 
@@ -173,23 +172,23 @@ mod tests {
         assert_eq!(widths.columns, [NARROWEST, 75.5, WIDEST]);
     }
 
-    /// One frame in a table of this width, whose columns end at `end`.
-    fn show(widths: &mut Widths, available: f32, end: f32) {
-        let frame = widths.for_frame(available);
+    /// One frame in this place, whose columns end at `end`.
+    fn show(widths: &mut Widths, place: f32, end: f32) {
+        let frame = widths.for_frame(place);
         widths.shown(&frame, end);
     }
 
     #[test]
-    fn the_filler_takes_the_free_width_and_leaves_the_scroll_bar_free() {
+    fn the_filler_takes_the_free_width() {
         let mut widths = widths(&[200.0, 100.0]);
-        assert_eq!(widths.for_frame(1000.0).filler, 1000.0 - 300.0 - SCROLL_BAR);
+        assert_eq!(widths.for_frame(1000.0).filler, 1000.0 - 300.0);
         assert_eq!(widths.for_frame(300.0).filler, 0.0, "a narrow table scrolls to the side");
 
         // A table that is not scrolled keeps no place: a narrower window gives less free width.
         show(&mut widths, 1000.0, 300.0);
-        assert_eq!(widths.for_frame(800.0).filler, 800.0 - 300.0 - SCROLL_BAR);
+        assert_eq!(widths.for_frame(800.0).filler, 800.0 - 300.0);
         show(&mut widths, 300.0, 300.0 - NO_SCROLL / 2.0);
-        assert_eq!(widths.for_frame(800.0).filler, 800.0 - 300.0 - SCROLL_BAR, "a difference in the last bits");
+        assert_eq!(widths.for_frame(800.0).filler, 800.0 - 300.0, "a difference in the last bits");
     }
 
     #[test]
@@ -219,16 +218,16 @@ mod tests {
     fn the_first_column_stays_inside_the_table_and_keeps_the_width_of_the_user() {
         let mut widths = widths(&[2000.0, 100.0]);
         let narrow = widths.for_frame(900.0);
-        let first_widest = 900.0 - SCROLL_BAR - SCROLLED_PLACE;
+        let first_widest = 900.0 - SCROLLED_PLACE;
         assert_eq!((narrow.columns.as_slice(), narrow.first_widest), ([first_widest, 100.0].as_slice(), first_widest));
         assert_eq!(narrow.filler, 0.0, "the columns fill the table");
         assert_eq!(widths.for_frame(2400.0).columns, [2000.0, 100.0], "a wide table shows the width of the user");
         assert_eq!(widths.for_frame(50.0).columns, [NARROWEST, 100.0], "a table narrower than one column");
         assert_eq!(widths.for_frame(f32::MAX).first_widest, WIDEST);
 
-        // The place that a scrolled table showed counts the widths on the screen: 940 points.
+        // The place that a scrolled table showed counts the widths on the screen: 952 points.
         show(&mut widths, 900.0, 848.0);
-        assert_eq!(widths.shown, Some(Shown { content: 940.0, scrolled: 92.0 }));
+        assert_eq!(widths.shown, Some(Shown { content: 952.0, scrolled: 104.0 }));
         assert!(!widths.changed(), "a narrow table is no change of the user");
     }
 

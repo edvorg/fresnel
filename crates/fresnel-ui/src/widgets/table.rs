@@ -174,7 +174,8 @@ impl<M: Model> Table<M> {
         let focus_id = ui.make_persistent_id((self.name, "keys"));
         let focus = ui.interact(rect, focus_id, Sense::focusable_noninteractive());
 
-        let frame = self.widths.for_frame(rect.width());
+        // The vertical scroll bar takes its place at the right of the rows.
+        let frame = self.widths.for_frame(rect.width() - ui.spacing().scroll.allocated_width());
         let table_columns = self.table_columns(&frame);
         let mut table = egui_table::Table::new()
             .id_salt(self.name)

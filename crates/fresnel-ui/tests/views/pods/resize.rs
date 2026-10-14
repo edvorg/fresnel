@@ -48,7 +48,7 @@ pub(crate) fn width(window: &Window, title: &str) -> f32 {
 
 /// The right end of the rows: the right edge of the window, less the scroll bar.
 pub(crate) fn table_right(window: &Window) -> f32 {
-    window.ctx.content_rect().right() - 12.0
+    window.ctx.content_rect().right() - window.ctx.global_style().spacing.scroll.allocated_width()
 }
 
 /// A drag of the edge at the right of one title that holds the pointer button.
