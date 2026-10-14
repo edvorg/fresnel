@@ -37,16 +37,23 @@ impl Drop for Scratch {
     }
 }
 
-/// A staged bundle that holds only a mark, for the tests of the rename.
+/// A staged bundle whose contents hold only a mark, for the tests of the moves.
 fn staged(scratch: &Scratch, mark: &str) -> PathBuf {
     let app = scratch.folder("stage").join(bundle::APP);
-    std::fs::create_dir(&app).expect("a staged bundle");
-    std::fs::write(app.join("mark"), mark).expect("the mark");
+    std::fs::create_dir_all(app.join("Contents")).expect("a staged bundle");
+    std::fs::write(app.join("Contents/mark"), mark).expect("the mark");
     app
 }
 
 fn mark(bundle: &Path) -> String {
-    std::fs::read_to_string(bundle.join("mark")).expect("the mark of a bundle")
+    std::fs::read_to_string(bundle.join("Contents/mark")).expect("the mark of a bundle")
+}
+
+/// The identity of a folder in its file system: a link of macOS, such as an item of the
+/// Dock, finds the folder by it.
+fn identity(folder: &Path) -> u64 {
+    use std::os::unix::fs::MetadataExt as _;
+    std::fs::metadata(folder).expect("the folder").ino()
 }
 
 fn names(folder: &Path) -> Vec<String> {
@@ -67,15 +74,38 @@ fn an_install_keeps_the_bundle_before_it_as_the_only_fallback() {
     assert_eq!(first, Installed { app: applications.join("Fresnel.app"), fallback: None });
     assert_eq!(names(&applications), ["Fresnel.app"]);
 
+    let app = identity(&first.app);
     let second = swap::install(&staged(&scratch, "two"), &applications).expect("the second install");
     assert_eq!(second.fallback.as_deref(), Some(fallback.as_path()));
     assert_eq!(names(&applications), ["Fresnel.app", "Fresnel.app.prev"]);
     assert_eq!((mark(&second.app), mark(&fallback)), ("two".to_owned(), "one".to_owned()));
+    assert_eq!(identity(&second.app), app, "a link to the app finds the new version");
+    assert_ne!(identity(&fallback), app, "a link to the app does not find the fallback");
 
     swap::install(&staged(&scratch, "three"), &applications).expect("the third install");
     assert_eq!(names(&applications), ["Fresnel.app", "Fresnel.app.prev"], "the older fallback went away");
     assert_eq!((mark(&applications.join("Fresnel.app")), mark(&fallback)), ("three".to_owned(), "two".to_owned()));
+    assert_eq!(identity(&applications.join("Fresnel.app")), app);
     assert_eq!(names(&scratch.folder("stage")), Vec::<String>::new(), "each install moved its staged bundle");
+}
+
+/// An app folder with no contents, from an install that stopped between its two moves,
+/// gets the new contents and keeps the fallback that it had.
+#[test]
+fn an_app_folder_with_no_contents_gets_the_new_contents() {
+    let scratch = Scratch::new("swap-empty");
+    let applications = scratch.folder("Applications");
+    swap::install(&staged(&scratch, "one"), &applications).expect("the first install");
+    swap::install(&staged(&scratch, "two"), &applications).expect("the second install");
+    std::fs::remove_dir_all(applications.join("Fresnel.app/Contents")).expect("no contents");
+
+    let installed = swap::install(&staged(&scratch, "three"), &applications).expect("the install");
+    assert_eq!(installed.fallback, Some(swap::fallback_path(&applications)));
+    assert_eq!(
+        (mark(&installed.app), mark(&swap::fallback_path(&applications))),
+        ("three".to_owned(), "one".to_owned())
+    );
+    assert_eq!(names(&scratch.folder("stage")), Vec::<String>::new());
 }
 
 #[test]
@@ -105,10 +135,10 @@ fn an_install_whose_last_step_fails_puts_each_bundle_back() {
     swap::install(&staged(&scratch, "one"), &applications).expect("the first install");
     swap::install(&staged(&scratch, "two"), &applications).expect("the second install");
 
-    // The staged bundle cannot leave a folder that takes no change. The step before it,
-    // the rename of the installed bundle, works.
-    let (stage, three) = (scratch.folder("stage"), staged(&scratch, "three"));
-    let permissions = |mode| std::fs::set_permissions(&stage, std::fs::Permissions::from_mode(mode));
+    // The staged contents cannot leave a bundle that takes no change. The step before it,
+    // the move of the installed contents to the fallback, works.
+    let three = staged(&scratch, "three");
+    let permissions = |mode| std::fs::set_permissions(&three, std::fs::Permissions::from_mode(mode));
     permissions(0o555).expect("a folder that takes no change");
     let error = swap::install(&three, &applications);
     permissions(0o755).expect("the folder takes changes again");

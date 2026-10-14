@@ -442,13 +442,14 @@ of `xtask` draws it at each size, so the repository holds no image file and a ch
 icon is a change of some numbers. `iconutil` of macOS makes the icon file from the PNG files,
 so the format of that file is not code of this repository.
 
-## The install is a rename
+## The install keeps the folder of the app
 
-`cargo xtask install` makes the bundle in a folder inside the destination folder, signs it
-and moves it to its place with a rename. The destination thus holds the old bundle or the new
-one, never a mix. The earlier bundle stays as `Fresnel.app.prev`. macOS does not show that
-name as an app, and a rename back is the fallback. The signature is ad hoc: macOS on Apple
-silicon starts only signed code.
+`cargo xtask install` makes and signs the bundle in a folder inside the destination folder.
+One rename moves the `Contents` of `Fresnel.app` into a new `Fresnel.app.prev`, and one more
+moves the new `Contents` into `Fresnel.app`. The Dock finds an app by the identity of its
+folder: after an install that renamed `Fresnel.app`, the Dock started the earlier version.
+macOS does not show `.prev` as an app. The signature is ad hoc: Apple silicon starts only
+signed code.
 
 ## The test of the program starts itself as a child process
 

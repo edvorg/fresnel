@@ -1,7 +1,12 @@
-//! The install of a bundle by rename, with the earlier bundle as a fallback.
+//! The install of a bundle, with the earlier bundle as a fallback.
 //!
-//! A rename is one step of the file system: the folder holds the old bundle or the new
-//! one, never a mix of the two. A copy over the old bundle could stop in the middle. The
+//! The folder of the app stays the same folder: the install moves its `Contents` into a
+//! new fallback folder and the staged `Contents` into it. The Dock and each other link of
+//! macOS find a folder by its identity, not by its name. After an install that renamed the
+//! folder of the app to the fallback, the Dock started the earlier version.
+//!
+//! Each move is a rename, one step of the file system: the folder holds the old contents
+//! or the new ones, never a mix. A copy over the old bundle could stop in the middle. The
 //! earlier bundle stays with the extension `.prev`, which macOS does not show as an app.
 
 use std::io;
@@ -11,6 +16,8 @@ use super::bundle::APP;
 
 /// The extension of the fallback: `Fresnel.app.prev`.
 const FALLBACK: &str = "prev";
+/// The one folder of a bundle of macOS.
+const CONTENTS: &str = "Contents";
 
 /// What an install left in the destination folder.
 #[derive(Debug, PartialEq, Eq)]
@@ -26,17 +33,23 @@ pub fn fallback_path(destination: &Path) -> PathBuf {
     destination.join(format!("{APP}.{FALLBACK}"))
 }
 
-/// Moves a staged bundle into the destination folder. The staged bundle must be on the
-/// same volume, so that each step is a rename. An older fallback goes away after the new
-/// bundle is in its place. After an error, the folder is as before.
+/// Moves the contents of a staged bundle into the destination folder. The staged bundle
+/// must be on the same volume, so that each step is a rename. An older fallback goes away
+/// after the new contents are in their place. After an error, the folder is as before.
 pub fn install(staged: &Path, destination: &Path) -> io::Result<Installed> {
-    if !staged.is_dir() {
+    if !staged.join(CONTENTS).is_dir() {
         return Err(io::Error::new(io::ErrorKind::NotFound, format!("no bundle at {}", staged.display())));
     }
     let (app, fallback) = (destination.join(APP), fallback_path(destination));
     if !exists(&app)? {
         std::fs::rename(staged, &app)?;
         return Ok(Installed { app, fallback: None });
+    }
+    if !exists(&app.join(CONTENTS))? {
+        // An app folder with no contents has nothing for a fallback: the older one stays.
+        std::fs::rename(staged.join(CONTENTS), app.join(CONTENTS))?;
+        std::fs::remove_dir(staged)?;
+        return Ok(Installed { fallback: exists(&fallback)?.then_some(fallback), app });
     }
     // The older fallback waits under this name, so that a failed install can put it back.
     let retired = destination.join(format!("{APP}.{FALLBACK}.old"));
@@ -52,14 +65,21 @@ pub fn install(staged: &Path, destination: &Path) -> io::Result<Installed> {
         return Err(error);
     }
     remove(&retired)?;
+    std::fs::remove_dir(staged)?;
     Ok(Installed { app, fallback: Some(fallback) })
 }
 
-/// Makes the installed bundle the fallback and puts the staged bundle into its place.
+/// Moves the installed contents into a new fallback folder and the staged contents into
+/// the folder of the app. After an error, each contents is back in its folder.
 fn replace(staged: &Path, app: &Path, fallback: &Path) -> io::Result<()> {
-    std::fs::rename(app, fallback)?;
-    if let Err(error) = std::fs::rename(staged, app) {
-        std::fs::rename(fallback, app)?;
+    std::fs::create_dir(fallback)?;
+    if let Err(error) = std::fs::rename(app.join(CONTENTS), fallback.join(CONTENTS)) {
+        std::fs::remove_dir(fallback)?;
+        return Err(error);
+    }
+    if let Err(error) = std::fs::rename(staged.join(CONTENTS), app.join(CONTENTS)) {
+        std::fs::rename(fallback.join(CONTENTS), app.join(CONTENTS))?;
+        std::fs::remove_dir(fallback)?;
         return Err(error);
     }
     Ok(())
