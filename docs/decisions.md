@@ -948,6 +948,12 @@ then compares values and reads no object, the text filter reads the texts of the
 frame lays out the cells on the screen only. With 10,000 Deployments, the values cost memory
 for each row; the frame time test holds the limit of 16 ms.
 
+## A hidden sort column gives the sort back to the name
+
+The arrow of the sort is in the title of its column. When the user hides that column, the
+rows would keep a sequence that nothing on the screen tells. So the table sorts by the first
+column again, which always shows.
+
 ## The shell holds the page of one kind
 
 Each table has a worker thread and holds rows. The shell keeps the page of the open kind only:

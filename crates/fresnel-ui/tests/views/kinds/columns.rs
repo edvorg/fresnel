@@ -52,3 +52,21 @@ fn the_user_shows_and_hides_columns_and_the_state_file_keeps_the_choice() {
     let commands = window.state().sent.iter().filter(|command| matches!(command, Command::SaveTable { .. })).count();
     assert_eq!(commands, 0, "a saved layout is no change of the user");
 }
+
+/// A hidden column cannot show the arrow of its sort. The rows of a sort column that the
+/// user hides go back to the sort by the name, and the name shows the arrow.
+#[test]
+fn the_rows_of_a_sort_column_that_the_user_hides_go_back_to_the_sort_by_the_name() {
+    let mut window = page::<Deployment>(vec![live("ams-prod", &deployments())], 4);
+    let by_name = ["broken", "coredns", "local-path-provisioner", "web"];
+    assert_eq!(column(&window, "Name"), by_name);
+    window.get_by_role_and_label(Role::Button, "Images").click();
+    let by_image = ["local-path-provisioner", "coredns", "web", "broken"];
+    until(&mut window, "the sort by the images", |window| column(window, "Name") == by_image);
+    window.get_by_label("Columns").click();
+    window.run();
+    choose(&mut window, "Images");
+    window.key_press(egui::Key::Escape);
+    until(&mut window, "the column goes", |window| !has_title(window, "Images"));
+    until(&mut window, "the sort by the name", |window| column(window, "Name") == by_name);
+}

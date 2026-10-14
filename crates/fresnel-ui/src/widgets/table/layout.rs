@@ -8,7 +8,7 @@ use fresnel_core::app::Command;
 use fresnel_core::state_file::TableLayout;
 
 use super::Table;
-use super::model::Model;
+use super::model::{Model, Sort};
 
 impl<M: Model> Table<M> {
     /// Takes the saved layout of the table one time, when the core read the state file
@@ -58,8 +58,12 @@ impl<M: Model> Table<M> {
         columns.skip(1).map(|(index, column)| (index, column.title, self.choice.is_shown(index)))
     }
 
-    /// Shows or hides a column for the user.
+    /// Shows or hides a column for the user. A hidden column cannot show the arrow of the
+    /// sort, so the rows of a hidden sort column go back to the sort by the first column.
     pub(crate) fn show_column(&mut self, index: usize, shown: bool) {
         self.choice.set(index, shown);
+        if !self.choice.is_shown(self.supply.sort().column) {
+            self.supply.set_sort(Sort { column: 0, descending: false });
+        }
     }
 }
