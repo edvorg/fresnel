@@ -121,6 +121,11 @@ impl<M: Model> Supply<M> {
         self.asked.as_ref().map(|(id, _)| *id)
     }
 
+    /// The identity of the request of the rows on the screen.
+    pub(super) fn shown_id(&self) -> Option<RequestId> {
+        self.shown.as_ref().map(|done| done.id)
+    }
+
     /// True when the rows on the screen are the rows of the last request.
     pub(super) fn is_current(&self) -> bool {
         self.shown.is_some() && !self.is_behind()

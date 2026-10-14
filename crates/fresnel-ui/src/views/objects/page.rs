@@ -272,7 +272,7 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
     fn rest(&mut self) {
         self.table.rest();
         self.follower.rest();
-        (self.detail, self.wanted, self.note, self.opened) = (None, None, None, None);
+        (self.detail, self.wanted, self.note, self.opened, self.focus) = (None, None, None, None, false);
     }
 
     fn open(&mut self, link: Link) {

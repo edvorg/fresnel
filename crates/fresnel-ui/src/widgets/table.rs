@@ -44,7 +44,7 @@ pub(crate) use self::supply::Progress;
 use self::supply::Supply;
 use self::widths::{FrameWidths, NARROWEST, WIDEST, Widths};
 use crate::theme::{self, ROW_HEIGHT};
-use crate::widgets::worker::Wake;
+use crate::widgets::worker::{RequestId, Wake};
 
 /// What the user did to the cursor of a table in one frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +70,9 @@ pub(crate) struct Table<M: Model> {
     /// The layout that the core has of this table, as far as the table knows. `None` before
     /// the core read the state file.
     saved: Option<TableLayout>,
+    /// The last answer of `hides`: the rows it read, the object and the answer. A scan of
+    /// 10,000 rows in each frame would take a part of each frame.
+    hidden: Option<(RequestId, ObjectId, bool)>,
 }
 
 impl<M: Model> Table<M> {
@@ -79,7 +82,7 @@ impl<M: Model> Table<M> {
         let supply = Supply::start(tasks, wake, name, Arc::clone(&model));
         let (widths, choice) = (Widths::new(model.columns()), Choice::new(model.columns()));
         let (selection, edges) = (Selection::default(), Edges::default());
-        Self { name, model, supply, selection, reveal: None, widths, choice, edges, saved: None }
+        Self { name, model, supply, selection, reveal: None, widths, choice, edges, saved: None, hidden: None }
     }
 
     /// Tells the table what its rows come from in this frame, and takes a result of the
@@ -143,8 +146,18 @@ impl<M: Model> Table<M> {
 
     /// True when the rows on the screen are the rows of the last request and none of them
     /// is the row of this object: a filter hides it.
-    pub(crate) fn hides(&self, id: &ObjectId) -> bool {
-        self.supply.is_current() && self.rows().is_some_and(|rows| position(&*self.model, &rows.rows, id).is_none())
+    pub(crate) fn hides(&mut self, id: &ObjectId) -> bool {
+        let Some(rows) = self.supply.shown_id().filter(|_| self.supply.is_current()) else {
+            return false;
+        };
+        match &self.hidden {
+            Some((seen, object, hidden)) if *seen == rows && object == id => *hidden,
+            _ => {
+                let hidden = self.rows().is_some_and(|shown| position(&*self.model, &shown.rows, id).is_none());
+                self.hidden = Some((rows, id.clone(), hidden));
+                hidden
+            }
+        }
     }
 
     /// Draws the table into the rest of `ui`. `empty` tells why the table has no row, and

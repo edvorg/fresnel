@@ -156,3 +156,18 @@ fn the_namespace_filter_of_the_top_bar_holds_for_each_page() {
     open_page(&mut window, "Nodes");
     until(&mut window, "each node", |window| !column(window, "Name").is_empty());
 }
+
+/// The Connections page has no filter and no object. The page of a kind that it keeps hidden
+/// gives up its state in each frame, so a key of a page there leaves no trace for later.
+#[test]
+fn a_key_of_a_page_on_the_connections_page_leaves_no_trace_on_the_page() {
+    let mut window = window(view(vec![searchable("ams-prod", StoreState::Live)]));
+    open_page(&mut window, "Connections");
+    window.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::C);
+    window.key_press_modifiers(Modifiers::COMMAND, Key::F);
+    window.run();
+    open_page(&mut window, "Pods");
+    until(&mut window, "the pods", |window| shows(window, "25 pods"));
+    assert!(window.query_by_label_contains("No pod is open in the panel.").is_none());
+    assert!(!window.get_by_label("Filter pods").is_focused());
+}
