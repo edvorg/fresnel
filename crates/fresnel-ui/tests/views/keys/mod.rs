@@ -5,13 +5,14 @@
 //! - `editor`: the read, show and hide, copy, an edit with its diff, and the save.
 //! - `changes`: add and remove a key, the states of a save, and a conflict.
 //! - `marks`: an immutable object, a forbidden change, a binary value, the special views
-//!   and "used by". `new_secret`: the dialog of a new Secret.
+//!   and "used by". `new_secret`: the dialog of a new Secret. `snapshots`: PNG files.
 
 mod changes;
 mod editor;
 mod marks;
 mod new_secret;
 pub(crate) mod scene;
+mod snapshots;
 
 use egui::{Key, Modifiers};
 use egui_kittest::kittest::Queryable as _;
