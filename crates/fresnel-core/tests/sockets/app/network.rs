@@ -53,7 +53,8 @@ async fn each_state_change_is_in_the_journal_and_a_network_change_ends_the_retry
         .filter(|step| step != "a connection was lost")
         .collect();
     assert_eq!(steps, ["the channels connect", "live", "no connection", "live"]);
-    let network = "the network changed: each cluster tests its connections and ends its retry delays";
+    let network = "the network changed: each cluster tests its connections and ends its retry delays \
+                   (the wait of a connect one time in 10 s at most)";
     assert_eq!(app.texts_of("app").last().map(String::as_str), Some(network));
     let levels: Vec<Level> = app.journal().into_iter().map(|(level, _, _)| level).collect();
     assert!(levels.contains(&Level::Warning) && !levels.contains(&Level::Error), "{:?}", app.journal());

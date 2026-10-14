@@ -39,7 +39,8 @@ impl Signal {
         Self { raised: Arc::new(watch::Sender::new((0, Cause::RetryNow))) }
     }
 
-    /// Ends each retry delay of the cluster now.
+    /// Ends each retry delay of the cluster now. The wait of a connect ends one time in
+    /// [`OutageSettings::calm`](crate::OutageSettings::calm) at most.
     pub fn raise(&self, cause: Cause) {
         self.raised.send_modify(|(count, last)| {
             *count = count.wrapping_add(1);

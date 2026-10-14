@@ -86,9 +86,9 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Hedged connect**: one more attempt after 1.5 connect times; the first one wins. **Upgrade
   client**: exec, attach and port forward, on warm connections with a test.
 - **Credential**: one task runs the plugin. After a second HTTP 401, a request proves the token.
-- **Signal**: a wake, a network change and "retry now" raise the signal of a cluster, which ends
-  each retry delay, that of a connect one time in 10 s at most. Each channel tests its connection
-  with a limit of 3 s. **Outage**: after a minute with no connect, a cluster gets one attempt
+- **Signal**: a wake, a network change and "retry now" raise the signal of a cluster. It ends
+  each retry delay (the wait of a connect one time in 10 s at most), and each channel tests its
+  connection in 3 s. **Outage**: after a minute with no connect, a cluster gets one attempt
   each 5 s, in turns. `Cluster::status` gives a copy of each state, `Cluster::changes` a change.
 
 ## Clusters

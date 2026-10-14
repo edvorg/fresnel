@@ -120,8 +120,8 @@ fn card(ui: &mut Ui, palette: &Palette, row: &ClusterRow, scene: &mut Scene<'_>)
     });
 }
 
-const RETRY_HINT: &str =
-    "Ends each retry delay of the cluster, that of a connect one time in 10 s at most. A failed plugin runs again.";
+const RETRY_HINT: &str = "Ends each retry delay of the cluster, and a failed plugin runs again. \
+                          The wait of a connect ends one time in 10 s at most.";
 
 /// The server and the credential type of the kubeconfig entry.
 fn endpoint_text(row: &ClusterRow) -> String {

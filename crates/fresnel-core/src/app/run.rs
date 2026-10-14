@@ -9,9 +9,9 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use fresnel_net::Cause;
 use fresnel_net::detect::{Disturbance, Monitor};
 use fresnel_net::env::{self, EnvSource, ProcessEnv};
+use fresnel_net::{Cause, NetSettings};
 
 use super::data::Connected;
 use super::manifest::{ManifestReader, ManifestRequest};
@@ -151,13 +151,14 @@ impl Inner {
             return;
         };
         let (registry, journal, repaint) = (registry.clone(), self.journal.clone(), self.repaint.clone());
+        let calm = calm_text(&self.settings.net);
         let report = move |disturbance: Disturbance| {
             registry.raise(disturbance.cause());
             let what = match disturbance {
                 Disturbance::Wake(slept) => format!("the computer slept for {} s", slept.as_secs()),
                 Disturbance::NetworkChange => "the network changed".to_owned(),
             };
-            journal.info(APP, format!("{what}: each cluster tests its connections and ends its retry delays"));
+            journal.info(APP, format!("{what}: each cluster tests its connections and ends its retry delays{calm}"));
             repaint.request();
         };
         let monitor = Monitor::start(&self.tasks, detectors, self.settings.detect_period, report);
@@ -231,7 +232,9 @@ impl Inner {
     async fn retry(&self, registry: &Registry, cluster: &ClusterId) -> Result<(), CoreError> {
         if let Some(link) = registry.link(cluster) {
             link.net.signal().raise(Cause::RetryNow);
-            self.journal.info(cluster.as_str(), "retry now: each retry delay ends, and a failed plugin runs again");
+            let calm = calm_text(&self.settings.net);
+            let text = format!("retry now: each retry delay ends{calm}, and a failed plugin runs again");
+            self.journal.info(cluster.as_str(), text);
             return Ok(());
         }
         // The connect did not start. The cause is most often the kubeconfig entry, so the
@@ -312,6 +315,12 @@ impl Inner {
         drop(old);
         Ok(())
     }
+}
+
+/// The limit of a raise for the journal: it ends the wait of a connect one time in the calm
+/// time at most, so that a raise each 2 s does not start a race of each channel each 2 s.
+fn calm_text(settings: &NetSettings) -> String {
+    format!(" (the wait of a connect one time in {} s at most)", settings.outage.calm.as_secs())
 }
 
 /// "1 context", "4 contexts": a count with its noun.
