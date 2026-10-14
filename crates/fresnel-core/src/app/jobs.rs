@@ -70,6 +70,10 @@ impl Jobs {
     /// Starts a job. With no `cluster`, the cluster of the order is not connected, and the
     /// job ends at once as not sent. `cancel` sets the signal of the parts. A list of running
     /// jobs only takes no new one: the job ends as not sent, and only the journal tells it.
+    ///
+    /// The same order while its job runs ends at once as not sent, as a fast second click
+    /// gives it: a second "roll back to the revision before" would undo the first one, and
+    /// a second "run again" would race the first one for the name of the Job.
     pub(super) fn start(
         &mut self,
         tasks: &Tasks,
@@ -85,15 +89,28 @@ impl Jobs {
             end_now(&slot, JobState::NotSent(error), &ends);
             return;
         }
-        let task = match cluster {
-            Some((parts, access)) => Some(start(tasks, order, parts, access, &slot, ends)),
-            None => {
+        let task = match (self.running(&order), cluster) {
+            (Some(number), _) => {
+                let error = CoreError::invalid(format!("job {number} runs the same operation on the object"));
+                end_now(&slot, JobState::NotSent(error), &ends);
+                None
+            }
+            (None, Some((parts, access))) => Some(start(tasks, order, parts, access, &slot, ends)),
+            (None, None) => {
                 let error = CoreError::invalid(format!("{} is not connected", order.target.cluster));
                 end_now(&slot, JobState::NotSent(error), &ends);
                 None
             }
         };
         self.entries.push_back(Entry { slot, cancel, _task: task });
+    }
+
+    /// The number of the job that runs this order, if one does.
+    fn running(&self, order: &Order) -> Option<u64> {
+        self.entries.iter().find_map(|entry| {
+            let job = lock(&entry.slot);
+            (!job.report.state.is_final() && job.order == *order).then_some(job.number)
+        })
     }
 
     /// Asks a job to stop. A wait ends at once; a write in progress runs to its answer.

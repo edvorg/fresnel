@@ -68,6 +68,33 @@ async fn a_full_list_drops_its_oldest_ended_job_and_takes_no_job_when_each_one_r
 }
 
 #[tokio::test]
+async fn the_same_order_while_its_job_runs_ends_as_not_sent_and_an_other_order_goes_on() {
+    let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("no task: {report}"));
+    let (mut jobs, ends) = (Jobs::default(), ends());
+    let running = Arc::new(JobView { number: 1, order: order(Operation::Rollback(0)), report: Report::default() });
+    jobs.entries.push_back(Entry { slot: Arc::new(Mutex::new(running)), cancel: Cancel::pair().0, _task: None });
+    jobs.number = 1;
+
+    jobs.start(&tasks, order(Operation::Rollback(0)), None, Cancel::pair().0, ends.clone());
+    jobs.start(&tasks, order(Operation::Rollback(2)), None, Cancel::pair().0, ends.clone());
+    let same = CoreError::invalid("job 1 runs the same operation on the object");
+    let other = CoreError::invalid("a is not connected");
+    assert_eq!(
+        states(&jobs),
+        [(1, JobState::Pending), (2, JobState::NotSent(same)), (3, JobState::NotSent(other.clone()))]
+    );
+
+    // A job that ended does not hold its order.
+    let mut done = Jobs::default();
+    let ended = Report { state: JobState::Done, ..Report::default() };
+    let job = Arc::new(JobView { number: 1, order: order(Operation::Rollback(0)), report: ended });
+    done.entries.push_back(Entry { slot: Arc::new(Mutex::new(job)), cancel: Cancel::pair().0, _task: None });
+    done.number = 1;
+    done.start(&tasks, order(Operation::Rollback(0)), None, Cancel::pair().0, ends.clone());
+    assert_eq!(states(&done)[1], (2, JobState::NotSent(other)));
+}
+
+#[tokio::test]
 async fn a_cancel_names_its_job_and_sets_its_signal_only() {
     let mut jobs = Jobs::default();
     let pending =
