@@ -46,7 +46,7 @@ fn a_key_or_the_button_opens_the_search_on_each_page_and_escape_closes_it() {
 }
 
 /// The dialog opens with the text of the last search, selected: the first key of a new
-/// search replaces it.
+/// search replaces it. A fast hand types that key in the frame of the open key.
 #[test]
 fn the_text_of_the_last_search_is_selected_and_a_key_replaces_it() {
     let mut window = window(view(vec![searchable("ams-prod", StoreState::Live)]));
@@ -58,6 +58,13 @@ fn the_text_of_the_last_search_is_selected_and_a_key_replaces_it() {
     search(&mut window, "c");
     assert_eq!(window.get_by_label("Search text").value().as_deref(), Some("c"));
     until_hit(&mut window, "Pod scene/crash of ams-prod");
+    window.key_press(Key::Escape);
+    window.run();
+
+    window.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    window.event(egui::Event::Text("i".to_owned()));
+    window.run();
+    assert_eq!(window.get_by_label("Search text").value().as_deref(), Some("i"), "the key of the same frame");
 }
 
 /// Design rule 4: a hit of a store that is not live has the mark of its rows.
