@@ -4,6 +4,7 @@
 //! - [`cluster`]: the clusters and the requests to them. [`kubeconfig`]: their source.
 //! - [`kinds`]: the registry of the resource types. [`store`]: the objects of each kind of
 //!   a cluster, which the watch loop keeps current. [`index`]: the relations between them.
+//! - [`manifest`]: the YAML of one object, read from the server.
 //! - [`published`]: the one type that publishes a state to its readers.
 //! - [`journal`]: the list of events, warnings and errors.
 //! - [`state_file`]: what the app keeps from one run to the next.
@@ -20,6 +21,7 @@ pub mod index;
 pub mod journal;
 pub mod kinds;
 pub mod kubeconfig;
+pub mod manifest;
 pub mod published;
 pub mod state_file;
 pub mod store;

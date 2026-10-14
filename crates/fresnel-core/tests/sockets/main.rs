@@ -2,7 +2,7 @@
 //! These tests use real time, and each one waits for a signal of the code.
 //!
 //! - `app`: the app core, started as from Finder.
-//! - `gateway`: the six functions of the gateway.
+//! - `gateway`: the six functions of the gateway. `manifest`: the YAML of one object.
 //! - `registry`: the list of the clusters and their connections.
 //! - `stores`: the stores of a cluster and their watch loops. `store_faults`: the stores with
 //!   a second fault during a recovery, a fault at the worst moment, a slow server and bad data.
@@ -18,6 +18,7 @@ mod common;
 mod demand;
 mod gateway;
 mod indexes;
+mod manifest;
 mod registry;
 #[path = "../common/stores.rs"]
 mod store_bed;

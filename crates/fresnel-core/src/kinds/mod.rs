@@ -132,11 +132,6 @@ impl KindInfo {
         format!("{}/namespaces/{namespace}/{}", self.group_path(), self.plural)
     }
 
-    /// The path of one object. `namespace` is empty for a kind with no namespace.
-    pub fn path_of(&self, namespace: &str, name: &str) -> String {
-        if self.namespaced { format!("{}/{name}", self.path_in(namespace)) } else { format!("{}/{name}", self.path()) }
-    }
-
     fn group_path(&self) -> String {
         let Self { group, version, .. } = self;
         if group.is_empty() { format!("/api/{version}") } else { format!("/apis/{group}/{version}") }

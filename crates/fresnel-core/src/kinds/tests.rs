@@ -72,8 +72,6 @@ fn each_kind_has_its_own_path_and_no_store_holds_the_data_of_a_secret() {
     assert_eq!(Kind::ApiService.info().path(), "/apis/apiregistration.k8s.io/v1/apiservices");
     assert_eq!(Kind::Event.info().path_in("shop"), "/api/v1/namespaces/shop/events");
     assert_eq!(Kind::Job.info().path_in("shop"), "/apis/batch/v1/namespaces/shop/jobs");
-    assert_eq!(Kind::Job.info().path_of("shop", "once"), "/apis/batch/v1/namespaces/shop/jobs/once");
-    assert_eq!(Kind::Node.info().path_of("", "k3s"), "/api/v1/nodes/k3s", "a node has no namespace");
     assert_eq!((Kind::Secret.info().tier, Kind::ConfigMap.info().tier), (Tier::B, Tier::B));
     assert!(Kind::Secret.info().namespaced && !Kind::ClusterRole.info().namespaced);
 }
