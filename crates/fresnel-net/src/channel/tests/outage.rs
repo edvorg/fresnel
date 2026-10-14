@@ -1,14 +1,39 @@
 //! The channels of one cluster in a long outage: one attempt for each turn of the cluster.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use super::*;
-use crate::connect::Effort;
+use crate::connect::dial::Io;
+use crate::connect::{ConnectStatus, Effort};
 
 /// The three groups of a cluster, on one server and one outage.
 fn cluster(server: &Arc<MemoryServer>) -> (Parts, Vec<Group>) {
-    let parts = server.parts();
+    on(server.parts())
+}
+
+fn on(parts: Parts) -> (Parts, Vec<Group>) {
     let purposes = [Purpose::Watches, Purpose::Requests, Purpose::Logs];
     let groups = purposes.map(|purpose| Group::start(parts.clone(), purpose, settings())).into();
     (parts, groups)
+}
+
+/// A path that lets a count of connects through to the server and refuses each other one.
+struct Rationed {
+    server: Arc<MemoryServer>,
+    left: AtomicUsize,
+}
+
+impl Dial for Rationed {
+    fn dial(&self, protocol: Protocol, effort: Effort) -> BoxFuture<'_, Result<Io, NetError>> {
+        let through = self.left.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1)).is_ok();
+        // The server reads its mode in the first poll of the connect, in the same task.
+        self.server.set_connects(if through { Connects::Work } else { Connects::Refused });
+        self.server.dial(protocol, effort)
+    }
+
+    fn status(&self) -> ConnectStatus {
+        self.server.status()
+    }
 }
 
 fn each_live(groups: &[Group]) -> bool {
@@ -77,4 +102,52 @@ async fn a_signal_in_a_long_outage_starts_a_race_of_each_channel_at_once() {
     let singles: Vec<_> = tries.iter().filter(|(_, effort)| *effort == Effort::Single).collect();
     assert!((1..=2).contains(&singles.len()), "the turns go on one spacing after the races: {tries:?}");
     assert!(singles.iter().all(|(after, _)| *after >= 4 * SECOND), "{tries:?}");
+}
+
+/// A second fault in the recovery: the path lets one connect through and fails again. The
+/// connect ends the outage, and the races after it start a new one with a first part of its
+/// own. The channel that connected stays live, and the others take turns again.
+#[tokio::test(start_paused = true)]
+async fn a_path_that_fails_again_after_one_connect_starts_a_new_outage_and_the_turns_come_back() {
+    let server = MemoryServer::new();
+    let rationed = Arc::new(Rationed { server: Arc::clone(&server), left: AtomicUsize::new(0) });
+    let (parts, groups) = on(Parts { dial: Arc::clone(&rationed) as _, ..server.parts() });
+    sleep(300 * SECOND).await;
+    assert!(parts.outage.status().is_some_and(|status| status.turn.is_some()), "the channels take turns");
+
+    rationed.left.store(1, Ordering::SeqCst);
+    let mut changes = parts.changed.watch();
+    let live = |groups: &[Group]| {
+        let first = groups.iter().filter_map(|group| group.status().channels.first().map(|first| first.state.clone()));
+        first.filter(|state| *state == ChannelState::Live).count()
+    };
+    while live(&groups) == 0 {
+        changes.next().await;
+    }
+    let back = Instant::now();
+    let tries = tries_in(&server, back, back + MS);
+    let [(_, Effort::Single), (_, Effort::Race), (_, Effort::Race)] = tries[..] else {
+        panic!("the turn that connected, then a race of each other channel at once: {tries:?}");
+    };
+    let status = parts.outage.status().expect("the races that failed start a new outage");
+    assert_eq!(status.turn, None, "a new outage starts with its first part");
+
+    sleep(120 * SECOND).await;
+    assert_eq!(live(&groups), 1, "the channel that connected stays live");
+    let first = tries_in(&server, back + MS, back + 60 * SECOND);
+    assert!(first.len() > 20 && first.iter().all(|(_, effort)| *effort == Effort::Race), "{first:?}");
+    let later = tries_in(&server, back + 60 * SECOND, Instant::now());
+    assert!(later.iter().all(|(_, effort)| *effort == Effort::Single), "then the turns again: {later:?}");
+    for pair in later.windows(2) {
+        let [(one, _), (two, _)] = pair else { continue };
+        assert!((4 * SECOND..=6 * SECOND).contains(&(*two - *one)), "one turn each 5 s with jitter: {pair:?}");
+    }
+
+    rationed.left.store(usize::MAX, Ordering::SeqCst);
+    let returned = Instant::now();
+    while !each_live(&groups) {
+        changes.next().await;
+    }
+    assert!(returned.elapsed() <= 6 * SECOND, "the next turn connects: {:?}", returned.elapsed());
+    assert_eq!(parts.outage.status(), None);
 }
