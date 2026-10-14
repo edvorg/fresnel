@@ -151,6 +151,19 @@ pub(crate) fn open_tab(window: &mut Window, tab: &str) {
     window.run();
 }
 
+/// Gives these events to one frame, as a slow frame gets each key that the user pressed
+/// since the frame before. The harness gives each queued event a frame of its own.
+pub(crate) fn in_one_frame(window: &mut Window, events: impl IntoIterator<Item = egui::Event>) {
+    window.input_mut().events.extend(events);
+    window.step();
+}
+
+/// The events of a press of a key with these modifiers.
+pub(crate) fn press(modifiers: egui::Modifiers, key: egui::Key) -> [egui::Event; 2] {
+    let event = |pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
+    [event(true), event(false)]
+}
+
 /// True when the frame shows this text one time or more.
 pub(crate) fn shows(window: &Window, text: &str) -> bool {
     window.query_all_by_label(text).next().is_some()

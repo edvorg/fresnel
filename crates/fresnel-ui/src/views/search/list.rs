@@ -29,10 +29,23 @@ pub(super) enum Row {
 }
 
 impl Row {
+    /// What the row does: the identity of the row too.
     pub(super) fn choice(&self) -> Choice {
         match self {
             Self::Command { id, .. } => Choice::Run(*id),
             Self::Hit(hit) => Choice::Open(Link { cluster: hit.cluster.clone(), kind: hit.kind, key: hit.key.clone() }),
+        }
+    }
+
+    /// True for the row of this choice. It copies no text, so the search for the row of
+    /// the cursor in each frame is cheap.
+    pub(super) fn is(&self, choice: &Choice) -> bool {
+        match (self, choice) {
+            (Self::Command { id, .. }, Choice::Run(chosen)) => id == chosen,
+            (Self::Hit(hit), Choice::Open(link)) => {
+                (&hit.cluster, hit.kind, &hit.key) == (&link.cluster, link.kind, &link.key)
+            }
+            (Self::Command { .. }, Choice::Open(_)) | (Self::Hit(_), Choice::Run(_)) => false,
         }
     }
 }

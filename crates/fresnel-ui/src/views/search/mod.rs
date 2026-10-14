@@ -32,6 +32,9 @@ use crate::widgets::worker::{Cancel, Done, RequestId, Wake, Worker};
 
 /// The width of the dialog.
 const WIDTH: f32 = 760.0;
+/// The most characters of the text. A name has 253 at most, and each word of the text is
+/// a part of the work for each object, so a paste of a large text stays a small job.
+const MAX_TEXT: usize = 512;
 
 /// What the user chose in the dialog.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,8 +57,12 @@ pub(crate) struct QuickSearch {
     asked: Option<RequestId>,
     /// The result on the screen with the identity of its request.
     found: Option<Done<Found>>,
-    /// The place of the cursor in the list: the commands, then the hits.
-    cursor: usize,
+    /// The row of the cursor by its identity, so new hits before it do not move it to an
+    /// other object (plan section 11.2). `None`: the first row.
+    cursor: Option<Choice>,
+    /// The query of an Enter that came before the hits of its text: the row of the cursor
+    /// in those hits is the choice. A new text drops it.
+    enter: Option<u64>,
 }
 
 impl QuickSearch {
@@ -73,7 +80,8 @@ impl QuickSearch {
             worker: Worker::start(tasks, TaskName::new("quick search"), wake, compute),
             asked: None,
             found: None,
-            cursor: 0,
+            cursor: None,
+            enter: None,
         }
     }
 
@@ -89,11 +97,15 @@ impl QuickSearch {
 
     /// Closes the dialog. The worker drops its request: a request holds a snapshot of each
     /// store (plan section 7.3).
+    ///
+    /// The number of the stores is not reset: after a reset, the first request of the next
+    /// open could have the identity of a computation that still runs on the stores of
+    /// before. Its result would take the place of that request, with no mark of a store
+    /// that left the state "live" since.
     fn close(&mut self) {
         self.open = false;
         self.worker.clear();
-        (self.asked, self.found, self.cursor) = (None, None, 0);
-        self.stores = Stores::default();
+        (self.asked, self.found, self.cursor, self.enter) = (None, None, None, None);
     }
 
     /// Draws the dialog while it is open, and gives what the user chose.
@@ -133,10 +145,12 @@ impl QuickSearch {
     fn contents(&mut self, ui: &mut Ui, scene: &Scene<'_>, keys: &Keys) -> Option<Choice> {
         let palette = theme::palette(ui);
         let rows = list::rows(self.found(), &self.query.text, |id| shell_keys::text(ui.ctx(), keys, id));
-        let (moved, enter) = self.keys(ui, rows.len());
+        let at = self.cursor.as_ref().and_then(|cursor| rows.iter().position(|row| row.is(cursor)));
+        let (mut cursor, moved, enter) = list_keys(ui, at.unwrap_or(0), rows.len());
         let found = self.found.as_ref().map(|done| &done.output);
         let field = TextEdit::singleline(&mut self.query.text)
             .hint_text("A name, a label, an image, a node or an IP address")
+            .char_limit(MAX_TEXT)
             .desired_width(f32::INFINITY);
         let field = ui.add(field);
         widgets::name(&field, "Search text");
@@ -157,39 +171,50 @@ impl QuickSearch {
             };
             changed
         });
-        if field.changed() || changed.inner {
+        // A new query puts the cursor on the first of its rows, which come in a later frame.
+        let new_query = field.changed() || changed.inner;
+        if new_query {
             self.query_serial += 1;
-            self.cursor = 0;
+            cursor = 0;
         }
+        self.cursor = rows.get(cursor).filter(|_| !new_query).map(Row::choice);
         ui.add_space(PAD);
-        let clicked = list::show(ui, scene, &rows, self.cursor, moved);
+        let clicked = list::show(ui, scene, &rows, cursor, moved);
         if let Some(found) = found {
             notes::show(ui, palette, &found.unread);
         }
-        let row = clicked.or_else(|| enter.then_some(self.cursor)).and_then(|index| rows.get(index));
-        row.map(Row::choice)
+        clicked
+            .or_else(|| self.chosen_by_enter(enter).then_some(cursor))
+            .and_then(|index| rows.get(index))
+            .map(Row::choice)
     }
 
     fn found(&self) -> Option<&Found> {
         self.found.as_ref().map(|done| &done.output)
     }
 
-    /// The keys of the list: the arrows move the cursor, and Enter chooses its row. They
-    /// come before the text field, which would take them. Gives true for a move of the
-    /// cursor and for Enter.
-    fn keys(&mut self, ui: &Ui, rows: usize) -> (bool, bool) {
-        let [down, up, enter] = [Key::ArrowDown, Key::ArrowUp, Key::Enter]
-            .map(|key| ui.input_mut(|input| input.consume_key(Modifiers::NONE, key)));
-        let last = rows.saturating_sub(1);
-        if down {
-            self.cursor += 1;
+    /// True when an Enter chooses the row of the cursor in this frame: the rows on the
+    /// screen are the hits of the text. An Enter before them waits for them, so it never
+    /// opens a hit of the text before the last letter.
+    fn chosen_by_enter(&mut self, pressed: bool) -> bool {
+        if pressed {
+            self.enter = Some(self.query_serial);
         }
-        if up {
-            self.cursor = self.cursor.saturating_sub(1);
-        }
-        self.cursor = self.cursor.min(last);
-        (down || up, enter)
+        self.enter = self.enter.filter(|query| *query == self.query_serial);
+        let current = self.found.as_ref().is_some_and(|done| done.id.query == self.query_serial);
+        current && self.enter.take().is_some()
     }
+}
+
+/// The keys of the list: each press of an arrow moves the cursor one row, also when a slow
+/// frame gets more presses, and Enter chooses its row. They come before the text field,
+/// which would take them. Gives the new place of the cursor, true for a move, and true for
+/// Enter.
+fn list_keys(ui: &Ui, cursor: usize, rows: usize) -> (usize, bool, bool) {
+    let [down, up, enter] = [Key::ArrowDown, Key::ArrowUp, Key::Enter]
+        .map(|key| ui.input_mut(|input| input.count_and_consume_key(Modifiers::NONE, key)));
+    let moved = (cursor + down).saturating_sub(up).min(rows.saturating_sub(1));
+    (moved, down + up > 0, enter > 0)
 }
 
 /// "12 hits", "200 of 1,532 hits": the hits on the screen and all of them.

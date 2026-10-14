@@ -4,8 +4,10 @@
 //!
 //! - `weakness`: the weaknesses 5 and 6 of plan section 6. `dialog`: the keys, the filters,
 //!   the marks and a hit that opens its object. `time`: 4 clusters of made-up rows.
+//! - `races`: fast keys and new data while the worker computes.
 
 mod dialog;
+mod races;
 mod time;
 mod weakness;
 
