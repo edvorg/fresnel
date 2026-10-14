@@ -183,10 +183,16 @@ impl KeysHolder {
     }
 
     /// Gives a save to the task. The view shows it as pending at once. A save that waits
-    /// for the task gives its place to this one: the view shows the last save.
+    /// for the task gives its place to this one: the view shows the last save. The same
+    /// save again while it waits or runs, as from a second click, adds nothing: it would go
+    /// with the old version after the first one, and come back as a conflict with it.
     pub(super) fn save(&self, number: u64, save: Save) {
-        let job = SaveJob { number, save, state: WriteState::Pending };
-        change(&self.slot, |view| view.save = Some(job));
+        change(&self.slot, |view| {
+            if view.save.as_ref().is_some_and(|job| job.state == WriteState::Pending && job.save == save) {
+                return;
+            }
+            view.save = Some(SaveJob { number, save, state: WriteState::Pending });
+        });
         self.saved.notify_one();
     }
 
