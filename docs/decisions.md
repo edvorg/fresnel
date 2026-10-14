@@ -1153,3 +1153,51 @@ its way stays: the queue of 64 reviews limits those.
 A fast second click gives an order again while its job runs. A second "roll back to the revision
 before" would undo the first one, and a second "run again" would race the first one for the name
 of the Job. Thus that order ends at once as not sent, with the number of the job that runs.
+
+## An action passes a gate before it runs
+
+The header, the menus, the keys and the quick search ask `views/act` for each action. Its gate
+closes it for a later milestone, for a state that kubectl refuses (a restart or a rollback of a
+paused Deployment, a second suspend) and for a denial of the rules, each time with the reason.
+A permission that the app does not know leaves the action on: the rules are a hint, the server
+decides, and the core handles HTTP 403.
+
+## A view asks for a permission one time until the core has it
+
+A frame decides each action that it shows, so a question in each frame would fill the queue of
+the core. The panel, the menus and the dialog each keep what they asked. A question goes again
+when the core has no entry any more, for example after HTTP 403 dropped the rules, and a failed
+read goes again one time for each new panel, not in a loop.
+
+## The confirm dialog lists each target and decides it in each frame
+
+The dialog names the cluster with its color, the namespace, the kind and the name of each
+target, takes the input of the action and tells the warnings of research 08. A target that the
+rules forbid while the dialog is open shows its reason, and the button is off. The end is one
+order for each object, so each job reaches its own cluster and has its own state.
+
+## The bulk actions are a menu of the selection
+
+A bar of its own for the selected rows would move the rows down when a click with Cmd selects
+the second row, and the next click would hit an other row. The bar of the table has no room for
+three buttons next to the filters while the panel is open. So the count "2 selected" is a menu
+with scale, restart and delete, each one off when the rules forbid it for one of the rows.
+
+## The revisions of the panel are the last job that read them
+
+A ControllerRevision has no data in its store, and the ReplicaSets are full objects only on
+their page. So the panel shows the outcome of the last "revision history" job of the object,
+with a rollback to each revision, and a button reads them again. The Operations tab shows the
+same job, so the two never disagree.
+
+## "Copy kubectl command" lists each command of the object
+
+One key copied only `get`. The dialog lists get, edit, the logs and the exec of each container,
+and a port forward of each port, each with the context of its cluster. A remote port below 1024
+gets the local port 8000 more, because a lower port needs root on the Mac.
+
+## The page of the CronJobs holds the Jobs too
+
+The panel of a CronJob shows the state of each of its Jobs. The Jobs are a kind of tier A, so
+their store runs already; `ShowKinds` with both kinds gives the view their snapshot, and no
+request goes. A job that the user starts opens the Operations tab, so each click has an answer.

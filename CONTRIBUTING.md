@@ -75,7 +75,7 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
    `FRESNEL_WRITE_FIXTURE=1` compares the columns with the server and writes `fixtures/kinds`,
    and a unit test compares them on that copy. Each branch of `health` gets a unit test on
    `fixture::of_kinds`.
-4. The page reads `ClusterData::snapshot` after `ShowKinds`. Own sections: `views/<kind>.rs`.
+4. Own sections: a file of `views` (model: `workloads/job.rs`) that `detail/sections.rs` calls.
 
 ## Stores and indexes
 
@@ -101,7 +101,7 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 - A view marks each row of a store that is not live and tells the state of that store with
   its reason. A list with no row says "none" only after a complete list of each store.
 - A command has one entry in `commands::TABLE` (identifier, label, a default key only when the
-  app runs it, confirm rule). The keys, the row menus and the quick search read it.
+  app runs it, confirm rule). Keys, menus and the quick search read it. `views/act` gates actions.
 - A setting is a key of `config.toml`, read in `config/read.rs`. An unknown key or a value that
   does not fit is a problem with its line and column, and the other keys stay in use.
 

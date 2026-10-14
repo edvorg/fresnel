@@ -157,9 +157,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 ## Window
 
-`fresnel_ui::Shell` draws one frame from a `CoreView`: the top bar, the sidebar with the kinds
-and their counts, the page of the open kind, the dock (Journal, Connections) and the status
-bar. It holds the page of one kind and names that kind to the core with `ShowKinds`.
+`fresnel_ui::Shell` draws a frame from a `CoreView`: top bar, sidebar, the page of one kind, the
+dock (Operations, Journal, Connections) and status bar. `ShowKinds` names the kinds of the page.
 
 - **Table**: `widgets/table.rs` wraps `egui_table`. A kind gives a `Model`: columns, rows,
   their sequence and cells. The cursor and the selection hold objects (cluster, name, UID).
@@ -167,12 +166,13 @@ bar. It holds the page of one kind and names that kind to the core with `ShowKin
 - **Worker** (`widgets/worker.rs`): one thread for each table and for the quick search. Its
   mailbox has one request and one result. New data does not stop a computation; a new query
   does. After a panic, the thread starts again with the request that waits; the view tells why.
-- **Object page** (`views/objects`): the objects of one kind in each selected cluster, followed
-  by the differences of two snapshots, and the detail panel: metadata, conditions, related
-  objects as links, Events and the Manifest tab. An object that left its store shows as deleted.
-- **Freshness**: a row of a store that is not live has a mark; a note above the table tells why.
-- **Commands**: the shell reads the key of each command before the widgets and runs it; Back
-  and Forward take a step for each press. The menu of a row lists the actions of its kind.
+- **Object page** (`views/objects`): the objects of one kind in each selected cluster and the
+  detail panel: metadata, the sections of the kind (`views/workloads`), conditions, related
+  objects as links, Events and the Manifest. An object that left its store shows as deleted. A
+  row of a store that is not live has a mark; a note above the table gives the reason.
+- **Actions** (`views/act`): the panel, the menus, a key and the quick search ask for an action
+  of the command table. A gate closes it for a later milestone, the state of the object or the
+  rules, with the reason. A change asks in a dialog and ends as one order for each object.
 - **Quick search**: a dialog with the last text selected; the cursor holds a row by identity, and
   Enter waits for the hits of the text. A hit opens its object, with a note while its store lists,
   or "Show it" when a filter hides its row. The top bar has one namespace filter for each page.
