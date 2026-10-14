@@ -73,3 +73,19 @@ fn a_refusal_drops_the_rules_and_the_answers_of_its_namespace_only() {
     assert_eq!(known.rules.keys().map(|namespace| &**namespace).collect::<Vec<_>>(), ["db"]);
     assert_eq!(known.checks.keys().cloned().collect::<Vec<_>>(), [attributes("db")]);
 }
+
+#[tokio::test(start_paused = true)]
+async fn the_answers_stay_inside_their_limit_and_the_oldest_answer_leaves_first() {
+    let mut map: BTreeMap<u32, (RulesState, Instant)> = BTreeMap::new();
+    keep(&mut map, 0, (RulesState::Reading, Instant::now()), RulesState::is_reading);
+    for key in 1..=10 * KEPT_LIMIT as u32 {
+        tokio::time::advance(Duration::from_millis(1)).await;
+        keep(&mut map, key, (RulesState::Read(rules("shop", &["get"])), Instant::now()), RulesState::is_reading);
+        assert!(map.len() <= KEPT_LIMIT, "{} answers", map.len());
+    }
+    assert!(map.contains_key(&0), "a review on its way stays");
+    let first = 10 * KEPT_LIMIT as u32 - (KEPT_LIMIT as u32 - 2);
+    assert_eq!(map.keys().nth(1), Some(&first), "the newest answers stay");
+    keep(&mut map, first, (RulesState::Reading, Instant::now()), RulesState::is_reading);
+    assert_eq!(map.len(), KEPT_LIMIT, "a new answer for a key that is there takes its place");
+}

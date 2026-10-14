@@ -25,6 +25,10 @@ use crate::store::ObjectKey;
 const KEEP: Duration = Duration::from_secs(300);
 /// The most reviews that wait for the task. A view asks for few namespaces.
 const QUEUE_LIMIT: usize = 64;
+/// The most answers of each type that the core keeps: each view copies them in each frame.
+/// The oldest answer leaves first, and a view that needs it asks again, so no count of the
+/// ones that left is necessary. A review on its way stays; the queue limits those.
+const KEPT_LIMIT: usize = 256;
 
 /// How far the read of the rules of one namespace is.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,6 +41,12 @@ pub enum RulesState {
     Failed(CoreError),
 }
 
+impl RulesState {
+    fn is_reading(&self) -> bool {
+        matches!(self, Self::Reading)
+    }
+}
+
 /// How far one access review is.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CheckState {
@@ -46,6 +56,12 @@ pub enum CheckState {
     Answered(Decision),
     /// The review failed.
     Failed(CoreError),
+}
+
+impl CheckState {
+    fn is_asking(&self) -> bool {
+        matches!(self, Self::Asking)
+    }
 }
 
 /// What the views know of the permissions of the user in one cluster.
@@ -169,11 +185,11 @@ impl ClusterAccess {
         match &ask {
             Ask::Rules(namespace) => {
                 let state = if full { RulesState::Failed(refused()) } else { RulesState::Reading };
-                known.rules.insert(Arc::clone(namespace), (state, now));
+                keep(&mut known.rules, Arc::clone(namespace), (state, now), RulesState::is_reading);
             }
             Ask::Check(attributes) => {
                 let state = if full { CheckState::Failed(refused()) } else { CheckState::Asking };
-                known.checks.insert(attributes.clone(), (state, now));
+                keep(&mut known.checks, attributes.clone(), (state, now), CheckState::is_asking);
             }
         }
         if !full {
@@ -192,6 +208,24 @@ impl ClusterAccess {
     }
 }
 
+/// Puts an entry into a map of answers. At the limit, the oldest entry that is not on its
+/// way (`waits`) leaves first.
+fn keep<K: Ord + Clone, S>(
+    map: &mut BTreeMap<K, (S, Instant)>,
+    key: K,
+    entry: (S, Instant),
+    waits: impl Fn(&S) -> bool,
+) {
+    if map.len() >= KEPT_LIMIT && !map.contains_key(&key) {
+        let answers = map.iter().filter(|(_, (state, _))| !waits(state));
+        let oldest = answers.min_by_key(|(_, (_, at))| *at).map(|(key, _)| key.clone());
+        if let Some(oldest) = oldest {
+            map.remove(&oldest);
+        }
+    }
+    map.insert(key, entry);
+}
+
 /// True for an answer of the last `KEEP`, or a review on its way. A failure is never fresh.
 fn is_fresh<S>(entry: Option<&(S, Instant)>, failed: impl Fn(&S) -> bool) -> bool {
     entry.is_some_and(|(state, at)| !failed(state) && at.elapsed() < KEEP)
@@ -203,9 +237,9 @@ async fn serve(shared: Arc<Shared>, gateway: Gateway, repaint: Repaint) -> Resul
     // review changes nothing, so each one with no answer goes again.
     {
         let mut known = shared.known();
-        let rules = known.rules.iter().filter(|(_, (state, _))| *state == RulesState::Reading);
+        let rules = known.rules.iter().filter(|(_, (state, _))| state.is_reading());
         let mut queue: VecDeque<Ask> = rules.map(|(namespace, _)| Ask::Rules(Arc::clone(namespace))).collect();
-        let checks = known.checks.iter().filter(|(_, (state, _))| *state == CheckState::Asking);
+        let checks = known.checks.iter().filter(|(_, (state, _))| state.is_asking());
         queue.extend(checks.map(|(attributes, _)| Ask::Check(attributes.clone())));
         known.queue = queue;
     }
@@ -221,14 +255,14 @@ async fn serve(shared: Arc<Shared>, gateway: Gateway, repaint: Repaint) -> Resul
                     Ok(rules) => RulesState::Read(Arc::new(rules)),
                     Err(error) => RulesState::Failed(error),
                 };
-                shared.known().rules.insert(namespace, (state, Instant::now()));
+                keep(&mut shared.known().rules, namespace, (state, Instant::now()), RulesState::is_reading);
             }
             Ask::Check(attributes) => {
                 let state = match access::check(&gateway, &attributes).await {
                     Ok(decision) => CheckState::Answered(decision),
                     Err(error) => CheckState::Failed(error),
                 };
-                shared.known().checks.insert(attributes, (state, Instant::now()));
+                keep(&mut shared.known().checks, attributes, (state, Instant::now()), CheckState::is_asking);
             }
         }
         repaint.request();
