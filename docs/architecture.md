@@ -12,9 +12,7 @@ This page gives the structure of fresnel. [decisions.md](decisions.md) gives the
 - **Task**: one background activity with a visible state.
 - **Journal**: the list of events, warnings and errors that the app shows.
 
-## Design rules
-
-These rules have priority over features.
+## Design rules (they have priority over features)
 
 1. Each task has an explicit state, and the UI shows it. A task that ends or panics gets a
    final state, a journal entry and a restart.
@@ -106,6 +104,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Registry**: one entry for each context, with the connections of each connected cluster.
 - **Gateway**: one function for each request kind: get, list page, watch stream, log stream,
   send and upgrade. A failed write tells its fate, and each read has a size limit.
+- **Manifest**: `manifest::fetch` gives the YAML of one object, with no `managedFields` by default.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. It does no work
   before its start. Then one task reads the login shell environment and the kubeconfig files,
   connects each selected cluster and runs each command of the UI. A connected cluster has its
@@ -116,9 +115,9 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 `store::ClusterStores` holds one store for each kind of one cluster, for all namespaces.
 
-- **Kinds**: `kinds` has the one list of the kinds, and a `Kind` is a typed identity. A tier A
-  kind has a store with full objects, a tier B kind with the metadata only, a tier C kind
-  none. `ClusterStores::demand` starts a store of full objects while a view needs it.
+- **Kinds**: `kinds` has the one list of the kinds; a `Kind` is a typed identity. The file of
+  each kind implements `Describe`: sidebar group, tier, columns with the text of `kubectl get`,
+  search text, health value and actions. A tier B store has the metadata only, tier C none.
 - **Watch loop**: one task for each store. It reads a list in pages, 4 lists of a cluster at
   a time, in the sequence of the kinds. Then it follows a watch with bookmarks, which the server
   ends after 60 to 90 s. The next watch starts after the last version. HTTP 410 gives a list.
@@ -128,15 +127,16 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   progress, live, attempt, pause, throttled, forbidden, not supported, internal error (a
   panic of the task, with a report and a restart) and stopped. The objects stay in each one.
 - **Snapshot**: the task publishes each 30 ms at most, and the generation grows only when an
-  object changes. An object has no `managedFields`. The Event store has a maximum count.
+  object changes. An object has no `managedFields`, a Secret no value. Events have a limit.
+- **On demand**: `ClusterStores::demand` gives a view the full objects of any kind. The store of
+  a tier B or C kind starts with its first holder and stops 60 s after the last one.
 - **Write result**: `Snapshot::is_pending` compares the answer of a write with a snapshot. It
   is true until the store has that version of the object. No store keeps a mark for a write.
 - **Published state**: `published::Publisher` gives each value of a state to its readers as
   a copy of one pointer. One worker thread frees a value that a reader held.
 - **Indexes**: `index::ClusterIndexes` has one task for each index, which applies the
-  differences of two snapshots of its stores. The owner index gives the objects and the pods
-  below an owner, also in an owner loop, and the pods behind a Service. The reference index
-  gives the pods that use an object. The Event index gives the Events of an object.
+  differences of two snapshots: the owner index (also in a loop, and the pods of a Service),
+  the reference index (the pods that use an object) and the Event index of each object.
 - **Basis**: each answer of an index tells if it is current, old (a store is not live), not
   loaded (a store had no complete list) or not followed (its task failed or stopped).
 
@@ -175,7 +175,7 @@ the dock (Journal, Connections) and the status bar. `fresnel::frame::draw` is on
 `fresnel-testkit` has four parts. Each part runs in the test process and stops at its drop.
 
 - `FaultProxy`: a TCP proxy that holds, freezes, delays, resets or silences connections.
-- `K3s`: k3s in Docker, with the address of its kube-apiserver, `kubectl` and a restart.
+- `K3s`: k3s in Docker: its kube-apiserver address, `kubectl`, a restart, a group version off.
 - `FakeApiServer`: TLS, HTTP/2, HTTP/1.1, watch streams, the HTTP 101 upgrade, and faults.
 - `Home`: a home folder with a shell profile, for a start with the environment of Finder.
 
@@ -183,15 +183,15 @@ the dock (Journal, Connections) and the status bar. `fresnel::frame::draw` is on
 
 - **Unit tests** run with no network and with paused time. A time limit of `fresnel-net` runs
   on an HTTP/2 server in memory, the watch loop on a source with a script, and the indexes,
-  the Pod status and the health values on `fixtures/k3s`: a copy of a scene on k3s.
+  the health values and the columns on `fixtures/k3s` and `fixtures/kinds`: two k3s scenes.
 - **Socket tests** use the fake API server and the fault proxy on 127.0.0.1, with no Docker.
 - **UI tests** drive the views through `egui_kittest` with no window, on a fake core. A test
   of a table holds its worker at a gate. Two tests draw the views on the real core.
-- **Program tests** start `fresnel-cli`, and `fresnel` with no window, as a child process
-  with the environment of Finder and the home folder of a test.
+- **Program tests** start `fresnel-cli` and `fresnel` (no window) as from Finder, with a test home.
 - **Cluster tests** use k3s in Docker through the fault proxy, with the attribute `#[ignore]`.
   After each fault, a test of the stores asserts a recovery time and "store equal to the API".
-  A test of the indexes compares them and the Pod status with the API and with kubectl.
+  A test of the indexes compares them and the Pod status with the API and with kubectl. A
+  test of the kinds compares each column with the table that the server prints for kubectl.
 - CI runs each check on macOS and Linux for each push, and the cluster tests on Linux.
 
 ## Guards
