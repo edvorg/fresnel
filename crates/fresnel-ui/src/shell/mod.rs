@@ -6,9 +6,9 @@
 //! It holds the page of the open kind only: a page that is not painted holds no rows.
 //!
 //! The shell runs the commands of the command table (plan section 11.5): their keys, the
-//! quick search and the history of the visited objects for Back and Forward. It names the
-//! Secret or the ConfigMap of the open panel to the core, which reads its values while the
-//! panel shows it.
+//! quick search, the history of the visited objects for Back and Forward, and the dialog of
+//! a new Secret. It names the Secret or the ConfigMap of the open panel to the core, which
+//! reads its values while the panel shows it.
 //!
 //! - `top_bar`, `sidebar`, `dock`, `status_bar`: the parts of the window. `namespaces`:
 //!   the namespace filter of each view. `keys`: the key of each command. `history`: Back
@@ -39,6 +39,7 @@ use sidebar::Page;
 use crate::format::Clock;
 use crate::theme::{self, ClusterColors};
 use crate::views::journal::JournalTab;
+use crate::views::keys::new_secret::NewSecretDialog;
 use crate::views::objects::{self, Link};
 use crate::views::search::{Choice, QuickSearch};
 use crate::views::{connections, kinds};
@@ -58,6 +59,7 @@ pub struct Shell {
     /// The namespaces whose objects each view shows. Empty: each namespace.
     namespaces: BTreeSet<Arc<str>>,
     search: QuickSearch,
+    new_secret: NewSecretDialog,
     /// The object whose values the core reads for the key view, as far as the shell knows.
     keys: Option<Target>,
     history: History,
@@ -75,6 +77,9 @@ pub(crate) struct Scene<'a> {
     pub(crate) namespaces: &'a mut BTreeSet<Arc<str>>,
     /// The commands of this frame. The caller gives them to the core.
     pub(crate) commands: &'a mut Vec<Command>,
+    /// A command of the command table that a button of a view asks for. The shell runs it
+    /// after the frame of the view.
+    pub(crate) asked: Option<CommandId>,
 }
 
 impl Shell {
@@ -96,6 +101,7 @@ impl Shell {
             shown: BTreeSet::new(),
             namespaces: BTreeSet::new(),
             search: QuickSearch::new(tasks, Arc::clone(&wake)),
+            new_secret: NewSecretDialog::default(),
             keys: None,
             history: History::default(),
             colors: ClusterColors::default(),
@@ -109,7 +115,9 @@ impl Shell {
         self.colors.assign(view.clusters.iter().map(|row| &row.id));
         // The keys act before the widgets of the frame, which would take them. Back and
         // Forward take one step for each press; each other command acts one time.
+        // A dialog takes the keys of the user.
         if !self.search.is_open()
+            && !self.new_secret.is_open()
             && let Some((command, presses)) = keys::pressed(ui.ctx(), &view.config.keys)
         {
             let times = if matches!(command, CommandId::Back | CommandId::Forward) { presses } else { 1 };
@@ -125,6 +133,7 @@ impl Shell {
             colors: &self.colors,
             namespaces: &mut self.namespaces,
             commands: &mut commands,
+            asked: None,
         };
         let palette = theme::palette(ui);
 
@@ -162,6 +171,8 @@ impl Shell {
                 }
             });
         let chosen = self.search.show(ui.ctx(), &scene, &view.config.keys);
+        let created = self.new_secret.show(ui.ctx(), &mut scene, &on_page);
+        let asked = scene.asked.take();
         if let Some(visited) = self.open.opened() {
             self.history.visit(visited);
         }
@@ -173,6 +184,13 @@ impl Shell {
             Some(Choice::Open(link)) => self.follow_link(link),
             Some(Choice::Run(command)) => self.run(command, ui.ctx()),
             None => {}
+        }
+        if let Some(command) = asked {
+            self.run(command, ui.ctx());
+        }
+        if let Some(link) = created {
+            self.follow_link(link);
+            ui.ctx().request_repaint();
         }
         commands.extend(self.show_kinds());
         commands.extend(self.show_keys());
@@ -194,6 +212,7 @@ impl Shell {
                 }
             }
             CommandId::Filter => self.open.focus_filter(),
+            CommandId::NewSecret => self.new_secret.open(),
             CommandId::Object(action) => self.open.act(ctx, action),
         }
         ctx.request_repaint();

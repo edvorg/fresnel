@@ -14,12 +14,14 @@
 //! - `text`: the texts of a value.
 //! - `confirm`: the dialog of a save, with the `diff` of each key. `state`: read and save.
 //! - `conflicts`: a choice for each conflict. `special`: certificates and registries.
+//! - `new_secret`: the dialog of a new Secret.
 
 mod add;
 mod confirm;
 mod conflicts;
 mod diff;
 mod list;
+pub(crate) mod new_secret;
 mod rows;
 mod special;
 mod state;

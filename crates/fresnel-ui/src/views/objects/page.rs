@@ -236,7 +236,11 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
                 detail::Act::None => {}
             }
         }
-        toolbar::show(ui, palette, &self.nouns, &mut self.filter, &mut self.table, &mut self.focus);
+        if let Some(command) =
+            toolbar::show(ui, palette, &self.nouns, &mut self.filter, &mut self.table, &mut self.focus)
+        {
+            scene.asked = Some(command);
+        }
         // The namespace filter of the top bar is one filter for each page.
         if self.filter.namespaces != *scene.namespaces {
             self.filter.namespaces.clone_from(scene.namespaces);

@@ -6,7 +6,7 @@
 //!
 //! - `fake`: the fake core and the harness. `data`: the objects of the k3s fixture.
 //! - `connections`, `journal`, `kinds`, `pods`, `shell`: the tests.
-//! - `keys`: the keys of Secrets and ConfigMaps.
+//! - `keys`: the keys of Secrets and ConfigMaps, and the dialog of a new Secret.
 //! - `search`: the quick search. `navigation`: Back, Forward, keys, menus and filters.
 //! - `frame_time`: the time of a frame with 10,000 pods. Its limit holds in a release build.
 //! - `snapshots`: PNG files of the views, for a look by a person.

@@ -5,11 +5,12 @@
 //! - `editor`: the read, show and hide, copy, an edit with its diff, and the save.
 //! - `changes`: add and remove a key, the states of a save, and a conflict.
 //! - `marks`: an immutable object, a forbidden change, a binary value, the special views
-//!   and "used by".
+//!   and "used by". `new_secret`: the dialog of a new Secret.
 
 mod changes;
 mod editor;
 mod marks;
+mod new_secret;
 pub(crate) mod scene;
 
 use egui::{Key, Modifiers};

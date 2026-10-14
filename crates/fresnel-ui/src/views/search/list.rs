@@ -56,7 +56,7 @@ pub(super) fn rows(found: Option<&Found>, text: &str, key: impl Fn(CommandId) ->
     let words: Vec<String> = text.split_whitespace().map(str::to_lowercase).collect();
     let runs = |id: CommandId| match id {
         CommandId::QuickSearch => false,
-        CommandId::Back | CommandId::Forward | CommandId::Filter => true,
+        CommandId::Back | CommandId::Forward | CommandId::Filter | CommandId::NewSecret => true,
         CommandId::Object(action) => actions::can_run(action),
     };
     let matches = |label: &str| !words.is_empty() && words.iter().all(|word| label.to_lowercase().contains(word));

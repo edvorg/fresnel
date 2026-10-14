@@ -1,9 +1,11 @@
-//! The bar above the table of a kind: the count of rows, the state of the rows, the
-//! filters and the choice of the columns. The namespace filter is in the top bar: it is
-//! one filter for each page.
+//! The bar above the table of a kind: the count of rows, the state of the rows, the button
+//! of a new object, the filters and the choice of the columns. The namespace filter is in
+//! the top bar: it is one filter for each page.
 
 use egui::containers::menu::{MenuButton, MenuConfig};
 use egui::{Align, Frame, Id, Layout, Margin, PopupCloseBehavior, RichText, TextEdit, Ui, UiBuilder};
+use fresnel_core::commands::{self, CommandId};
+use fresnel_core::kinds::{Describe, Kind};
 
 use super::filter::ObjectFilter;
 use super::{Nouns, ObjectModel};
@@ -12,7 +14,14 @@ use crate::theme::{BAR_HEIGHT, Palette};
 use crate::widgets;
 use crate::widgets::table::{Progress, Table};
 
-/// Draws the bar. `focus` asks for the focus of the text filter, one time.
+/// The command that makes a new object of a kind, for a button of its bar. Only a Secret
+/// has one (plan section 12.2).
+fn create_command(kind: Kind) -> Option<CommandId> {
+    (kind == Kind::Secret).then_some(CommandId::NewSecret)
+}
+
+/// Draws the bar. `focus` asks for the focus of the text filter, one time. Gives the
+/// command of the button of a new object, when the user clicked it.
 pub(super) fn show<M: ObjectModel>(
     ui: &mut Ui,
     palette: &Palette,
@@ -20,7 +29,8 @@ pub(super) fn show<M: ObjectModel>(
     filter: &mut ObjectFilter,
     table: &mut Table<M>,
     focus: &mut bool,
-) {
+) -> Option<CommandId> {
+    let mut asked = None;
     Frame::new().inner_margin(Margin::symmetric(12, 0)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.set_height(BAR_HEIGHT);
@@ -34,6 +44,12 @@ pub(super) fn show<M: ObjectModel>(
             if table.selection().len() > 1 {
                 let selected = format!("{} selected", format::thousands(table.selection().len() as u64));
                 ui.label(RichText::new(selected).color(palette.accent));
+            }
+            let create = create_command(<M::Object as Describe>::ID).and_then(commands::entry);
+            if let Some(entry) = create
+                && ui.small_button(entry.label).clicked()
+            {
+                asked = Some(entry.id);
             }
             match table.progress() {
                 Progress::Current => {}
@@ -62,6 +78,7 @@ pub(super) fn show<M: ObjectModel>(
             });
         });
     });
+    asked
 }
 
 /// "56 of 1,204 pods": the rows after the filters, and the objects of the selected clusters.

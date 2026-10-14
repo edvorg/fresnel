@@ -26,6 +26,8 @@ pub enum CommandId {
     Forward,
     /// Puts the focus into the text filter of the table.
     Filter,
+    /// Opens the dialog of a new Secret, with its cluster and namespace (plan section 12.2).
+    NewSecret,
     /// An action on the object of the detail panel.
     Object(Action),
 }
@@ -67,7 +69,11 @@ impl Entry {
     pub fn kinds(&self) -> impl Iterator<Item = Kind> + use<> {
         let action = match self.id {
             CommandId::Object(action) => Some(action),
-            CommandId::QuickSearch | CommandId::Back | CommandId::Forward | CommandId::Filter => None,
+            CommandId::QuickSearch
+            | CommandId::Back
+            | CommandId::Forward
+            | CommandId::Filter
+            | CommandId::NewSecret => None,
         };
         Kind::ALL.iter().copied().filter(move |kind| action.is_some_and(|action| kind.actions().any(|a| a == action)))
     }
@@ -83,6 +89,7 @@ pub const TABLE: &[Entry] = &[
     Entry::app(CommandId::Back, "back", "Back", Shortcut::command("OpenBracket")),
     Entry::app(CommandId::Forward, "forward", "Forward", Shortcut::command("CloseBracket")),
     Entry::app(CommandId::Filter, "filter", "Filter the table", Shortcut::command("F")),
+    Entry::app(CommandId::NewSecret, "new-secret", "New Secret", Shortcut::command("N").shift()),
     Entry::object(Action::ViewManifest, "view-manifest", Some(Shortcut::command("M").shift()), Never),
     Entry::object(Action::CopyName, "copy-name", Some(Shortcut::command("C").shift()), Never),
     Entry::object(Action::CopyCommand, "copy-command", Some(Shortcut::command("K").shift()), Never),
@@ -134,7 +141,9 @@ mod tests {
     fn each_action_of_each_kind_and_each_command_of_the_app_has_one_entry() {
         let mut wanted: BTreeSet<CommandId> =
             Kind::ALL.iter().flat_map(|kind| kind.actions()).map(CommandId::Object).collect();
-        wanted.extend([CommandId::QuickSearch, CommandId::Back, CommandId::Forward, CommandId::Filter]);
+        let app =
+            [CommandId::QuickSearch, CommandId::Back, CommandId::Forward, CommandId::Filter, CommandId::NewSecret];
+        wanted.extend(app);
         let ids: Vec<CommandId> = TABLE.iter().map(|entry| entry.id).collect();
         assert_eq!(ids.iter().copied().collect::<BTreeSet<_>>(), wanted, "each command, and no other one");
         assert_eq!(ids.len(), wanted.len(), "one entry for each command");
@@ -169,6 +178,7 @@ mod tests {
     fn a_command_of_the_app_has_no_kind_and_an_action_has_the_kinds_that_have_it() {
         let kinds = |id| entry(id).map(|entry| entry.kinds().collect::<Vec<_>>()).unwrap_or_default();
         assert_eq!(kinds(CommandId::Back), []);
+        assert_eq!(kinds(CommandId::NewSecret), [], "a new Secret is no action on an object");
         assert_eq!(kinds(CommandId::Object(Action::Drain)), [Kind::Node]);
         assert_eq!(kinds(CommandId::Object(Action::Delete)).len(), Kind::ALL.len(), "an action of each kind");
         let changes = [Action::Delete, Action::Drain, Action::Scale, Action::EditKeys];

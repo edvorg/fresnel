@@ -2,7 +2,7 @@
 //!
 //! - `objects`: the page of the objects of one kind. `kinds`: the table of each kind.
 //! - `pods`: the table and the sections of the Pods. `detail`: the detail panel.
-//! - `keys`: the keys of a Secret or a ConfigMap.
+//! - `keys`: the keys of a Secret or a ConfigMap, and the dialog of a new Secret.
 //! - `connections`, `journal`: the pages of the app itself. `search`: the quick search.
 
 pub(crate) mod connections;
