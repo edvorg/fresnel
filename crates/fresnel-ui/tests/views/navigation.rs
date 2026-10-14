@@ -11,7 +11,7 @@ use fresnel_core::commands::{CommandId, Keys};
 use fresnel_core::config::Config;
 use fresnel_core::store::StoreState;
 
-use crate::fake::{Window, open_page, shows, until, view, window};
+use crate::fake::{Window, in_one_frame, open_page, press, shows, until, view, window};
 use crate::kinds::in_panel;
 use crate::kinds::scene::{config_maps, live as live_kind, nodes};
 use crate::pods::column;
@@ -170,4 +170,18 @@ fn a_key_of_a_page_on_the_connections_page_leaves_no_trace_on_the_page() {
     until(&mut window, "the pods", |window| shows(window, "25 pods"));
     assert!(window.query_by_label_contains("No pod is open in the panel.").is_none());
     assert!(!window.get_by_label("Filter pods").is_focused());
+}
+
+/// A slow frame gets each key that the user pressed since the frame before: two presses of
+/// Back are two steps.
+#[test]
+fn two_presses_of_back_in_one_frame_are_two_steps() {
+    let mut window = window(view(vec![searchable("ams-prod", StoreState::Live)]));
+    for pod in ["crash", "failed", "done"] {
+        click_row(&mut window, pod);
+    }
+    let back = press(Modifiers::COMMAND, Key::OpenBracket);
+    in_one_frame(&mut window, [back.clone(), back].concat());
+    until(&mut window, "a step back", |window| !in_panel(window, "done"));
+    assert!(in_panel(&window, "crash"), "two steps back");
 }

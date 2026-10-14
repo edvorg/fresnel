@@ -101,11 +101,15 @@ impl Shell {
     /// Draws one frame into the root `Ui` and returns the commands of the user.
     pub fn show(&mut self, ui: &mut Ui, view: &CoreView) -> Vec<Command> {
         self.colors.assign(view.clusters.iter().map(|row| &row.id));
-        // The keys act before the widgets of the frame, which would take them.
+        // The keys act before the widgets of the frame, which would take them. Back and
+        // Forward take one step for each press; each other command acts one time.
         if !self.search.is_open()
-            && let Some(command) = keys::pressed(ui.ctx(), &view.config.keys)
+            && let Some((command, presses)) = keys::pressed(ui.ctx(), &view.config.keys)
         {
-            self.run(command, ui.ctx());
+            let times = if matches!(command, CommandId::Back | CommandId::Forward) { presses } else { 1 };
+            for _ in 0..times {
+                self.run(command, ui.ctx());
+            }
         }
         let mut commands = Vec::new();
         let on_page = self.open.namespaces().to_vec();

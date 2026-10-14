@@ -17,15 +17,21 @@ pub(crate) fn text(ctx: &Context, keys: &Keys, id: CommandId) -> Option<String> 
     keys.of(id).and_then(of).map(|shortcut| ctx.format_shortcut(&shortcut))
 }
 
-/// The command of a key that the user pressed in this frame, if any. The input loses
-/// that key, so no widget gets it too.
-pub(super) fn pressed(ctx: &Context, keys: &Keys) -> Option<CommandId> {
+/// The command of a key that the user pressed in this frame, if any, with the count of
+/// the presses: a slow frame gets each press since the frame before. The input loses that
+/// key, so no widget gets it too.
+pub(super) fn pressed(ctx: &Context, keys: &Keys) -> Option<(CommandId, usize)> {
     let mut shortcuts: Vec<(CommandId, KeyboardShortcut)> =
         keys.iter().filter_map(|(id, shortcut)| Some((id, of(shortcut)?))).collect();
     // A shortcut with fewer modifiers takes a key with more of them too: Cmd+K takes
     // Cmd+Shift+K. So the shortcuts with more modifiers come first.
     shortcuts.sort_by_key(|(_, shortcut)| std::cmp::Reverse(count(shortcut.modifiers)));
-    ctx.input_mut(|input| shortcuts.iter().find(|(_, shortcut)| input.consume_shortcut(shortcut)).map(|(id, _)| *id))
+    ctx.input_mut(|input| {
+        shortcuts.iter().find_map(|(id, shortcut)| {
+            let presses = input.count_and_consume_key(shortcut.modifiers, shortcut.logical_key);
+            (presses > 0).then_some((*id, presses))
+        })
+    })
 }
 
 fn count(modifiers: Modifiers) -> usize {
@@ -58,7 +64,7 @@ mod tests {
                 egui::Event::Key { key: egui::Key::K, physical_key: None, pressed: true, repeat: false, modifiers };
             let input = egui::RawInput { events: vec![event], ..egui::RawInput::default() };
             let mut command = None;
-            ctx.run_ui(input, |ui| command = pressed(ui.ctx(), &keys)).drop_without_applying_deltas();
+            ctx.run_ui(input, |ui| command = pressed(ui.ctx(), &keys).map(|(id, _)| id)).drop_without_applying_deltas();
             command
         };
         let copy_command = CommandId::Object(fresnel_core::kinds::Action::CopyCommand);
