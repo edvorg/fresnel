@@ -1,8 +1,7 @@
 # Architecture
 
-This page gives the structure of fresnel. [decisions.md](decisions.md) gives the reasons. The
-lint table of `Cargo.toml`, `clippy.toml`, `cargo xtask check-sizes` and `cargo xtask
-check-borders` hold the rules of [CONTRIBUTING.md](../CONTRIBUTING.md).
+This page gives the structure of fresnel, [decisions.md](decisions.md) the reasons, and
+[CONTRIBUTING.md](../CONTRIBUTING.md) the rules, which the lints and `cargo xtask` check.
 
 ## Terms
 
@@ -41,13 +40,12 @@ xtask
 - `fresnel-net`: connections, the credential plugin and the time limits. It has no dependency
   on kube. It is the lowest crate, thus it also holds the task start function.
 - `fresnel-core`: the domain. Clusters, the watch loop, stores, indexes, the kinds, the quick
-  search, the command table, the settings and the journal; later also operations. It has no
+  search, the command table, the operations, the settings and the journal. It has no
   dependency on egui. The crates above it reach the connection layer as `fresnel_core::net`.
 - `fresnel-ui`: the egui widgets and views. It uses the types of `k8s-openapi`, never of kube.
 - `fresnel`: the desktop program. The window, the runtime, the log file and the quit sequence.
 - `fresnel-cli`: the command line program for tests and fault diagnosis: `doctor` and `watch`.
-- `fresnel-testkit`: the tools of the tests. It can use `fresnel-net`. Thus a test of
-  `fresnel-net` that needs the test kit is a file in `tests/`, not a unit test.
+- `fresnel-testkit`: test tools on `fresnel-net`; a `fresnel-net` test that uses it is in `tests/`.
 - `xtask`: the size check and the macOS bundle. It uses no other crate of the workspace.
 
 ## Borders in the code
@@ -60,12 +58,10 @@ xtask
 
 ## Background tasks
 
-- `fresnel_net::task::Tasks::start` starts each task, `start_thread` a worker thread. The caller
-  gives a name, a restart rule and a body, which builds one run. `Restart::Always` runs it again
-  after each end, with a pause that grows to a limit.
-- Each task has a state: running, backoff or ended. `Tasks::snapshot` gives a copy of all. A
-  run that ends gives one report to the journal: its end, and the pause before the next run.
-- The caller owns a `TaskHandle`: the task stops when it drops. A thread then ends by itself.
+- `fresnel_net::task::Tasks::start` starts each task, `start_thread` a worker thread, with a
+  name, a restart rule and a body for one run. `Restart::Always` runs it again after each end,
+  with a pause that grows; `Restart::Never` is a job. The task stops when its handle drops.
+- A task is running, in backoff or ended (`Tasks::snapshot`). Each end of a run is a report.
 
 ## Network layer
 
@@ -104,6 +100,11 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Keys** (`keys`): one Secret or ConfigMap with each value, as text or as size and type. A
   `Draft` saves a merge patch of its changed keys with the version of its read, so no other key
   changes, and HTTP 409 is a conflict. The core follows the object of the open key view.
+- **Operations** (`ops`): a function builds each request of plan section 10, with a unit test
+  of its URL and body. An `Order` runs as a job in its own task, with steps and a state. A write
+  goes out one time; after an unknown result a step reads the object. A cancel ends a wait for
+  a store. **Permissions**: the rules of a namespace (or an access review) decide an action, and
+  HTTP 403 drops them. **Write result**: `Snapshot::is_pending` compares an answer with a store.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. After its start, one
   task reads the settings file, the login shell environment and the kubeconfig files, connects
   each selected cluster and runs each command. A cluster has its stores, indexes and a task.
@@ -131,7 +132,6 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   `published::Publisher` gives each value to its readers as a copy of one pointer.
 - **On demand**: `ClusterStores::demand` gives a view the full objects of any kind. The store of
   a tier B or C kind starts with its first holder and stops 60 s after the last one.
-- **Write result**: `Snapshot::is_pending` compares the answer of a write with a snapshot.
 - **Indexes**: `index::ClusterIndexes` has one task for each index, which applies the
   differences of two snapshots: the owner index (also in a loop, and the pods of a Service),
   the reference index (the pods that use an object) and the Event index of each object.
@@ -148,8 +148,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 1. **State.** `Core::view` gives a copy of each state: the clusters with their connections; of
    each connected cluster the Pods, the indexes, the snapshot of each store, the full objects of
-   each kind that `ShowKinds` names and the key view; the settings; the last manifest read, the
-   last create of a Secret and the journal. The UI gets no lock and no handle to the core.
+   each kind that `ShowKinds` names, the key view and the permissions; the settings; the last
+   manifest read, the last create of a Secret, the jobs and the journal. No lock, no handle.
 2. **Commands.** A view returns a `Command`, and the task of the core runs it.
 3. **Workers.** A view computes its rows on a worker thread: see "Window".
 4. **Repaint.** A new snapshot or index asks for a repaint. One notifier limits the repaints
@@ -196,5 +196,5 @@ TLS, HTTP/2, HTTP/1.1, watch streams, the HTTP 101 upgrade and faults; `Home` is
 - **Program tests** start `fresnel-cli` and `fresnel` (no window) as from Finder, in a test home.
 - **Cluster tests** use k3s in Docker, mostly through the fault proxy (`#[ignore]`). After a fault,
   a store test asserts a recovery time and "store equal to the API". The tests of the indexes,
-  the kinds and the keys compare them, each column and each saved key with the API and kubectl.
+  the kinds, the keys and the operations (on two clusters) compare each result with kubectl.
 - CI runs each check on macOS and Linux for each push, and the cluster tests on Linux.

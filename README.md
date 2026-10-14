@@ -9,9 +9,9 @@ that looks current.
 Milestones M0 to M2 are complete; the work is in M3 (workloads) and M4 (Secrets and ConfigMaps).
 The repository has the workspace, the lints, CI, the test kit, `fresnel-net`, `fresnel-core`
 (kubeconfig, registry, gateway, app core, journal, state and settings files, 41 kinds, watch
-loop, stores, indexes, manifest, quick search, command table, keys of Secrets and ConfigMaps),
-`doctor`, `watch` and the window: the sidebar, a live table of each kind for all selected
-clusters, the detail panel, the quick search, Back and Forward, the journal and the connections.
+loop, stores, indexes, manifest, quick search, command table, keys of Secrets and ConfigMaps,
+operations as jobs, permissions), `doctor`, `watch` and the window: the sidebar, a live table
+of each kind, the detail panel, the quick search, Back and Forward, the journal, the connections.
 
 ## The app
 

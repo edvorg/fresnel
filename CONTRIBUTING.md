@@ -33,9 +33,8 @@ CI runs these commands on macOS and Linux, with the time tests in a release buil
 Start each background task with `Tasks::start`: a name, a restart rule and a body that builds
 one run. A direct `tokio::spawn` or `std::thread::spawn` does not compile.
 
-- Keep the handle: the task stops when it drops. Use `Restart::Always` for a task that must
-  stay alive, and `Restart::Never` for a job. The body runs again after an error or a panic,
-  so it builds each run from a clean state.
+- Keep the handle: the task stops when it drops. `Restart::Always` keeps a task alive, and
+  `Restart::Never` runs a job one time. A body builds each new run from a clean state.
 - A task can own a `JoinSet` for its short child tasks, if it reads the result of each one.
 - A task reads no file itself. A read can wait for a slow disk, and a thread of the runtime
   that waits holds other tasks. Run the read with `spawn_blocking` and wait for its result.
@@ -49,6 +48,8 @@ one run. A direct `tokio::spawn` or `std::thread::spawn` does not compile.
   the connection and the time limits. A request with no kind is refused.
 - Code above `fresnel-net` sends a request through one of the six functions of `Gateway`.
   Build the request with `kube::core::Request`. No other module holds a kube client.
+- An operation is a function in `ops/` that builds one request (a unit test asserts its URL and
+  body) and a step of a procedure; `tests/k3s_ops` compares its result with kubectl.
 - An error text and a journal text have no output of a child process (that is `detail()`), no
   value of an object and no part of a kubeconfig file. For bad JSON or YAML, give the position.
 
@@ -143,8 +144,7 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 
 ## Documents and commits
 
-- `README.md` has 80 lines or fewer, `docs/architecture.md` 200 and this file 150.
-  `docs/decisions.md` has one paragraph of 80 words or fewer for each decision; a change of a
-  design choice changes its paragraph.
+- `README.md` has 80 lines or fewer, `docs/architecture.md` 200 and this file 150. Each
+  decision of `docs/decisions.md` has one paragraph of 80 words or fewer, changed with it.
 - Commit in small steps. The message says what changed and why, in plain words. For now,
   changes go directly to `master`. Push only when the five checks pass.

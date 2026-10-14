@@ -1077,3 +1077,36 @@ A save can end after its view moved away, after a later save of the view, or whe
 connections of its cluster close. No view shows that end, so the journal does, with the object
 and no value (design rule 1). The same save again while it is on its way does not go: it would
 come back as a conflict with the first one.
+
+## Each operation is a job in a task of its own
+
+An order runs in a task that runs one time, so a rollout status that waits does not hold the
+other jobs, and each row of a bulk action gets its own state. The list keeps 500 jobs and counts
+the ones that leave. A job whose task stops before its end gets the state "result not known" when
+it can have sent a write, and "failed" when it only reads.
+
+## A JSON patch goes as the request of a merge patch with its own content type
+
+kube builds a JSON patch only with the `jsonpatch` feature and one more crate. The rollback of a
+Deployment is the one JSON patch of the app, and its body is JSON already, so the request of a
+merge patch with the content type `application/json-patch+json` is the same request.
+
+## History and rollback work on the JSON of the server
+
+A rollback copies a pod template back into a workload. A type of `k8s-openapi` drops each field
+that it does not know, so a field of a newer server would leave the pods. The procedure reads the
+workload and its ReplicaSets or ControllerRevisions as JSON and compares templates as JSON.
+
+## Run again checks the new Job before it deletes the old one
+
+The server checks the new manifest in a dry run with a name that it makes, because the old Job
+holds the name. Then the delete, a wait for the watch event of the delete and the create follow.
+After the delete, the outcome holds the manifest, so the user can copy it when the create fails.
+A Job whose labels are the copy of its template gets none, so the server copies the new ones.
+
+## The rules of a namespace decide an action, and HTTP 403 drops them
+
+One SelfSubjectRulesReview for each namespace that a view opens gives the rules, which stay 5
+minutes. An action on the cluster and rules that are not complete are unknown: an access review
+asks the server. The rules are a hint, so a job that the server refuses with HTTP 403 drops the
+rules of its namespace, and its state shows the message of the server.
