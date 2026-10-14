@@ -1,5 +1,6 @@
 //! The calls of a key view through the gateway of its cluster, and the state of a write.
 
+use std::fmt;
 use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::{ConfigMap, Secret};
@@ -57,6 +58,20 @@ impl WriteState {
             Err(WriteError { fate: Fate::Refused, error }) => Self::Failed(error),
             Err(WriteError { fate: Fate::NotSent, error }) => Self::NotSent(error),
             Err(WriteError { fate: Fate::Unknown, error }) => Self::Unknown(error),
+        }
+    }
+}
+
+/// The words of the state, for the journal. They name no value.
+impl fmt::Display for WriteState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Pending => f.write_str("on its way"),
+            Self::Done(_) => f.write_str("done"),
+            Self::Conflict(error) => write!(f, "a conflict: {error}"),
+            Self::Failed(error) => write!(f, "refused: {error}"),
+            Self::NotSent(error) => write!(f, "not sent: {error}"),
+            Self::Unknown(error) => write!(f, "its result is not known: {error}"),
         }
     }
 }

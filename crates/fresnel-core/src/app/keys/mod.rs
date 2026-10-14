@@ -14,13 +14,13 @@ mod follow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
+use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName};
 use tokio::sync::Notify;
 
-use super::repaint::Repaint;
 use super::{Inner, Phase};
 use crate::cluster::Gateway;
 use crate::error::CoreError;
+use crate::journal::Journal;
 use crate::keys::{KeyObject, Save, Target, WriteState};
 use crate::kinds::Meta;
 use crate::published::Reader;
@@ -53,9 +53,7 @@ impl Inner {
         let holder = state.connected.get(&target.cluster).and_then(|connected| connected.keys(&target));
         let Some(holder) = holder else {
             drop(state);
-            let (kind, key) = (target.kind.kind().info().name, &target.key);
-            let text =
-                format!("the save of {kind} {}/{} did not go: its key view is not open", key.namespace, key.name);
+            let text = format!("{} did not go: its key view is not open", save_of(&target));
             self.journal.warning(target.cluster.as_str(), text);
             self.repaint.request();
             return;
@@ -64,6 +62,13 @@ impl Inner {
         drop(state);
         self.repaint.request();
     }
+}
+
+/// "the save of Secret shop/db": the start of a journal entry about a save. It names the
+/// object and never a value.
+fn save_of(target: &Target) -> String {
+    let (kind, key) = (target.kind.kind().info().name, &target.key);
+    format!("the save of {kind} {}/{}", key.namespace, key.name)
 }
 
 /// What the key view sees of its object.
@@ -120,8 +125,11 @@ impl ClusterKeys {
             return;
         }
         self.leaving.retain(KeysHolder::is_saving);
-        if let Some(old) = self.shown.take().filter(KeysHolder::is_saving) {
-            old.closing.store(true, Ordering::Release);
+        // A holder with a save that waits or runs stays to the end of the save. Each other
+        // holder stops here, and its values go.
+        if let Some(old) = self.shown.take()
+            && old.close()
+        {
             self.leaving.push(old);
         }
         self.shown = target.map(start);
@@ -149,6 +157,7 @@ pub(super) struct KeysHolder {
     slot: Slot,
     saved: Arc<Notify>,
     closing: Arc<AtomicBool>,
+    journal: Journal,
     _task: TaskHandle,
 }
 
@@ -156,11 +165,10 @@ impl KeysHolder {
     /// Starts the task, which reads the object at once. `metadata` is the store of the
     /// metadata of its kind in its cluster.
     pub(super) fn start(
-        tasks: &Tasks,
+        inner: &Inner,
         target: Target,
         gateway: Gateway,
         metadata: Option<Reader<Snapshot<Meta>>>,
-        repaint: Repaint,
     ) -> Self {
         let first = KeysView { target: target.clone(), object: None, read: ReadState::Reading, save: None };
         let slot: Slot = Arc::new(Mutex::new(Arc::new(first)));
@@ -172,14 +180,15 @@ impl KeysHolder {
             slot: Arc::clone(&slot),
             saved: Arc::clone(&saved),
             closing: Arc::clone(&closing),
-            repaint,
+            repaint: inner.repaint.clone(),
+            journal: inner.journal.clone(),
         };
         let mut runs = 0_u64;
-        let task = tasks.start(name, Restart::Always(Backoff::default()), move || {
+        let task = inner.tasks.start(name, Restart::Always(Backoff::default()), move || {
             runs += 1;
             follow(parts.clone(), runs > 1)
         });
-        Self { target, slot, saved, closing, _task: task }
+        Self { target, slot, saved, closing, journal: inner.journal.clone(), _task: task }
     }
 
     /// Gives a save to the task. The view shows it as pending at once. A save that waits
@@ -198,5 +207,31 @@ impl KeysHolder {
 
     fn is_saving(&self) -> bool {
         pending(&self.slot).is_some()
+    }
+
+    /// Marks the holder of a view that goes to an other object, when a save waits or runs.
+    /// Its task then ends the save, gives its end to the journal and drops the values. The
+    /// check and the mark are under the lock of the view, as the end of a save is. True for
+    /// such a holder.
+    fn close(&self) -> bool {
+        let view = lock(&self.slot);
+        let saving = view.save.as_ref().is_some_and(|job| job.state == WriteState::Pending);
+        self.closing.store(saving, Ordering::Release);
+        saving
+    }
+}
+
+impl Drop for KeysHolder {
+    /// The task stops with this drop: the cluster left the selection, its connections went
+    /// again, or the core stops. A save that waits or runs then has a result that nobody
+    /// knows, and no view shows it any more, so the journal tells it (design rule 6).
+    fn drop(&mut self) {
+        if self.is_saving() {
+            let text = format!(
+                "{} stopped with the connections of its cluster: its result is not known",
+                save_of(&self.target)
+            );
+            self.journal.warning(self.target.cluster.as_str(), text);
+        }
     }
 }

@@ -147,6 +147,7 @@ async fn the_object_of_the_key_view_loads_while_the_view_is_open_and_a_save_goes
 
 /// The stop of a write in progress would leave its result unknown. So a holder whose save
 /// waits stays when the view shows an other object, sends the save, and then drops its values.
+/// No view shows the end of that save, so the journal does, with no value.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_save_that_waits_goes_out_also_when_the_view_shows_an_other_object() {
     let server = FakeApiServer::start().await.expect("a server");
@@ -176,7 +177,10 @@ async fn a_save_that_waits_goes_out_also_when_the_view_shows_an_other_object() {
     assert_eq!(requests(&server, &Method::PATCH, DB), 0);
 
     proxy.set(ProxyMode::Pass);
-    app.until("the save of the view before", |_| requests(&server, &Method::PATCH, DB) == 1).await;
+    let texts = app.until_texts("ams", |texts| texts.iter().any(|text| text.contains("key view closed"))).await;
+    let expected = "the save of Secret shop/db ended after its key view closed: done";
+    assert!(texts.iter().any(|text| text == expected), "{texts:?}");
+    assert_eq!(requests(&server, &Method::PATCH, DB), 1, "the save of the view before");
 }
 
 /// Design rule 5: a read that fails keeps the object of the read before, with the reason.

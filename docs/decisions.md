@@ -1070,3 +1070,10 @@ value fits there; a value that is not UTF-8 goes to `binaryData`.
 The stop of a write in progress leaves its result unknown (design rule 6). So the holder of a key
 view with a save that waits or runs stays until the save ends, and then drops its values. A
 create of a Secret runs in one task of the core, one create after the other, for the same reason.
+
+## The journal shows the end of a save that no view shows
+
+A save can end after its view moved away, after a later save of the view, or when the
+connections of its cluster close. No view shows that end, so the journal does, with the object
+and no value (design rule 1). The same save again while it is on its way does not go: it would
+come back as a conflict with the first one.

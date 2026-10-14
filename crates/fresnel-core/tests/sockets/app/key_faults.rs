@@ -1,10 +1,12 @@
-//! The key view in the core with fast input and bad data: a second click on Save, and the
-//! answer of a save with an other object.
+//! The key view in the core with fast input, a fault at the worst moment and bad data: a
+//! second click on Save, a later save during a save, a cluster that leaves the selection
+//! during a save, and the answer of a save with an other object.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use fresnel_core::app::{Command, CoreSettings, Health, KeysView, ReadState, SaveJob};
+use fresnel_core::journal::Level;
 use fresnel_core::keys::{Draft, KeyObject, Save, WriteState};
 use fresnel_testkit::{FakeApiServer, FaultProxy, ProxyMode};
 use http::Method;
@@ -86,6 +88,42 @@ async fn the_same_save_again_while_it_is_on_its_way_sends_no_second_patch() {
     let job = bed.until_saved().await;
     assert!(matches!(job.state, WriteState::Done(_)), "{job:?}");
     assert_eq!((job.number, requests(&bed.server, &Method::PATCH, DB)), (1, 1), "the first save, one PATCH");
+    bed.proxy.set(ProxyMode::Pass);
+}
+
+/// A different save while the first one is on its way: it goes after the first one, the
+/// view shows it, and the journal shows the end of the first one.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_end_of_a_save_that_a_later_save_replaced_goes_to_the_journal() {
+    let bed = Bed::open("keys-later").await;
+    bed.proxy.set(ProxyMode::Latency(ON_ITS_WAY));
+    bed.app.core.send(Command::SaveKeys(bed.save(b"new")));
+    bed.until_seen(&Method::PATCH, DB, 1).await;
+    bed.app.core.send(Command::SaveKeys(bed.save(b"newer")));
+
+    let texts = bed.app.until_texts("ams", |texts| texts.iter().any(|text| text.contains("a later save"))).await;
+    let expected = "the save of Secret shop/db ended after a later save of its view: done";
+    assert!(texts.iter().any(|text| text == expected), "{texts:?}");
+    let job = bed.until_saved().await;
+    assert_eq!((job.number, requests(&bed.server, &Method::PATCH, DB)), (2, 2), "the later save, two PATCHes");
+    bed.proxy.set(ProxyMode::Pass);
+}
+
+/// A fault at the worst moment: the cluster leaves the selection during a save. Its
+/// connections close and its key view goes, so no view can show the end of the save. The
+/// journal tells that the result is not known (design rule 6).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_save_that_stops_with_the_connections_of_its_cluster_leaves_a_journal_entry() {
+    let bed = Bed::open("keys-deselect").await;
+    bed.proxy.set(ProxyMode::Freeze);
+    bed.app.core.send(Command::SaveKeys(bed.save(b"new")));
+    bed.app.until("the save", |view| keys(view, "ams").is_some_and(|keys| keys.save.is_some())).await;
+    bed.app.select("ams", false);
+
+    let texts = bed.app.until_texts("ams", |texts| texts.iter().any(|text| text.contains("not known"))).await;
+    let expected = "the save of Secret shop/db stopped with the connections of its cluster: its result is not known";
+    assert!(texts.iter().any(|text| text == expected), "{texts:?}");
+    assert!(bed.app.journal().iter().any(|(level, _, text)| *level == Level::Warning && text == expected));
     bed.proxy.set(ProxyMode::Pass);
 }
 

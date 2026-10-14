@@ -1,5 +1,6 @@
 //! The task of one holder of a key view: a read, then a wait for a reason to read again.
-//! A save comes during the wait, and its answer is the new object.
+//! A save comes during the wait, and its answer is the new object. The end of a save goes
+//! to the view, or to the journal when the view shows an other object since the save.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -9,10 +10,11 @@ use fresnel_net::ErrorClass;
 use tokio::sync::Notify;
 use tokio::time::{Instant, sleep_until};
 
-use super::{KeysView, ReadState};
+use super::{KeysView, ReadState, save_of};
 use crate::app::repaint::Repaint;
 use crate::cluster::Gateway;
 use crate::error::CoreError;
+use crate::journal::{Journal, Level};
 use crate::keys::{self, Save, Target, WriteState};
 use crate::kinds::{Meta, Object};
 use crate::published::Reader;
@@ -57,20 +59,21 @@ pub(super) struct Parts {
     /// the save, and drops the values.
     pub(super) closing: Arc<AtomicBool>,
     pub(super) repaint: Repaint,
+    /// Takes the end of a save that no view shows.
+    pub(super) journal: Journal,
 }
 
 /// The body of the task.
 pub(super) async fn follow(parts: Parts, restarted: bool) -> Result<(), CoreError> {
-    let Parts { gateway, mut metadata, slot, saved, closing, repaint } = parts;
+    let Parts { gateway, mut metadata, slot, saved, closing, repaint, journal } = parts;
     let target = lock(&slot).target.clone();
     // The run before this one can have ended during a save, which can be in effect. The
     // first read shows the result, and the save does not go again (design rule 6).
-    if restarted {
-        change(&slot, |view| {
-            if let Some(job) = view.save.as_mut().filter(|job| job.state == WriteState::Pending) {
-                job.state = WriteState::Unknown(CoreError::invalid("the key view started again during the save"));
-            }
-        });
+    if restarted && let Some((number, _)) = pending(&slot) {
+        let unknown = WriteState::Unknown(CoreError::invalid("the key view started again during the save"));
+        if end_save(&slot, &closing, &journal, number, unknown) {
+            return std::future::pending().await;
+        }
     }
     let mut seen = in_store(metadata.as_ref(), &target);
     let mut pause = FIRST_PAUSE;
@@ -90,9 +93,13 @@ pub(super) async fn follow(parts: Parts, restarted: bool) -> Result<(), CoreErro
         repaint.request();
         loop {
             if let Some((number, save)) = pending(&slot) {
-                let read_again = run_save(&gateway, number, &save, &slot, &repaint).await;
-                if closing.load(Ordering::Acquire) {
-                    change(&slot, |view| (view.object, view.save) = (None, None));
+                let state = WriteState::of_save(keys::save(&gateway, &save).await);
+                // After a conflict, and after a save whose result is not known, the object
+                // needs a new read (design rule 6).
+                let read_again = matches!(state, WriteState::Conflict(_) | WriteState::Unknown(_));
+                let closed = end_save(&slot, &closing, &journal, number, state);
+                repaint.request();
+                if closed {
                     return std::future::pending().await;
                 }
                 if read_again {
@@ -129,21 +136,33 @@ pub(super) async fn follow(parts: Parts, restarted: bool) -> Result<(), CoreErro
     }
 }
 
-/// Sends one save and shows its result. True when the object needs a new read: after a
-/// conflict, and after a save whose result is not known (design rule 6).
-async fn run_save(gateway: &Gateway, number: u64, save: &Save, slot: &Slot, repaint: &Repaint) -> bool {
-    let state = WriteState::of_save(keys::save(gateway, save).await);
-    let read_again = matches!(state, WriteState::Conflict(_) | WriteState::Unknown(_));
+/// Shows the end of the save `number` in the view, with the answer of a done save. When no
+/// view shows that save, the journal gets its end, with no value: the view shows an other
+/// object since the save, and its values go, or the view shows a later save. Thus each end
+/// goes to the view or to the journal. `ClusterKeys::show` sets `closing` under the lock of
+/// the view, as this check reads it. True when the view moved away.
+fn end_save(slot: &Slot, closing: &AtomicBool, journal: &Journal, number: u64, state: WriteState) -> bool {
+    let (mut closed, mut entry) = (false, None);
     change(slot, |view| {
-        if let WriteState::Done(object) = &state {
+        closed = closing.load(Ordering::Acquire);
+        if closed {
+            (view.object, view.save) = (None, None);
+        } else if let WriteState::Done(object) = &state {
             (view.object, view.read) = (Some(Arc::clone(object)), ReadState::Read);
         }
         if let Some(job) = view.save.as_mut().filter(|job| job.number == number) {
             job.state = state;
+            return;
         }
+        let level = if matches!(state, WriteState::Done(_)) { Level::Info } else { Level::Warning };
+        let after = if closed { "its key view closed" } else { "a later save of its view" };
+        let text = format!("{} ended after {after}: {state}", save_of(&view.target));
+        entry = Some((view.target.cluster.clone(), level, text));
     });
-    repaint.request();
-    read_again
+    if let Some((cluster, level, text)) = entry {
+        journal.push(level, cluster.as_str(), text);
+    }
+    closed
 }
 
 /// The resource version of the object in the metadata store. `None` for an object that the

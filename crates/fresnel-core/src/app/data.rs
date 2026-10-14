@@ -156,8 +156,7 @@ impl Connected {
         let target = target.filter(|target| &target.cluster == self.stores.cluster());
         let (gateway, stores) = (&self.gateway, &self.stores);
         self.keys.show(target, |target| {
-            let metadata = stores.metadata(target.kind.kind());
-            KeysHolder::start(&inner.tasks, target.clone(), gateway.clone(), metadata, inner.repaint.clone())
+            KeysHolder::start(inner, target.clone(), gateway.clone(), stores.metadata(target.kind.kind()))
         });
     }
 
