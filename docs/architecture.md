@@ -106,8 +106,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   task reads the settings file, the login shell environment and the kubeconfig files, connects
   each selected cluster and runs each command. A cluster has its stores, indexes and a task.
 - **Files**: `state.json` keeps the selection and the table layouts of the last run. The core
-  reads `config.toml` (its version, the key of each command) and never writes it; each problem
-  goes to the journal with its line and column. **Journal**: 10,000 entries.
+  reads `config.toml` (its version, the key of each command) and never writes it; its first 20
+  problems go to the journal with their line and column. **Journal**: 10,000 entries.
 
 ## Stores, indexes, search and commands
 
@@ -171,11 +171,11 @@ bar. It holds the page of one kind and names that kind to the core with `ShowKin
   objects as links, Events and the Manifest tab. An object that left its store shows as deleted.
 - **Freshness**: a row from a store that is not live has a mark, and a note above the table
   gives the state and the reason of each such cluster. The rows stay in each state.
-- **Commands**: the shell reads the key of each command before the widgets and runs it. It
-  keeps the visited objects for Back and Forward. The menu of a row lists the actions of its kind.
-- **Quick search**: a dialog; a hit opens the page, the row and the panel of its object, and a
-  note offers to show a row that a filter hides. The namespace filter of the top bar holds for
-  each page; a kind with no namespace ignores it.
+- **Commands**: the shell reads the key of each command before the widgets and runs it; Back
+  and Forward take a step for each press. The menu of a row lists the actions of its kind.
+- **Quick search**: a dialog; the cursor holds a row by identity, and Enter waits for the hits
+  of the text. A hit opens its object, with a note while its store lists, or with "Show it" when
+  a filter hides its row. The top bar has one namespace filter for each page.
 - **Program**: the folders, the lock of the process, the log file, the panic hook, the runtime
   and the core, which starts after the window is open. The quit stops each task of the core.
 
