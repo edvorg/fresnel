@@ -16,7 +16,9 @@ mod list;
 mod notes;
 mod request;
 
-use egui::{Context, Id, Key, Modal, Modifiers, RichText, TextEdit, Ui};
+use egui::text::CCursorRange;
+use egui::text_edit::TextEditState;
+use egui::{Context, Galley, Id, Key, Modal, Modifiers, RichText, TextEdit, Ui};
 use fresnel_core::commands::{CommandId, Keys};
 use fresnel_core::net::task::{TaskName, Tasks};
 use fresnel_core::search::{self, Found};
@@ -85,7 +87,8 @@ impl QuickSearch {
         }
     }
 
-    /// Opens the dialog with the text and the filters of the last search.
+    /// Opens the dialog with the text and the filters of the last search. The text is
+    /// selected: a key replaces it.
     pub(crate) fn open(&mut self) {
         self.open = true;
         self.focus = true;
@@ -148,14 +151,16 @@ impl QuickSearch {
         let at = self.cursor.as_ref().and_then(|cursor| rows.iter().position(|row| row.is(cursor)));
         let (mut cursor, moved, enter) = list_keys(ui, at.unwrap_or(0), rows.len());
         let found = self.found.as_ref().map(|done| &done.output);
-        let field = TextEdit::singleline(&mut self.query.text)
+        let output = TextEdit::singleline(&mut self.query.text)
             .hint_text("A name, a label, an image, a node or an IP address")
             .char_limit(MAX_TEXT)
-            .desired_width(f32::INFINITY);
-        let field = ui.add(field);
+            .desired_width(f32::INFINITY)
+            .show(ui);
+        let field = output.response.response;
         widgets::name(&field, "Search text");
         if std::mem::take(&mut self.focus) {
             field.request_focus();
+            select_all(ui.ctx(), field.id, output.state, &output.galley);
         }
         ui.add_space(PAD);
         // A worker that ended has a state of its own, so old hits never look current.
@@ -204,6 +209,14 @@ impl QuickSearch {
         let current = self.found.as_ref().is_some_and(|done| done.id.query == self.query_serial);
         current && self.enter.take().is_some()
     }
+}
+
+/// Selects the text of the field, so that the first key of a new search replaces the text
+/// of the last one. egui keeps a selection only in a field with the focus, so this comes
+/// after the request for the focus.
+fn select_all(ctx: &Context, id: Id, mut state: TextEditState, galley: &Galley) {
+    state.cursor.set_char_range(Some(CCursorRange::select_all(galley)));
+    state.store(ctx, id);
 }
 
 /// The keys of the list: each press of an arrow moves the cursor one row, also when a slow

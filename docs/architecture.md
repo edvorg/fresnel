@@ -173,9 +173,9 @@ bar. It holds the page of one kind and names that kind to the core with `ShowKin
   gives the state and the reason of each such cluster. The rows stay in each state.
 - **Commands**: the shell reads the key of each command before the widgets and runs it; Back
   and Forward take a step for each press. The menu of a row lists the actions of its kind.
-- **Quick search**: a dialog; the cursor holds a row by identity, and Enter waits for the hits
-  of the text. A hit opens its object, with a note while its store lists, or with "Show it" when
-  a filter hides its row. The top bar has one namespace filter for each page.
+- **Quick search**: a dialog with the last text selected; the cursor holds a row by identity, and
+  Enter waits for the hits of the text. A hit opens its object, with a note while its store lists,
+  or "Show it" when a filter hides its row. The top bar has one namespace filter for each page.
 - **Program**: the folders, the lock of the process, the log file, the panic hook, the runtime
   and the core, which starts after the window is open. The quit stops each task of the core.
 
