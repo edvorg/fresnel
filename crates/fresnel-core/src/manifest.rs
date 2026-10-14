@@ -25,7 +25,7 @@ pub enum ManagedFields {
 }
 
 /// The manifest of one object at one moment.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Manifest {
     /// The YAML of the object, with the keys of each map in the sequence of the alphabet,
     /// as kubectl writes them.
@@ -34,6 +34,18 @@ pub struct Manifest {
     pub version: Option<String>,
     /// What the text has of `managedFields`.
     pub managed_fields: ManagedFields,
+}
+
+impl std::fmt::Debug for Manifest {
+    /// The size of the text, never the text: the manifest of a Secret has its values, and
+    /// a debug text can go to a log (plan section 12.6).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Manifest")
+            .field("bytes", &self.text.len())
+            .field("version", &self.version)
+            .field("managed_fields", &self.managed_fields)
+            .finish()
+    }
 }
 
 /// Reads one object from the server and writes it as YAML. The read has the time limit of

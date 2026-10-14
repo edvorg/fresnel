@@ -30,6 +30,9 @@ async fn the_manifest_is_the_yaml_of_the_object_with_no_managed_fields_until_the
                     nginx:1.27\n    name: web\n";
     assert_eq!(removed.text, expected, "the keys in the sequence of kubectl, and the copy of `kubectl apply` stays");
     assert_eq!((removed.version.as_deref(), removed.managed_fields), (Some("42"), ManagedFields::Removed));
+    // The manifest of a Secret has its values, and a debug text can go to a log.
+    let debug = format!("{removed:?}");
+    assert!(debug.contains("bytes") && !debug.contains("nginx"), "a debug text has no value of the object: {debug}");
 
     let kept = manifest::fetch(&bed.link.gateway, Kind::Pod, &key, "", ManagedFields::Kept).await.expect("a manifest");
     assert!(kept.text.contains("managedFields:") && kept.text.contains("manager: kubectl"), "{}", kept.text);
