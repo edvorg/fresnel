@@ -4,10 +4,15 @@
 //! A count comes from the facts of the stores that the core gives each frame, so the
 //! sidebar holds no objects. A kind with no store that is always on (tier C) has a count
 //! only while its page holds the store of its objects.
+//!
+//! A count is current when each selected cluster has a live store of the kind with a
+//! complete list. Any other count has the freshness mark of the rows: a store that is
+//! forbidden has no object, and its "0" must not look like a kind with none (design rules
+//! 4 and 5). The page of the kind gives the reason.
 
 use egui::{Align2, Label, RichText, ScrollArea, Sense, TextStyle, Ui, WidgetInfo, WidgetType};
 use fresnel_core::app::CoreView;
-use fresnel_core::kinds::{Kind, Sidebar, Tier};
+use fresnel_core::kinds::{Kind, Sidebar};
 
 use crate::format;
 use crate::theme::{self, Palette, ROW_HEIGHT, SMALL};
@@ -40,8 +45,7 @@ pub(super) fn show(ui: &mut Ui, view: &CoreView, open: &mut Page) {
             });
             ui.add_space(2.0);
             for kind in group.kinds() {
-                let count = count(view, kind).map(format::thousands);
-                if entry(ui, palette, kind.info().title, count.as_deref(), *open == Page::Kind(kind)).clicked() {
+                if entry(ui, palette, kind.info().title, count(view, kind), *open == Page::Kind(kind)).clicked() {
                     *open = Page::Kind(kind);
                 }
             }
@@ -50,25 +54,41 @@ pub(super) fn show(ui: &mut Ui, view: &CoreView, open: &mut Page) {
     });
 }
 
-/// The count of the objects of a kind in the selected clusters. `None` while no selected
-/// cluster has a store of the kind.
-fn count(view: &CoreView, kind: Kind) -> Option<u64> {
-    let selected = view.clusters.iter().filter(|row| row.selected).filter_map(|row| row.data.as_ref());
-    let counts = selected.filter_map(|data| match kind.info().tier {
-        Tier::A | Tier::B => data.store(kind).map(|store| store.items),
-        Tier::C => data.objects.count(kind),
-    });
-    counts.map(|count| count as u64).reduce(|sum, count| sum + count)
+/// The count of the objects of a kind in the selected clusters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Count {
+    objects: u64,
+    /// True when each selected cluster has a live store of the kind with a complete list.
+    current: bool,
+}
+
+impl Count {
+    /// The text of the count, and the value that a screen reader reads.
+    fn texts(self) -> (String, String) {
+        let text = format::thousands(self.objects);
+        let value = if self.current { text.clone() } else { format!("{text}, not current") };
+        (text, value)
+    }
+}
+
+/// The count of a kind. `None` while no selected cluster has a store of the kind.
+fn count(view: &CoreView, kind: Kind) -> Option<Count> {
+    let selected = view.clusters.iter().filter(|row| row.selected);
+    let stores: Vec<_> = selected.map(|row| row.data.as_ref().and_then(|data| data.store(kind))).collect();
+    let current = stores.iter().all(|store| store.is_some_and(|store| store.listed && store.state.is_live()));
+    let objects = stores.iter().flatten().map(|store| store.items as u64).reduce(|sum, items| sum + items)?;
+    Some(Count { objects, current })
 }
 
 /// One entry. The entries are one choice of many, so a screen reader gets a radio button.
 /// A title that is too long for the sidebar is cut, and shows in full at the pointer.
-fn entry(ui: &mut Ui, palette: &Palette, title: &str, count: Option<&str>, selected: bool) -> egui::Response {
+fn entry(ui: &mut Ui, palette: &Palette, title: &str, count: Option<Count>, selected: bool) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
     response.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, true, selected, title));
-    if let Some(count) = count {
+    let texts = count.map(Count::texts);
+    if let Some((_, value)) = &texts {
         // A screen reader reads the count as the value of the entry.
-        response.ctx.accesskit_node_builder(response.id, |node| node.set_value(count));
+        response.ctx.accesskit_node_builder(response.id, |node| node.set_value(value.as_str()));
     }
     let painter = ui.painter();
     if selected {
@@ -77,9 +97,16 @@ fn entry(ui: &mut Ui, palette: &Palette, title: &str, count: Option<&str>, selec
         painter.rect_filled(rect, 4.0, palette.bg_raised);
     }
     let right = rect.right_center() - egui::vec2(8.0, 0.0);
-    let count_width = count.map_or(0.0, |count| {
+    let count_width = texts.as_ref().map_or(0.0, |(text, _)| {
         let font = TextStyle::Small.resolve(ui.style());
-        painter.text(right, Align2::RIGHT_CENTER, count, font, palette.text_faint).width() + 6.0
+        let width = painter.text(right, Align2::RIGHT_CENTER, text, font, palette.text_faint).width() + 6.0;
+        if count.is_some_and(|count| !count.current) {
+            // The freshness mark of the rows, left of the count.
+            let center = right - egui::vec2(width + 2.0, 0.0);
+            painter.circle_stroke(center, 3.25, (1.5, palette.warn));
+            return width + 12.0;
+        }
+        width
     });
     let color = if selected { palette.text } else { palette.text_muted };
     let font = TextStyle::Body.resolve(ui.style());
@@ -89,5 +116,11 @@ fn entry(ui: &mut Ui, palette: &Palette, title: &str, count: Option<&str>, selec
     let left = rect.left_center() + egui::vec2(10.0, -galley.size().y / 2.0);
     let clip = egui::Rect::from_min_size(rect.min, egui::vec2(10.0 + room, rect.height()));
     ui.painter().with_clip_rect(clip.intersect(ui.clip_rect())).galley(left, galley, color);
-    if cut { response.on_hover_text(title) } else { response }
+    match count.filter(|count| !count.current) {
+        Some(_) => {
+            response.on_hover_text(format!("{title}: the count can be old or not complete. The page tells why."))
+        }
+        None if cut => response.on_hover_text(title),
+        None => response,
+    }
 }

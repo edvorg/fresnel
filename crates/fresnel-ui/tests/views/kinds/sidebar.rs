@@ -7,30 +7,33 @@ use std::sync::Arc;
 use egui::accesskit::Role;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use fresnel_core::app::{ClusterRow, Command};
+use fresnel_core::cluster::LinkState;
 use fresnel_core::kinds::{Kind, Sidebar};
 use fresnel_core::store::{StoreState, StoreStatus};
 use k8s_openapi::api::coordination::v1::Lease;
 
 use super::scene::{deployments, live, with};
 use crate::data::{of_kinds, store};
-use crate::fake::{Window, now, off, open_page, view, window};
+use crate::fake::{Window, error, now, off, open_page, row, view, window};
+use crate::pods::scenes::{forbidden, no_answer};
 
-/// The facts of the stores of a cluster with these counts of objects.
-fn with_counts(mut row: ClusterRow, counts: &[(Kind, usize)]) -> ClusterRow {
-    let status = |(kind, items): &(Kind, usize)| StoreStatus {
-        kind: *kind,
-        state: StoreState::Live,
-        since: now(),
-        last_contact: Some(now()),
-        listed: true,
-        items: *items,
-        dropped: 0,
-        generation: 1,
-    };
+/// The facts of the stores of a cluster with these counts of objects, each store live.
+fn with_counts(row: ClusterRow, counts: &[(Kind, usize)]) -> ClusterRow {
+    let stores: Vec<StoreStatus> = counts.iter().map(|(kind, items)| status(*kind, *items, StoreState::Live)).collect();
+    with_stores(row, stores)
+}
+
+fn with_stores(mut row: ClusterRow, stores: Vec<StoreStatus>) -> ClusterRow {
     if let Some(data) = row.data.as_mut() {
-        data.stores = counts.iter().map(status).collect::<Vec<_>>().into();
+        data.stores = stores.into();
     }
     row
+}
+
+/// The facts of a store in this state. A forbidden store never had a complete list.
+fn status(kind: Kind, items: usize, state: StoreState) -> StoreStatus {
+    let listed = !matches!(state, StoreState::Forbidden { .. });
+    StoreStatus { kind, state, since: now(), last_contact: Some(now()), listed, items, dropped: 0, generation: 1 }
 }
 
 /// The count of an entry of the sidebar, as a screen reader reads it.
@@ -58,11 +61,43 @@ fn the_sidebar_has_each_kind_in_its_group_with_the_count_of_the_selected_cluster
     assert_eq!(window.query_all_by_role(Role::RadioButton).count(), Kind::ALL.len() + 1, "the kinds and Connections");
     assert_eq!(count(&window, "Pods").as_deref(), Some("50"), "two selected clusters");
     assert_eq!(count(&window, "Deployments").as_deref(), Some("8"));
-    assert_eq!(count(&window, "ConfigMaps").as_deref(), Some("2"), "a cluster that has no store of the kind");
+    let some = "a selected cluster has no store of the kind, so the count is not complete";
+    assert_eq!(count(&window, "ConfigMaps").as_deref(), Some("2, not current"), "{some}");
     assert_eq!(count(&window, "Nodes"), None, "no store of the kind");
     // A kind of tier C has a count only while a page holds its store.
-    assert_eq!(count(&window, "Leases").as_deref(), Some(leases.len().to_string().as_str()));
+    assert_eq!(count(&window, "Leases"), Some(format!("{}, not current", leases.len())), "{some}");
     assert_eq!(count(&window, "Endpoints"), None);
+}
+
+/// Design rules 4 and 5: a count of a store that is not live can be old, and a forbidden
+/// store has no object. Such a count has the freshness mark, so its "0" never looks like
+/// a kind with no object.
+#[test]
+fn a_count_of_a_store_that_is_not_live_or_of_a_cluster_with_no_stores_is_not_current() {
+    let pause = StoreState::Backoff { failures: 2, reason: no_answer(), until: now() };
+    let ams =
+        with_counts(live("ams-prod", &deployments()), &[(Kind::Pod, 25), (Kind::Deployment, 4), (Kind::Secret, 3)]);
+    let nyc = with_stores(
+        live("nyc-prod", &deployments()),
+        vec![
+            status(Kind::Pod, 25, pause),
+            status(Kind::Deployment, 4, StoreState::Live),
+            status(Kind::Secret, 0, StoreState::Forbidden { reason: forbidden() }),
+        ],
+    );
+    let mut window = window(view(vec![ams.clone(), nyc]));
+    assert_eq!(count(&window, "Deployments").as_deref(), Some("8"), "each store is live");
+    assert_eq!(count(&window, "Pods").as_deref(), Some("50, not current"), "a store in a pause");
+    assert_eq!(count(&window, "Secrets").as_deref(), Some("3, not current"), "a forbidden store");
+
+    // A selected cluster whose connect failed has no stores: no count of it is known.
+    let failed = row("lab", LinkState::Failed(error("the cluster entry `lab` has no certificate authority")));
+    window.state_mut().view = view(vec![ams.clone(), failed]);
+    window.run();
+    assert_eq!(count(&window, "Deployments").as_deref(), Some("4, not current"));
+    window.state_mut().view = view(vec![ams]);
+    window.run();
+    assert_eq!(count(&window, "Deployments").as_deref(), Some("4"), "current again");
 }
 
 #[test]

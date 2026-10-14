@@ -920,6 +920,13 @@ The detail panel shows one object, so a new request ends the read in progress. T
 not end after a read: a job for each read would give a journal entry for each change of an
 object. A read that fails shows in the panel with its reason.
 
+## A count of the sidebar that is not current has the mark of old rows
+
+A store that is forbidden has no object, and a store in a pause keeps its old count. A plain
+"0" or "25" would then look like the current count of each cluster (design rules 4 and 5). So
+a count is plain only when each selected cluster has a live store with a complete list; any
+other count has the open ring of the rows, and the page of the kind gives the reason.
+
 ## Each store asks for a repaint
 
 The sidebar shows the count of objects of each kind, so each new snapshot of a store and each

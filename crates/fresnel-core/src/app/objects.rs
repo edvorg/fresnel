@@ -10,38 +10,39 @@ use std::sync::Arc;
 
 use crate::kinds::{Describe, Kind, Visit};
 use crate::published::Held;
-use crate::store::{ClusterStores, Demand, Snapshot};
+use crate::store::{ClusterStores, Demand, Snapshot, StoreStatus};
 
 /// The snapshots of the full objects of some kinds of one cluster, at one moment. A view
 /// gets the snapshot of a kind with the type of its objects.
 #[derive(Clone, Default)]
 pub struct Objects {
-    /// The `Held<Snapshot<K>>` of each kind, with its count of objects.
-    snapshots: Vec<(Kind, usize, Arc<dyn Any + Send + Sync>)>,
+    /// The `Held<Snapshot<K>>` of each kind, with the facts of its store.
+    snapshots: Vec<(StoreStatus, Arc<dyn Any + Send + Sync>)>,
 }
 
 impl Objects {
     /// The same objects and this snapshot, in place of an older one of its kind.
     pub fn with<K: Describe>(mut self, snapshot: Held<Snapshot<K>>) -> Self {
-        self.snapshots.retain(|(kind, ..)| *kind != K::ID);
-        self.snapshots.push((K::ID, snapshot.items.len(), Arc::new(snapshot)));
+        self.snapshots.retain(|(status, _)| status.kind != K::ID);
+        self.snapshots.push((snapshot.status(K::ID), Arc::new(snapshot)));
         self
     }
 
     /// The snapshot of the full objects of a kind. `None` for a kind that no view showed.
     pub fn get<K: Describe>(&self) -> Option<&Held<Snapshot<K>>> {
-        let (.., snapshot) = self.snapshots.iter().find(|(kind, ..)| *kind == K::ID)?;
+        let (_, snapshot) = self.snapshots.iter().find(|(status, _)| status.kind == K::ID)?;
         snapshot.downcast_ref()
     }
 
-    /// The count of the objects of a kind. `None` for a kind that no view showed.
-    pub fn count(&self, kind: Kind) -> Option<usize> {
-        self.snapshots.iter().find(|(of, ..)| *of == kind).map(|(_, count, _)| *count)
+    /// The facts of the store of a kind: its state and its count of objects. `None` for a
+    /// kind that no view showed.
+    pub fn status(&self, kind: Kind) -> Option<&StoreStatus> {
+        self.snapshots.iter().map(|(status, _)| status).find(|status| status.kind == kind)
     }
 
     /// The kinds of the snapshots.
     pub fn kinds(&self) -> impl Iterator<Item = Kind> + '_ {
-        self.snapshots.iter().map(|(kind, ..)| *kind)
+        self.snapshots.iter().map(|(status, _)| status.kind)
     }
 }
 
@@ -127,6 +128,7 @@ mod tests {
         let objects = objects.with(held(StoreState::Stopped));
         assert_eq!(objects.kinds().collect::<Vec<_>>(), [Kind::ConfigMap], "one snapshot of a kind");
         assert_eq!(objects.get::<ConfigMap>().map(|snapshot| snapshot.state.clone()), Some(StoreState::Stopped));
-        assert_eq!((objects.count(Kind::ConfigMap), objects.count(Kind::Pod)), (Some(0), None));
+        let count = |kind| objects.status(kind).map(|status| (status.items, status.state.clone()));
+        assert_eq!((count(Kind::ConfigMap), count(Kind::Pod)), (Some((0, StoreState::Stopped)), None));
     }
 }

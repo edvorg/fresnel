@@ -52,9 +52,10 @@ impl ClusterData {
         pods.downcast_ref().or_else(|| self.objects.get::<K>()).cloned()
     }
 
-    /// The facts of the store of a kind that is always on.
+    /// The facts of the store of a kind: the store that is always on, or the store of the
+    /// full objects of a kind of tier C while a view shows it. `None` for an other kind.
     pub fn store(&self, kind: Kind) -> Option<&StoreStatus> {
-        self.stores.iter().find(|status| status.kind == kind)
+        self.stores.iter().find(|status| status.kind == kind).or_else(|| self.objects.status(kind))
     }
 }
 
