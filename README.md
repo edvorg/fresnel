@@ -7,11 +7,11 @@ that looks current.
 ## Status
 
 Milestones M0 to M2 are complete; the work is in M3 (workloads) and M4 (Secrets and ConfigMaps).
-The repository has the workspace, the lints, CI, the test kit, `fresnel-net`, `fresnel-core`
-(kubeconfig, registry, gateway, app core, journal, state and settings files, 41 kinds, watch
-loop, stores, indexes, manifest, quick search, command table, keys of Secrets and ConfigMaps,
-operations as jobs, permissions), `doctor`, `watch` and the window: the sidebar, a live table
-of each kind, the detail panel, the quick search, Back and Forward, the journal, the connections.
+The repository has CI, the test kit, `fresnel-net`, `fresnel-core` (kubeconfig, gateway, app
+core, journal, state and settings files, 41 kinds, watch loop, stores, indexes, manifest, quick
+search, command table, keys of Secrets and ConfigMaps, operations as jobs, permissions), `doctor`,
+`watch` and the window: the sidebar, a live table of each kind, the detail panel with the keys of
+a Secret or a ConfigMap, a New Secret dialog, the quick search, the journal, the connections.
 
 ## The app
 
@@ -26,8 +26,8 @@ keeps the selection and the widths and columns of each table in `state.json`.
 
 - A table shows each selected cluster. A row with an open ring is from a cluster that is
   not live: its values are old, and a note above the table gives the reason.
-- Cmd+K opens the quick search of each kind of each selected cluster. Cmd+[ and Cmd+] move
-  through the visited objects. A right click on a row lists the actions of its kind.
+- Cmd+K opens the quick search of each kind of each selected cluster, Cmd+Shift+N a new Secret.
+  Cmd+[ and Cmd+] move through the visited objects. A right click on a row lists its actions.
 - Settings folder: `~/Library/Application Support/fresnel`. A debug build uses `fresnel-debug`.
   Its `config.toml` has `version = 1` and `[shortcuts]`: `back = "Alt+Left"`, `filter = ""`
   (`commands::TABLE` has each name). The journal tells each problem with its line and column.

@@ -1078,6 +1078,34 @@ connections of its cluster close. No view shows that end, so the journal does, w
 and no value (design rule 1). The same save again while it is on its way does not go: it would
 come back as a conflict with the first one.
 
+## The panel of a Secret hides each value until the user shows it
+
+The panel reads the values when it opens, as Headlamp and Lens do, so Copy and the views of the
+certificates and the registries work at once. A hidden value shows dots and has no editor. The
+diff before a save hides the values too, and its summary still tells a change of the line feed at
+the end. The values live in the panel and in the dialog, and go when they close.
+
+## A draft moves onto each new read, and a save waits for each conflict
+
+A new version can come while the user edits. A draft with no change takes its place. A draft
+with changes moves onto it: a change that the server has now goes, and a key that both sides
+changed shows both values. The save waits for a choice for each one, so it never writes over a
+change that the user did not see, and it goes with the version of the new read.
+
+## The save of keys asks with the diff of each key, and its bar is above the keys
+
+The dialog names the cluster, namespace, kind, name and version (plan section 11.2) and shows
+the lines that each changed key loses and gets. It holds its save, so the save that goes is the
+one that the user saw. The bar with Save and the state of the last save is above the keys: a
+long list of keys would hide it below the dock.
+
+## New Secret is a command of the command table
+
+Cmd+Shift+N, the quick search and a button of the Secrets page open one dialog over each page.
+The cluster and the namespace are fields of the dialog, with the first connected cluster and the
+one namespace of the filter as defaults, so a Secret goes to a cluster that the user sees. The
+dialog shows the state of its create, and "Open it" opens the new Secret.
+
 ## Each operation is a job in a task of its own
 
 An order runs in a task that runs one time, so a rollout status that waits does not hold the

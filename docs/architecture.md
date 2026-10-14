@@ -93,9 +93,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 - **Kubeconfig**: `kubeconfig::load` reads each file of `KUBECONFIG` of the login shell and then
   `~/.kube/config`. The first file wins a name. A context that the app cannot use stays.
-- **Registry**: one entry for each context. **Gateway**: one function for each request kind: get,
-  list page, watch stream, log stream, send and upgrade. A failed write tells its fate, and each
-  read has a size limit.
+- **Registry**: one entry for each context. **Gateway**: get, list page, watch stream, log stream,
+  send and upgrade. A failed write tells its fate, and each read has a size limit.
 - **Manifest**: `manifest::fetch` gives the YAML of one object, by default with no `managedFields`.
 - **Keys** (`keys`): one Secret or ConfigMap with each value, as text or as size and type. A
   `Draft` saves a merge patch of its changed keys with the version of its read, so no other key
@@ -171,13 +170,15 @@ bar. It holds the page of one kind and names that kind to the core with `ShowKin
 - **Object page** (`views/objects`): the objects of one kind in each selected cluster, followed
   by the differences of two snapshots, and the detail panel: metadata, conditions, related
   objects as links, Events and the Manifest tab. An object that left its store shows as deleted.
-- **Freshness**: a row from a store that is not live has a mark, and a note above the table
-  gives the state and the reason of each such cluster. The rows stay in each state.
+- **Freshness**: a row of a store that is not live has a mark; a note above the table tells why.
 - **Commands**: the shell reads the key of each command before the widgets and runs it; Back
   and Forward take a step for each press. The menu of a row lists the actions of its kind.
 - **Quick search**: a dialog with the last text selected; the cursor holds a row by identity, and
   Enter waits for the hits of the text. A hit opens its object, with a note while its store lists,
   or "Show it" when a filter hides its row. The top bar has one namespace filter for each page.
+- **Keys** (`views/keys`): the panel of a Secret or a ConfigMap names its object (`ShowKeys`) and
+  edits a `Draft`: a hidden value of a Secret until "Show", add, remove, the diff in a dialog
+  before a save, a choice for each conflict. The command `new-secret` opens the New Secret dialog.
 - **Program**: the folders, the lock of the process, the log file, the panic hook, the runtime
   and the core, which starts after the window is open. The quit stops each task of the core.
 
@@ -190,9 +191,8 @@ TLS, HTTP/2, HTTP/1.1, watch streams, the HTTP 101 upgrade and faults; `Home` is
 - **Unit tests** run with no network and with paused time: `fresnel-net` on an HTTP/2 server in
   memory, the watch loop on a script, the indexes, health values and columns on two k3s scenes.
 - **Socket tests** use the fake API server and the fault proxy on 127.0.0.1, with no Docker.
-- **UI tests** drive the views through `egui_kittest` with no window, on a fake core. A test
-  of a table holds its worker at a gate. Two tests draw the views on the real core. The
-  limits of a frame and of the quick search hold in a release build.
+- **UI tests**: `egui_kittest` with no window, on a fake core; a table test holds its worker at a
+  gate, and two tests use the real core. The time limits hold in a release build.
 - **Program tests** start `fresnel-cli` and `fresnel` (no window) as from Finder, in a test home.
 - **Cluster tests** use k3s in Docker, mostly through the fault proxy (`#[ignore]`). After a fault,
   a store test asserts a recovery time and "store equal to the API". The tests of the indexes,
