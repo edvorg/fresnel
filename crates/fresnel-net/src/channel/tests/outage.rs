@@ -125,6 +125,38 @@ async fn a_raise_each_2_seconds_starts_a_race_of_each_channel_one_time_each_10_s
     }
 }
 
+/// The usual wake: each channel is live, so the raise of the wake tests the connections and
+/// starts no round. The connects after the test start on a dead path and are lost. The
+/// network change a few seconds later is the first round, so it starts them again at once.
+#[tokio::test(start_paused = true)]
+async fn a_network_change_after_a_wake_starts_the_lost_connects_again_at_once() {
+    let server = MemoryServer::new();
+    let (parts, groups) = cluster(&server);
+    let mut changes = parts.changed.watch();
+    while !each_live(&groups) {
+        changes.next().await;
+    }
+    sleep(10 * SECOND).await;
+    server.silence_open();
+    server.set_connects(Connects::Lost);
+    let woke = Instant::now();
+    parts.signal.raise(Cause::Wake);
+    sleep(5 * SECOND).await;
+
+    server.set_connects(Connects::Work);
+    parts.signal.raise(Cause::NetworkChange);
+    let live = async {
+        while !each_live(&groups) {
+            changes.next().await;
+        }
+    };
+    timeout(20 * SECOND, live).await.expect("each channel connects after the network change");
+    assert_eq!(woke.elapsed(), 5 * SECOND);
+    let tries = tries_in(&server, woke, Instant::now() + MS);
+    let lost = [(3 * SECOND, Effort::Race); 3];
+    assert_eq!(tries, [lost, [(5 * SECOND, Effort::Race); 3]].concat(), "the test of 3 s, then the round");
+}
+
 /// A second fault in the recovery: the path lets one connect through and fails again. The
 /// connect ends the outage, and the races after it start a new one with a first part of its
 /// own. The channel that connected stays live, and the others take turns again.
