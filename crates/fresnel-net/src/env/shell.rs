@@ -3,17 +3,15 @@
 //! A program that starts from Finder has `PATH=/usr/bin:/bin:/usr/sbin:/sbin`. The credential
 //! plugin is in a folder that only the shell profile adds.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fmt::{self, Display};
 use std::ops::Range;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use tokio::process::Command;
-
 use super::vars::ProcessEnv;
-use crate::process::{self, End, RunLimits, tail};
+use crate::process::{self, End, Program, RunLimits, tail};
 
 /// An environment is some kilobytes. A profile that prints more is broken.
 const MAX_DUMP_BYTES: usize = 4 * 1024 * 1024;
@@ -88,13 +86,15 @@ pub(super) async fn dump(shell: &Path, base: &ProcessEnv, limit: Duration) -> Re
     let mark = unique_mark();
     // The marks remove text that a profile prints. `env -0` keeps a value with a newline.
     let script = format!("printf %s {mark}; /usr/bin/env -0; printf %s {mark}");
-    let mut command = Command::new(shell);
+    let mut env = base.clone();
+    INJECTED.into_iter().for_each(|(name, value)| env.set(name, value));
     // `-i` is necessary: many users set PATH in the file for interactive shells.
-    command.args(["-l", "-i", "-c", &script]).env_clear().envs(base.iter()).envs(INJECTED);
+    let args = ["-l", "-i", "-c", &script].map(OsString::from).into();
+    let program = Program { path: shell.to_owned(), args, env };
     let problem = |failure, detail| ShellProblem { shell: shell.to_owned(), failure, detail };
 
     let limits = RunLimits { time: limit, output_bytes: MAX_DUMP_BYTES };
-    let output = process::run(command, limits, |out| dump_range(out, mark.as_bytes()).is_some())
+    let output = process::run(&program, limits, |out| dump_range(out, mark.as_bytes()).is_some())
         .await
         .map_err(|error| problem(ShellFailure::Start(error.to_string()), String::new()))?;
     let failure = match output.end {

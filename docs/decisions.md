@@ -231,13 +231,13 @@ then decides which values stay, as in a terminal. The resolve returns when the d
 complete, and it kills the process group: a profile can end slowly or leave a process. Fixed
 folders such as `/opt/homebrew/bin` always go to the end of `PATH`.
 
-## One spawn of a child process at a time
+## A child process starts with posix_spawn, not with a fork
 
-On macOS, a new pipe gets its close-on-exec flag in a second step. A child that some other
-thread starts between the two steps keeps that pipe open, and a spawn waits for the end of one
-such pipe. In milestone M0, a test stayed 600 seconds in its spawn for this reason. Thus the
-process module holds one lock for each spawn, and plugins that start at the same moment start
-one after the other.
+A fork runs the fork handlers of the system libraries in the child. On macOS, the handler of
+libnotify killed the child when an other thread made its first call into libnotify at that
+moment. `posix_spawn` runs no code of the app in the child. Its flags give the new session
+and, on macOS, only the three descriptors of the child, so no pipe of one start reaches the
+child of an other start (M0: a spawn waited 600 s).
 
 ## The kill of a process group repeats until the group is empty
 

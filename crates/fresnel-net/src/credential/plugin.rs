@@ -3,6 +3,7 @@
 //! The app runs the plugin itself (design rule 7 names it as the only child process). Each
 //! run has a time limit, an output limit and a kill of the full process group.
 
+use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -10,13 +11,12 @@ use std::time::Duration;
 use futures_util::FutureExt as _;
 use futures_util::future::BoxFuture;
 use serde_json::{Value, json};
-use tokio::process::Command;
 
 use super::document::{self, Credential};
 use super::error::{PluginError, PluginFailure};
 use crate::clock::WallClock;
 use crate::env::ProcessEnv;
-use crate::process::{self, End, RunLimits, tail};
+use crate::process::{self, End, Program, RunLimits, tail};
 
 /// More output than this is not an `ExecCredential`. The limit keeps a broken plugin from
 /// filling the memory.
@@ -81,18 +81,12 @@ impl ExecPlugin {
         })
     }
 
-    fn command(&self, program: PathBuf) -> Command {
-        let mut command = Command::new(program);
-        command
-            .args(&self.spec.args)
-            .env_clear()
-            .envs(self.vars.iter())
-            .envs(self.spec.env.iter().map(|(name, value)| (name, value)))
-            .env("KUBERNETES_EXEC_INFO", self.exec_info());
-        for name in &self.spec.drop_env {
-            command.env_remove(name);
-        }
-        command
+    fn program(&self, path: PathBuf) -> Program {
+        let mut env = self.vars.clone();
+        self.spec.env.iter().for_each(|(name, value)| env.set(name, value));
+        env.set("KUBERNETES_EXEC_INFO", self.exec_info());
+        self.spec.drop_env.iter().for_each(|name| env.remove(name));
+        Program { path, args: self.spec.args.iter().map(OsString::from).collect(), env }
     }
 
     /// The input of the plugin, as `kubectl` gives it. The app is never interactive: it has
@@ -106,10 +100,10 @@ impl ExecPlugin {
     }
 
     async fn run_once(&self, limit: Duration) -> Result<Credential, PluginError> {
-        let command = self.command(self.locate()?);
+        let program = self.program(self.locate()?);
         let limits = RunLimits { time: limit, output_bytes: MAX_OUTPUT_BYTES };
         // The run waits for the exit of the plugin: a plugin can write its own cache after its answer.
-        let output = process::run(command, limits, |_| false)
+        let output = process::run(&program, limits, |_| false)
             .await
             .map_err(|error| self.error(PluginFailure::Start(error.to_string()), String::new()))?;
         let failure = match output.end {

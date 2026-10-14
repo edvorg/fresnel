@@ -4,17 +4,22 @@
 //! interactive shell cannot stop on terminal job control. The child also leads a new process
 //! group, so one signal reaches it and each process that it started. Each run has a time
 //! limit and an output limit, and each end but a normal exit kills the group.
+//!
+//! - `child`: the start with no fork, and the wait for the end.
+
+mod child;
 
 use std::io;
-use std::process::{ExitStatus, Stdio};
-use std::sync::{Mutex, PoisonError};
+use std::process::ExitStatus;
 use std::time::Duration;
 
 use nix::sys::signal::{Signal, killpg};
-use nix::unistd::{Pid, setsid};
+use nix::unistd::Pid;
 use tokio::io::{AsyncRead, AsyncReadExt};
-use tokio::process::{Child, Command};
 use tokio::time::{Instant, sleep, timeout, timeout_at};
+
+pub(crate) use self::child::Program;
+use self::child::{Child, Started};
 
 /// The wait for the end of a killed process. `SIGKILL` cannot be refused, so the limit is
 /// for a kernel that is slow.
@@ -55,23 +60,17 @@ pub(crate) enum End {
     Failed(io::Error),
 }
 
-/// Runs the command to an end. `complete` reads the stdout bytes so far; with `true` the run
+/// Runs the program to an end. `complete` reads the stdout bytes so far; with `true` the run
 /// ends at once. An error is a child that did not start.
 ///
 /// A drop of the future kills the process group.
 pub(crate) async fn run(
-    mut command: Command,
+    program: &Program,
     limits: RunLimits,
     complete: impl FnMut(&[u8]) -> bool,
 ) -> io::Result<Output> {
-    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
-    // SAFETY: the closure runs between fork and exec. `setsid` is async-signal-safe, and the
-    // closure does not allocate and takes no lock.
-    unsafe { command.pre_exec(|| setsid().map(drop).map_err(io::Error::from)) };
-    let mut group = Group::of(spawn(&mut command)?);
-    let (Some(stdout), Some(stderr)) = (group.child.stdout.take(), group.child.stderr.take()) else {
-        return Err(io::Error::other("the child has no output pipe"));
-    };
+    let Started { child, stdout, stderr } = child::start(program)?;
+    let mut group = Group::of(child);
     let (mut out, mut err) = (Vec::new(), Vec::new());
     // The buffers live outside the timed future, so they keep their bytes after a timeout.
     let reads = Reads { stdout, stderr, out: &mut out, err: &mut err, cap: limits.output_bytes };
@@ -84,20 +83,6 @@ pub(crate) async fn run(
     Ok(Output { stdout: out, stderr: err, end, stopped })
 }
 
-/// One spawn at a time in the process of the app.
-///
-/// On macOS, a new pipe gets its close-on-exec flag in a second step. A child that some
-/// other thread starts between the two steps keeps the pipe open. A spawn waits for the end
-/// of one such pipe, so it then waits for the end of that child. In milestone M0, a test
-/// stayed 600 s in its spawn for this reason.
-static SPAWN: Mutex<()> = Mutex::new(());
-
-fn spawn(command: &mut Command) -> io::Result<Child> {
-    // The lock guards no data, so a poisoned lock is safe to use.
-    let _one_at_a_time = SPAWN.lock().unwrap_or_else(PoisonError::into_inner);
-    command.spawn()
-}
-
 /// A child and its process group. One type owns the two, so the kill always comes before
 /// the drop of the child, while the group id still belongs to this child.
 struct Group {
@@ -107,7 +92,7 @@ struct Group {
 
 impl Group {
     fn of(child: Child) -> Self {
-        let id = child.id().and_then(|id| i32::try_from(id).ok()).map(Pid::from_raw);
+        let id = Some(child.id());
         Self { child, id }
     }
 
@@ -247,27 +232,27 @@ mod tests {
 
     const THREADS: usize = 8;
     const ROUNDS: usize = 40;
-    /// The life of a long child. A spawn that waits for a long child needs this time.
+    /// The life of a long child. A start that waits for a long child needs this time.
     const LONG: Duration = Duration::from_secs(2);
 
-    fn command(script: &str) -> Command {
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", script]);
-        command
+    fn program(script: &str) -> Program {
+        let env = [("PATH", "/usr/bin:/bin")].into_iter().collect();
+        Program { path: "/bin/sh".into(), args: vec!["-c".into(), script.into()], env }
     }
 
     /// Starts a short child and gives the time to its end.
     async fn short_run() -> Duration {
         let started = std::time::Instant::now();
         let limits = RunLimits { time: LONG, output_bytes: 1024 };
-        let output = run(command("true"), limits, |_| false).await.expect("the child starts");
+        let output = run(&program("true"), limits, |_| false).await.expect("the child starts");
         assert!(matches!(output.end, End::Exited(status) if status.success()), "{:?}", output.end);
         started.elapsed()
     }
 
     /// Some threads start a short child and a long one at the same moment, again and again.
-    /// Without one spawn at a time, a long child can hold the pipe of a spawn on some other
-    /// thread, and that spawn then waits for the end of the long child.
+    /// A long child that held the pipe of a start on some other thread would make that start
+    /// wait for the end of the long child (milestone M0: 600 s). No child gets a descriptor
+    /// of the app but its own three (module `child`).
     #[test]
     fn a_spawn_does_not_wait_for_a_child_of_some_other_thread() {
         let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(THREADS).enable_all().build();
@@ -277,7 +262,7 @@ mod tests {
             for _ in 0..ROUNDS {
                 let mut short_runs = JoinSet::new();
                 for _ in 0..THREADS {
-                    long_runs.spawn(run(command("sleep 2"), limits, |_| false));
+                    long_runs.spawn(async move { run(&program("sleep 2"), limits, |_| false).await });
                     short_runs.spawn(short_run());
                 }
                 while let Some(time) = short_runs.join_next().await {
@@ -296,10 +281,10 @@ mod tests {
     /// One run of the shell with the hook. The run ends when the output is complete, and
     /// that is the moment at which the shell starts the process of its hook.
     async fn run_with_exit_hook(hook_file: std::path::PathBuf) {
-        let mut shell = command(SHELL_WITH_EXIT_HOOK);
-        shell.env("HOOK_FILE", hook_file);
+        let mut shell = program(SHELL_WITH_EXIT_HOOK);
+        shell.env.set("HOOK_FILE", hook_file);
         let limits = RunLimits { time: LONG, output_bytes: 1024 };
-        let output = run(shell, limits, |out| out.ends_with(b"ready\n")).await.expect("the child starts");
+        let output = run(&shell, limits, |out| out.ends_with(b"ready\n")).await.expect("the child starts");
         assert!(matches!(output.end, End::Complete) && output.stopped, "{:?}", output.end);
     }
 
