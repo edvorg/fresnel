@@ -1,0 +1,354 @@
+# The scene of the kinds test: an object of each kind that k3s does not have by itself, and
+# an object for each form of a column. `scene.rs` creates it on k3s, and the fixture
+# `fixtures/kinds` of the unit tests is a copy of the tables of the server for it.
+#
+# Each object has the label `fresnel-test: kinds`, so the fixture finds the objects of the
+# scene that have no namespace. Each container uses the pause image, which k3s has.
+apiVersion: v1
+kind: Namespace
+metadata: {name: kinds, labels: {fresnel-test: kinds}}
+---
+# The quota asks each pod for its CPU request and its memory limit, so the defaults of the
+# LimitRange come first.
+apiVersion: v1
+kind: LimitRange
+metadata: {name: limits, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  limits: [{type: Container, default: {memory: 64Mi}, defaultRequest: {cpu: 10m, memory: 16Mi}}]
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: {name: quota, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  hard: {pods: "20", requests.cpu: "4", limits.memory: 8Gi}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: web-config, namespace: kinds, labels: {fresnel-test: kinds}}
+data: {greeting: hello, color: blue}
+binaryData: {logo: aGVsbG8=}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: web-secret, namespace: kinds, labels: {fresnel-test: kinds}}
+type: Opaque
+stringData: {password: not-a-secret, user: web}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: web, namespace: kinds, labels: {fresnel-test: kinds}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: web}
+    matchExpressions: [{key: tier, operator: In, values: [front, edge]}]
+  template:
+    metadata: {labels: {app: web, tier: front}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - {name: web, image: rancher/mirrored-pause:3.6, imagePullPolicy: IfNotPresent}
+        - {name: side, image: rancher/mirrored-pause:3.6, imagePullPolicy: IfNotPresent}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: db, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  serviceName: db
+  replicas: 1
+  selector: {matchLabels: {app: db}}
+  template:
+    metadata: {labels: {app: db}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers: [{name: db, image: rancher/mirrored-pause:3.6, imagePullPolicy: IfNotPresent}]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: agent, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  selector: {matchLabels: {app: agent}}
+  template:
+    metadata: {labels: {app: agent}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      nodeSelector: {kubernetes.io/os: linux}
+      containers: [{name: agent, image: rancher/mirrored-pause:3.6, imagePullPolicy: IfNotPresent}]
+---
+apiVersion: v1
+kind: ReplicationController
+metadata: {name: legacy, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  replicas: 1
+  selector: {app: legacy}
+  template:
+    metadata: {labels: {app: legacy}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers: [{name: legacy, image: rancher/mirrored-pause:3.6, imagePullPolicy: IfNotPresent}]
+---
+# A Job with no count of completions and two pods at a time: kubectl shows `0/1 of 2`.
+apiVersion: batch/v1
+kind: Job
+metadata: {name: pair, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  parallelism: 2
+  template:
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 1
+      containers: [{name: pair, image: rancher/mirrored-pause:3.6, imagePullPolicy: IfNotPresent}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: later, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  suspend: true
+  completions: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers: [{name: later, image: rancher/mirrored-pause:3.6, imagePullPolicy: IfNotPresent}]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: yearly, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  schedule: "0 0 1 1 *"
+  timeZone: Etc/UTC
+  suspend: true
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers: [{name: yearly, image: rancher/mirrored-pause:3.6, imagePullPolicy: IfNotPresent}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  selector: {app: web}
+  ports: [{name: http, port: 80, targetPort: 8080}, {name: https, port: 443}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: public, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  type: LoadBalancer
+  selector: {app: web}
+  ports: [{port: 8443, protocol: TCP}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: outside, namespace: kinds, labels: {fresnel-test: kinds}}
+spec: {type: ExternalName, externalName: example.com}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: db, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  clusterIP: None
+  selector: {app: db}
+  ports: [{port: 5432}]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: web, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: web}
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 80}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: web, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app: web}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: db, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  maxUnavailable: 50%
+  selector: {matchLabels: {app: db}}
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata: {name: fresnel-low, labels: {fresnel-test: kinds}}
+value: -10
+preemptionPolicy: Never
+description: The priority of the kinds test.
+---
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata: {name: fresnel-runc, labels: {fresnel-test: kinds}}
+handler: runc
+---
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata: {name: leader, namespace: kinds, labels: {fresnel-test: kinds}}
+spec: {holderIdentity: web-1, leaseDurationSeconds: 15}
+---
+# The webhooks match a group that no server serves, so they never take a request.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata: {name: fresnel-mutate, labels: {fresnel-test: kinds}}
+webhooks:
+  - name: mutate.fresnel.test
+    clientConfig: {service: {namespace: kinds, name: nobody}}
+    rules: [{apiGroups: [fresnel.test], apiVersions: [v1], operations: [CREATE], resources: [widgets]}]
+    failurePolicy: Ignore
+    sideEffects: None
+    admissionReviewVersions: [v1]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata: {name: fresnel-validate, labels: {fresnel-test: kinds}}
+webhooks:
+  - name: validate.fresnel.test
+    clientConfig: {service: {namespace: kinds, name: nobody}}
+    rules: [{apiGroups: [fresnel.test], apiVersions: [v1], operations: [CREATE], resources: [widgets]}]
+    failurePolicy: Ignore
+    sideEffects: None
+    admissionReviewVersions: [v1]
+  - name: second.fresnel.test
+    clientConfig: {service: {namespace: kinds, name: nobody}}
+    rules: [{apiGroups: [fresnel.test], apiVersions: [v1], operations: [DELETE], resources: [widgets]}]
+    failurePolicy: Ignore
+    sideEffects: None
+    admissionReviewVersions: [v1]
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: fresnel
+  labels: {fresnel-test: kinds}
+  annotations: {ingressclass.kubernetes.io/is-default-class: "true"}
+spec:
+  controller: fresnel.test/ingress
+  parameters: {apiGroup: fresnel.test, kind: Settings, name: shared}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: {name: web, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  ingressClassName: fresnel
+  tls: [{hosts: [web.example.com], secretName: web-tls}]
+  rules:
+    - host: web.example.com
+      http:
+        paths:
+          - {path: /, pathType: Prefix, backend: {service: {name: web, port: {number: 80}}}}
+          - {path: /api, pathType: Prefix, backend: {service: {name: web, port: {name: https}}}}
+    - http:
+        paths: [{path: /status, pathType: Exact, backend: {service: {name: web, port: {number: 80}}}}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: web, namespace: kinds, labels: {fresnel-test: kinds}}
+spec:
+  podSelector: {matchLabels: {app: web}}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: reader, namespace: kinds, labels: {fresnel-test: kinds}}
+rules: [{apiGroups: [""], resources: [pods], verbs: [get, list]}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: reader, namespace: kinds, labels: {fresnel-test: kinds}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: reader}
+subjects:
+  - {kind: User, name: alice, apiGroup: rbac.authorization.k8s.io}
+  - {kind: Group, name: devs, apiGroup: rbac.authorization.k8s.io}
+  - {kind: ServiceAccount, name: web, namespace: kinds}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: fresnel-viewer, labels: {fresnel-test: kinds}}
+rules: [{apiGroups: [""], resources: [namespaces], verbs: [get]}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: fresnel-viewer, labels: {fresnel-test: kinds}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: fresnel-viewer}
+subjects: [{kind: ServiceAccount, name: web, namespace: kinds}]
+---
+apiVersion: v1
+kind: PodTemplate
+metadata: {name: template, namespace: kinds, labels: {fresnel-test: kinds}}
+template:
+  metadata: {labels: {app: template}}
+  spec:
+    containers: [{name: main, image: rancher/mirrored-pause:3.6}]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: fresnel-policy, labels: {fresnel-test: kinds}}
+spec:
+  failurePolicy: Ignore
+  paramKind: {apiVersion: v1, kind: ConfigMap}
+  matchConstraints:
+    resourceRules: [{apiGroups: [fresnel.test], apiVersions: [v1], operations: [CREATE], resources: [widgets]}]
+  validations: [{expression: "true"}, {expression: "object.metadata.name != ''"}]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: fresnel-policy, labels: {fresnel-test: kinds}}
+spec:
+  policyName: fresnel-policy
+  validationActions: [Audit, Warn]
+  paramRef: {name: web-config, namespace: kinds, parameterNotFoundAction: Allow}
+---
+# An aggregated API whose Service does not exist: the server shows it as not available.
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata: {name: v1alpha1.fresnel.test, labels: {fresnel-test: kinds}}
+spec:
+  group: fresnel.test
+  version: v1alpha1
+  service: {namespace: kinds, name: nobody, port: 443}
+  insecureSkipTLSVerify: true
+  groupPriorityMinimum: 10
+  versionPriority: 10
+---
+apiVersion: flowcontrol.apiserver.k8s.io/v1
+kind: PriorityLevelConfiguration
+metadata: {name: fresnel, labels: {fresnel-test: kinds}}
+spec:
+  type: Limited
+  limited:
+    nominalConcurrencyShares: 5
+    limitResponse: {type: Queue, queuing: {queues: 4, handSize: 2, queueLengthLimit: 10}}
+---
+apiVersion: flowcontrol.apiserver.k8s.io/v1
+kind: FlowSchema
+metadata: {name: fresnel, labels: {fresnel-test: kinds}}
+spec:
+  priorityLevelConfiguration: {name: fresnel}
+  matchingPrecedence: 9000
+  distinguisherMethod: {type: ByUser}
+  rules:
+    - subjects: [{kind: User, user: {name: nobody}}]
+      nonResourceRules: [{verbs: [get], nonResourceURLs: [/fresnel]}]
+---
+# A FlowSchema whose priority level does not exist.
+apiVersion: flowcontrol.apiserver.k8s.io/v1
+kind: FlowSchema
+metadata: {name: fresnel-dangling, labels: {fresnel-test: kinds}}
+spec:
+  priorityLevelConfiguration: {name: absent}
+  matchingPrecedence: 9001
+  rules:
+    - subjects: [{kind: User, user: {name: nobody}}]
+      nonResourceRules: [{verbs: [get], nonResourceURLs: [/fresnel-dangling]}]

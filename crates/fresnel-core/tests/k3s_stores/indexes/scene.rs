@@ -3,14 +3,14 @@
 
 use std::time::Duration;
 
-use fresnel_core::cluster::Gateway;
 use fresnel_core::kinds::Kind;
 use fresnel_testkit::PodLine;
 use kube::core::Request;
-use kube::core::params::{Patch, PatchParams, PostParams};
+use kube::core::params::{Patch, PatchParams};
 use serde_json::{Value, json};
 use tokio::time::{Instant, sleep};
 
+use crate::api::create_each;
 use crate::bed::Cluster;
 
 const MANIFEST: &str = include_str!("scene.yaml");
@@ -59,31 +59,11 @@ const ENDPOINTS: [(&str, &[&str]); 3] =
 const SYSTEM: &str = "kube-system";
 const SYSTEM_PODS: usize = 2;
 
-/// Creates each object of the manifest. Gives the UID of each one by its kind and name.
-async fn create_manifest(api: &Gateway) -> Vec<(String, String)> {
-    let documents: Vec<Value> = serde_saphyr::from_multiple(MANIFEST).expect("the manifest is YAML");
-    let mut uids = Vec::new();
-    for document in documents {
-        let text = |pointer: &str| document.pointer(pointer).and_then(Value::as_str);
-        let (kind, name) = (text("/kind").expect("a kind"), text("/metadata/name").expect("a name"));
-        let known = Kind::ALL.iter().find(|known| known.info().name == kind).expect("a kind of the app");
-        let info = known.info();
-        let request =
-            Request::new(text("/metadata/namespace").map_or_else(|| info.path(), |namespace| info.path_in(namespace)));
-        let body = serde_json::to_vec(&document).expect("JSON");
-        let create = request.create(&PostParams::default(), body).expect("a request");
-        let created: Value = api.send(create).await.unwrap_or_else(|error| panic!("create {kind} {name}: {error}"));
-        let uid = created.pointer("/metadata/uid").and_then(Value::as_str).expect("a UID");
-        uids.push((format!("{kind}/{name}"), uid.to_owned()));
-    }
-    uids
-}
-
 /// Creates the scene and waits until it is at rest. Gives the time that this took.
 pub(crate) async fn create(cluster: &Cluster) -> Duration {
     let started = Instant::now();
     let api = &cluster.api.gateway;
-    let uids = create_manifest(api).await;
+    let uids = create_each(api, MANIFEST).await;
     let uid = |object: &str| &uids.iter().find(|(known, _)| known == object).expect("an object of the manifest").1;
     let kubectl = async |arguments: &[&str]| {
         let done = cluster.k3s.kubectl(&[&["--namespace", NAMESPACE], arguments].concat()).await;

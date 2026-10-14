@@ -1,0 +1,3 @@
+{"columnDefinitions":[{"name":"Name"},{"name":"Pod-Selector"},{"name":"Age"}],"rows":[
+{"cells":["web","app=web","16s"],"object":{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"creationTimestamp":"2026-10-14T09:14:18Z","generation":1,"labels":{"fresnel-test":"kinds"},"name":"web","namespace":"kinds","resourceVersion":"439","uid":"ccda3933-b0a4-405d-963e-ca37d605bc80"},"spec":{"podSelector":{"matchLabels":{"app":"web"}},"policyTypes":["Ingress","Egress"]}}}
+]}

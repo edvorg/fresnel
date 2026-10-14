@@ -40,3 +40,16 @@ impl Describe for FlowSchema {
         if is_true(conditions, DANGLING) { ObjectHealth::Warning } else { by_metadata(&self.metadata) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fixture;
+    use crate::kinds::ObjectHealth::{Healthy, Warning};
+
+    #[test]
+    fn a_schema_whose_priority_level_does_not_exist_is_a_warning() {
+        let health = |name: &str| fixture::of_kinds::<FlowSchema>(name, |_| {}).health();
+        assert_eq!((health("fresnel"), health("fresnel-dangling")), (Healthy, Warning));
+    }
+}

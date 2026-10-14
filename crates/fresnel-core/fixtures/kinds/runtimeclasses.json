@@ -1,0 +1,3 @@
+{"columnDefinitions":[{"name":"Name"},{"name":"Handler"},{"name":"Age"}],"rows":[
+{"cells":["fresnel-runc","runc","16s"],"object":{"apiVersion":"node.k8s.io/v1","handler":"runc","kind":"RuntimeClass","metadata":{"creationTimestamp":"2026-10-14T09:14:18Z","labels":{"fresnel-test":"kinds"},"name":"fresnel-runc","resourceVersion":"433","uid":"b0f9395c-80d0-416c-a7bd-63ad5d76fd68"}}}
+]}

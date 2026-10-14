@@ -7,6 +7,8 @@
 //!   the test itself, which use no proxy.
 //! - `faults`: resets, a restart of the server, a silent connection and the renewal of
 //!   each watch. `breaks`: a network with no answer for 30 seconds, 2 minutes and 10 minutes.
+//! - `indexes`: the indexes and the Pod status on a scene. `kinds`: the store and the
+//!   columns of each kind, and a kind that the server refuses or does not serve.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
@@ -17,5 +19,6 @@ mod breaks;
 mod common;
 mod faults;
 mod indexes;
+mod kinds;
 #[path = "../common/stores.rs"]
 mod store_bed;

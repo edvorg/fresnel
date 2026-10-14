@@ -1,0 +1,3 @@
+{"columnDefinitions":[{"name":"Name"},{"name":"PolicyName"},{"name":"ParamRef"},{"name":"Age"}],"rows":[
+{"cells":["fresnel-policy","fresnel-policy","kinds/web-config","16s"],"object":{"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":{"creationTimestamp":"2026-10-14T09:14:18Z","generation":1,"labels":{"fresnel-test":"kinds"},"name":"fresnel-policy","resourceVersion":"446","uid":"3e79f11e-d9b4-48e1-944c-113ee517f3a5"},"spec":{"paramRef":{"name":"web-config","namespace":"kinds","parameterNotFoundAction":"Allow"},"policyName":"fresnel-policy","validationActions":["Audit","Warn"]}}}
+]}

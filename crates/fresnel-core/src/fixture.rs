@@ -1,8 +1,10 @@
-//! The fixture of the unit tests: a copy of the scene of the index tests on k3s.
+//! The fixtures of the unit tests: copies of two scenes on k3s.
 //!
-//! The cluster test `tests/k3s_stores/indexes` creates the scene and writes the files of
-//! `fixtures/k3s`: each object of each tier A kind as the API gave it, and the output of
-//! `kubectl get pods` for the same moment. No object of a real cluster is in the repository.
+//! The cluster test `tests/k3s_stores/indexes` creates the scene of the indexes and writes
+//! the files of `fixtures/k3s`: each object of each tier A kind as the API gave it, and the
+//! output of `kubectl get pods` for the same moment. The cluster test `tests/k3s_stores/kinds`
+//! writes `fixtures/kinds`: the tables of the server for an object of each kind. No object
+//! of a real cluster is in the repository.
 
 use fresnel_testkit::PodLine;
 use serde::Serialize;
@@ -58,6 +60,17 @@ pub(crate) fn one<K: Describe>(name: &str) -> K {
 /// hold: one that passes in a moment, or one that needs a fault of the cluster.
 pub(crate) fn changed<K: Describe + Serialize>(name: &str, change: impl FnOnce(&mut Value)) -> K {
     let mut object = serde_json::to_value(one::<K>(name)).expect("JSON");
+    change(&mut object);
+    serde_json::from_value(object).expect("an object of the kind")
+}
+
+/// The object of the scene of the kinds test with this name, after a change of its JSON.
+pub(crate) fn of_kinds<K: Describe>(name: &str, change: impl FnOnce(&mut Value)) -> K {
+    let path = format!("{}/fixtures/kinds/{}.json", env!("CARGO_MANIFEST_DIR"), K::ID.info().plural);
+    let table: Value = serde_json::from_str(&std::fs::read_to_string(path).expect("a file")).expect("JSON");
+    let rows = table["rows"].as_array().expect("the rows of a table");
+    let fits = |object: &&Value| object.pointer("/metadata/name").and_then(Value::as_str) == Some(name);
+    let mut object = rows.iter().map(|row| &row["object"]).find(fits).expect("an object of the scene").clone();
     change(&mut object);
     serde_json::from_value(object).expect("an object of the kind")
 }

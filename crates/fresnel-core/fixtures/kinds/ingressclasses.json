@@ -1,0 +1,3 @@
+{"columnDefinitions":[{"name":"Name"},{"name":"Controller"},{"name":"Parameters"},{"name":"Age"}],"rows":[
+{"cells":["fresnel","fresnel.test/ingress","Settings.fresnel.test/shared","16s"],"object":{"apiVersion":"networking.k8s.io/v1","kind":"IngressClass","metadata":{"annotations":{"ingressclass.kubernetes.io/is-default-class":"true"},"creationTimestamp":"2026-10-14T09:14:18Z","generation":1,"labels":{"fresnel-test":"kinds"},"name":"fresnel","resourceVersion":"437","uid":"cb97cbc9-6a12-42e3-b9c7-a206e40bf77f"},"spec":{"controller":"fresnel.test/ingress","parameters":{"apiGroup":"fresnel.test","kind":"Settings","name":"shared","scope":"Cluster"}}}}
+]}

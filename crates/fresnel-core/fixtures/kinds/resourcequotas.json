@@ -1,0 +1,3 @@
+{"columnDefinitions":[{"name":"Name"},{"name":"Request"},{"name":"Limit"},{"name":"Age"}],"rows":[
+{"cells":["quota","pods: 6/20, requests.cpu: 70m/4","limits.memory: 448Mi/8Gi","16s"],"object":{"apiVersion":"v1","kind":"ResourceQuota","metadata":{"creationTimestamp":"2026-10-14T09:14:18Z","labels":{"fresnel-test":"kinds"},"name":"quota","namespace":"kinds","resourceVersion":"486","uid":"f66ae5b7-9970-45b8-86c1-89136421ab44"},"spec":{"hard":{"limits.memory":"8Gi","pods":"20","requests.cpu":"4"}},"status":{"hard":{"limits.memory":"8Gi","pods":"20","requests.cpu":"4"},"used":{"limits.memory":"448Mi","pods":"6","requests.cpu":"70m"}}}}
+]}

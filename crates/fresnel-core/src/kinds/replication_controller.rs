@@ -57,3 +57,27 @@ fn pod_spec(controller: &ReplicationController) -> Option<&PodSpec> {
 fn wanted(controller: &ReplicationController) -> i32 {
     controller.spec.as_ref().and_then(|spec| spec.replicas).unwrap_or(1)
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::fixture::{self, condition};
+    use crate::kinds::ObjectHealth::{Failed, Healthy, Progressing, Warning};
+
+    fn legacy(change: impl FnOnce(&mut Value)) -> ObjectHealth {
+        fixture::of_kinds::<ReplicationController>("legacy", change).health()
+    }
+
+    #[test]
+    fn a_replication_controller_has_the_rule_of_a_replica_set() {
+        assert_eq!(legacy(|_| {}), Healthy);
+        assert_eq!(legacy(|rc| rc["status"]["readyReplicas"] = 0.into()), Warning, "its pod is not ready");
+        assert_eq!(legacy(|rc| rc["spec"]["replicas"] = 3.into()), Progressing, "pods to make");
+        assert_eq!(legacy(|rc| rc["metadata"]["generation"] = 9.into()), Progressing, "the controller did not see it");
+        let refused =
+            |rc: &mut Value| *condition(rc, "ReplicaFailure") = json!({ "type": "ReplicaFailure", "status": "True" });
+        assert_eq!(legacy(refused), Failed);
+    }
+}

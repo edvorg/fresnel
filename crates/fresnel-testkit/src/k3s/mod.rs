@@ -49,15 +49,22 @@ impl K3s {
     /// A k3s that ends by itself during its start gets a new container, a limited count of
     /// times. Each such end is a line of the test output.
     pub async fn start(label: &str) -> Result<Self, KitError> {
-        with_new_attempts(|| Self::start_one(label)).await
+        with_new_attempts(|| Self::start_one(label, None)).await
+    }
+
+    /// Starts a cluster whose API server does not serve one group version of the API, for
+    /// example `node.k8s.io/v1`, as an older cluster does not serve a newer kind.
+    pub async fn start_without(label: &str, group_version: &str) -> Result<Self, KitError> {
+        let off = format!("--kube-apiserver-arg=runtime-config={group_version}=false");
+        with_new_attempts(|| Self::start_one(label, Some(&off))).await
     }
 
     /// One container. Its drop removes it, also after an error of this start.
-    async fn start_one(label: &str) -> Result<Self, KitError> {
+    async fn start_one(label: &str, extra: Option<&str>) -> Result<Self, KitError> {
         let name = format!("{NAME_PREFIX}{label}-{:06x}", fastrand::u32(..0x0100_0000));
         let api = SocketAddr::from((Ipv4Addr::LOCALHOST, free_port()?));
         let network = Network::create(&name).await?;
-        let container = Container::run(&name, &network, api.port()).await?;
+        let container = Container::run(&name, &network, api.port(), extra).await?;
         container.wait_ready().await?;
         let k3s_kubeconfig = container.exec(&["cat", K3S_KUBECONFIG]).await?;
         let files = Files::create(&name)?;

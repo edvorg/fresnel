@@ -1,0 +1,3 @@
+{"columnDefinitions":[{"name":"Name"},{"name":"Status"},{"name":"Age"}],"rows":[
+{"cells":["kinds","Active","16s"],"object":{"apiVersion":"v1","kind":"Namespace","metadata":{"creationTimestamp":"2026-10-14T09:14:18Z","labels":{"fresnel-test":"kinds","kubernetes.io/metadata.name":"kinds"},"name":"kinds","resourceVersion":"385","uid":"b801c2ec-e863-40ce-af6b-26502d7ed608"},"spec":{"finalizers":["kubernetes"]},"status":{"phase":"Active"}}}
+]}

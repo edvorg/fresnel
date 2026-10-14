@@ -30,7 +30,15 @@ pub(crate) struct Cluster {
 
 impl Cluster {
     pub(crate) async fn start(label: &str) -> Self {
-        let k3s = K3s::start(label).await.expect("k3s starts");
+        Self::on(K3s::start(label).await.expect("k3s starts")).await
+    }
+
+    /// A cluster whose API server does not serve one group version of the API.
+    pub(crate) async fn start_without(label: &str, group_version: &str) -> Self {
+        Self::on(K3s::start_without(label, group_version).await.expect("k3s starts")).await
+    }
+
+    async fn on(k3s: K3s) -> Self {
         let tasks = TestTasks::new(&Handle::current());
         let registry = registry(&tasks, &Handle::current(), &k3s.kubeconfig(), NetSettings::default());
         let api = connect(&registry, "default");

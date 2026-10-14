@@ -67,3 +67,29 @@ fn state(request: &CertificateSigningRequest) -> String {
     }
     state
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::fixture;
+    use crate::kinds::ObjectHealth::{Failed, Healthy, Progressing};
+
+    fn reader(change: impl FnOnce(&mut Value)) -> CertificateSigningRequest {
+        fixture::of_kinds::<CertificateSigningRequest>("fresnel-reader", change)
+    }
+
+    #[test]
+    fn a_request_is_healthy_with_its_certificate_and_failed_when_denied() {
+        let request = reader(|_| {});
+        assert_eq!((request.health(), state(&request).as_str()), (Healthy, "Approved,Issued"));
+        let waits = reader(|request| request["status"] = json!({}));
+        assert_eq!((waits.health(), state(&waits).as_str()), (Progressing, "Pending"));
+        let denied =
+            reader(|request| request["status"] = json!({ "conditions": [{ "type": "Denied", "status": "True" }] }));
+        assert_eq!((denied.health(), state(&denied).as_str()), (Failed, "Denied"));
+        let failed = |request: &mut Value| request["status"]["conditions"][0]["type"] = "Failed".into();
+        assert_eq!(state(&reader(failed)), "Pending,Failed,Issued");
+    }
+}

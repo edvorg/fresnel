@@ -1,0 +1,3 @@
+{"columnDefinitions":[{"name":"Name"},{"name":"Created At"}],"rows":[
+{"cells":["reader","2026-10-14T09:14:18Z"],"object":{"apiVersion":"rbac.authorization.k8s.io/v1","kind":"Role","metadata":{"creationTimestamp":"2026-10-14T09:14:18Z","labels":{"fresnel-test":"kinds"},"name":"reader","namespace":"kinds","resourceVersion":"440","uid":"47d327fc-ec2e-49f3-aa0a-64c9a1326a74"},"rules":[{"apiGroups":[""],"resources":["pods"],"verbs":["get","list"]}]}}
+]}

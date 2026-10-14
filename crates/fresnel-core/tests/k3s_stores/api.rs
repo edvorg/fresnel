@@ -154,6 +154,26 @@ impl<'a> ConfigMaps<'a> {
     }
 }
 
+/// Creates each object of a manifest with documents of the kinds of the app. Gives the
+/// UID of each one by its kind and name, as `Kind/name`.
+pub(crate) async fn create_each(api: &Gateway, manifest: &str) -> Vec<(String, String)> {
+    let documents: Vec<Value> = serde_saphyr::from_multiple(manifest).expect("the manifest is YAML");
+    let mut uids = Vec::new();
+    for document in documents {
+        let text = |pointer: &str| document.pointer(pointer).and_then(Value::as_str);
+        let (kind, name) = (text("/kind").expect("a kind"), text("/metadata/name").expect("a name"));
+        let info = Kind::named(kind).expect("a kind of the app").info();
+        let request =
+            Request::new(text("/metadata/namespace").map_or_else(|| info.path(), |namespace| info.path_in(namespace)));
+        let body = serde_json::to_vec(&document).expect("JSON");
+        let create = request.create(&PostParams::default(), body).expect("a request");
+        let created: Value = api.send(create).await.unwrap_or_else(|error| panic!("create {kind} {name}: {error}"));
+        let uid = created.pointer("/metadata/uid").and_then(Value::as_str).expect("a UID");
+        uids.push((format!("{kind}/{name}"), uid.to_owned()));
+    }
+    uids
+}
+
 /// Makes a Secret as `kubectl apply` does: with a copy of its values in an annotation.
 pub(crate) async fn create_applied_secret(api: &Gateway, name: &str, value: &str) {
     let copy = json!({ "data": { "password": value } }).to_string();

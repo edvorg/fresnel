@@ -47,3 +47,25 @@ fn available(service: &APIService) -> Value<'static> {
         (status, reason) => Value::Text(Cow::Owned(format!("{status} ({reason})"))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value as Json, json};
+
+    use super::*;
+    use crate::fixture;
+    use crate::kinds::ObjectHealth::{Failed, Healthy, Progressing};
+
+    #[test]
+    fn a_group_that_the_server_cannot_reach_failed() {
+        let service = |change: fn(&mut Json)| fixture::of_kinds::<APIService>("v1alpha1.fresnel.test", change);
+        let absent = service(|_| {});
+        let text = Value::Text(Cow::Borrowed("False (ServiceNotFound)"));
+        assert_eq!((absent.health(), available(&absent)), (Failed, text), "its Service does not exist");
+        let reached =
+            service(|api| api["status"] = json!({ "conditions": [{ "type": "Available", "status": "True" }] }));
+        assert_eq!((reached.health(), available(&reached)), (Healthy, Value::Text(Cow::Borrowed("True"))));
+        let new = service(|api| api["status"] = json!({}));
+        assert_eq!((new.health(), available(&new)), (Progressing, Value::Text(Cow::Borrowed("Unknown"))));
+    }
+}

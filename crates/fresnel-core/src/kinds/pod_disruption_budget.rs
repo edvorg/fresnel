@@ -52,3 +52,22 @@ fn amount(amount: Option<&IntOrString>) -> Value<'_> {
 fn count(budget: &PodDisruptionBudget, read: fn(&PodDisruptionBudgetStatus) -> i32) -> Value<'static> {
     budget.status.as_ref().map_or(Value::None, |status| Value::Number(read(status).into()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fixture;
+    use crate::kinds::ObjectHealth::{Healthy, Progressing, Warning};
+
+    #[test]
+    fn a_budget_with_fewer_healthy_pods_than_it_asks_for_is_a_warning() {
+        let health = |name: &str, change: fn(&mut serde_json::Value)| {
+            fixture::of_kinds::<PodDisruptionBudget>(name, change).health()
+        };
+        assert_eq!((health("web", |_| {}), health("db", |_| {})), (Healthy, Healthy));
+        assert_eq!(health("web", |budget| budget["status"]["currentHealthy"] = 0.into()), Warning);
+        let ending =
+            |budget: &mut serde_json::Value| budget["metadata"]["deletionTimestamp"] = "2026-01-01T00:00:00Z".into();
+        assert_eq!(health("web", ending), Progressing, "the rule of each kind with no rule of its own");
+    }
+}

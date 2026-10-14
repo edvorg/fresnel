@@ -1,0 +1,3 @@
+{"columnDefinitions":[{"name":"Name"},{"name":"Created At"}],"rows":[
+{"cells":["limits","2026-10-14T09:14:18Z"],"object":{"apiVersion":"v1","kind":"LimitRange","metadata":{"creationTimestamp":"2026-10-14T09:14:18Z","labels":{"fresnel-test":"kinds"},"name":"limits","namespace":"kinds","resourceVersion":"388","uid":"9d147501-02df-4a52-bd47-7520559a1744"},"spec":{"limits":[{"default":{"memory":"64Mi"},"defaultRequest":{"cpu":"10m","memory":"16Mi"},"type":"Container"}]}}}
+]}

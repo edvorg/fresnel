@@ -1,8 +1,28 @@
+#[path = "../../tests/common/columns.rs"]
+mod columns;
+
 use std::collections::BTreeSet;
 
 use k8s_openapi::api::core::v1::Pod;
 
 use super::*;
+use crate::kinds;
+
+/// The cluster test `kinds` compares each column with the server on k3s, and writes the
+/// tables of that run to `fixtures/kinds`. This test reads the same columns of that copy.
+#[test]
+fn each_column_has_the_text_of_the_server_in_the_tables_of_the_fixture() {
+    let mut agree = 0;
+    for kind in Kind::ALL.iter().copied() {
+        let text = std::fs::read_to_string(columns::fixture(kind)).expect("the fixture of the kind");
+        let table: columns::Table = serde_json::from_str(&text).expect("a table of the server");
+        assert!(!table.rows.is_empty(), "the scene has an object of the kind {kind:?}");
+        let (same, differ) = columns::compare(kind, &table);
+        assert_eq!(differ, Vec::<String>::new());
+        agree += same;
+    }
+    assert!(agree >= 400, "the cells of the fixture that agree: {agree}");
+}
 
 fn names(tier: Tier) -> Vec<&'static str> {
     Kind::ALL.iter().map(|kind| kind.info()).filter(|info| info.tier == tier).map(|info| info.name).collect()
@@ -112,6 +132,33 @@ fn each_kind_has_the_actions_of_each_kind_and_its_own_ones_once() {
         Kind::Service,
     ];
     assert_eq!(forward, targets, "plan section 12.3");
+}
+
+/// Plan section 12.1: the quick search matches the images, the node and the addresses.
+#[test]
+fn the_search_text_has_the_images_the_node_and_the_addresses() {
+    use k8s_openapi::api::core::v1::{ConfigMap, Node, Service};
+    use k8s_openapi::api::networking::v1::Ingress;
+
+    fn texts<K: Describe>(object: &K) -> Vec<String> {
+        let mut texts = Vec::new();
+        object.search(&mut texts);
+        texts.into_iter().map(str::to_owned).collect()
+    }
+    let pod = crate::fixture::one::<Pod>("sidecar");
+    let status = pod.status.as_ref().expect("a status");
+    let node = pod.spec.as_ref().and_then(|spec| spec.node_name.clone()).expect("a node");
+    let found = texts(&pod);
+    let expected =
+        ["rancher/mirrored-pause:3.6", "rancher/mirrored-pause:3.6", &node, status.pod_ip.as_deref().expect("an IP")];
+    assert_eq!(found[..4], expected, "the images of the containers and of the init container");
+    let service = crate::fixture::of_kinds::<Service>("web", |_| {});
+    let cluster_ip = service.spec.as_ref().and_then(|spec| spec.cluster_ip.clone()).expect("an address");
+    assert_eq!(texts(&service), [cluster_ip]);
+    assert_eq!(texts(&crate::fixture::of_kinds::<Ingress>("web", |_| {})), ["web.example.com"]);
+    let node = crate::fixture::one::<Node>(&node);
+    assert_eq!(texts(&node).len(), 2, "the IP address and the host name: {:?}", texts(&node));
+    assert_eq!(texts(&crate::fixture::of_kinds::<ConfigMap>("web-config", |_| {})), Vec::<String>::new());
 }
 
 /// The visit gives the type of each kind, so a view of many kinds can read the columns
