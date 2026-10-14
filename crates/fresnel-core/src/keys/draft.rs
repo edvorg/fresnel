@@ -156,7 +156,8 @@ impl Draft {
         names.into_iter().filter_map(|name| self.key(name)).collect()
     }
 
-    fn key<'a>(&'a self, name: &'a str) -> Option<DraftKey<'a>> {
+    /// One key of the read or a new key, by its name. `None` for a key that neither has.
+    pub fn key<'a>(&'a self, name: &'a str) -> Option<DraftKey<'a>> {
         let read = self.base.value(name);
         let (state, value) = match (self.changes.get(name), read) {
             (None, Some(value)) => (KeyState::Same, value),
