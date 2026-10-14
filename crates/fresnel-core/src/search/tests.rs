@@ -182,6 +182,13 @@ fn the_cluster_and_the_kind_are_filters_and_a_filter_limits_the_notes_too() {
     let found = run(&query(&[], &[Kind::Secret]), &clusters, &|| false).expect("no cancel");
     assert_eq!(lines(&found), ["ams-prod Secret kinds/web-secret"]);
     assert_eq!(found.unread.len(), 1);
+
+    // A cluster of the filter that left the selection: no hit is no proof of no object.
+    let found = run(&query(&["nyc-prod", "ams-prod"], &[Kind::Secret]), &clusters, &|| false).expect("no cancel");
+    assert_eq!(lines(&found), ["ams-prod Secret kinds/web-secret"]);
+    let note = Unread { cluster: ClusterId::new("nyc-prod"), kind: None, why: Why::NotSelected };
+    assert_eq!(found.unread, [note]);
+    assert_eq!(Why::NotSelected.to_string(), "the cluster is not selected");
 }
 
 #[test]

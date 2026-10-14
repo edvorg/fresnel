@@ -71,6 +71,9 @@ pub struct Unread {
 /// Why the search did not read a store, or not in full.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Why {
+    /// The cluster filter has the cluster, and the selection does not: the app holds no
+    /// store of it.
+    NotSelected,
     /// The cluster has no stores, for this reason.
     NoStores(String),
     /// The app holds no store of the kind now: a kind of tier C, or the Events of the
@@ -85,6 +88,7 @@ pub enum Why {
 impl Display for Why {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NotSelected => f.write_str("the cluster is not selected"),
             Self::NoStores(reason) => write!(f, "no store: {reason}"),
             Self::NoStore => f.write_str("the app holds its objects only while a page shows them"),
             Self::Refused(state) => Display::fmt(state, f),
@@ -113,6 +117,8 @@ pub fn run(query: &Query, clusters: &[ClusterSources], cancel: &dyn Fn() -> bool
     let matcher = Matcher::new(&query.text);
     let wanted_kinds = || Kind::ALL.iter().copied().filter(|kind| query.kinds.is_empty() || query.kinds.contains(kind));
     let mut found = Found::default();
+    let not_selected = query.clusters.iter().filter(|id| !clusters.iter().any(|cluster| cluster.cluster == **id));
+    found.unread.extend(not_selected.map(|id| Unread { cluster: id.clone(), kind: None, why: Why::NotSelected }));
     let mut matches: Vec<Match<'_>> = Vec::new();
     for cluster in
         clusters.iter().filter(|cluster| query.clusters.is_empty() || query.clusters.contains(&cluster.cluster))
