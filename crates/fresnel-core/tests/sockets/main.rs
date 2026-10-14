@@ -6,6 +6,7 @@
 //! - `registry`: the list of the clusters and their connections.
 //! - `stores`: the stores of a cluster and their watch loops. `store_faults`: the stores with
 //!   a second fault during a recovery, a fault at the worst moment, a slow server and bad data.
+//!   `demand`: the stores on demand.
 //! - `indexes`: the indexes of a cluster on its stores.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
@@ -14,6 +15,7 @@ mod app;
 mod bed;
 #[path = "../common/mod.rs"]
 mod common;
+mod demand;
 mod gateway;
 mod indexes;
 mod registry;

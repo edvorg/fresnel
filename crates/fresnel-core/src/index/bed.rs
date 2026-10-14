@@ -9,7 +9,7 @@ use tokio::runtime::Handle;
 
 use super::task::{Index, Indexer};
 use crate::fixture;
-use crate::kinds::{Full, Object};
+use crate::kinds::{Describe, Object};
 use crate::published::{Bin, Disposal, Notice, Publisher, Reader};
 use crate::store::{Snapshot, StoreState, Wait, Writer};
 
@@ -46,7 +46,7 @@ impl Bed {
     }
 
     /// A live store with each object of the fixture of its kind.
-    pub(super) fn fixture<K: Full>(&self) -> TestStore<K> {
+    pub(super) fn fixture<K: Describe>(&self) -> TestStore<K> {
         let mut store = self.store();
         store.list(fixture::all());
         store

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use fresnel_core::cluster::Gateway;
-use fresnel_core::kinds::{Full, Kind, Meta, Object, Tier};
+use fresnel_core::kinds::{Describe, Kind, Meta, Object, Tier};
 use fresnel_core::published::Reader;
 use fresnel_core::store::{ClusterStores, Snapshot};
 use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet};
@@ -59,7 +59,7 @@ fn of_store<T: Object>(store: Option<Reader<Snapshot<T>>>) -> Versions {
         .collect()
 }
 
-fn of_full<K: Full>(stores: &ClusterStores) -> Versions {
+fn of_full<K: Describe>(stores: &ClusterStores) -> Versions {
     of_store(stores.full::<K>())
 }
 

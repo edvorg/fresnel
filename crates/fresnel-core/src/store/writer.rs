@@ -215,6 +215,7 @@ impl<T: Object> Writer<T> {
 /// Makes an object ready for the store and gives its identity.
 fn prepare<T: Object>(object: &mut T) -> Result<ObjectKey, CoreError> {
     strip(object.meta_mut());
+    object.strip();
     ObjectKey::of(object.meta()).ok_or_else(no_name)
 }
 

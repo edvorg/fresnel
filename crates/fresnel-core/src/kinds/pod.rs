@@ -1,13 +1,74 @@
-//! The Pod: what its table shows of its state, and its health value.
+//! The Pod: its description, what its table shows of its state, and its health value.
 //!
 //! - `status`: the rule of kubectl for the status text.
 
 mod status;
 
+use std::borrow::Cow;
+
 use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 
-use super::health::{Assess, ObjectHealth, condition, is_true};
+use super::health::{ObjectHealth, condition, is_true};
+use super::{Action, Column, Describe, Kind, Sidebar, Tier, Value, read};
+
+impl Describe for Pod {
+    const ID: Kind = Kind::Pod;
+    const TITLE: &'static str = "Pods";
+    const SIDEBAR: Sidebar = Sidebar::Workloads;
+    const TIER: Tier = Tier::A;
+    const COLUMNS: &'static [Column<Self>] = &[
+        Column::number("Ready", 56.0, |pod| {
+            let status = PodStatus::of(pod);
+            Value::Ratio(status.ready.into(), status.containers.into())
+        }),
+        Column::text("Status", 140.0, |pod| Value::Text(Cow::Owned(PodStatus::of(pod).text))),
+        Column::number("Restarts", 70.0, |pod| Value::Number(PodStatus::of(pod).restarts.into())),
+        Column::number("Last restart", 100.0, |pod| match PodStatus::of(pod).last_restart {
+            Some(time) => Value::time(Some(&time)),
+            None => Value::None,
+        }),
+        Column::text("IP", 110.0, |pod| Value::text(pod.status.as_ref().and_then(|status| status.pod_ip.as_deref()))),
+        Column::text("Node", 130.0, |pod| Value::text(pod.spec.as_ref().and_then(|spec| spec.node_name.as_deref()))),
+        Column::text("Controlled by", 160.0, |pod| read::controller(&pod.metadata)),
+        Column::text("Containers", 140.0, |pod: &Self| read::containers(pod.spec.as_ref())).hidden(),
+        Column::text("QoS", 90.0, |pod: &Self| {
+            Value::text(pod.status.as_ref().and_then(|status| status.qos_class.as_deref()))
+        })
+        .hidden(),
+        Column::text("Nominated node", 130.0, |pod: &Self| {
+            Value::text(pod.status.as_ref().and_then(|status| status.nominated_node_name.as_deref()))
+        })
+        .hidden(),
+        Column::number("Readiness gates", 80.0, readiness_gates).hidden(),
+    ];
+    const ACTIONS: &'static [Action] =
+        &[Action::Logs, Action::Terminal, Action::Attach, Action::DebugContainer, Action::Forward, Action::Evict];
+
+    fn health(&self) -> ObjectHealth {
+        PodStatus::of(self).health
+    }
+
+    /// The images, the node and the addresses of the pod and of its node.
+    fn search<'a>(&'a self, texts: &mut Vec<&'a str>) {
+        let (spec, status) = (self.spec.as_ref(), self.status.as_ref());
+        read::search_images(spec, texts);
+        texts.extend(spec.and_then(|spec| spec.node_name.as_deref()));
+        texts.extend(status.into_iter().flat_map(|status| status.pod_ips.iter().flatten()).map(|ip| ip.ip.as_str()));
+        texts.extend(status.and_then(|status| status.host_ip.as_deref()));
+    }
+}
+
+/// The readiness gates that are true, of all gates: the column `READINESS GATES` of kubectl.
+fn readiness_gates(pod: &Pod) -> Value<'static> {
+    let gates = pod.spec.as_ref().and_then(|spec| spec.readiness_gates.as_ref()).filter(|gates| !gates.is_empty());
+    let Some(gates) = gates else {
+        return Value::None;
+    };
+    let conditions = pod.status.as_ref().and_then(|status| status.conditions.as_ref());
+    let ready = gates.iter().filter(|gate| is_true(conditions, &gate.condition_type)).count();
+    Value::Ratio(read::number_of(ready), read::number_of(gates.len()))
+}
 
 /// The state of one pod as the Pod table shows it (plan section 11.2): the columns Ready,
 /// Status, Restarts and Last restart, with the values of `kubectl get pods`.
@@ -42,12 +103,6 @@ impl PodStatus {
             last_restart: printed.last_restart,
             health,
         }
-    }
-}
-
-impl Assess for Pod {
-    fn health(&self) -> ObjectHealth {
-        PodStatus::of(self).health
     }
 }
 

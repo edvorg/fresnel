@@ -8,7 +8,7 @@ use fresnel_testkit::PodLine;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::kinds::{Full, Kind};
+use crate::kinds::{Describe, Kind, Object};
 
 /// The namespace of the scene.
 pub(crate) const SCENE: &str = "scene";
@@ -38,25 +38,25 @@ fn text(kind: Kind) -> &'static str {
 }
 
 /// Each object of one kind, in the sequence of the API: by namespace and name.
-pub(crate) fn all<K: Full>() -> Vec<K> {
-    serde_json::from_str(text(K::KIND)).expect("a file of the fixture")
+pub(crate) fn all<K: Describe>() -> Vec<K> {
+    serde_json::from_str(text(K::ID)).expect("a file of the fixture")
 }
 
 /// The object of the scene with this name, or with this start of its name when the
 /// name ends with `-`: the cluster gives the pod of a workload the rest of its name.
-pub(crate) fn one<K: Full>(name: &str) -> K {
+pub(crate) fn one<K: Describe>(name: &str) -> K {
     let fits = |object: &K| {
         let meta = object.meta();
         let known = meta.name.as_deref().unwrap_or_default();
         let in_scene = matches!(meta.namespace.as_deref(), None | Some(SCENE));
         in_scene && if name.ends_with('-') { known.starts_with(name) } else { known == name }
     };
-    all::<K>().into_iter().find(fits).unwrap_or_else(|| panic!("the scene has no {:?} {name}", K::KIND))
+    all::<K>().into_iter().find(fits).unwrap_or_else(|| panic!("the scene has no {:?} {name}", K::ID))
 }
 
 /// An object of the scene after a change of its JSON, for a state that the scene does not
 /// hold: one that passes in a moment, or one that needs a fault of the cluster.
-pub(crate) fn changed<K: Full + Serialize>(name: &str, change: impl FnOnce(&mut Value)) -> K {
+pub(crate) fn changed<K: Describe + Serialize>(name: &str, change: impl FnOnce(&mut Value)) -> K {
     let mut object = serde_json::to_value(one::<K>(name)).expect("JSON");
     change(&mut object);
     serde_json::from_value(object).expect("an object of the kind")

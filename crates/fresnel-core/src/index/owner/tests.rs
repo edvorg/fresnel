@@ -12,7 +12,7 @@ use super::*;
 use crate::fixture::{self, SCENE};
 use crate::index::bed::{Bed, TestStore, read};
 use crate::index::task::Basis;
-use crate::kinds::{Full, Object};
+use crate::kinds::{Describe, Object};
 use crate::store::{StoreState, Wait};
 
 /// The four stores that the owner index reads.
@@ -47,22 +47,22 @@ fn names(found: &[ObjectRef]) -> Vec<String> {
 
 /// The names of the objects of one kind in the fixture that start with `prefix`, with
 /// the kind before each name.
-fn fixture_names<K: Full>(prefix: &str) -> Vec<String> {
+fn fixture_names<K: Describe>(prefix: &str) -> Vec<String> {
     let name = |object: K| object.meta().name.clone().expect("a name");
     let of_scene = |object: &K| object.meta().namespace.as_deref() == Some(SCENE);
     let all = fixture::all::<K>().into_iter().filter(of_scene).map(name);
-    all.filter(|name| name.starts_with(prefix)).map(|name| format!("{:?}/{name}", K::KIND)).collect()
+    all.filter(|name| name.starts_with(prefix)).map(|name| format!("{:?}/{name}", K::ID)).collect()
 }
 
 /// Each object of the fixture that the index reads, with the UIDs of its owners.
 fn owned_objects() -> Vec<(ObjectRef, Vec<String>)> {
-    fn of<K: Full>() -> Vec<(ObjectRef, Vec<String>)> {
+    fn of<K: Describe>() -> Vec<(ObjectRef, Vec<String>)> {
         let entry = |object: K| {
             let meta = object.meta();
             let key =
                 ObjectKey::new(meta.namespace.as_deref().expect("a namespace"), meta.name.as_deref().expect("a name"));
             let owners = meta.owner_references.iter().flatten().map(|owner| owner.uid.clone()).collect();
-            (ObjectRef { kind: K::KIND, key, uid: uid(&object).into() }, owners)
+            (ObjectRef { kind: K::ID, key, uid: uid(&object).into() }, owners)
         };
         fixture::all::<K>().into_iter().map(entry).collect()
     }

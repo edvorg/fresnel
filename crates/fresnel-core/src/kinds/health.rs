@@ -7,8 +7,12 @@
 //! of a rollout.
 
 use k8s_openapi::api::apps::v1::{DeploymentCondition, ReplicaSetCondition};
+use k8s_openapi::api::autoscaling::v2::HorizontalPodAutoscalerCondition;
 use k8s_openapi::api::batch::v1::JobCondition;
-use k8s_openapi::api::core::v1::{NamespaceCondition, NodeCondition, PodCondition};
+use k8s_openapi::api::certificates::v1::CertificateSigningRequestCondition;
+use k8s_openapi::api::core::v1::{NamespaceCondition, NodeCondition, PodCondition, ReplicationControllerCondition};
+use k8s_openapi::api::flowcontrol::v1::FlowSchemaCondition;
+use k8s_openapi::kube_aggregator::pkg::apis::apiregistration::v1::APIServiceCondition;
 
 /// How well one object does. The sequence is from good to bad, so the worst of some
 /// values is their maximum.
@@ -30,13 +34,6 @@ impl ObjectHealth {
     pub fn is_problem(self) -> bool {
         self >= Self::Warning
     }
-}
-
-/// Gives the health value of an object. Each tier A kind has one rule, in the file of
-/// the kind.
-pub trait Assess {
-    /// The health value of this object.
-    fn health(&self) -> ObjectHealth;
 }
 
 /// One condition of the status of an object. Each kind has a type of its own for it.
@@ -69,7 +66,49 @@ macro_rules! conditions {
     };
 }
 
-conditions!(DeploymentCondition, ReplicaSetCondition, JobCondition, NamespaceCondition, NodeCondition, PodCondition);
+conditions!(
+    DeploymentCondition,
+    ReplicaSetCondition,
+    ReplicationControllerCondition,
+    JobCondition,
+    NamespaceCondition,
+    NodeCondition,
+    PodCondition,
+    HorizontalPodAutoscalerCondition,
+    CertificateSigningRequestCondition,
+    APIServiceCondition
+);
+
+/// The condition type of the API machinery, which newer kinds use. Its reason is a text
+/// that can be empty.
+impl Condition for k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition {
+    fn name(&self) -> &str {
+        &self.type_
+    }
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
+/// A FlowSchema condition has no required field.
+impl Condition for FlowSchemaCondition {
+    fn name(&self) -> &str {
+        self.type_.as_deref().unwrap_or_default()
+    }
+
+    fn status(&self) -> &str {
+        self.status.as_deref().unwrap_or_default()
+    }
+
+    fn reason(&self) -> &str {
+        self.reason.as_deref().unwrap_or_default()
+    }
+}
 
 /// The first condition with this name.
 pub(super) fn condition<'a, C: Condition>(conditions: Option<&'a Vec<C>>, name: &str) -> Option<&'a C> {

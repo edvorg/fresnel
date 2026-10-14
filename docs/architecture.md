@@ -118,7 +118,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 - **Kinds**: `kinds` has the one list of the kinds, and a `Kind` is a typed identity. A tier A
   kind has a store with full objects, a tier B kind with the metadata only, a tier C kind
-  none. A tier A kind gives a health value, and `PodStatus` the row of `kubectl get pods`.
+  none. `ClusterStores::demand` starts a store of full objects while a view needs it.
 - **Watch loop**: one task for each store. It reads a list in pages, 4 lists of a cluster at
   a time, in the sequence of the kinds. Then it follows a watch with bookmarks, which the server
   ends after 60 to 90 s. The next watch starts after the last version. HTTP 410 gives a list.

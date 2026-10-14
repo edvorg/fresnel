@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use fresnel_core::kinds::{Assess, Full, ObjectHealth, PodStatus};
+use fresnel_core::kinds::{Describe, ObjectHealth, PodStatus};
 use fresnel_core::store::{ObjectKey, Snapshot};
 use fresnel_testkit::PodLine;
 use http::header::ACCEPT;
@@ -94,10 +94,10 @@ pub(crate) async fn each_pod_has_the_row_of_kubectl_and_of_the_api(cluster: &Clu
 }
 
 /// The health value of one object of the live scene, read from its store of the app.
-fn health<K: Full>(app: &App, namespace: &str, name: &str) -> ObjectHealth {
+fn health<K: Describe>(app: &App, namespace: &str, name: &str) -> ObjectHealth {
     let objects = app.stores.stores.full::<K>().expect("the store of the kind").read();
     let object = objects.items.get(&ObjectKey::new(namespace, name));
-    object.unwrap_or_else(|| panic!("the store has no {:?} {name}", K::KIND)).health()
+    object.unwrap_or_else(|| panic!("the store has no {:?} {name}", K::ID)).health()
 }
 
 /// One object for each value: the scene on the live cluster gives the values of the fixture.

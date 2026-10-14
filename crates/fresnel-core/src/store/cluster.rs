@@ -1,20 +1,21 @@
-//! The stores of one cluster: one for each kind of tier A and tier B.
+//! The stores of one cluster: one that is always on for each kind of tier A and tier B,
+//! and the stores on demand.
 
-use std::any::Any;
 use std::sync::Arc;
 use std::time::Duration;
 
+use fresnel_net::WallClock;
 use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
-use fresnel_net::{Signal, WallClock};
 use tokio::sync::watch::Sender;
 
+use super::demand::{Demand, Demands};
 use super::snapshot::{Snapshot, StoreStatus};
-use super::state::{StoreState, Wait};
-use crate::cluster::{ClusterId, Gateway, Link};
+use super::starter::{Form, Running, Starter};
+use crate::cluster::{ClusterId, Link};
 use crate::error::CoreError;
-use crate::kinds::{Full, Kind, Meta, Object, Visitor, each_store};
-use crate::published::{Bin, Changes, Notice, Publisher, Reader};
-use crate::watch::{self, GatewaySource, LaneStates, Lanes, ListGate, Parts, WatchSettings};
+use crate::kinds::{Describe, Kind, Meta, Object, Tier, Visit};
+use crate::published::{Bin, Changes, Notice, Reader};
+use crate::watch::{self, LaneStates, Lanes, ListGate, WatchSettings};
 
 /// Which Events a cluster keeps (plan section 9.6). Events can be most of the objects of
 /// a cluster.
@@ -25,7 +26,7 @@ pub enum EventsMode {
     All,
     /// Only the Events of the type `Warning`. The server selects them.
     Warnings,
-    /// No store. A view reads the Events of its object while it needs them.
+    /// A store on demand only, while a view needs the Events.
     OnDemand,
 }
 
@@ -40,6 +41,8 @@ pub struct StoreSettings {
     pub max_events: usize,
     /// The pauses before the task of a store starts again after a fault of its own.
     pub restart: Backoff,
+    /// The time that a store on demand stays on after the last view that needed it closed.
+    pub linger: Duration,
 }
 
 impl Default for StoreSettings {
@@ -52,7 +55,13 @@ impl Default for StoreSettings {
             jitter_percent: 50,
             reset_after: Duration::from_secs(60),
         };
-        Self { watch: WatchSettings::default(), events: EventsMode::default(), max_events: 20_000, restart }
+        Self {
+            watch: WatchSettings::default(),
+            events: EventsMode::default(),
+            max_events: 20_000,
+            restart,
+            linger: Duration::from_secs(60),
+        }
     }
 }
 
@@ -67,54 +76,11 @@ pub struct StoreParts {
     pub clock: WallClock,
 }
 
-/// One store with no type of its objects.
-trait AnyStore: Send + Sync {
-    fn status(&self) -> StoreStatus;
-
-    /// Publishes the final state. What the task publishes after it does not show.
-    fn stop(&self);
-
-    fn as_any(&self) -> &dyn Any;
-}
-
-struct Store<T> {
-    kind: Kind,
-    publisher: Publisher<Snapshot<T>>,
-    clock: WallClock,
-}
-
-impl<T: Object> AnyStore for Store<T> {
-    fn status(&self) -> StoreStatus {
-        self.publisher.read().status(self.kind)
-    }
-
-    fn stop(&self) {
-        self.publisher.close(|last| last.in_state(StoreState::Stopped, self.clock.now()));
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-/// A store with its task. The task stops when this value drops, and the readers of the
-/// store then see the state "stopped" with the last objects.
-struct Running {
-    kind: Kind,
-    store: Box<dyn AnyStore>,
-    _task: TaskHandle,
-}
-
-impl Drop for Running {
-    fn drop(&mut self) {
-        self.store.stop();
-    }
-}
-
 /// The stores of one cluster. Each one stops when this value drops.
 pub struct ClusterStores {
     cluster: ClusterId,
     stores: Vec<Running>,
+    demands: Demands,
     notice: Notice,
     _lanes: TaskHandle,
 }
@@ -134,19 +100,21 @@ impl ClusterStores {
                 let net = link.net.clone();
                 move || watch::follow(net.clone(), states.clone())
             });
-        let mut starter = Starter {
-            tasks,
-            gateway: &link.gateway,
+        let notice = Notice::new();
+        let linger = parts.settings.linger;
+        let starter = Starter {
+            tasks: tasks.clone(),
+            gateway: link.gateway.clone(),
             signal: link.net.signal(),
             lanes,
             gate: ListGate::new(parts.settings.watch.lists),
             watch: Arc::new(parts.settings.watch.clone()),
             parts,
-            notice: Notice::new(),
-            stores: Vec::new(),
+            notice: notice.clone(),
         };
-        each_store(&mut starter);
-        Ok(Self { cluster, stores: starter.stores, notice: starter.notice, _lanes: lanes_task })
+        let stores = Kind::ALL.iter().filter_map(|kind| kind.visit(AlwaysOn(&starter))).collect();
+        let demands = Demands::start(starter, linger);
+        Ok(Self { cluster, stores, demands, notice, _lanes: lanes_task })
     }
 
     /// The cluster of the stores.
@@ -155,19 +123,20 @@ impl ClusterStores {
     }
 
     /// Tells when a store of the cluster has a new snapshot: new objects or a new state.
+    /// A store on demand tells it too.
     pub fn changes(&self) -> Changes {
         self.notice.changes()
     }
 
-    /// The facts of each store, in the sequence of the kinds.
+    /// The facts of each store that is always on, in the sequence of the kinds.
     pub fn statuses(&self) -> Vec<StoreStatus> {
-        self.stores.iter().map(|running| running.store.status()).collect()
+        self.stores.iter().map(Running::status).collect()
     }
 
-    /// A reader of the store of a tier A kind, with its full objects. `None` for the Events
-    /// when the settings give them no store.
-    pub fn full<K: Full>(&self) -> Option<Reader<Snapshot<K>>> {
-        self.reader(K::KIND)
+    /// A reader of the store of a tier A kind, with its full objects. `None` for a kind of
+    /// an other tier, and for the Events when the settings give them no store.
+    pub fn full<K: Describe>(&self) -> Option<Reader<Snapshot<K>>> {
+        self.reader(K::ID)
     }
 
     /// A reader of the store of a tier B kind, with the metadata of its objects. `None`
@@ -176,10 +145,22 @@ impl ClusterStores {
         self.reader(kind)
     }
 
+    /// The full objects of a kind, for a view. A kind with a store of full objects that
+    /// is always on gives that store. For each other kind, the first holder starts a store
+    /// of its full objects, and that store stops when its time ends after the last holder
+    /// went (plan section 9.5). The Events of the setting "on demand" have such a store,
+    /// with the most Events of the settings. `None` only for a type that is not the type
+    /// of its kind.
+    pub fn demand<K: Describe>(&self) -> Option<Demand<K>> {
+        if let Some(reader) = self.full::<K>() {
+            return Some(Demand::always(reader));
+        }
+        let max_items = (K::ID == Kind::Event).then_some(self.demands.settings().max_events);
+        self.demands.demand::<K>(max_items)
+    }
+
     fn reader<T: Object>(&self, kind: Kind) -> Option<Reader<Snapshot<T>>> {
-        let running = self.stores.iter().find(|running| running.kind == kind)?;
-        let store = running.store.as_any().downcast_ref::<Store<T>>()?;
-        Some(store.publisher.reader())
+        self.stores.iter().find(|running| running.kind == kind)?.reader()
     }
 }
 
@@ -190,57 +171,26 @@ impl std::fmt::Debug for ClusterStores {
     }
 }
 
-/// Starts the store of each kind that the list of the kinds gives.
-struct Starter<'a> {
-    tasks: &'a Tasks,
-    gateway: &'a Gateway,
-    signal: Signal,
-    lanes: Lanes,
-    gate: Arc<ListGate>,
-    watch: Arc<WatchSettings>,
-    parts: StoreParts,
-    notice: Notice,
-    stores: Vec<Running>,
-}
-
 /// The field selector for the Events of the type `Warning`.
 const WARNINGS: &str = "type=Warning";
 
-impl Visitor for Starter<'_> {
-    fn full<K: Full>(&mut self) {
-        let fields = match (K::KIND, self.parts.settings.events) {
-            (Kind::Event, EventsMode::OnDemand) => return,
-            (Kind::Event, EventsMode::Warnings) => Some(WARNINGS),
-            _ => None,
-        };
-        let max_items = (K::KIND == Kind::Event).then_some(self.parts.settings.max_events);
-        self.start::<K>(K::KIND, fields, max_items);
-    }
+/// Starts the store that is always on of one kind: the full objects of a tier A kind, and
+/// the metadata of a tier B kind.
+struct AlwaysOn<'a>(&'a Starter);
 
-    fn metadata(&mut self, kind: Kind) {
-        self.start::<Meta>(kind, None, None);
-    }
-}
+impl Visit for AlwaysOn<'_> {
+    type Output = Option<Running>;
 
-impl Starter<'_> {
-    fn start<T: Object>(&mut self, kind: Kind, fields: Option<&'static str>, max_items: Option<usize>) {
-        let clock = self.parts.clock.clone();
-        let first = Snapshot::<T>::empty(StoreState::Waiting(Wait::Channel), clock.now());
-        let publisher = Publisher::new(first, self.parts.bin.clone(), self.notice.clone());
-        let parts = Arc::new(Parts {
-            kind,
-            source: GatewaySource::new(self.gateway.clone(), kind.info(), fields),
-            publisher: publisher.clone(),
-            lanes: self.lanes.clone(),
-            signal: self.signal.clone(),
-            gate: Arc::clone(&self.gate),
-            settings: Arc::clone(&self.watch),
-            clock: clock.clone(),
-            max_items,
-        });
-        let name = TaskName::scoped("store", format!("{}/{}", self.gateway.cluster(), kind.info().name));
-        let restart = Restart::Always(self.parts.settings.restart);
-        let task = self.tasks.start(name, restart, move || watch::run(Arc::clone(&parts)));
-        self.stores.push(Running { kind, store: Box::new(Store { kind, publisher, clock }), _task: task });
+    fn visit<K: Describe>(self) -> Option<Running> {
+        let settings = &self.0.parts.settings;
+        match (K::TIER, K::ID, settings.events) {
+            (Tier::C, ..) | (_, Kind::Event, EventsMode::OnDemand) => None,
+            (Tier::B, ..) => Some(self.0.start::<Meta>(K::ID, Form::Metadata, None, None)),
+            (Tier::A, Kind::Event, mode) => {
+                let fields = (mode == EventsMode::Warnings).then_some(WARNINGS);
+                Some(self.0.start::<K>(K::ID, Form::Full, fields, Some(settings.max_events)))
+            }
+            (Tier::A, ..) => Some(self.0.start::<K>(K::ID, Form::Full, None, None)),
+        }
     }
 }

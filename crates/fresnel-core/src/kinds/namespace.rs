@@ -1,8 +1,9 @@
-//! The Namespace: its health value.
+//! The Namespace: its description and its health value.
 
 use k8s_openapi::api::core::v1::Namespace;
 
-use super::health::{Assess, ObjectHealth, is_true};
+use super::health::{ObjectHealth, is_true};
+use super::{Action, Column, Describe, Kind, Sidebar, Tier, Value};
 
 /// The conditions that tell why the delete of a namespace cannot continue.
 const DELETE_FAILURES: [&str; 3] = [
@@ -11,7 +12,16 @@ const DELETE_FAILURES: [&str; 3] = [
     "NamespaceDeletionContentFailure",
 ];
 
-impl Assess for Namespace {
+impl Describe for Namespace {
+    const ID: Kind = Kind::Namespace;
+    const TITLE: &'static str = "Namespaces";
+    const SIDEBAR: Sidebar = Sidebar::Cluster;
+    const TIER: Tier = Tier::A;
+    const COLUMNS: &'static [Column<Self>] = &[Column::text("Status", 100.0, |namespace| {
+        Value::text(namespace.status.as_ref().and_then(|status| status.phase.as_deref()))
+    })];
+    const ACTIONS: &'static [Action] = &[];
+
     /// A namespace in its delete is on its way. Content that waits for a finalizer is a
     /// part of that way. The delete failed when the server cannot find or remove the content.
     fn health(&self) -> ObjectHealth {

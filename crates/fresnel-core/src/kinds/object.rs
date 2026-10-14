@@ -4,6 +4,8 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
+use super::Describe;
+
 /// An object that a store can hold. The store reads the name, the namespace, the UID and
 /// the resource version, and it removes the fields that no view shows.
 pub trait Object: DeserializeOwned + Send + Sync + 'static {
@@ -12,18 +14,23 @@ pub trait Object: DeserializeOwned + Send + Sync + 'static {
 
     /// The metadata of the object, for a change.
     fn meta_mut(&mut self) -> &mut ObjectMeta;
+
+    /// Removes the fields of the object that no store may keep. The store removes the
+    /// metadata that no view shows itself.
+    fn strip(&mut self) {}
 }
 
-impl<K> Object for K
-where
-    K: k8s_openapi::Metadata<Ty = ObjectMeta> + DeserializeOwned + Send + Sync + 'static,
-{
+impl<K: Describe> Object for K {
     fn meta(&self) -> &ObjectMeta {
         self.metadata()
     }
 
     fn meta_mut(&mut self) -> &mut ObjectMeta {
         self.metadata_mut()
+    }
+
+    fn strip(&mut self) {
+        self.trim();
     }
 }
 

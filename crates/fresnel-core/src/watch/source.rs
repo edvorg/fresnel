@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use crate::cluster::{Gateway, WatchEvent, WatchStream};
 use crate::error::CoreError;
-use crate::kinds::{KindInfo, Object, Tier};
+use crate::kinds::{KindInfo, Object};
 
 /// One page of a list. The metadata holds the resource version of the list and the token
 /// for the next page.
@@ -67,15 +67,16 @@ pub(crate) struct GatewaySource {
     gateway: Gateway,
     /// The path of the kind for all namespaces.
     request: Request,
-    /// True for a tier B kind: the server sends the metadata of each object only.
+    /// True for the store of a tier B kind that is always on: the server sends the
+    /// metadata of each object only.
     metadata_only: bool,
     /// The field selector of each request. The Events store can ask for warnings only.
     fields: Option<&'static str>,
 }
 
 impl GatewaySource {
-    pub(crate) fn new(gateway: Gateway, kind: &KindInfo, fields: Option<&'static str>) -> Self {
-        Self { gateway, request: Request::new(kind.path()), metadata_only: kind.tier == Tier::B, fields }
+    pub(crate) fn new(gateway: Gateway, kind: &KindInfo, metadata_only: bool, fields: Option<&'static str>) -> Self {
+        Self { gateway, request: Request::new(kind.path()), metadata_only, fields }
     }
 }
 

@@ -1,21 +1,29 @@
-//! The EndpointSlice: its health value, and the state of one endpoint.
+//! The EndpointSlice: its description, its health value, and the state of one endpoint.
 
 use k8s_openapi::api::discovery::v1::{Endpoint, EndpointSlice};
 
-use super::health::{Assess, ObjectHealth};
+use super::health::ObjectHealth;
+use super::{Action, Column, Describe, Kind, Sidebar, Tier, Value};
 
-/// True for an endpoint that takes new connections. The API tells to read an absent
-/// `ready` as ready. An endpoint that ends is not ready.
-pub(crate) fn is_ready(endpoint: &Endpoint) -> bool {
-    let conditions = endpoint.conditions.as_ref();
-    conditions.and_then(|conditions| conditions.ready) != Some(false) && !ends(endpoint)
-}
+impl Describe for EndpointSlice {
+    const ID: Kind = Kind::EndpointSlice;
+    const TITLE: &'static str = "EndpointSlices";
+    const SIDEBAR: Sidebar = Sidebar::Network;
+    const TIER: Tier = Tier::A;
+    const COLUMNS: &'static [Column<Self>] = &[
+        Column::text("Address type", 90.0, |slice| Value::text(Some(&slice.address_type))),
+        Column::text("Ports", 120.0, |slice| {
+            let port = |port: &k8s_openapi::api::discovery::v1::EndpointPort| match (port.port, &port.name) {
+                (Some(number), _) => number.to_string(),
+                (None, Some(name)) => name.clone(),
+                (None, None) => "*".to_owned(),
+            };
+            Value::texts(slice.ports.iter().flatten().map(port))
+        }),
+        Column::text("Endpoints", 220.0, |slice| Value::list(addresses(slice))),
+    ];
+    const ACTIONS: &'static [Action] = &[];
 
-fn ends(endpoint: &Endpoint) -> bool {
-    endpoint.conditions.as_ref().and_then(|conditions| conditions.terminating) == Some(true)
-}
-
-impl Assess for EndpointSlice {
     /// An endpoint that ends does not count: it leaves the slice. Of the other ones, one
     /// that is not ready is a warning, and the slice failed when none is ready. A slice
     /// with no endpoint is healthy: a Service can have no pod by intent.
@@ -30,6 +38,26 @@ impl Assess for EndpointSlice {
             ObjectHealth::Warning
         }
     }
+
+    fn search<'a>(&'a self, texts: &mut Vec<&'a str>) {
+        texts.extend(addresses(self));
+    }
+}
+
+/// The addresses of each endpoint of the slice.
+fn addresses(slice: &EndpointSlice) -> impl Iterator<Item = &str> {
+    slice.endpoints.iter().flat_map(|endpoint| &endpoint.addresses).map(String::as_str)
+}
+
+/// True for an endpoint that takes new connections. The API tells to read an absent
+/// `ready` as ready. An endpoint that ends is not ready.
+pub(crate) fn is_ready(endpoint: &Endpoint) -> bool {
+    let conditions = endpoint.conditions.as_ref();
+    conditions.and_then(|conditions| conditions.ready) != Some(false) && !ends(endpoint)
+}
+
+fn ends(endpoint: &Endpoint) -> bool {
+    endpoint.conditions.as_ref().and_then(|conditions| conditions.terminating) == Some(true)
 }
 
 #[cfg(test)]

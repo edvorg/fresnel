@@ -66,8 +66,8 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
 
 ## Kinds and stores
 
-- A kind is one line of the list in `kinds/list.rs`: its identity, its tier and its object
-  type. The sequence of the list is the priority of the first lists of a cluster.
+- A kind is one line of the list in `kinds/list.rs`: its identity and its object type, which
+  `kinds/<kind>.rs` describes. The sequence is the priority of the first lists of a cluster.
 - A reader of a store gets a snapshot with `Reader::read` and holds it for one frame or one
   computation. It never gets a lock. Give each new published state a `published::Publisher`.
 - The watch loop sends its requests through the trait `Source`. A rule of the loop gets a
@@ -76,8 +76,8 @@ let handle = tasks.start(name, Restart::Always(Backoff::default()), move || {
   loss of a connection as a failure of its own: the channel counts it.
 - An object shows "change pending" after a write while `Snapshot::is_pending` is true for
   the answer of that write (`store::Written`). No code puts a mark into a store.
-- A tier A kind gives its health value in `kinds/<kind>.rs`, from the object alone: a value
-  has no clock and reads no other object.
+- A kind gives its columns and its health value in `kinds/<kind>.rs`, from the object alone:
+  a value has no clock and reads no other object.
 - An index is an `Indexer` in `index/`. It follows each store with `Tracked::read`, holds a
   relation in `Links`, and each answer gives its `Basis`: "none" never looks like "not loaded".
 

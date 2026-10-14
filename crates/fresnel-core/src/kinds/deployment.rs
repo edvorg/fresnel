@@ -1,13 +1,53 @@
-//! The Deployment: its health value.
+//! The Deployment: its description and its health value.
 
-use k8s_openapi::api::apps::v1::{Deployment, DeploymentStatus};
+use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec, DeploymentStatus};
 
-use super::health::{Assess, Condition as _, ObjectHealth, condition, is_true};
+use super::health::{Condition as _, ObjectHealth, condition, is_true};
+use super::{Action, Column, Describe, Kind, Sidebar, Tier, Value, read};
 
 /// The reason of the condition `Progressing` after a rollout that completed.
 const ROLLED_OUT: &str = "NewReplicaSetAvailable";
 
-impl Assess for Deployment {
+impl Describe for Deployment {
+    const ID: Kind = Kind::Deployment;
+    const TITLE: &'static str = "Deployments";
+    const SIDEBAR: Sidebar = Sidebar::Workloads;
+    const TIER: Tier = Tier::A;
+    const COLUMNS: &'static [Column<Self>] = &[
+        Column::number("Ready", 64.0, |deployment| {
+            Value::Ratio(status(deployment, |status| status.ready_replicas), wanted(deployment))
+        }),
+        Column::number("Desired", 64.0, |deployment: &Self| Value::Number(wanted(deployment))).hidden(),
+        Column::number("Updated", 64.0, |deployment| {
+            Value::Number(status(deployment, |status| status.updated_replicas))
+        }),
+        Column::number("Available", 64.0, |deployment| {
+            Value::Number(status(deployment, |status| status.available_replicas))
+        }),
+        Column::text("Conditions", 150.0, |deployment| {
+            read::true_conditions(deployment.status.as_ref().and_then(|status| status.conditions.as_ref()))
+        }),
+        Column::text("Containers", 140.0, |deployment: &Self| read::containers(pod_spec(deployment))).hidden(),
+        Column::text("Images", 220.0, |deployment| read::images(pod_spec(deployment))),
+        Column::text("Selector", 160.0, |deployment: &Self| {
+            read::selector(deployment.spec.as_ref().map(|spec| &spec.selector))
+        })
+        .hidden(),
+    ];
+    const ACTIONS: &'static [Action] = &[
+        Action::Scale,
+        Action::Restart,
+        Action::RolloutStatus,
+        Action::RevisionHistory,
+        Action::Rollback,
+        Action::Logs,
+        Action::Forward,
+    ];
+
+    fn search<'a>(&'a self, texts: &mut Vec<&'a str>) {
+        read::search_images(pod_spec(self), texts);
+    }
+
     /// The steps follow `kubectl rollout status`:
     ///
     /// - Failed: the rollout passed its deadline, or the server refuses the pods.
@@ -39,6 +79,20 @@ impl Assess for Deployment {
             ObjectHealth::Warning
         }
     }
+}
+
+fn pod_spec(deployment: &Deployment) -> Option<&k8s_openapi::api::core::v1::PodSpec> {
+    read::pod_spec(deployment.spec.as_ref().map(|spec: &DeploymentSpec| &spec.template))
+}
+
+/// The count of pods that the spec asks for. The server sets 1 when the manifest has none.
+fn wanted(deployment: &Deployment) -> i64 {
+    deployment.spec.as_ref().and_then(|spec| spec.replicas).unwrap_or(1).into()
+}
+
+/// A count of the status. The API reads an absent count as 0.
+fn status(deployment: &Deployment, read: fn(&DeploymentStatus) -> Option<i32>) -> i64 {
+    deployment.status.as_ref().and_then(read).unwrap_or(0).into()
 }
 
 #[cfg(test)]

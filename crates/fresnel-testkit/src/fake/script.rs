@@ -29,6 +29,7 @@ pub(super) enum FaultAnswer {
     Nothing,
     Unauthorized,
     Forbidden,
+    NotFound,
     TooManyRequests { retry_after_seconds: u64 },
 }
 
@@ -46,6 +47,11 @@ impl Fault {
     /// The request gets HTTP 403, as from a server whose access rules do not permit it.
     pub fn forbidden() -> Self {
         Self::new(FaultAnswer::Forbidden)
+    }
+
+    /// The request gets HTTP 404, as from a server that does not serve the kind of the path.
+    pub fn not_found() -> Self {
+        Self::new(FaultAnswer::NotFound)
     }
 
     /// The request gets HTTP 429 with the header `Retry-After` in full seconds.

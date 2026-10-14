@@ -32,7 +32,7 @@ pub use task::{Answer, Basis, Index, IndexState};
 
 use crate::cluster::ClusterId;
 use crate::error::CoreError;
-use crate::kinds::Full;
+use crate::kinds::Describe;
 use crate::published::{Bin, Changes, Notice, Publisher, Reader};
 use crate::store::{ClusterStores, Snapshot};
 use events::EventIndexer;
@@ -86,8 +86,8 @@ impl Starter<'_> {
 }
 
 /// The store of a tier A kind that an index reads.
-fn store<K: Full>(stores: &ClusterStores) -> Result<Reader<Snapshot<K>>, CoreError> {
-    let absent = || CoreError::invalid(format!("the cluster has no store of the kind {}", K::KIND.info().name));
+fn store<K: Describe>(stores: &ClusterStores) -> Result<Reader<Snapshot<K>>, CoreError> {
+    let absent = || CoreError::invalid(format!("the cluster has no store of the kind {}", K::ID.info().name));
     stores.full::<K>().ok_or_else(absent)
 }
 

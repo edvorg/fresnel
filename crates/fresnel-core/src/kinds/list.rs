@@ -2,6 +2,7 @@
 //!
 //! The sequence is the priority of a kind for its first list: the small kinds that each
 //! view needs come first, and the Events, which can be most of the objects, come last.
+//! It is also the sequence of the kinds in each group of the sidebar.
 
 use k8s_openapi::api::admissionregistration::v1 as admission;
 use k8s_openapi::api::apps::v1 as apps;
@@ -19,20 +20,21 @@ use k8s_openapi::api::rbac::v1 as rbac;
 use k8s_openapi::api::scheduling::v1 as scheduling;
 use k8s_openapi::kube_aggregator::pkg::apis::apiregistration::v1 as apiregistration;
 
-use super::{Full, KindInfo, Tier};
+use super::{Describe, KindInfo};
 
-/// Takes the kinds that have a store, each one in the form of its tier.
-pub(crate) trait Visitor {
-    /// A tier A kind, with its object type.
-    fn full<K: Full>(&mut self);
+/// Takes the object type of one kind: [`Kind::visit`] turns a kind into its type.
+pub trait Visit {
+    /// What the visit gives.
+    type Output;
 
-    /// A tier B kind.
-    fn metadata(&mut self, kind: Kind);
+    /// Takes the type of the kind.
+    fn visit<K: Describe>(self) -> Self::Output;
 }
 
-/// One line of the list gives the identity of a kind, its tier and its object type.
+/// One line of the list gives the identity of a kind and its object type. The file of the
+/// kind describes the type.
 macro_rules! kinds {
-    ($($id:ident: $tier:ident, $object:ty;)*) => {
+    ($($id:ident: $object:ty;)*) => {
         /// The identity of one kind. The sequence is the sequence of the list.
         #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub enum Kind {
@@ -43,94 +45,74 @@ macro_rules! kinds {
             /// Each kind, in the sequence of the list.
             pub const ALL: &'static [Kind] = &[$(Kind::$id,)*];
 
-            /// The kind with this name in a manifest, for example `Pod`. `None` for a kind
-            /// that is out of the scope of the app.
-            pub fn named(name: &str) -> Option<Kind> {
-                Self::ALL.iter().copied().find(|kind| kind.info().name == name)
-            }
-
             /// The description of the kind.
             pub fn info(self) -> &'static KindInfo {
                 match self {
                     $(Kind::$id => {
-                        const INFO: KindInfo = KindInfo::of::<$object>(Tier::$tier);
+                        const INFO: KindInfo = KindInfo::of::<$object>();
                         &INFO
                     })*
                 }
             }
+
+            /// Gives the object type of the kind to `visitor`.
+            pub fn visit<V: Visit>(self, visitor: V) -> V::Output {
+                match self {
+                    $(Kind::$id => visitor.visit::<$object>(),)*
+                }
+            }
         }
 
-        /// Gives each kind with a store to `visitor`, in the sequence of the list.
-        pub(crate) fn each_store(visitor: &mut impl Visitor) {
-            $(store!($tier, $id, $object, visitor);)*
-        }
-
-        $(full!($tier, $id, $object);)*
+        // The identity in the description of a type is the identity of its line.
+        $(const _: () = assert!(
+            matches!(<$object as Describe>::ID, Kind::$id),
+            concat!("the description of `", stringify!($object), "` names an other kind"),
+        );)*
     };
-}
-
-macro_rules! store {
-    (A, $id:ident, $object:ty, $visitor:ident) => {
-        $visitor.full::<$object>()
-    };
-    (B, $id:ident, $object:ty, $visitor:ident) => {
-        $visitor.metadata(Kind::$id)
-    };
-    (C, $id:ident, $object:ty, $visitor:ident) => {};
-}
-
-macro_rules! full {
-    (A, $id:ident, $object:ty) => {
-        impl Full for $object {
-            const KIND: Kind = Kind::$id;
-        }
-    };
-    ($tier:ident, $id:ident, $object:ty) => {};
 }
 
 kinds! {
-    Namespace: A, core::Namespace;
-    Node: A, core::Node;
-    Pod: A, core::Pod;
-    Deployment: A, apps::Deployment;
-    StatefulSet: A, apps::StatefulSet;
-    DaemonSet: A, apps::DaemonSet;
-    ReplicaSet: A, apps::ReplicaSet;
-    Job: A, batch::Job;
-    CronJob: A, batch::CronJob;
-    Service: A, core::Service;
-    EndpointSlice: A, discovery::EndpointSlice;
+    Node: core::Node;
+    Namespace: core::Namespace;
+    Pod: core::Pod;
+    Deployment: apps::Deployment;
+    StatefulSet: apps::StatefulSet;
+    DaemonSet: apps::DaemonSet;
+    ReplicaSet: apps::ReplicaSet;
+    ReplicationController: core::ReplicationController;
+    Job: batch::Job;
+    CronJob: batch::CronJob;
+    Service: core::Service;
+    EndpointSlice: discovery::EndpointSlice;
+    Endpoints: core::Endpoints;
 
-    ReplicationController: B, core::ReplicationController;
-    ConfigMap: B, core::ConfigMap;
-    Secret: B, core::Secret;
-    HorizontalPodAutoscaler: B, autoscaling::HorizontalPodAutoscaler;
-    PodDisruptionBudget: B, policy::PodDisruptionBudget;
-    ResourceQuota: B, core::ResourceQuota;
-    LimitRange: B, core::LimitRange;
-    PriorityClass: B, scheduling::PriorityClass;
-    RuntimeClass: B, node::RuntimeClass;
-    MutatingWebhookConfiguration: B, admission::MutatingWebhookConfiguration;
-    ValidatingWebhookConfiguration: B, admission::ValidatingWebhookConfiguration;
-    Ingress: B, networking::Ingress;
-    IngressClass: B, networking::IngressClass;
-    NetworkPolicy: B, networking::NetworkPolicy;
-    ServiceAccount: B, core::ServiceAccount;
-    Role: B, rbac::Role;
-    ClusterRole: B, rbac::ClusterRole;
-    RoleBinding: B, rbac::RoleBinding;
-    ClusterRoleBinding: B, rbac::ClusterRoleBinding;
-    ControllerRevision: B, apps::ControllerRevision;
-    PodTemplate: B, core::PodTemplate;
-    CertificateSigningRequest: B, certificates::CertificateSigningRequest;
-    ValidatingAdmissionPolicy: B, admission::ValidatingAdmissionPolicy;
-    ValidatingAdmissionPolicyBinding: B, admission::ValidatingAdmissionPolicyBinding;
-    ApiService: B, apiregistration::APIService;
-    FlowSchema: B, flowcontrol::FlowSchema;
-    PriorityLevelConfiguration: B, flowcontrol::PriorityLevelConfiguration;
+    ConfigMap: core::ConfigMap;
+    Secret: core::Secret;
+    HorizontalPodAutoscaler: autoscaling::HorizontalPodAutoscaler;
+    PodDisruptionBudget: policy::PodDisruptionBudget;
+    ResourceQuota: core::ResourceQuota;
+    LimitRange: core::LimitRange;
+    PriorityClass: scheduling::PriorityClass;
+    RuntimeClass: node::RuntimeClass;
+    Lease: coordination::Lease;
+    MutatingWebhookConfiguration: admission::MutatingWebhookConfiguration;
+    ValidatingWebhookConfiguration: admission::ValidatingWebhookConfiguration;
+    Ingress: networking::Ingress;
+    IngressClass: networking::IngressClass;
+    NetworkPolicy: networking::NetworkPolicy;
+    ServiceAccount: core::ServiceAccount;
+    Role: rbac::Role;
+    ClusterRole: rbac::ClusterRole;
+    RoleBinding: rbac::RoleBinding;
+    ClusterRoleBinding: rbac::ClusterRoleBinding;
+    ControllerRevision: apps::ControllerRevision;
+    PodTemplate: core::PodTemplate;
+    CertificateSigningRequest: certificates::CertificateSigningRequest;
+    ValidatingAdmissionPolicy: admission::ValidatingAdmissionPolicy;
+    ValidatingAdmissionPolicyBinding: admission::ValidatingAdmissionPolicyBinding;
+    ApiService: apiregistration::APIService;
+    FlowSchema: flowcontrol::FlowSchema;
+    PriorityLevelConfiguration: flowcontrol::PriorityLevelConfiguration;
 
-    Event: A, core::Event;
-
-    Lease: C, coordination::Lease;
-    Endpoints: C, core::Endpoints;
+    Event: core::Event;
 }
