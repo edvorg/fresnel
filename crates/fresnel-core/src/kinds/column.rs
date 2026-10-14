@@ -67,7 +67,7 @@ pub fn columns<K: Describe>() -> Vec<Column<K>> {
     let namespace = Column::text("Namespace", 120.0, |object: &K| Value::text(object.metadata().namespace.as_deref()));
     let labels = Column::text("Labels", 200.0, |object: &K| {
         let labels = object.metadata().labels.iter().flatten();
-        Value::List(labels.map(|(key, value)| Cow::Owned(format!("{key}={value}"))).collect())
+        Value::texts(labels.map(|(key, value)| format!("{key}={value}")))
     });
     let age = Column::number("Age", 84.0, |object: &K| Value::time(object.metadata().creation_timestamp.as_ref()));
     let mut all = vec![name];
@@ -198,6 +198,13 @@ mod tests {
             "an absent value and an empty one are none"
         );
         assert!(!columns::<ConfigMap>().iter().any(|column| column.title == "Labels" && column.shown));
+        let empty = ConfigMap {
+            metadata: ObjectMeta { labels: Some([].into()), ..ObjectMeta::default() },
+            data: Some([].into()),
+            ..ConfigMap::default()
+        };
+        let empty: Vec<Value<'_>> = columns::<ConfigMap>().iter().map(|column| (column.read)(&empty)).collect();
+        assert_eq!(empty, [Value::None, Value::None, Value::None, Value::None, Value::None]);
     }
 
     #[test]

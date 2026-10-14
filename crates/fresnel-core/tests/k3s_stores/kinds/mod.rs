@@ -49,8 +49,8 @@ async fn each_kind_lists_with_the_columns_of_the_server_and_a_forbidden_kind_lea
 }
 
 /// Plan section 9.7 on a real server: a kind that the cluster does not serve, as a cluster
-/// before Kubernetes 1.23 has no `autoscaling/v2`. The API server of k3s needs each other
-/// group with a kind of the app for its own work.
+/// before Kubernetes 1.23 has no `autoscaling/v2`. The API server of k3s does not get ready
+/// with `node.k8s.io` off: its own informers read the RuntimeClasses.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs k3s in Docker"]
 async fn a_kind_that_the_server_does_not_serve_is_not_supported_and_each_other_one_is_live() {

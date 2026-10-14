@@ -870,3 +870,39 @@ The first drag tests moved the pointer 6 points or more in each frame, at a scal
 mouse moves one point or less in a frame, on the pixel grid of a Retina display, and a
 fast one moves far. The tests in `pods/mouse.rs` do each of these in a table of 1,750
 points at a scale of 1 and of 2. They check the edge in the frame of each move.
+
+## A kind is a trait of its object type
+
+Each kind implements `Describe` for its type of `k8s-openapi`, in a file of its own. A
+column is a function pointer from the object to a `Value`, so a view of each kind is one
+generic table, and the compiler checks each field that a column reads. `Kind::visit` turns
+the identity into the type. A const check in the list refuses a type that names an other
+kind.
+
+## A column has the text of kubectl, and a test compares it with the server
+
+A user knows the columns of `kubectl get`, and the API server prints them in its table
+form. A column that kubectl shows too has its text. The cluster test of the kinds reads
+that table with each object for each kind, and compares the two for each cell. A copy of
+those tables is the fixture of a unit test, so `cargo test` checks the columns too.
+
+## A store of full objects starts on demand and stays 60 seconds
+
+A tier B kind has a store of metadata for the search and the indexes. A table of it needs
+the full objects, and a tier C kind has no store. Each such view holds a `Demand`; the
+first holder starts the store, and the store stops 60 seconds after the last one. A view
+that the user opens again soon then shows current rows with no new list.
+
+## The manifest is a read of the server, not the copy of a store
+
+A store removes `managedFields`, the copy of `kubectl apply` and the values of a Secret.
+The manifest view needs the object as the server has it, so one GET through the gateway
+reads it. A switch keeps `managedFields`, which most users never need. The YAML has the
+keys in the sequence of the alphabet, as kubectl writes it.
+
+## A cluster with no group of the API comes from the flag of k3s
+
+The test of the state "not supported" needs a real server that does not serve a kind of
+the app. k3s starts with `runtime-config` to turn off `autoscaling/v2`, as on a cluster
+before Kubernetes 1.23. With `node.k8s.io` off, the API server never became ready: its own
+informers read the RuntimeClasses.
