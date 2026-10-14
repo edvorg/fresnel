@@ -2,13 +2,16 @@
 //! each certificate of a TLS Secret with its validity, and each registry of an image pull
 //! Secret with its user. The core reads them from the values of the draft, so they follow
 //! an edit. No text here holds a byte of `tls.key` or a password.
+//!
+//! A value of a megabyte can name thousands of registries or names, and each one is a
+//! layout in each frame, so the view shows the first ones of each list and their count.
 
 use egui::{RichText, Ui};
 use fresnel_core::keys::{Certificate, Registry, Special};
 
-use crate::format::Clock;
+use crate::format::{Clock, short};
 use crate::theme::Palette;
-use crate::views::detail::fields::{NONE, field, heading, text_field};
+use crate::views::detail::fields::{ITEM_LIMIT, NONE, VALUE_LIMIT, field, heading, more, text_field};
 use crate::widgets::tone::Tone;
 
 /// A certificate that ends in fewer days shows in the tone of a warning.
@@ -37,7 +40,10 @@ pub(super) fn show(ui: &mut Ui, palette: &Palette, clock: &Clock, special: &Spec
                 Ok(registries) if registries.is_empty() => {
                     ui.label(RichText::new("No registry.").color(palette.text_faint));
                 }
-                Ok(registries) => registries.iter().for_each(|registry| one_registry(ui, palette, registry)),
+                Ok(registries) => {
+                    registries.iter().take(ITEM_LIMIT).for_each(|registry| one_registry(ui, palette, registry));
+                    more(ui, palette, registries.len());
+                }
                 Err(reason) => {
                     ui.label(RichText::new(reason).color(palette.error));
                 }
@@ -57,8 +63,10 @@ fn one_certificate(ui: &mut Ui, palette: &Palette, clock: &Clock, number: usize,
     field(ui, palette, "Expires", |ui| {
         ui.label(RichText::new(end).color(tone.color(palette)));
     });
-    let names = if certificate.names.is_empty() { NONE.to_owned() } else { certificate.names.join(", ") };
+    let first: Vec<&str> = certificate.names.iter().take(ITEM_LIMIT).map(String::as_str).collect();
+    let names = if first.is_empty() { NONE.to_owned() } else { first.join(", ") };
     text_field(ui, palette, "Names", &names);
+    more(ui, palette, certificate.names.len());
     text_field(ui, palette, "Serial", &certificate.serial);
     text_field(ui, palette, "Key", &certificate.key);
     ui.add_space(6.0);
@@ -79,7 +87,7 @@ fn day_count(days: i64) -> String {
 }
 
 fn one_registry(ui: &mut Ui, palette: &Palette, registry: &Registry) {
-    ui.label(RichText::new(&registry.server).strong());
+    ui.label(RichText::new(short(&registry.server, VALUE_LIMIT)).strong());
     text_field(ui, palette, "User", registry.username.as_deref().unwrap_or(NONE));
     if let Some(email) = &registry.email {
         text_field(ui, palette, "E-mail", email);
