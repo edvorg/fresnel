@@ -2,15 +2,17 @@
 //! and name, with the color of its cluster, takes the input of the action (a count, a name,
 //! a propagation policy, a revision), and tells the warnings of `research/08`.
 //!
-//! The dialog decides the permission of each target in each frame: a target that becomes
-//! forbidden while it is open shows its reason, and the button is off.
+//! The dialog decides each target in each frame from its store and the permissions: a target
+//! that goes away, that a new object of its name replaces, that changes its state or that
+//! becomes forbidden while the dialog is open shows its reason, and the button is off. So is
+//! a count of targets over the jobs that the app can start now.
 
 use egui::{Align, Grid, Layout, RichText, ScrollArea, TextEdit, Ui};
 use fresnel_core::kinds::{Action, Kind};
-use fresnel_core::ops::{self, Operation, Order, Propagation};
+use fresnel_core::ops::{self, Operation, Order, Propagation, Target};
 
 use super::dialog::{Close, title, warning};
-use super::{Gate, Permits, Subject, operation};
+use super::{Found, Gate, Permits, Subject, operation, over_room};
 use crate::format::{self, short};
 use crate::shell::Scene;
 use crate::theme::{self, ROW_HEIGHT};
@@ -82,12 +84,13 @@ impl Confirm {
         }
     }
 
-    pub(super) fn show(&mut self, ui: &mut Ui, scene: &mut Scene<'_>) -> Close {
+    /// Draws the dialog. `look` finds each target in the store of its cluster.
+    pub(super) fn show(&mut self, ui: &mut Ui, scene: &mut Scene<'_>, look: &dyn Fn(&Target) -> Found) -> Close {
         let palette = theme::palette(ui);
         title(ui, &self.title());
         ui.label(RichText::new("The action acts on each of these objects:").color(palette.text_muted));
         ui.add_space(4.0);
-        let gates = self.targets(ui, scene);
+        let gates = self.targets(ui, scene, look);
         ui.add_space(8.0);
         self.input(ui);
         for text in self.warnings() {
@@ -99,7 +102,8 @@ impl Confirm {
             Gate::Closed(reason) => Some(format!("{}: {reason}", subject)),
             Gate::Open | Gate::Unknown(_) => None,
         });
-        let reason = refused.or_else(|| operation.as_ref().err().cloned());
+        let full = || over_room(self.subjects.len(), scene.view.jobs.room());
+        let reason = refused.or_else(full).or_else(|| operation.as_ref().err().cloned());
         if let Some(reason) = &reason {
             ui.add(egui::Label::new(RichText::new(reason).color(palette.error)).wrap());
         }
@@ -131,16 +135,26 @@ impl Confirm {
         }
     }
 
-    /// The list of the targets, with the gate of each one for this frame.
-    fn targets(&mut self, ui: &mut Ui, scene: &mut Scene<'_>) -> Vec<(String, Gate)> {
+    /// The list of the targets, with the gate of each one for this frame. A target that its
+    /// store has gets its facts of now.
+    fn targets(&mut self, ui: &mut Ui, scene: &mut Scene<'_>, look: &dyn Fn(&Target) -> Found) -> Vec<(String, Gate)> {
         let palette = theme::palette(ui);
-        let action = self.action;
+        let (action, permits) = (self.action, &mut self.permits);
         let gates: Vec<(String, Gate)> = self
             .subjects
-            .iter()
+            .iter_mut()
             .map(|subject| {
-                let decide = || self.permits.decide(scene.view, &subject.target, action, scene.commands);
-                (subject.text(), Gate::of(action, &subject.facts, decide))
+                let gate = match look(&subject.target) {
+                    Found::Gone(reason) => Gate::Closed(reason),
+                    found => {
+                        if let Found::Here(facts) = found {
+                            subject.facts = facts;
+                        }
+                        let decide = || permits.decide(scene.view, &subject.target, action, scene.commands);
+                        Gate::of(action, &subject.facts, decide)
+                    }
+                };
+                (subject.text(), gate)
             })
             .collect();
         let rows = self.subjects.len();

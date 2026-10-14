@@ -2,9 +2,9 @@
 //! page while it asks. Escape and a click beside it close it with no action.
 
 use egui::{Id, Modal, RichText, Ui};
-use fresnel_core::ops::Order;
+use fresnel_core::ops::{Order, Target};
 
-use super::{Commands, ConfirmDialog};
+use super::{Commands, ConfirmDialog, Found};
 use crate::shell::Scene;
 use crate::theme::Palette;
 
@@ -33,11 +33,17 @@ pub(crate) enum Close {
 }
 
 impl Dialog {
-    pub(crate) fn show(&mut self, ctx: &egui::Context, scene: &mut Scene<'_>) -> Close {
+    /// Draws the dialog. `look` finds an object of an action in the store of its cluster.
+    pub(crate) fn show(
+        &mut self,
+        ctx: &egui::Context,
+        scene: &mut Scene<'_>,
+        look: &dyn Fn(&Target) -> Found,
+    ) -> Close {
         let modal = Modal::new(Id::new("action dialog")).show(ctx, |ui| {
             ui.set_width(WIDTH);
             match self {
-                Self::Confirm(confirm) => confirm.show(ui, scene),
+                Self::Confirm(confirm) => confirm.show(ui, scene, look),
                 Self::Commands(commands) => commands.show(ui),
             }
         });

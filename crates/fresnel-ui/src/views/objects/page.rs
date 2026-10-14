@@ -316,7 +316,7 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
         if let Some(note) = self.acts.begin(self.detail.as_mut(), scene) {
             self.note = Some(note);
         }
-        if let Some(note) = self.acts.show_dialog(ui.ctx(), scene) {
+        if let Some(note) = self.acts.show_dialog(ui.ctx(), scene, &self.follower) {
             self.note = Some(note);
         }
         if self.table.rows().is_some_and(|rows| !rows.rows.is_empty()) {

@@ -5,10 +5,10 @@
 use egui::Modifiers;
 use egui::accesskit::Role;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
-use fresnel_core::ops::{Operation, Order};
+use fresnel_core::ops::{JobState, Operation, Order};
 use k8s_openapi::api::apps::v1::Deployment;
 
-use super::scene::{access, allowed, cluster, hover, rules_without, runs, target};
+use super::scene::{access, allowed, cluster, hover, job, jobs, rules_without, runs, target};
 use crate::data::scene;
 use crate::fake::{Window, shows, until, view, window};
 
@@ -99,4 +99,41 @@ fn a_bulk_action_that_one_cluster_forbids_is_off_with_the_object_in_its_reason()
         "Deployment scene/web in fra-stage: Forbidden: no rule lets you delete deployments (apps) web in scene.";
     assert!(shows(&window, reason));
     assert!(window.query_by_role_and_label(Role::Button, "Confirm Delete").is_none(), "no dialog");
+}
+
+/// The core keeps each job that runs, at most 500: a bulk action on more objects than the
+/// jobs that it can start now would end the rest as not sent, with only a journal entry. The
+/// menu and the dialog refuse it with the reason, and the room of a job that ended counts.
+#[test]
+fn a_bulk_action_on_more_objects_than_the_jobs_that_the_core_can_start_is_off() {
+    let deployments = scene::<Deployment>();
+    let web = target("ams-prod", &deployments, "web");
+    let running = |count: u64| {
+        let each = (1..=count).map(|number| job(number, web.clone(), Operation::RolloutStatus, JobState::Pending, &[]));
+        jobs(each.collect(), 0)
+    };
+    let mut session = view(vec![allowed("ams-prod", &deployments), allowed("fra-stage", &deployments)]);
+    session.jobs = running(499);
+    let mut window = window(session);
+    select_two(&mut window);
+    open_menu(&mut window);
+    assert!(window.get_by_label("Restart the selected").accesskit_node().is_disabled());
+    hover(&mut window, Role::Button, "Restart the selected");
+    let reason =
+        "The action needs 2 jobs and the app can start 1 job now. Select fewer objects, or wait for the jobs that run.";
+    assert!(shows(&window, reason));
+
+    window.state_mut().view.jobs = running(498);
+    window.run();
+    window.get_by_label("Restart the selected").click();
+    window.run();
+    assert!(!window.get_by_label("Confirm Restart").accesskit_node().is_disabled());
+    // More jobs start while the dialog asks.
+    window.state_mut().view.jobs = running(499);
+    window.run();
+    assert!(window.get_by_label("Confirm Restart").accesskit_node().is_disabled());
+    assert!(shows(&window, reason));
+    window.get_by_label("Confirm Restart").click();
+    window.run();
+    assert_eq!(runs(&window), Vec::<Order>::new());
 }

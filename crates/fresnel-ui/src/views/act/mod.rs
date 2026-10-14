@@ -7,6 +7,7 @@
 //! `Command::Run` with one order for each object.
 //!
 //! - `facts`: what an action reads of its object. `permits`: the permissions of the user.
+//!   `Found`: the object of an action in its store in a frame.
 //! - `dialog`: the dialog of an action: `confirm` before a change, `commands` for kubectl.
 
 mod commands;
@@ -61,6 +62,36 @@ impl Subject {
             if key.namespace.is_empty() { key.name.to_string() } else { format!("{}/{}", key.namespace, key.name) };
         format!("{} {object} in {cluster}", kind.info().name)
     }
+}
+
+/// What the store of its cluster tells of the object of an action in this frame. A dialog
+/// stays open for many frames: the object can go away, or a new object can take its name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Found {
+    /// The store has the object with the UID of the target, with these facts of now.
+    Here(Facts),
+    /// The object is not there now: the text tells why. An action would act on nothing, or
+    /// on an object that the user did not see.
+    Gone(String),
+    /// The store cannot tell: it has no complete list. The facts of before stay.
+    NotKnown,
+}
+
+/// Why the core cannot start a job for each of `count` objects now, if it cannot. The list
+/// of jobs keeps each one that runs, so the jobs over its room would end as not sent.
+pub(crate) fn over_room(count: usize, room: usize) -> Option<String> {
+    (count > room).then(|| {
+        format!(
+            "The action needs {} and the app can start {} now. Select fewer objects, or wait for the jobs that run.",
+            jobs(count),
+            jobs(room)
+        )
+    })
+}
+
+/// "1 job", "500 jobs".
+fn jobs(count: usize) -> String {
+    crate::format::count(count as u64, "job")
 }
 
 /// Whether an action can run on an object now.
