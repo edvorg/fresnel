@@ -11,21 +11,26 @@
 //!   `rollback`: the patch that goes back to a revision.
 //! - `job`: run a Job again, and the Job of a CronJob that the user triggers.
 //! - `kubectl`: the `kubectl` commands that a user can copy.
+//! - `state`: the state of a job. `procedure`: the steps of each operation.
 
 mod delete;
 mod history;
 mod job;
 pub mod kubectl;
+mod procedure;
 mod request;
 mod rollback;
 mod rollout;
+mod state;
 mod workload;
 
 use std::sync::Arc;
 
 pub use history::Revision;
 pub use job::trigger_name;
+pub use procedure::{Cancel, Parts, Progress, run};
 pub use rollout::Rollout;
+pub use state::{JobState, Outcome, Report, Step, StepState};
 
 use crate::cluster::ClusterId;
 use crate::error::CoreError;
