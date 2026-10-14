@@ -284,17 +284,23 @@ impl Core {
         self.inner.tasks.clone()
     }
 
-    /// A copy of the state of the app.
+    /// A copy of the state of the app at one moment.
+    ///
+    /// The core changes the selection under the lock of its state, and the registry after
+    /// it. A copy that read the registry after the lock could have the selection of one
+    /// moment and the connections of a later one: a cluster selected and off. Thus the copy
+    /// reads the registry under the same lock.
     pub fn view(&self) -> CoreView {
-        let (startup, shell_problem, selected, tables, config, manifest, mut data) = {
+        let (startup, shell_problem, selected, tables, config, manifest, mut data, clusters) = {
             let state = self.inner.state();
             let data: HashMap<ClusterId, ClusterData> =
                 state.connected.iter().map(|(id, connected)| (id.clone(), connected.data())).collect();
             let manifest = state.manifests.as_ref().and_then(ManifestReader::last);
             let (tables, config) = (state.tables.clone(), Arc::clone(&state.config));
-            (state.startup, state.shell_problem.clone(), state.selected.clone(), tables, config, manifest, data)
+            let clusters = self.inner.registry.get().map(Registry::snapshot).unwrap_or_default();
+            let selected = state.selected.clone();
+            (state.startup, state.shell_problem.clone(), selected, tables, config, manifest, data, clusters)
         };
-        let clusters = self.inner.registry.get().map(Registry::snapshot).unwrap_or_default();
         let row = |cluster: crate::cluster::ClusterView| {
             let selected = selected.contains(&cluster.id);
             let data = data.remove(&cluster.id);
