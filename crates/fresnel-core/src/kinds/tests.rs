@@ -182,3 +182,73 @@ fn a_visit_gives_the_type_of_each_kind() {
     let (_, pod) = Kind::Pod.visit(Titles);
     assert_eq!(pod[..7], ["Name", "Namespace", "Ready", "Status", "Restarts", "Last restart", "IP"]);
 }
+
+/// One change of each value of one sort in the JSON of an object.
+#[derive(Clone, Copy)]
+enum Extreme {
+    /// Each number becomes this number.
+    Number(i64),
+    /// Each list becomes empty.
+    NoItems,
+}
+
+impl Extreme {
+    fn apply(self, json: &mut serde_json::Value) {
+        use serde_json::Value as Json;
+        match (json, self) {
+            (Json::Number(number), Self::Number(to)) => *number = to.into(),
+            (Json::Array(items), Self::NoItems) => items.clear(),
+            (Json::Array(items), _) => items.iter_mut().for_each(|item| self.apply(item)),
+            (Json::Object(map), _) => map.values_mut().for_each(|value| self.apply(value)),
+            _ => {}
+        }
+    }
+}
+
+/// Bad data from the cluster: an object with no field, and each object of the fixture with
+/// each number at an extreme or each list empty. Each column, the health value and the
+/// search read each one with no panic, and an empty text or list is none.
+#[test]
+fn each_kind_reads_an_object_with_no_field_or_with_extreme_values() {
+    struct Hostile;
+    impl Visit for Hostile {
+        type Output = Vec<String>;
+        fn visit<K: Describe>(self) -> Self::Output {
+            let text = std::fs::read_to_string(columns::fixture(K::ID)).expect("the fixture of the kind");
+            let table: columns::Table = serde_json::from_str(&text).expect("a table of the server");
+            let mut objects: Vec<K> = vec![serde_json::from_str("{}").expect("an object with no field")];
+            let extremes = [i64::from(i32::MIN), -1, 0, i64::from(i32::MAX)].map(Extreme::Number);
+            for extreme in extremes.into_iter().chain([Extreme::NoItems]) {
+                for row in &table.rows {
+                    let mut json = row.object.clone();
+                    extreme.apply(&mut json);
+                    objects.push(serde_json::from_value(json).expect("the object after the change"));
+                }
+            }
+            let mut empty = Vec::new();
+            for object in &objects {
+                // The health value reads the object with no panic.
+                let _health = object.health();
+                let mut texts = Vec::new();
+                object.search(&mut texts);
+                if texts.contains(&"") {
+                    empty.push(format!("{:?}: an empty search text", K::ID));
+                }
+                for column in columns::<K>() {
+                    let value = (column.read)(object);
+                    let none = match &value {
+                        Value::Text(text) => text.is_empty(),
+                        Value::List(items) => items.is_empty() || items.iter().any(|item| item.is_empty()),
+                        _ => false,
+                    };
+                    if none {
+                        empty.push(format!("{:?} {}: {value:?}", K::ID, column.title));
+                    }
+                }
+            }
+            empty
+        }
+    }
+    let empty: Vec<String> = Kind::ALL.iter().flat_map(|kind| kind.visit(Hostile)).collect();
+    assert_eq!(empty, Vec::<String>::new(), "an empty value is none");
+}

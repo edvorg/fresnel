@@ -4,8 +4,6 @@
 
 mod status;
 
-use std::borrow::Cow;
-
 use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 
@@ -22,7 +20,7 @@ impl Describe for Pod {
             let status = PodStatus::of(pod);
             Value::Ratio(status.ready.into(), status.containers.into())
         }),
-        Column::text("Status", 140.0, |pod| Value::Text(Cow::Owned(PodStatus::of(pod).text))),
+        Column::text("Status", 140.0, |pod| Value::owned(PodStatus::of(pod).text)),
         Column::number("Restarts", 70.0, |pod| Value::Number(PodStatus::of(pod).restarts.into())),
         Column::number("Last restart", 100.0, |pod| match PodStatus::of(pod).last_restart {
             Some(time) => Value::time(Some(&time)),

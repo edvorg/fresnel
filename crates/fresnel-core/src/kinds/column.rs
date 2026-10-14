@@ -108,6 +108,12 @@ impl<'a> Value<'a> {
         text.filter(|text| !text.is_empty()).map_or(Self::None, |text| Self::Text(Cow::Borrowed(text)))
     }
 
+    /// A text that a column made, or none for an empty one: the status of a pod with no
+    /// status is empty.
+    pub fn owned(text: String) -> Self {
+        if text.is_empty() { Self::None } else { Self::Text(Cow::Owned(text)) }
+    }
+
     /// The number, or none.
     pub fn number(number: Option<impl Into<i64>>) -> Self {
         number.map_or(Self::None, |number| Self::Number(number.into()))
