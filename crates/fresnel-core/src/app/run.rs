@@ -174,7 +174,7 @@ impl Inner {
         match command {
             Command::Select { cluster, selected } => self.select(cluster, selected),
             Command::RetryNow(cluster) => self.retry(registry, &cluster).await?,
-            // A layout, the shown kinds and a manifest change no connection.
+            // A layout, the shown kinds, a manifest and a key view change no connection.
             Command::SaveTable { table, layout } => {
                 self.save_table(table, layout);
                 return Ok(());
@@ -185,6 +185,18 @@ impl Inner {
             }
             Command::ReadManifest(request) => {
                 self.read_manifest(registry, request);
+                return Ok(());
+            }
+            Command::ShowKeys(target) => {
+                self.show_keys(target);
+                return Ok(());
+            }
+            Command::SaveKeys(save) => {
+                self.save_keys(save);
+                return Ok(());
+            }
+            Command::CreateSecret(secret) => {
+                self.create_secret(registry, secret);
                 return Ok(());
             }
         }
@@ -289,8 +301,9 @@ impl Inner {
         // core keeps none: their tasks would hold the connections open.
         let old = match running.filter(|_| state.phase != Phase::Stopped) {
             Some(mut running) => {
-                // The views can show other kinds since the start of the stores.
+                // The views can show other kinds and an other key view since the start of the stores.
                 running.show(&state.shown);
+                running.show_keys(self, state.keys.as_ref());
                 state.connected.insert(id.clone(), running)
             }
             None => state.connected.remove(id),

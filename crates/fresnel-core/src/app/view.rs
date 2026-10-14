@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use fresnel_net::ClusterStatus;
 
+use super::create::CreateJob;
 use super::data::ClusterData;
 use super::health::{self, Health};
 use super::manifest::ManifestRead;
@@ -129,6 +130,8 @@ pub struct CoreView {
     pub config: Arc<Config>,
     /// The last read of a manifest that a view asked for.
     pub manifest: Option<Arc<ManifestRead>>,
+    /// The last create of a Secret.
+    pub create: Option<Arc<CreateJob>>,
     /// The journal.
     pub journal: Arc<JournalView>,
 }

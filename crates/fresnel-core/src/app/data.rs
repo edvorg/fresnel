@@ -15,12 +15,14 @@ use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName};
 use futures_util::future::select;
 use k8s_openapi::api::core::v1::Pod;
 
+use super::keys::{ClusterKeys, KeysHolder, KeysView};
 use super::objects::{Objects, ShownKinds};
 use super::repaint::Repaint;
 use super::{Inner, watch};
-use crate::cluster::{ClusterId, Link};
+use crate::cluster::{ClusterId, Gateway, Link};
 use crate::error::CoreError;
 use crate::index::{ClusterIndexes, Index, IndexParts, ObjectEvents, Owners, References};
+use crate::keys::Target;
 use crate::kinds::{Describe, Kind};
 use crate::published::{Changes, Disposal, Held, Reader};
 use crate::search::Source;
@@ -45,6 +47,8 @@ pub struct ClusterData {
     pub sources: Arc<[Source]>,
     /// The full objects of the kinds that the views show (`Command::ShowKinds`).
     pub objects: Objects,
+    /// The object of the key view, when it is an object of this cluster (`Command::ShowKeys`).
+    pub keys: Option<Arc<KeysView>>,
 }
 
 impl ClusterData {
@@ -94,6 +98,8 @@ impl fmt::Debug for ClusterData {
 /// stores that they read, and the state watch goes last, because it holds the connections
 /// of the cluster open.
 pub(super) struct Connected {
+    keys: ClusterKeys,
+    gateway: Gateway,
     pods: Reader<Snapshot<Pod>>,
     events: Option<Reader<Index<ObjectEvents>>>,
     owners: Reader<Index<Owners>>,
@@ -125,6 +131,8 @@ impl Connected {
         let mut shown_kinds = ShownKinds::default();
         shown_kinds.set(&stores, shown);
         Ok(Self {
+            keys: ClusterKeys::default(),
+            gateway: link.gateway.clone(),
             pods,
             events: indexes.events(),
             owners: indexes.owners(),
@@ -142,6 +150,22 @@ impl Connected {
         self.shown.set(&self.stores, kinds);
     }
 
+    /// Follows the object of the key view when it is an object of this cluster, and drops
+    /// the object of an earlier view. The same object again keeps its holder.
+    pub(super) fn show_keys(&mut self, inner: &Inner, target: Option<&Target>) {
+        let target = target.filter(|target| &target.cluster == self.stores.cluster());
+        let (gateway, stores) = (&self.gateway, &self.stores);
+        self.keys.show(target, |target| {
+            let metadata = stores.metadata(target.kind.kind());
+            KeysHolder::start(&inner.tasks, target.clone(), gateway.clone(), metadata, inner.repaint.clone())
+        });
+    }
+
+    /// The holder of the object of the key view, when it is the object of `target`.
+    pub(super) fn keys(&self, target: &Target) -> Option<&KeysHolder> {
+        self.keys.holder(target)
+    }
+
     /// A copy of what the views read. The call copies a pointer for each store and index.
     pub(super) fn data(&self) -> ClusterData {
         let sources: Arc<[Source]> = self.stores.sources().into();
@@ -153,6 +177,7 @@ impl Connected {
             stores: sources.iter().map(|source| source.status.clone()).collect(),
             sources,
             objects: self.shown.read(),
+            keys: self.keys.view(),
         }
     }
 }

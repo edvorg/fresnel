@@ -191,6 +191,7 @@ pub(crate) fn data(pods: Snapshot<Pod>) -> ClusterData {
         stores: Arc::from([]),
         sources: Arc::from([]),
         objects: Objects::default(),
+        keys: None,
     }
 }
 

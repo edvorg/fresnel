@@ -7,14 +7,19 @@
 //! - `run`: the task that starts the core and runs each command.
 //! - `saved`: the selection of clusters and the table layouts in the state file. `config`:
 //!   the read of the settings file.
+//! - `command`: what the UI asks for.
 //! - `data`: the stores and the indexes of each connected cluster. `objects`: the full
 //!   objects of the kinds that the views show. `manifest`: the read of one manifest.
+//! - `keys`: the object of the key view and its saves. `create`: the create of a Secret.
 //! - `watch`: one task for each connected cluster, for the journal and the repaint.
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
 
+mod command;
 mod config;
+mod create;
 mod data;
 mod health;
+mod keys;
 mod manifest;
 mod objects;
 mod repaint;
@@ -35,8 +40,11 @@ use fresnel_net::task::{Backoff, Reporter, Restart, TaskHandle, TaskName, TaskRe
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
+pub use command::Command;
+pub use create::CreateJob;
 pub use data::ClusterData;
 pub use health::Health;
+pub use keys::{KeysView, ReadState, SaveJob};
 pub use manifest::{ManifestRead, ManifestRequest, ManifestState};
 pub use objects::Objects;
 pub use view::{ClusterRow, CoreView, ShellNote, Startup};
@@ -44,10 +52,12 @@ pub use view::{ClusterRow, CoreView, ShellNote, Startup};
 use crate::cluster::{ClusterId, Registry};
 use crate::config::Config;
 use crate::journal::Journal;
+use crate::keys::Target;
 use crate::kinds::Kind;
 use crate::published::Disposal;
 use crate::state_file::TableLayout;
 use crate::store::StoreSettings;
+use create::SecretWriter;
 use data::Connected;
 use manifest::ManifestReader;
 use repaint::Repaint;
@@ -103,37 +113,6 @@ pub struct CoreParts {
     pub settings: CoreSettings,
 }
 
-/// What the UI asks the core to do.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Command {
-    /// Selects a cluster or removes it from the selection. The core connects each
-    /// selected cluster.
-    Select {
-        /// The cluster.
-        cluster: ClusterId,
-        /// True to select it.
-        selected: bool,
-    },
-    /// "Retry now" for one cluster: each retry delay ends, that of a connect one time in 10 s
-    /// at most, and a failed plugin runs again. For a cluster whose connect did not start,
-    /// the kubeconfig files load again.
-    RetryNow(ClusterId),
-    /// Saves the layout of a table that the user changed. An empty layout removes the table
-    /// from the state file.
-    SaveTable {
-        /// The name of the table.
-        table: String,
-        /// What the user changed of it.
-        layout: TableLayout,
-    },
-    /// The views show the objects of these kinds: the core holds a store of their full
-    /// objects in each connected cluster, and the view gets the snapshots. The pods need
-    /// no command: the view always has them.
-    ShowKinds(BTreeSet<Kind>),
-    /// Reads the manifest of one object from its server. The view gets the result.
-    ReadManifest(ManifestRequest),
-}
-
 /// The life of the core. It goes one way.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -168,6 +147,12 @@ struct State {
     shown: BTreeSet<Kind>,
     /// The task of the manifest reads. It starts with the first request.
     manifests: Option<ManifestReader>,
+    /// The object of the key view, which the core follows while the view is open.
+    keys: Option<Target>,
+    /// The number of the last save of the key view.
+    saves: u64,
+    /// The task of the creates of Secrets. It starts with the first create.
+    creates: Option<SecretWriter>,
     detectors: Option<Vec<Box<dyn Detector>>>,
     monitor: Option<Monitor>,
     /// The tasks of the core itself. Empty before the start and after the stop.
@@ -227,6 +212,9 @@ impl Core {
             connected: HashMap::new(),
             shown: BTreeSet::new(),
             manifests: None,
+            keys: None,
+            saves: 0,
+            creates: None,
             detectors: Some(detectors),
             monitor: None,
             running: Vec::new(),
@@ -292,15 +280,16 @@ impl Core {
     /// moment and the connections of a later one: a cluster selected and off. Thus the copy
     /// reads the registry under the same lock.
     pub fn view(&self) -> CoreView {
-        let (startup, shell_problem, selected, tables, config, manifest, mut data, clusters) = {
+        let (startup, shell_problem, selected, tables, config, (manifest, create), mut data, clusters) = {
             let state = self.inner.state();
             let data: HashMap<ClusterId, ClusterData> =
                 state.connected.iter().map(|(id, connected)| (id.clone(), connected.data())).collect();
             let manifest = state.manifests.as_ref().and_then(ManifestReader::last);
+            let create = state.creates.as_ref().and_then(SecretWriter::last);
             let (tables, config) = (state.tables.clone(), Arc::clone(&state.config));
             let clusters = self.inner.registry.get().map(Registry::snapshot).unwrap_or_default();
             let selected = state.selected.clone();
-            (state.startup, state.shell_problem.clone(), selected, tables, config, manifest, data, clusters)
+            (state.startup, state.shell_problem.clone(), selected, tables, config, (manifest, create), data, clusters)
         };
         let row = |cluster: crate::cluster::ClusterView| {
             let selected = selected.contains(&cluster.id);
@@ -314,6 +303,7 @@ impl Core {
             tables,
             config,
             manifest,
+            create,
             journal: self.inner.journal.view(),
         }
     }
@@ -349,7 +339,8 @@ impl Core {
             let mut state = self.inner.state();
             state.phase = Phase::Stopped;
             state.commands.clear();
-            let tasks = (std::mem::take(&mut state.running), state.manifests.take(), state.monitor.take());
+            let readers = (state.manifests.take(), state.creates.take());
+            let tasks = (std::mem::take(&mut state.running), readers, state.monitor.take());
             (tasks, std::mem::take(&mut state.connected))
         };
         drop(stopped);
