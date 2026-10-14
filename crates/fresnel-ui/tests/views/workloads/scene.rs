@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use egui::accesskit::Role;
 use egui_kittest::kittest::Queryable as _;
@@ -17,7 +18,7 @@ use k8s_openapi::api::batch::v1::Job;
 use serde_json::json;
 
 use crate::data::{held, scene, store};
-use crate::fake::{Window, until, view, window};
+use crate::fake::{Window, view, window};
 use crate::kinds::in_panel;
 use crate::kinds::scene::{live, uid_of};
 
@@ -82,6 +83,9 @@ pub(crate) fn opened<K: Describe>(clusters: Vec<ClusterRow>, name: &str) -> Wind
     window
 }
 
+/// The longest wait for the panel of an object.
+const LIMIT: Duration = Duration::from_secs(30);
+
 /// Opens the page of a kind and the panel of an object of it. The filter of the page puts
 /// its row on the screen: the table draws only the rows there.
 pub(crate) fn open(window: &mut Window, page: &str, name: &str) {
@@ -89,13 +93,20 @@ pub(crate) fn open(window: &mut Window, page: &str, name: &str) {
     window.get_by_role(Role::TextInput).click();
     window.run();
     window.get_by_role(Role::TextInput).type_text(name);
-    // The rows of the filter come from the worker thread: a click on the rows of before
-    // could hit an other row.
-    until(window, "the rows of the filter", |window| {
-        window.query_by_label("updating…").is_none() && window.query_by_role_and_label(Role::Label, name).is_some()
-    });
-    window.get_by_role_and_label(Role::Label, name).click();
-    until(window, "the panel", |window| in_panel(window, name));
+    // The rows of the filter come from the worker thread, and "updating…" shows only for a
+    // slow one: a frame can still show the rows of before, and a click there can hit an
+    // other row when the new rows come. So the click goes to the row of the name of each
+    // new frame until the panel shows the object.
+    let started = Instant::now();
+    while !in_panel(window, name) {
+        assert!(started.elapsed() < LIMIT, "in time: the panel of {name}");
+        let row = window.query_all_by_role_and_label(Role::Label, name).next();
+        if let Some(row) = row.filter(|_| window.query_by_label("updating…").is_none()) {
+            row.click();
+        }
+        window.run();
+        std::thread::sleep(Duration::from_millis(1));
+    }
 }
 
 /// Clicks the first widget with this label in the panel, as a screen reader does: a link
