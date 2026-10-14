@@ -67,6 +67,9 @@ fn copy_gives_the_text_of_a_value_and_the_base64_of_a_binary_value() {
     let png = b"\x89PNG\r\n\x1a\n\x00\x01".as_slice();
     let values = [("color", Place::Data, b"blue".as_slice()), ("logo", Place::BinaryData, png)];
     give(&mut window, "ams-prod", Some(loaded(read(&assets, "1", &values))));
+    // The actions of the header put the row low in the panel: it scrolls to it first.
+    window.get_by_label("Copy the value of logo").scroll_to_me();
+    window.run();
     window.get_by_label("Copy the value of logo").click();
     window.step();
     assert_eq!(copied(&window).as_deref(), Some("iVBORw0KGgoAAQ=="));
