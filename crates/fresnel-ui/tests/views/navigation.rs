@@ -7,15 +7,19 @@ use std::sync::Arc;
 use egui::accesskit::Role;
 use egui::{Key, Modifiers};
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use fresnel_core::app::ClusterRow;
 use fresnel_core::commands::{CommandId, Keys};
 use fresnel_core::config::Config;
-use fresnel_core::store::StoreState;
+use fresnel_core::kinds::Kind;
+use fresnel_core::search::Source;
+use fresnel_core::store::{Snapshot, StoreState};
 
+use crate::data::{changed_object, held, live, pods, store};
 use crate::fake::{Window, in_one_frame, open_page, press, shows, until, view, window};
 use crate::kinds::in_panel;
 use crate::kinds::scene::{config_maps, live as live_kind, nodes};
 use crate::pods::column;
-use crate::search::{search, searchable, until_hit};
+use crate::search::{self, search, searchable, secrets, until_hit, with_sources};
 
 fn back(window: &mut Window) {
     window.key_press_modifiers(Modifiers::COMMAND, Key::OpenBracket);
@@ -184,4 +188,44 @@ fn two_presses_of_back_in_one_frame_are_two_steps() {
     in_one_frame(&mut window, [back.clone(), back].concat());
     until(&mut window, "a step back", |window| !in_panel(window, "done"));
     assert!(in_panel(&window, "crash"), "two steps back");
+}
+
+/// A cluster whose Secrets page waits for its list: the store of the metadata has each
+/// Secret, and the store of the full objects has the Secret `other` only, until `listed`.
+fn waiting_secrets(listed: bool) -> ClusterRow {
+    let other = changed_object(&*secrets()[0], |value| {
+        value["metadata"]["name"] = "other".into();
+        value["metadata"]["uid"] = "uid-other".into();
+    });
+    let metadata = Source::metadata(Kind::Secret, held(store(StoreState::Live, &search::metadata(&secrets()))));
+    let mut row = with_sources(live("ams-prod", &pods()), vec![metadata]);
+    let full = if listed {
+        Snapshot { generation: 2, ..store(StoreState::Live, &[secrets()[0].clone(), other]) }
+    } else {
+        Snapshot { listed: false, ..store(StoreState::Listing { loaded: 1 }, &[other]) }
+    };
+    if let Some(data) = row.data.as_mut() {
+        data.objects = data.objects.clone().with(held(full));
+    }
+    row
+}
+
+/// The object of a link waits for the list of its store, with a note. A row that the user
+/// clicks in that time ends the wait, so the list that arrives later does not take the
+/// panel from it.
+#[test]
+fn a_link_that_waits_for_its_store_has_a_note_and_a_later_click_ends_the_wait() {
+    let mut window = window(view(vec![waiting_secrets(false)]));
+    search(&mut window, "web-secret");
+    until_hit(&mut window, "Secret kinds/web-secret of ams-prod");
+    window.key_press(Key::Enter);
+    let note = "The Secret web-secret of ams-prod opens when its store has a complete list.";
+    until(&mut window, "the note of the link", |window| shows(window, note));
+
+    click_row(&mut window, "other");
+    until(&mut window, "the panel of the row", |window| in_panel(window, "other"));
+    assert!(!shows(&window, note), "the click ended the wait");
+    window.state_mut().view = view(vec![waiting_secrets(true)]);
+    until(&mut window, "the complete list", |window| shows(window, "2 Secrets"));
+    assert!(in_panel(&window, "other") && !in_panel(&window, "web-secret"), "the panel keeps the row of the click");
 }

@@ -34,7 +34,9 @@ pub(crate) struct ObjectPage<M: ObjectModel> {
     filter: ObjectFilter,
     /// The object of the detail panel. `None` while the panel is closed.
     detail: Option<DetailPanel<M::Object>>,
-    /// The object of a link, until the store of its cluster has a complete list.
+    /// The object of a link, until the store of its cluster has a complete list. A note
+    /// tells the wait, and a row or a panel that the user chooses ends it, so a list that
+    /// arrives later does not take the panel from the choice of the user.
     wanted: Option<Link>,
     /// What the last link or action did not do, and why; or what it copied.
     note: Option<(Tone, String)>,
@@ -86,8 +88,11 @@ impl<M: ObjectModel> ObjectPage<M> {
             return;
         };
         let name = format!("{} {}", <M::Object as Describe>::ID.info().name, link.key.name);
+        let waits = format!("The {name} of {} opens when its store has a complete list.", link.cluster);
         let Some(snapshot) = self.follower.snapshot(&link.cluster) else {
-            if !scene.view.clusters.iter().any(|row| row.id == link.cluster && row.selected) {
+            if scene.view.clusters.iter().any(|row| row.id == link.cluster && row.selected) {
+                self.note = Some((Tone::Info, waits));
+            } else {
                 let text = format!("The {name} is of {}, which is not selected.", link.cluster);
                 (self.note, self.wanted) = (Some((Tone::Warn, text)), None);
             }
@@ -99,31 +104,38 @@ impl<M: ObjectModel> ObjectPage<M> {
                 let id = ObjectId { cluster, key, uid: uid(object.meta()).into() };
                 let object = Arc::clone(object);
                 self.show_object(id, object);
-                self.wanted = None;
             }
             None if snapshot.listed => {
                 (self.note, self.wanted) = (Some((Tone::Warn, format!("{} has no {name}.", link.cluster))), None);
             }
-            None => {}
+            None => self.note = Some((Tone::Info, waits)),
         }
     }
 
-    /// Selects an object, scrolls to its row and shows its panel.
+    /// Selects an object, scrolls to its row and shows its panel. That ends the wait for
+    /// the object of a link.
     fn show_object(&mut self, id: ObjectId, object: Arc<M::Object>) {
         self.table.select(id.clone());
         self.opened = Some(link_of::<M::Object>(&id));
         self.detail = Some(DetailPanel::new(id, object));
-        self.note = None;
+        (self.note, self.wanted) = (None, None);
     }
 
     /// The object of the menu of a row: it becomes the object of the panel, and the action
-    /// acts on it.
+    /// acts on it. An object that went away since the frame of the menu gets a note.
     fn act_on_row(&mut self, ctx: &Context, id: ObjectId, action: Action) {
         let store = self.follower.snapshot(&id.cluster);
         let object = store.and_then(|store| store.items.get(&id.key)).filter(|object| uid(object.meta()) == &*id.uid);
-        if let Some(object) = object.map(Arc::clone) {
-            self.show_object(id, object);
-            self.act(ctx, action);
+        match object.map(Arc::clone) {
+            Some(object) => {
+                self.show_object(id, object);
+                self.act(ctx, action);
+            }
+            None => {
+                let text =
+                    format!("The {} {} went away, so {} did not run.", self.nouns.one, id.key.name, action.label());
+                self.note = Some((Tone::Warn, text));
+            }
         }
     }
 
@@ -216,7 +228,7 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
             let frame = frame.frame(Frame::new().fill(palette.bg_surface));
             match frame.show(ui, |ui| panel.show(ui, scene, cluster, &self.nouns)).inner {
                 detail::Act::Close => {
-                    self.detail = None;
+                    (self.detail, self.wanted) = (None, None);
                     self.table.clear_selection();
                 }
                 detail::Act::Open(target) => link = Some(target),
@@ -251,11 +263,11 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
                 let row = self.table.cursor_row();
                 self.detail = row.map(|row| DetailPanel::new(model.id(row).clone(), Arc::clone(model.object(row))));
                 self.opened = self.detail.as_ref().map(|panel| link_of::<M::Object>(panel.id()));
-                self.note = None;
+                (self.note, self.wanted) = (None, None);
                 // The panel is before the table in a frame, so the next frame shows it.
                 ui.ctx().request_repaint();
             }
-            Some(Act::Cleared) => self.detail = None,
+            Some(Act::Cleared) => (self.detail, self.wanted) = (None, None),
             None => {}
         }
         if let Some((id, action)) = chosen {
