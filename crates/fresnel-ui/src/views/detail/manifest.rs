@@ -62,15 +62,16 @@ impl ManifestTab {
                 ui.label(RichText::new(format!("version {read}")).size(SMALL).color(palette.text_faint));
             }
         });
-        // A deleted object has no version in its store: a read would fail.
-        if version.is_some()
-            && (again || self.asked.as_ref() != Some(&wanted))
-            && request.managed_fields == self.managed_fields
-        {
+        let last = scene.view.manifest.as_ref().filter(|read| read.request == request);
+        // A new version waits for the end of the read in progress: a new request would end
+        // it, and an object that changes faster than a read would never show. A deleted
+        // object has no version in its store, and a read of it would fail.
+        let reading = last.is_some_and(|read| matches!(read.state, ManifestState::Reading));
+        let newer = self.asked.as_ref() != Some(&wanted) && !(reading && self.asked_for(&request));
+        if version.is_some() && (again || newer) && request.managed_fields == self.managed_fields {
             scene.commands.push(Command::ReadManifest(request.clone()));
             self.asked = Some(wanted);
         }
-        let last = scene.view.manifest.as_ref().filter(|read| read.request == request);
         match last.map(|read| &read.state) {
             Some(ManifestState::Done(manifest)) => self.keep(&request, manifest),
             Some(ManifestState::Failed(error)) => note(ui, palette.error, &format!("The read failed: {error}")),
@@ -83,6 +84,11 @@ impl ManifestTab {
             note(ui, palette.warn, "The object left its store. The tab shows the last manifest that it read.");
         }
         self.lines(ui, palette, &request);
+    }
+
+    /// True when the last request of the tab was for this object in this form.
+    fn asked_for(&self, request: &ManifestRequest) -> bool {
+        self.asked.as_ref().is_some_and(|(asked, _)| asked == request)
     }
 
     /// Takes a manifest that the core gave. The lines of the same text are known.

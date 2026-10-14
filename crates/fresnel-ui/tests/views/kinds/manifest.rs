@@ -64,13 +64,22 @@ fn the_tab_asks_for_each_version_of_its_object_and_shows_the_lines_on_the_screen
     window.run();
     assert_eq!(reads(&window), 3);
 
-    // A new version of the object in its store asks again.
+    // A new version of the object in its store asks again, after the end of the read in
+    // progress: an object that changes faster than a read would else never show.
     let web = all.iter().find(|object| object.metadata.name.as_deref() == Some("web")).expect("web");
-    let next = changed_object(&**web, |value| value["metadata"]["resourceVersion"] = "43".into());
     let others = all.iter().filter(|object| !Arc::ptr_eq(object, web)).cloned();
-    window.state_mut().view = view(vec![live("ams-prod", &others.clone().chain([next]).collect::<Vec<_>>())]);
-    window.run();
-    assert_eq!(reads(&window), 4, "the new version");
+    let version = |number: u32| {
+        let next = changed_object(&**web, |value| value["metadata"]["resourceVersion"] = number.to_string().into());
+        view(vec![live("ams-prod", &others.clone().chain([next]).collect::<Vec<_>>())])
+    };
+    for number in 43..46 {
+        window.state_mut().view = version(number);
+        answer(&mut window, kept.clone(), ManifestState::Reading);
+    }
+    assert_eq!(reads(&window), 3, "no read during the read in progress");
+    window.state_mut().view = version(46);
+    answer(&mut window, kept.clone(), ManifestState::Failed(error("the request got no answer in 10s")));
+    assert_eq!(reads(&window), 4, "the newest version after the end of the read");
 
     // A deleted object asks for no read: its server has no such object.
     window.state_mut().view = view(vec![live("ams-prod", &others.collect::<Vec<_>>())]);
