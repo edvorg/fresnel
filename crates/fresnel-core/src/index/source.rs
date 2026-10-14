@@ -20,6 +20,13 @@ pub struct SourceStatus {
     pub since: SystemTime,
 }
 
+impl SourceStatus {
+    /// What an index knows of a store after it read this snapshot of it.
+    pub(super) fn of<T>(kind: Kind, snapshot: &Snapshot<T>) -> Self {
+        Self { kind, listed: snapshot.listed, state: snapshot.state.clone(), since: snapshot.since }
+    }
+}
+
 /// One store with the objects that the index read from it. The differences from these
 /// objects to the next snapshot are the changes that the index must apply.
 pub(super) struct Tracked<T> {
@@ -41,7 +48,7 @@ impl<T: Object> Tracked<T> {
         let snapshot = self.reader.read();
         self.seen.changes_to(&snapshot.items).for_each(&mut apply);
         self.seen = snapshot.items.clone();
-        SourceStatus { kind: self.kind, listed: snapshot.listed, state: snapshot.state.clone(), since: snapshot.since }
+        SourceStatus::of(self.kind, &snapshot)
     }
 
     /// The objects of the last read.

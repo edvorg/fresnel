@@ -1,10 +1,15 @@
 //! The objects of the selected clusters in the view of the core.
 
-use fresnel_core::app::{ClusterData, CoreSettings, CoreView, Health};
+use std::collections::BTreeSet;
+
+use fresnel_core::app::{ClusterData, Command, CoreSettings, CoreView, Health, ManifestRequest, ManifestState};
+use fresnel_core::cluster::ClusterId;
 use fresnel_core::index::Basis;
 use fresnel_core::kinds::Kind;
+use fresnel_core::manifest::ManagedFields;
 use fresnel_core::store::ObjectKey;
 use fresnel_testkit::FakeApiServer;
+use k8s_openapi::api::core::v1::ConfigMap;
 
 use super::selection::until_saved;
 use super::{App, home, row, write_kubeconfig};
@@ -105,4 +110,61 @@ async fn stores_that_do_not_start_are_a_failed_connect_with_the_reason() {
     assert_eq!(texts, ["the connect did not start: a list page has one object at least"]);
     in_time("the connections close", server.wait_for(|counters| counters.open_connections == 0)).await;
     assert!(server.requests().iter().all(|seen| seen.uri.path() == "/version"), "no store sent a request");
+}
+
+/// The text of the last manifest read, or its error. `None` while the read is in progress.
+fn manifest_of(view: &CoreView, number: u64) -> Option<Result<String, String>> {
+    let read = view.manifest.as_ref().filter(|read| read.number == number)?;
+    match &read.state {
+        ManifestState::Reading => None,
+        ManifestState::Done(manifest) => Some(Ok(manifest.text.clone())),
+        ManifestState::Failed(error) => Some(Err(error.to_string())),
+    }
+}
+
+/// Plan section 9.5 and 12.9: a view that shows a tier B kind gets the full objects of it
+/// while it shows it, and the read of a manifest gives the YAML of one object.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_shown_kind_gives_its_full_objects_and_a_manifest_read_gives_the_yaml_of_one_object() {
+    let server = FakeApiServer::start().await.expect("a server");
+    let config = r#"{"metadata":{"name":"web","namespace":"shop","uid":"u-web","resourceVersion":"5",
+        "managedFields":[{"manager":"kubectl"}]},"data":{"mode":"fast"}}"#;
+    server.set_body(&Kind::ConfigMap.info().path(), &list(&[config.to_owned()]));
+    server.set_body("/api/v1/namespaces/shop/configmaps/web", config);
+    let home = home("shown");
+    write_kubeconfig(&home, "fake", &[("fake", server.addr(), &server, false)]);
+    let app = App::started(&home, CoreSettings::default());
+    app.until_health("fake", Health::Live).await;
+
+    let mode = |view: &CoreView| {
+        let configs = data(view, "fake")?.snapshot::<ConfigMap>()?;
+        let web = configs.items.get(&ObjectKey::new("shop", "web"))?;
+        web.data.as_ref()?.get("mode").cloned()
+    };
+    assert_eq!(mode(&app.core.view()), None, "no view shows the ConfigMaps, and a store of metadata has no data");
+    app.core.send(Command::ShowKinds(BTreeSet::from([Kind::ConfigMap])));
+    let shown = app.until("the full ConfigMaps", |view| mode(view).is_some()).await;
+    assert_eq!(mode(&shown).as_deref(), Some("fast"));
+
+    let request = |cluster: &str, managed_fields| ManifestRequest {
+        cluster: ClusterId::new(cluster),
+        kind: Kind::ConfigMap,
+        key: ObjectKey::new("shop", "web"),
+        managed_fields,
+    };
+    for (number, managed_fields) in [(1, ManagedFields::Removed), (2, ManagedFields::Kept)] {
+        app.core.send(Command::ReadManifest(request("fake", managed_fields)));
+        let read = app.until("the manifest", |view| manifest_of(view, number).is_some()).await;
+        let text = manifest_of(&read, number).expect("a read").expect("the manifest");
+        assert!(text.contains("name: web") && text.contains("mode: fast"), "{text}");
+        assert_eq!(text.contains("managedFields"), managed_fields == ManagedFields::Kept, "{text}");
+    }
+    app.core.send(Command::ReadManifest(request("absent", ManagedFields::Removed)));
+    let failed = app.until("the failed read", |view| manifest_of(view, 3).is_some()).await;
+    assert_eq!(manifest_of(&failed, 3), Some(Err("absent is not connected".to_owned())));
+
+    // A view that shows no kind: the view has no full objects of it.
+    app.core.send(Command::ShowKinds(BTreeSet::new()));
+    app.until("no full ConfigMaps", |view| data(view, "fake").is_some_and(|data| data.objects.kinds().count() == 0))
+        .await;
 }

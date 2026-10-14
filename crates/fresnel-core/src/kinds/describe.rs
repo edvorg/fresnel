@@ -3,6 +3,7 @@
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::{ClusterResourceScope, Metadata, NamespaceResourceScope, Resource};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::{Action, Column, Kind, ObjectHealth, Tier};
@@ -47,9 +48,10 @@ impl Sidebar {
 /// in the scope of the app, in the file of its kind.
 ///
 /// A value of the description comes from the object alone, with no clock and no other
-/// object. Thus a row of a table changes only when its own object changes.
+/// object. Thus a row of a table changes only when its own object changes. A view writes
+/// the object as JSON to read the parts that each kind has, such as its conditions.
 pub trait Describe:
-    Resource<Scope: Scope> + Metadata<Ty = ObjectMeta> + DeserializeOwned + Send + Sync + 'static
+    Resource<Scope: Scope> + Metadata<Ty = ObjectMeta> + DeserializeOwned + Serialize + Send + Sync + 'static
 {
     /// The identity of the kind. The list of the kinds checks that it names this type.
     /// (The name `KIND` is the name of the kind in a manifest, from `Resource`.)

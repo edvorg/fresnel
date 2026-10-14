@@ -61,9 +61,7 @@ impl Index<ObjectEvents> {
         for (key, event) in events.items.iter() {
             link(&mut relations, subject(event), key);
         }
-        let source =
-            SourceStatus { kind: Kind::Event, listed: events.listed, state: events.state.clone(), since: events.since };
-        Self::following(1, vec![source], relations).in_state(state)
+        Self::following(1, vec![SourceStatus::of(Kind::Event, events)], relations).in_state(state)
     }
 }
 

@@ -104,12 +104,12 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Registry**: one entry for each context, with the connections of each connected cluster.
 - **Gateway**: one function for each request kind: get, list page, watch stream, log stream,
   send and upgrade. A failed write tells its fate, and each read has a size limit.
-- **Manifest**: `manifest::fetch` gives the YAML of one object, with no `managedFields` by default.
-- **App core**: `app::Core` owns the registry, the tasks and the journal. It does no work
-  before its start. Then one task reads the login shell environment and the kubeconfig files,
-  connects each selected cluster and runs each command of the UI. A connected cluster has its
-  stores, its indexes and one task that puts its state changes into the journal.
-- **State file**: the selection and column widths of the last run. **Journal**: 10,000 entries.
+- **Manifest**: `manifest::fetch` gives the YAML of one object, with no `managedFields` by
+  default. One task of the core reads the manifest that the view asked for last.
+- **App core**: `app::Core` owns the registry, the tasks and the journal. After its start, one
+  task reads the login shell environment and the kubeconfig files, connects each selected
+  cluster and runs each command. A cluster has its stores, indexes and a journal task.
+- **State file**: the selection and table layouts of the last run. **Journal**: 10,000 entries.
 
 ## Stores and indexes
 
@@ -142,13 +142,14 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 ## Contract between the UI and the core
 
-1. **State.** `Core::view` gives a copy of each state: the clusters with their connections, the
-   Pod snapshot and the Event index of each connected cluster, and the journal. The UI never
+1. **State.** `Core::view` gives a copy of each state: the clusters with their connections; of
+   each connected cluster the Pods, the indexes, the facts of each store and the full objects
+   of each kind that `ShowKinds` names; the last manifest read; and the journal. The UI never
    gets a lock that can stop a task. A view holds no handle to the core.
 2. **Commands.** A view returns a `Command`, and the task of the core runs it.
 3. **Workers.** A view computes its rows on a worker thread: see "Window".
-4. **Repaint.** A new value that a view reads asks for a repaint. One notifier limits the
-   repaints to 60 in one second. The core does not know egui: the window gives it the wake.
+4. **Repaint.** A new snapshot or index asks for a repaint. One notifier limits the repaints
+   to 60 in one second. The core does not know egui: the window gives it the wake.
 5. **Memory.** A thread frees each old snapshot and the rows. A view on a hidden page has none.
 
 ## Window
@@ -173,7 +174,6 @@ the dock (Journal, Connections) and the status bar. `fresnel::frame::draw` is on
 ## Test kit
 
 `fresnel-testkit` has four parts. Each part runs in the test process and stops at its drop.
-
 - `FaultProxy`: a TCP proxy that holds, freezes, delays, resets or silences connections.
 - `K3s`: k3s in Docker: its kube-apiserver address, `kubectl`, a restart, a group version off.
 - `FakeApiServer`: TLS, HTTP/2, HTTP/1.1, watch streams, the HTTP 101 upgrade, and faults.

@@ -21,7 +21,7 @@ const PAD: f32 = 10.0;
 
 fn save(widths: &[(&str, u32)]) -> Command {
     let widths = widths.iter().map(|(title, width)| ((*title).to_owned(), *width)).collect();
-    Command::SaveTable { table: "Pods".to_owned(), layout: TableLayout { widths } }
+    Command::SaveTable { table: "Pods".to_owned(), layout: TableLayout { widths, ..TableLayout::default() } }
 }
 
 /// The span of a column whose title shows.
@@ -67,7 +67,8 @@ fn with_each_column(saved: u32, size: egui::Vec2) -> Window {
     let mut window = window(CoreView { tables: None, ..view(vec![live("ams-prod", &pods())]) });
     window.set_size(size);
     let widths = TITLES.iter().map(|title| ((*title).to_owned(), saved)).collect();
-    window.state_mut().view.tables = Some(Arc::new(BTreeMap::from([("Pods".to_owned(), TableLayout { widths })])));
+    window.state_mut().view.tables =
+        Some(Arc::new(BTreeMap::from([("Pods".to_owned(), TableLayout { widths, ..TableLayout::default() })])));
     until(&mut window, "the saved widths", |window| width(window, "Namespace") == saved as f32);
     window
 }
@@ -91,7 +92,7 @@ fn a_first_column_wider_than_the_table_keeps_its_edge_and_the_other_columns_on_t
     let saved = |name: f32| {
         let mut widths: BTreeMap<String, u32> = TITLES.iter().map(|title| ((*title).to_owned(), 2000)).collect();
         widths.insert("Name".to_owned(), name.round() as u32);
-        Command::SaveTable { table: "Pods".to_owned(), layout: TableLayout { widths } }
+        Command::SaveTable { table: "Pods".to_owned(), layout: TableLayout { widths, ..TableLayout::default() } }
     };
     assert_eq!(window.state().sent, [saved(widest - 60.0), saved(widest)], "the widths on the screen");
 }

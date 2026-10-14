@@ -144,7 +144,7 @@ impl Widths {
             let width = points(*width);
             (width != points(width_of(column))).then(|| (column.title.to_owned(), width))
         });
-        Some(TableLayout { widths: differ.collect() })
+        Some(TableLayout { widths: differ.collect(), ..TableLayout::default() })
     }
 
     /// Takes the widths of a saved layout. A title that the model does not have changes
@@ -287,6 +287,7 @@ mod tests {
             widths: [("Name", 260), ("Node", 9999), ("Gone", 90)]
                 .map(|(title, width)| (title.to_owned(), width))
                 .into(),
+            ..TableLayout::default()
         };
         saved.restore(&COLUMNS, &layout);
         assert_eq!(saved.columns, [260.0, NARROWEST, WIDEST], "a title that the model does not have changes nothing");

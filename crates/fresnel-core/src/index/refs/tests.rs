@@ -146,3 +146,18 @@ async fn a_new_status_changes_no_reference_and_a_pod_that_is_gone_leaves_no_entr
         matches!(index.used_by(Kind::ConfigMap, &config).basis, Basis::Old(source) if source.state == StoreState::Stopped)
     );
 }
+
+/// A view test builds the reference index of each state from a snapshot. That index must
+/// give the answers of the index of the task.
+#[tokio::test]
+async fn the_index_of_a_snapshot_answers_as_the_index_of_the_task() {
+    let bed = Bed::new();
+    let pods = bed.fixture::<Pod>();
+    let (of_task, _) = read(&mut ReferenceIndexer::new(pods.reader()));
+    let built = Index::<References>::of_pods(&pods.reader().read(), IndexState::Following);
+    let targets: BTreeSet<Target> = fixture::all::<Pod>().iter().flat_map(references_of).collect();
+    assert!(targets.len() > 5, "{targets:?}");
+    for Target { kind, key } in &targets {
+        assert_eq!(built.used_by(*kind, key), of_task.used_by(*kind, key), "{kind:?} {key:?}");
+    }
+}

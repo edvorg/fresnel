@@ -10,6 +10,7 @@ use fresnel_net::ClusterStatus;
 
 use super::data::ClusterData;
 use super::health::{self, Health};
+use super::manifest::ManifestRead;
 use crate::cluster::{ClusterId, ClusterView, LinkState};
 use crate::error::CoreError;
 use crate::journal::JournalView;
@@ -113,6 +114,8 @@ pub struct CoreView {
     /// The layout of each table that the user changed, by the name of the table: from the
     /// state file and from the commands of this run. `None` before the core read the file.
     pub tables: Option<Arc<BTreeMap<String, TableLayout>>>,
+    /// The last read of a manifest that a view asked for.
+    pub manifest: Option<Arc<ManifestRead>>,
     /// The journal.
     pub journal: Arc<JournalView>,
 }

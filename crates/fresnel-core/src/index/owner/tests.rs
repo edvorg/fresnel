@@ -11,7 +11,7 @@ use k8s_openapi::api::discovery::v1::EndpointSlice;
 use super::*;
 use crate::fixture::{self, SCENE};
 use crate::index::bed::{Bed, TestStore, read};
-use crate::index::task::Basis;
+use crate::index::task::{Basis, IndexState};
 use crate::kinds::{Describe, Object};
 use crate::store::{StoreState, Wait};
 
@@ -316,4 +316,28 @@ async fn the_pods_of_a_service_are_not_loaded_before_the_list_of_the_slices() {
         read(&mut indexer).0.pods_of_service(&service("web")),
         Answer { found: Vec::new(), basis: Basis::Current }
     );
+}
+
+/// A view test builds the owner index of each state from snapshots. That index must give
+/// the answers of the index of the task.
+#[tokio::test]
+async fn the_index_of_four_snapshots_answers_as_the_index_of_the_task() {
+    let bed = Bed::new();
+    let stores = Stores::of_fixture(&bed);
+    let (of_task, _) = read(&mut stores.indexer());
+    let (replica_sets, jobs) = (stores.replica_sets.reader().read(), stores.jobs.reader().read());
+    let (pods, slices) = (stores.pods.reader().read(), stores.slices.reader().read());
+    let built = Index::of_snapshots(&replica_sets, &jobs, &pods, &slices, IndexState::Following);
+    let owners: BTreeSet<String> = owned_objects().into_iter().flat_map(|(_, owners)| owners).collect();
+    for owner in &owners {
+        assert_eq!(built.owned(Kind::Deployment, owner), of_task.owned(Kind::Deployment, owner), "{owner}");
+        assert_eq!(built.pods_of(Kind::CronJob, owner), of_task.pods_of(Kind::CronJob, owner), "{owner}");
+    }
+    let web = ObjectKey::new(SCENE, "web");
+    assert_eq!(built.pods_of_service(&web), of_task.pods_of_service(&web));
+    assert!(!built.pods_of_service(&web).found.is_empty(), "the Service has pods");
+
+    let failed = IndexState::Failed { reason: "a defect".into() };
+    let built = Index::of_snapshots(&replica_sets, &jobs, &pods, &slices, failed.clone());
+    assert_eq!(built.slices_of(&web).basis, Basis::NotFollowed(failed));
 }

@@ -10,11 +10,11 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
 use super::{ObjectRef, Owners};
 use crate::index::links::Links;
-use crate::index::source::Tracked;
-use crate::index::task::{Indexer, Read};
+use crate::index::source::{SourceStatus, Tracked};
+use crate::index::task::{Index, IndexState, Indexer, Read};
 use crate::kinds::{Kind, Object};
 use crate::published::Reader;
-use crate::store::{Change, ObjectKey, Snapshot};
+use crate::store::{Change, Items, ObjectKey, Snapshot};
 
 /// The label of an EndpointSlice with the name of its Service.
 const SERVICE_NAME: &str = "kubernetes.io/service-name";
@@ -72,6 +72,45 @@ impl Indexer for OwnerIndexer {
             () = self.slices.changed() => {}
         }
     }
+}
+
+impl Index<Owners> {
+    /// The owner index of four snapshots, as the task of the index gives it after one read,
+    /// with `state` as the state of that task. A test of a reader builds the index with it.
+    pub fn of_snapshots(
+        replica_sets: &Snapshot<ReplicaSet>,
+        jobs: &Snapshot<Job>,
+        pods: &Snapshot<Pod>,
+        slices: &Snapshot<EndpointSlice>,
+        state: IndexState,
+    ) -> Self {
+        let mut relations = Owners { endpoints: slices.items.clone(), ..Owners::default() };
+        let Owners { children, slices: of_service, .. } = &mut relations;
+        each_new(&replica_sets.items, |change| {
+            follow_owned(children, Kind::ReplicaSet, change);
+        });
+        each_new(&jobs.items, |change| {
+            follow_owned(children, Kind::Job, change);
+        });
+        each_new(&pods.items, |change| {
+            follow_owned(children, Kind::Pod, change);
+        });
+        each_new(&slices.items, |change| {
+            follow_slice(of_service, change);
+        });
+        let sources = vec![
+            SourceStatus::of(Kind::ReplicaSet, replica_sets),
+            SourceStatus::of(Kind::Job, jobs),
+            SourceStatus::of(Kind::Pod, pods),
+            SourceStatus::of(Kind::EndpointSlice, slices),
+        ];
+        Self::following(1, sources, relations).in_state(state)
+    }
+}
+
+/// Gives each object of a snapshot to `apply` as a new object.
+fn each_new<T: Object>(items: &Items<T>, apply: impl FnMut(Change<'_, T>)) {
+    Items::default().changes_to(items).for_each(apply);
 }
 
 fn owners(meta: &ObjectMeta) -> impl Iterator<Item = &str> {

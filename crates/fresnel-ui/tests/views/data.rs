@@ -7,8 +7,9 @@
 use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 
-use fresnel_core::app::{ClusterData, ClusterRow};
-use fresnel_core::index::{Index, IndexState, ObjectEvents};
+use fresnel_core::app::{ClusterData, ClusterRow, Objects};
+use fresnel_core::index::{Index, IndexState, ObjectEvents, Owners, References};
+use fresnel_core::kinds::Describe;
 use fresnel_core::net::task::{TaskReport, Tasks};
 use fresnel_core::published::{Disposal, Held, Notice, Publisher};
 use fresnel_core::store::{Snapshot, StoreState};
@@ -51,6 +52,13 @@ fn objects<T: DeserializeOwned>(text: &str) -> Vec<Arc<T>> {
     move_times(&mut value, test_time.duration_since(fixture_time));
     let objects: Vec<T> = serde_json::from_value(value).expect("the objects of the fixture");
     objects.into_iter().map(Arc::new).collect()
+}
+
+/// Each object of a kind of tier A in the scene, as `fresnel-core` keeps it in its fixture.
+pub(crate) fn scene<K: Describe>() -> Vec<Arc<K>> {
+    let folder = concat!(env!("CARGO_MANIFEST_DIR"), "/../fresnel-core/fixtures/k3s");
+    let path = format!("{folder}/{}.json", K::ID.info().plural);
+    objects(&std::fs::read_to_string(path).expect("a file of the fixture"))
 }
 
 /// The 25 pods of the scene: one for each state of the status rule.
@@ -144,10 +152,21 @@ pub(crate) fn event_index(events_store: Snapshot<Event>, state: IndexState) -> H
     held(Index::<ObjectEvents>::of_snapshot(&events_store, state))
 }
 
-/// The data of a cluster with this Pod store, and a live Event index of the scene.
+/// The data of a cluster with this Pod store, and the live indexes of the scene.
 pub(crate) fn data(pods: Snapshot<Pod>) -> ClusterData {
     let index = event_index(store(StoreState::Live, &events()), IndexState::Following);
-    ClusterData { pods: held(pods), events: Some(index) }
+    let (replica_sets, jobs) = (store(StoreState::Live, &scene()), store(StoreState::Live, &scene()));
+    let slices = store(StoreState::Live, &scene());
+    let owners = Index::<Owners>::of_snapshots(&replica_sets, &jobs, &pods, &slices, IndexState::Following);
+    let references = Index::<References>::of_pods(&pods, IndexState::Following);
+    ClusterData {
+        pods: held(pods),
+        events: Some(index),
+        owners: held(owners),
+        references: held(references),
+        stores: Arc::from([]),
+        objects: Objects::default(),
+    }
 }
 
 /// A selected cluster with live connections and this Pod store.

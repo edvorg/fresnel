@@ -136,6 +136,22 @@ impl<'a> Value<'a> {
         if texts.is_empty() { Self::None } else { Self::List(texts) }
     }
 
+    /// The same value with no borrow of its object. A table computes the value of each
+    /// cell one time, on its worker thread, and keeps it with the row.
+    pub fn into_owned(self) -> Value<'static> {
+        let own = |text: Cow<'_, str>| Cow::Owned(text.into_owned());
+        match self {
+            Self::None => Value::None,
+            Self::Text(text) => Value::Text(own(text)),
+            Self::Number(number) => Value::Number(number),
+            Self::Ratio(part, whole) => Value::Ratio(part, whole),
+            Self::Time(time) => Value::Time(time),
+            Self::Span(span) => Value::Span(span),
+            Self::Flag(flag) => Value::Flag(flag),
+            Self::List(texts) => Value::List(texts.into_iter().map(own).collect()),
+        }
+    }
+
     /// The place of the variant in a sort of values of different variants.
     fn rank(&self) -> u8 {
         match self {
@@ -223,5 +239,25 @@ mod tests {
         assert!(Value::Ratio(1, 3) < Value::Ratio(2, 2) && Value::Ratio(2, 2) < Value::Ratio(2, 3));
         assert!(Value::text(Some("a")) < Value::Number(0), "the variants of one column have one sequence");
         assert_eq!((Value::text(Some("")), Value::list([])), (Value::None, Value::None));
+    }
+
+    #[test]
+    fn an_owned_value_is_equal_to_the_value_that_borrows_its_object() {
+        let others = [
+            Value::Ratio(1, 2),
+            Value::Time(SystemTime::UNIX_EPOCH),
+            Value::Span(Duration::from_secs(5)),
+            Value::Flag(true),
+            Value::Number(-3),
+            Value::None,
+        ];
+        let owned: Vec<Value<'static>> = {
+            let text = String::from("web");
+            let borrowed = [Value::text(Some(&text)), Value::list([text.as_str(), "db"])];
+            borrowed.into_iter().chain(others.iter().cloned()).map(Value::into_owned).collect()
+        };
+        let list = Value::List(vec![Cow::Borrowed("web"), Cow::Borrowed("db")]);
+        assert_eq!(owned[..2], [Value::text(Some("web")), list], "the object is gone, and the values stay");
+        assert_eq!(owned[2..], others);
     }
 }

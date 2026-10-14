@@ -6,12 +6,15 @@
 //!
 //! - `run`: the task that starts the core and runs each command.
 //! - `saved`: the selection of clusters and the table layouts in the state file.
-//! - `data`: the stores and the indexes of each connected cluster.
+//! - `data`: the stores and the indexes of each connected cluster. `objects`: the full
+//!   objects of the kinds that the views show. `manifest`: the read of one manifest.
 //! - `watch`: one task for each connected cluster, for the journal and the repaint.
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
 
 mod data;
 mod health;
+mod manifest;
+mod objects;
 mod repaint;
 mod run;
 mod saved;
@@ -32,14 +35,18 @@ use tokio::sync::Notify;
 
 pub use data::ClusterData;
 pub use health::Health;
+pub use manifest::{ManifestRead, ManifestRequest, ManifestState};
+pub use objects::Objects;
 pub use view::{ClusterRow, CoreView, ShellNote, Startup};
 
 use crate::cluster::{ClusterId, Registry};
 use crate::journal::Journal;
+use crate::kinds::Kind;
 use crate::published::Disposal;
 use crate::state_file::TableLayout;
 use crate::store::StoreSettings;
 use data::Connected;
+use manifest::ManifestReader;
 use repaint::Repaint;
 
 /// The most commands that wait for the task of the core. The UI sends one for each click.
@@ -113,6 +120,12 @@ pub enum Command {
         /// What the user changed of it.
         layout: TableLayout,
     },
+    /// The views show the objects of these kinds: the core holds a store of their full
+    /// objects in each connected cluster, and the view gets the snapshots. The pods need
+    /// no command: the view always has them.
+    ShowKinds(BTreeSet<Kind>),
+    /// Reads the manifest of one object from its server. The view gets the result.
+    ReadManifest(ManifestRequest),
 }
 
 /// The life of the core. It goes one way.
@@ -141,6 +154,10 @@ struct State {
     commands: VecDeque<Command>,
     /// The stores, the indexes and the tasks of each connected cluster.
     connected: HashMap<ClusterId, Connected>,
+    /// The kinds whose full objects the views show.
+    shown: BTreeSet<Kind>,
+    /// The task of the manifest reads. It starts with the first request.
+    manifests: Option<ManifestReader>,
     detectors: Option<Vec<Box<dyn Detector>>>,
     monitor: Option<Monitor>,
     /// The tasks of the core itself. Empty before the start and after the stop.
@@ -195,6 +212,8 @@ impl Core {
             tables: None,
             commands: VecDeque::new(),
             connected: HashMap::new(),
+            shown: BTreeSet::new(),
+            manifests: None,
             detectors: Some(detectors),
             monitor: None,
             running: Vec::new(),
@@ -254,11 +273,12 @@ impl Core {
 
     /// A copy of the state of the app.
     pub fn view(&self) -> CoreView {
-        let (startup, shell_problem, selected, tables, mut data) = {
+        let (startup, shell_problem, selected, tables, manifest, mut data) = {
             let state = self.inner.state();
             let data: HashMap<ClusterId, ClusterData> =
                 state.connected.iter().map(|(id, connected)| (id.clone(), connected.data())).collect();
-            (state.startup, state.shell_problem.clone(), state.selected.clone(), state.tables.clone(), data)
+            let manifest = state.manifests.as_ref().and_then(ManifestReader::last);
+            (state.startup, state.shell_problem.clone(), state.selected.clone(), state.tables.clone(), manifest, data)
         };
         let clusters = self.inner.registry.get().map(Registry::snapshot).unwrap_or_default();
         let row = |cluster: crate::cluster::ClusterView| {
@@ -271,6 +291,7 @@ impl Core {
             shell_problem,
             clusters: clusters.into_iter().map(row).collect(),
             tables,
+            manifest,
             journal: self.inner.journal.view(),
         }
     }
@@ -306,7 +327,8 @@ impl Core {
             let mut state = self.inner.state();
             state.phase = Phase::Stopped;
             state.commands.clear();
-            (std::mem::take(&mut state.running), std::mem::take(&mut state.connected), state.monitor.take())
+            let tasks = (std::mem::take(&mut state.running), state.manifests.take(), state.monitor.take());
+            (tasks, std::mem::take(&mut state.connected))
         };
         drop(stopped);
         if let Some(registry) = self.inner.registry.get() {
@@ -339,55 +361,4 @@ fn reporter(journal: Journal, repaint: Repaint) -> impl Reporter {
 }
 
 #[cfg(test)]
-mod tests {
-    use fresnel_net::WallClock;
-    use tokio::time::sleep;
-
-    use super::*;
-    use crate::error::CoreError;
-    use crate::journal::Level;
-
-    fn core() -> Core {
-        Core::new(CoreParts {
-            runtime: Handle::current(),
-            base_env: ProcessEnv::default(),
-            journal: Journal::new(100, WallClock::system()),
-            // No test of this module starts the core, so nothing reads or writes the file.
-            state_file: PathBuf::from("/no/such/folder/state.json"),
-            detectors: Vec::new(),
-            settings: CoreSettings::default(),
-        })
-    }
-
-    fn journal(core: &Core) -> Vec<(Level, String)> {
-        core.view().journal.entries.iter().map(|entry| (entry.level, entry.text.clone())).collect()
-    }
-
-    /// Design rule 1: the journal of the core is the receiver of the reports of its tasks.
-    #[tokio::test(start_paused = true)]
-    async fn a_task_of_the_core_that_ends_is_in_the_journal() {
-        let core = core();
-        let fails = || async { Err(CoreError::invalid("no luck")) };
-        let broken = core.inner.tasks.start(TaskName::new("broken job"), Restart::Never, fails);
-        sleep(Duration::from_secs(1)).await;
-        assert_eq!(journal(&core), [(Level::Error, "task broken job failed: no luck; no restart".to_owned())]);
-        drop(broken);
-    }
-
-    #[tokio::test]
-    async fn the_commands_that_wait_have_a_limit_and_a_lost_command_is_in_the_journal() {
-        let core = core();
-        let command = || Command::RetryNow(ClusterId::new("ams"));
-        (0..COMMAND_LIMIT).for_each(|_| core.send(command()));
-        assert_eq!(journal(&core), []);
-        core.send(command());
-        assert_eq!(journal(&core), [(Level::Error, "a command is lost: 256 commands wait for the core".to_owned())]);
-        assert_eq!(core.inner.state().commands.len(), COMMAND_LIMIT);
-
-        // A stopped core takes no command: no task reads it.
-        core.stop();
-        core.send(command());
-        let waiting = core.inner.state().commands.len();
-        assert_eq!((waiting, journal(&core).len()), (0, 1));
-    }
-}
+mod tests;

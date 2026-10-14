@@ -5,6 +5,7 @@
 //! runs on the threads for blocking calls. A worker thread of the runtime that waits can
 //! stop the timers and the sockets of each cluster.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -13,10 +14,12 @@ use fresnel_net::detect::{Disturbance, Monitor};
 use fresnel_net::env::{self, EnvSource, ProcessEnv};
 
 use super::data::Connected;
+use super::manifest::{ManifestReader, ManifestRequest};
 use super::view::{ShellNote, Startup};
 use super::{APP, Command, Inner, Phase};
 use crate::cluster::{ClusterId, LinkState, Registry};
 use crate::error::CoreError;
+use crate::kinds::Kind;
 use crate::kubeconfig::{self, Context};
 
 /// One run of the task. After an error or a panic, the next run continues from the state
@@ -168,13 +171,46 @@ impl Inner {
         match command {
             Command::Select { cluster, selected } => self.select(cluster, selected),
             Command::RetryNow(cluster) => self.retry(registry, &cluster).await?,
+            // A layout, the shown kinds and a manifest change no connection.
             Command::SaveTable { table, layout } => {
-                // A layout changes no connection.
                 self.save_table(table, layout);
+                return Ok(());
+            }
+            Command::ShowKinds(kinds) => {
+                self.show_kinds(kinds);
+                return Ok(());
+            }
+            Command::ReadManifest(request) => {
+                self.read_manifest(registry, request);
                 return Ok(());
             }
         }
         self.reconcile(registry).await
+    }
+
+    /// Holds the stores of the full objects of these kinds in each connected cluster, and
+    /// in each cluster that connects later. The stores of the other kinds stop after their time.
+    fn show_kinds(&self, kinds: BTreeSet<Kind>) {
+        let mut state = self.state();
+        for connected in state.connected.values_mut() {
+            connected.show(&kinds);
+        }
+        state.shown = kinds;
+        drop(state);
+        self.repaint.request();
+    }
+
+    fn read_manifest(&self, registry: &Registry, request: ManifestRequest) {
+        let mut state = self.state();
+        if state.phase == Phase::Stopped {
+            return;
+        }
+        let reader = state
+            .manifests
+            .get_or_insert_with(|| ManifestReader::start(&self.tasks, registry.clone(), self.repaint.clone()));
+        reader.ask(request);
+        drop(state);
+        self.repaint.request();
     }
 
     async fn retry(&self, registry: &Registry, cluster: &ClusterId) -> Result<(), CoreError> {
@@ -234,8 +270,10 @@ impl Inner {
         };
         // A cluster with no stores shows no object, so a start of them that fails is a
         // connect that failed: the connections close, and each view shows the reason.
-        let started = connected
-            .and_then(|link| Connected::start(self, id, &link).inspect_err(|error| registry.fail(id, error.clone())));
+        let shown = self.state().shown.clone();
+        let started = connected.and_then(|link| {
+            Connected::start(self, id, &link, &shown).inspect_err(|error| registry.fail(id, error.clone()))
+        });
         let running = match started {
             Ok(running) => Some(running),
             Err(error) => {
@@ -247,7 +285,11 @@ impl Inner {
         // The stores of older connections of the cluster go away in each case. A stopped
         // core keeps none: their tasks would hold the connections open.
         let old = match running.filter(|_| state.phase != Phase::Stopped) {
-            Some(running) => state.connected.insert(id.clone(), running),
+            Some(mut running) => {
+                // The views can show other kinds since the start of the stores.
+                running.show(&state.shown);
+                state.connected.insert(id.clone(), running)
+            }
             None => state.connected.remove(id),
         };
         drop(state);

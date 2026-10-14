@@ -128,6 +128,12 @@ impl ClusterStores {
         self.notice.changes()
     }
 
+    /// The notice of each new snapshot of a store of the cluster, for a task that makes a
+    /// reader of it at each run.
+    pub(crate) fn notice(&self) -> Notice {
+        self.notice.clone()
+    }
+
     /// The facts of each store that is always on, in the sequence of the kinds.
     pub fn statuses(&self) -> Vec<StoreStatus> {
         self.stores.iter().map(Running::status).collect()

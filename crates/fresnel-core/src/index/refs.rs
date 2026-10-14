@@ -16,11 +16,11 @@ use k8s_openapi::api::core::v1::Pod;
 pub use of_pod::references_of;
 
 use super::links::Links;
-use super::source::Tracked;
-use super::task::{Answer, Index, Indexer, Read};
+use super::source::{SourceStatus, Tracked};
+use super::task::{Answer, Index, IndexState, Indexer, Read};
 use crate::kinds::Kind;
 use crate::published::Reader;
-use crate::store::{Change, ObjectKey, Snapshot};
+use crate::store::{Change, Items, ObjectKey, Snapshot};
 
 /// An object that a pod uses: its kind and its identity. The kind is `ConfigMap`,
 /// `Secret`, `ServiceAccount` or `Node`. A Node has no namespace.
@@ -45,6 +45,17 @@ impl Index<References> {
     pub fn used_by(&self, kind: Kind, key: &ObjectKey) -> Answer<Vec<ObjectKey>> {
         let target = Target { kind, key: key.clone() };
         Answer { found: self.relations().users.of(&target).cloned().collect(), basis: self.basis(&[Kind::Pod]) }
+    }
+
+    /// The reference index of a snapshot of the pods, as the task of the index gives it
+    /// after one read, with `state` as the state of that task. A test of a reader builds
+    /// the index with it.
+    pub fn of_pods(pods: &Snapshot<Pod>, state: IndexState) -> Self {
+        let mut relations = References::default();
+        for change in Items::default().changes_to(&pods.items) {
+            follow_pod(&mut relations.users, change);
+        }
+        Self::following(1, vec![SourceStatus::of(Kind::Pod, pods)], relations).in_state(state)
     }
 }
 

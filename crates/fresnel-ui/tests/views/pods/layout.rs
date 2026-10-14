@@ -12,7 +12,10 @@ use crate::fake::{until, view, window};
 use crate::pods::resize::{drag, width};
 
 fn layout(widths: &[(&str, u32)]) -> TableLayout {
-    TableLayout { widths: widths.iter().map(|(title, width)| ((*title).to_owned(), *width)).collect() }
+    TableLayout {
+        widths: widths.iter().map(|(title, width)| ((*title).to_owned(), *width)).collect(),
+        ..TableLayout::default()
+    }
 }
 
 fn save(widths: &[(&str, u32)]) -> Command {

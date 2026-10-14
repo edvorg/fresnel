@@ -806,12 +806,12 @@ away from the pointer, and each frame took more width. Now the filler keeps the 
 the place that the last frame showed. It never makes the content wider than before, so a
 scroll to the right cannot add width without an end.
 
-## The state file keeps the widths that the user gave to columns
+## The state file keeps the widths and the columns that the user gave to a table
 
-Version 2 of `state.json` has the layout of each table that the user changed: the width of
-each column that differs from the width that its table gives, in whole points, by the title
-of the column. A column that is not in the file has the width of its table, and a title that
-the table does not have changes nothing. The app reads a file of version 1 too.
+Version 3 of `state.json` has the layout of each table that the user changed: the width of
+each column that differs from the width that its table gives, in whole points, and each
+column that the user showed or hid, by the title of the column. A title that the table does
+not have changes nothing. The app reads the files of versions 1 and 2 too.
 
 ## A table saves its widths after a drag and reads the saved ones one time
 
@@ -906,3 +906,21 @@ The test of the state "not supported" needs a real server that does not serve a 
 the app. k3s starts with `runtime-config` to turn off `autoscaling/v2`, as on a cluster
 before Kubernetes 1.23. With `node.k8s.io` off, the API server never became ready: its own
 informers read the RuntimeClasses.
+
+## The view names its kinds, and the core holds their stores
+
+A table of a tier B or C kind needs the full objects, and a view holds no handle to the core.
+So the view sends `ShowKinds` with the kinds that it shows. The core holds a `Demand` of each
+in each connected cluster, also in one that connects later, and the view reads the snapshots
+in `ClusterData::objects`. The Pods need no command: each view has them.
+
+## One task reads the manifest that the view asked for last
+
+The detail panel shows one object, so a new request ends the read in progress. The task does
+not end after a read: a job for each read would give a journal entry for each change of an
+object. A read that fails shows in the panel with its reason.
+
+## Each store asks for a repaint
+
+The sidebar shows the count of objects of each kind, so each new snapshot of a store and each
+new value of an index asks for a repaint. The notifier keeps the limit of 60 in one second.

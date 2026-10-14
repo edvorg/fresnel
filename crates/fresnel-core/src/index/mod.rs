@@ -119,6 +119,12 @@ impl ClusterIndexes {
         self.notice.changes()
     }
 
+    /// The notice of each new value of an index of the cluster, for a task that makes a
+    /// reader of it at each run.
+    pub(crate) fn notice(&self) -> Notice {
+        self.notice.clone()
+    }
+
     /// A reader of the owner index.
     pub fn owners(&self) -> Reader<Index<Owners>> {
         self.owners.publisher.reader()

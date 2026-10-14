@@ -17,7 +17,7 @@ use crate::common::in_time;
 fn document(home: &Home) -> Option<serde_json::Value> {
     let text = std::fs::read_to_string(home.path(STATE_FILE)).ok()?;
     let document: serde_json::Value = serde_json::from_str(&text).expect("the state file is JSON");
-    (document["version"] == 2).then_some(document)
+    (document["version"] == 3).then_some(document)
 }
 
 /// The selection in the state file. `None` with no file.
@@ -30,7 +30,7 @@ fn saved(home: &Home) -> Option<Vec<String>> {
 /// A command that saves the width of one column of the table "Pods". No width saves no column.
 fn pods_layout(width: Option<(&str, u32)>) -> Command {
     let widths = width.into_iter().map(|(title, width)| (title.to_owned(), width)).collect();
-    Command::SaveTable { table: "Pods".to_owned(), layout: TableLayout { widths } }
+    Command::SaveTable { table: "Pods".to_owned(), layout: TableLayout { widths, ..TableLayout::default() } }
 }
 
 /// Waits until the state file has this selection.
@@ -105,10 +105,10 @@ async fn the_next_run_starts_with_the_selection_of_the_last_run() {
 async fn a_state_file_that_does_not_load_stays_as_it_is_and_the_start_selects_the_cluster_of_kubectl() {
     let [a, b, _c] = three_servers().await;
     let cases = [
-        ("{\"version\": 1,\n \"selected_clusters\": [\"b\"\n", "line 3, column 0 does not fit the format of version 2"),
+        ("{\"version\": 1,\n \"selected_clusters\": [\"b\"\n", "line 3, column 0 does not fit the format of version 3"),
         (
-            r#"{"version": 3, "windows": [{"selected": ["b"]}]}"#,
-            "the format has the version 3, and this app reads the versions 1 and 2",
+            r#"{"version": 4, "windows": [{"selected": ["b"]}]}"#,
+            "the format has the version 4, and this app reads the versions 1 to 3",
         ),
     ];
     for (text, problem) in cases {
@@ -199,7 +199,7 @@ async fn the_next_run_starts_with_the_table_layouts_of_the_last_run() {
     first.core.send(pods_layout(Some(("Name", 300))));
     let pods = |view: &CoreView| view.tables.as_ref().and_then(|tables| tables.get("Pods")).cloned();
     let view = first.until("the layout of the Pods table", |view| pods(view).is_some()).await;
-    let name_300 = TableLayout { widths: BTreeMap::from([("Name".to_owned(), 300)]) };
+    let name_300 = TableLayout { widths: BTreeMap::from([("Name".to_owned(), 300)]), ..TableLayout::default() };
     assert_eq!(pods(&view), Some(name_300.clone()));
     let in_file = |home: &Home| document(home).map(|document| document["tables"].clone());
     let name_in_file = serde_json::json!({"Pods": {"widths": {"Name": 300}}});
