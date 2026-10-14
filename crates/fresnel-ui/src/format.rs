@@ -61,6 +61,9 @@ pub(crate) fn short(text: &str, limit: usize) -> Cow<'_, str> {
     }
 }
 
+/// The text of a time of day that the calendar cannot show.
+const NO_TIME: &str = "--:--:--";
+
 /// The wall clock and the time zone of the views. A view test gives a fixed time, so that
 /// its texts do not change from run to run.
 #[derive(Clone, Debug)]
@@ -92,7 +95,13 @@ impl Clock {
 
     /// "14:03:07": the time of day in the time zone of the clock.
     pub(crate) fn time_of_day(&self, time: SystemTime) -> String {
-        self.text(time, "%H:%M:%S").unwrap_or_else(|| "--:--:--".to_owned())
+        self.text(time, "%H:%M:%S").unwrap_or_else(|| NO_TIME.to_owned())
+    }
+
+    /// The time of day `wait` after now. A wait from extreme settings can be past the end of
+    /// the clock, and a plain sum would then stop the frame.
+    pub(crate) fn time_of_day_after(&self, wait: Duration) -> String {
+        self.now.now().checked_add(wait).map_or_else(|| NO_TIME.to_owned(), |time| self.time_of_day(time))
     }
 
     /// "2027-01-15 14:03:07": the day and the time of day in the time zone of the clock.
@@ -151,5 +160,9 @@ mod tests {
         assert_eq!(clock.date_time(now + 3725 * SECOND), "2027-01-15 09:02:05");
         assert_eq!((clock.until(now + 5 * SECOND), clock.until(now - 5 * SECOND)), (5 * SECOND, Duration::ZERO));
         assert_eq!((clock.since(now - 7 * SECOND), clock.since(now + 7 * SECOND)), (7 * SECOND, Duration::ZERO));
+        assert_eq!(
+            (clock.time_of_day_after(3725 * SECOND), clock.time_of_day_after(Duration::MAX)),
+            ("09:02:05".into(), "--:--:--".into())
+        );
     }
 }

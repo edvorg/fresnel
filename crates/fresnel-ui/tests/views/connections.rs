@@ -122,6 +122,24 @@ fn a_long_outage_shows_its_start_and_the_time_of_the_next_attempt_of_the_cluster
     assert_eq!(absent(&window, &texts), Vec::<&str>::new());
 }
 
+/// A pause comes from the settings of the core. One that the calendar cannot hold must not
+/// stop the frame.
+#[test]
+fn a_pause_longer_than_the_calendar_shows_with_no_clock_time() {
+    let endless = ChannelState::Backoff { failures: 9, pause: Duration::MAX };
+    let endless = ChannelStatus { since: now(), ..new_channel(endless) };
+    let mut long = status([endless.clone(), endless.clone(), endless], Some(valid()));
+    long.outage = Some(OutageStatus { since: now() - 600 * SECOND, turn: Some(5 * SECOND) });
+    let window = connections_window(view(vec![connected("ams-prod", long)]));
+
+    let texts = [
+        "No connect worked since 07:50:00. The cluster now gets one connect attempt each 5 s: \
+         the next one starts at --:--:--.",
+        "9 failures, next attempt in 213503982334601 d 7 h",
+    ];
+    assert_eq!(absent(&window, &texts), Vec::<&str>::new());
+}
+
 #[test]
 fn a_failed_credential_shows_the_text_of_the_plugin_and_the_next_attempt() {
     let detail = "Error: Unable to initialize DigitalOcean API client: access token is required.";

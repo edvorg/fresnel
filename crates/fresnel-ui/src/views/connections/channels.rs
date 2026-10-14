@@ -1,6 +1,8 @@
 //! The channels of one cluster as a table: state, ping time, streams in use, the age of
 //! the last frame, connect attempts and the last error. Above it, the outage of the cluster.
 
+use std::time::Duration;
+
 use egui::{RichText, Ui};
 use fresnel_core::net::{ChannelState, ChannelStatus, ClusterStatus, GroupStatus};
 
@@ -70,7 +72,7 @@ fn state_text(channel: &ChannelStatus, clock: &Clock) -> (Tone, String) {
         ChannelState::Verifying => (Tone::Info, "connected, no answer yet".to_owned()),
         ChannelState::Live => (Tone::Ok, "live".to_owned()),
         ChannelState::Backoff { failures, pause } => {
-            let next = format::span(clock.until(channel.since + *pause));
+            let next = format::span(rest_of_pause(channel, *pause, clock));
             (Tone::Warn, format!("{}, next attempt in {next}", format::count(u64::from(*failures), "failure")))
         }
         ChannelState::Retired => (Tone::Faint, "closed, it had no stream".to_owned()),
@@ -86,15 +88,21 @@ fn outage_text(status: &ClusterStatus, clock: &Clock) -> Option<String> {
         return Some(since);
     };
     let groups = [&status.watches, &status.requests, &status.logs];
-    let pauses = groups.into_iter().flat_map(|group| &group.channels).filter_map(|channel| match channel.state {
-        ChannelState::Backoff { pause, .. } => Some(channel.since + pause),
+    let rests = groups.into_iter().flat_map(|group| &group.channels).filter_map(|channel| match channel.state {
+        ChannelState::Backoff { pause, .. } => Some(rest_of_pause(channel, pause, clock)),
         _ => None,
     });
-    let next = match pauses.min() {
-        Some(at) => format!("the next one starts at {}", clock.time_of_day(at)),
+    let next = match rests.min() {
+        Some(rest) => format!("the next one starts at {}", clock.time_of_day_after(rest)),
         None => "one is in progress".to_owned(),
     };
     Some(format!("{since} The cluster now gets one connect attempt each {}: {next}.", format::span(turn)))
+}
+
+/// The time from now to the end of the pause of a channel. The pause comes from the settings
+/// of the core, and the sum of its start and an extreme pause can be past the end of the clock.
+fn rest_of_pause(channel: &ChannelStatus, pause: Duration, clock: &Clock) -> Duration {
+    pause.saturating_sub(clock.since(channel.since))
 }
 
 /// Requests wait only when each connection of the purpose is at its stream budget.
