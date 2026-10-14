@@ -114,8 +114,9 @@ pub enum Command {
         /// True to select it.
         selected: bool,
     },
-    /// "Retry now" for one cluster: each retry delay ends, and a failed plugin runs again.
-    /// For a cluster whose connect did not start, the kubeconfig files load again.
+    /// "Retry now" for one cluster: each retry delay ends, that of a connect one time in 10 s
+    /// at most, and a failed plugin runs again. For a cluster whose connect did not start,
+    /// the kubeconfig files load again.
     RetryNow(ClusterId),
     /// Saves the layout of a table that the user changed. An empty layout removes the table
     /// from the state file.

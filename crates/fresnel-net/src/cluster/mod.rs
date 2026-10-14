@@ -244,9 +244,10 @@ impl Cluster {
         self.inner.changed.watch()
     }
 
-    /// The signal of the cluster. A raise ends each retry delay: a channel connects now or
-    /// tests its connection, and a failed credential runs its plugin now. "Retry now", a
-    /// wake and a network change raise it.
+    /// The signal of the cluster. A raise ends each retry delay: a channel tests its
+    /// connection, and a failed credential runs its plugin now. A channel with no connection
+    /// connects now, one time in [`OutageSettings::calm`] at most. "Retry now", a wake and a
+    /// network change raise it.
     pub fn signal(&self) -> Signal {
         self.inner.signal.clone()
     }

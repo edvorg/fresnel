@@ -24,7 +24,8 @@ async fn outage_since(signal: &Signal, ago: Duration) -> Outage {
 }
 
 /// One channel in an outage with no end: each connect is held until its limit, 10 s for a
-/// race and 3 s for one attempt. Gives the start and the effort of each connect.
+/// race and 3 s for one attempt. A round starts the connect again as a race, as the driver
+/// does. Gives the start and the effort of each connect.
 async fn held_channel(outage: &Outage, signal: &Signal, end: Instant) -> Vec<(Instant, Effort)> {
     let (mut listener, backoff) = (signal.listen(), ChannelSettings::for_watches().backoff);
     let (mut connects, mut effort) = (Vec::new(), Effort::Race);
@@ -34,11 +35,44 @@ async fn held_channel(outage: &Outage, signal: &Signal, end: Instant) -> Vec<(In
             break;
         }
         connects.push((started, effort));
-        sleep(if effort == Effort::Race { 10 * SECOND } else { 3 * SECOND }).await;
-        outage.failed(started);
-        effort = outage.pause(&mut listener, backoff.pause(failures, 0), |_| {}).await;
+        let held = if effort == Effort::Race { 10 * SECOND } else { 3 * SECOND };
+        effort = tokio::select! {
+            () = sleep(held) => {
+                outage.failed(started);
+                outage.pause(&mut listener, backoff.pause(failures, 0), |_| {}).await
+            }
+            () = outage.round(&mut listener) => Effort::Race,
+        };
     }
     connects
+}
+
+/// The connects of 3 held channels in an outage of `length`, with a raise at each instant
+/// of `raises` after the start of the outage. Gives the start of each race of the channels
+/// after `from`, in sequence: a round starts a race of each channel at the same instant.
+async fn races_with(raises: Vec<Duration>, length: Duration, from: Duration) -> Vec<Duration> {
+    let signal = Signal::new();
+    let outage = outage(&signal);
+    let start = Instant::now();
+    let raise = async {
+        for at in raises {
+            sleep((start + at).saturating_duration_since(Instant::now())).await;
+            signal.raise(Cause::NetworkChange);
+        }
+    };
+    let channels = join_all((0..3).map(|_| held_channel(&outage, &signal, start + length)));
+    let (connects, ()) = tokio::join!(channels, raise);
+    let races = connects.into_iter().flatten().filter(|(_, effort)| *effort == Effort::Race);
+    let mut races: Vec<_> = races.map(|(started, _)| started - start).filter(|after| *after >= from).collect();
+    races.sort();
+    races
+}
+
+/// The instants of the rounds: the races of one round start at the same instant.
+fn rounds(races: &[Duration]) -> Vec<Duration> {
+    let mut rounds = races.to_vec();
+    rounds.dedup();
+    rounds
 }
 
 /// The connects of `count` held channels of one cluster in an outage of 10 minutes, in the
@@ -110,6 +144,38 @@ async fn a_turn_longer_than_the_clock_can_hold_waits_and_does_not_panic() {
     let next = outage.pause(&mut second, 3 * SECOND, |wait| shown.borrow_mut().push(wait));
     assert!(timeout(3_600 * SECOND, next).await.is_err(), "the next turn is far away");
     assert!(shown.into_inner().iter().all(|wait| *wait > 3_600 * SECOND), "the state tells a long wait");
+}
+
+/// The detectors can tell a change each 2 s. From minute 2 to minute 10 the channels take
+/// turns, so each race comes from a round, and a round comes 10 s after the one before at
+/// the earliest: 48 rounds in 480 s, in place of 240.
+#[tokio::test(start_paused = true)]
+async fn a_raise_each_2_seconds_in_a_long_outage_starts_one_round_each_10_seconds_at_most() {
+    let raises = (60..300).map(|step| step * 2 * SECOND).collect();
+    let races = races_with(raises, 600 * SECOND, 120 * SECOND).await;
+    let rounds = rounds(&races);
+    assert_eq!(rounds.first(), Some(&(120 * SECOND)), "the first raise starts a round at once");
+    for pair in rounds.windows(2) {
+        let [one, two] = pair else { continue };
+        assert!(*two - *one >= 10 * SECOND, "{one:?} and {two:?}: two rounds in less than 10 s");
+    }
+    assert!(rounds.len() <= 48, "{} rounds in 480 s", rounds.len());
+    assert!(races.len() <= 3 * rounds.len(), "one race of each channel in a round: {races:?}");
+}
+
+/// The first raise after a calm time starts a round at once. A storm of raises from 120 s
+/// to 148 s gives rounds at 120, 130 and 140 s. Then a raise at 158 s and one at 170 s each
+/// start a round, and one at 175 s does not.
+#[tokio::test(start_paused = true)]
+async fn a_raise_after_a_calm_time_starts_a_round_at_once() {
+    let storm = (60..75).map(|step| step * 2 * SECOND);
+    let raises = storm.chain([158 * SECOND, 170 * SECOND, 175 * SECOND]).collect();
+    let races = races_with(raises, 300 * SECOND, 120 * SECOND).await;
+    let rounds = rounds(&races);
+    let storm = [120, 130, 140].map(|at| at * SECOND);
+    assert_eq!(rounds, [storm.as_slice(), &[158 * SECOND, 170 * SECOND]].concat(), "{races:?}");
+    let at_170 = races.iter().filter(|after| **after == 170 * SECOND).count();
+    assert_eq!(at_170, 3, "each channel starts a race at once: {races:?}");
 }
 
 #[tokio::test(start_paused = true)]

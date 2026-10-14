@@ -23,7 +23,8 @@ pub enum ChannelState {
     /// A request got an answer on this connection.
     Live,
     /// A connect failed, or a connection was lost early. The next connect starts after the
-    /// pause. A wake, a network change and "retry now" end the pause.
+    /// pause. A round of the signal ends the pause: a wake, a network change or "retry now"
+    /// after a calm time.
     Backoff {
         /// The count of failures in sequence.
         failures: u32,

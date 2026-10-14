@@ -104,6 +104,27 @@ async fn a_signal_in_a_long_outage_starts_a_race_of_each_channel_at_once() {
     assert!(singles.iter().all(|(after, _)| *after >= 4 * SECOND), "{tries:?}");
 }
 
+/// The detectors can tell a change each 2 s. A raise ends the pauses and the connects in
+/// progress one time each 10 s at most, so each channel races one time each 10 s.
+#[tokio::test(start_paused = true)]
+async fn a_raise_each_2_seconds_starts_a_race_of_each_channel_one_time_each_10_seconds() {
+    for connects in [Connects::Refused, Connects::Held] {
+        let server = MemoryServer::new();
+        server.set_connects(connects);
+        let (parts, _groups) = cluster(&server);
+        sleep(120 * SECOND).await;
+        let raised = Instant::now();
+        for _ in 0..30 {
+            parts.signal.raise(Cause::NetworkChange);
+            sleep(2 * SECOND).await;
+        }
+        let tries = tries_in(&server, raised, Instant::now());
+        let races = tries.iter().filter(|(_, effort)| *effort == Effort::Race).map(|(after, _)| *after);
+        let rounds = [0, 10, 20, 30, 40, 50].map(|at| [at * SECOND; 3]).concat();
+        assert_eq!(races.collect::<Vec<_>>(), rounds, "{connects:?}: {tries:?}");
+    }
+}
+
 /// A second fault in the recovery: the path lets one connect through and fails again. The
 /// connect ends the outage, and the races after it start a new one with a first part of its
 /// own. The channel that connected stays live, and the others take turns again.

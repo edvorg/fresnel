@@ -141,9 +141,9 @@ impl Driver {
         }
     }
 
-    /// One connect, which the outage of the cluster counts. A wake or a network change
-    /// starts it again as a race: a connect that started before can wait on a dead path,
-    /// and a new one is faster.
+    /// One connect, which the outage of the cluster counts. A round of the signal starts it
+    /// again as a race: a connect that started before can wait on a dead path, and a new one
+    /// is faster.
     async fn connect(&mut self, mut effort: Effort) -> Result<(Sender, Connection), NetError> {
         let attempt = self.failures.saturating_add(1);
         self.shared.status.write(|facts| {
@@ -155,7 +155,7 @@ impl Driver {
         let dialed = loop {
             tokio::select! {
                 connected = self.dial.dial(Protocol::Http2, effort) => break connected,
-                _cause = self.listener.raised() => effort = Effort::Race,
+                () = self.outage.round(&mut self.listener) => effort = Effort::Race,
             }
         };
         let connected = match dialed {
@@ -181,7 +181,7 @@ impl Driver {
         self.failures = self.failures.saturating_add(1);
         let (failures, status) = (self.failures, &self.shared.status);
         let own = self.shared.settings.backoff.pause(failures, fastrand::u32(..));
-        // The signal of the cluster and a channel that connects end the pause.
+        // A round of the signal and a channel that connects end the pause.
         let show = |pause| status.enter(ChannelState::Backoff { failures, pause });
         self.outage.pause(&mut self.listener, own, show).await
     }

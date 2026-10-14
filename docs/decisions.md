@@ -164,7 +164,14 @@ recover in about 20 ms.
 In a break of 10 minutes, one cluster made 2,917 connect attempts: each channel ran a hedged
 race of up to 16 attempts after a pause of 3 s at most. Now, after one minute with no connect
 that worked, the channels of a cluster take turns: one attempt for each turn, one turn each 4
-to 6 s. The signal of the cluster and a channel that connects end each wait at once.
+to 6 s. A round of the signal and a channel that connects end each wait at once.
+
+## A raise ends the waits of the connects one time in 10 seconds at most
+
+The detectors can tell a change each 2 s, and "Retry now" can come often. Each raise ended the
+wait of each channel and started its connect again as a race. In a long outage with 3 held
+channels, a raise each 2 s gave 240 rounds and 720 races in 8 minutes. Now a raise starts a
+round only 10 s after the last one: 48 rounds. The first raise after a calm time acts at once.
 
 ## Live means that a request got an answer
 

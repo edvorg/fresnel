@@ -1,7 +1,8 @@
 //! The one signal that ends each retry delay of a cluster.
 //!
 //! After a wake, a network change or "retry now", a wait for a backoff is lost time. Each
-//! part of a cluster that waits before a retry listens to this signal.
+//! part of a cluster that waits before a retry listens to this signal. The channels end
+//! their waits for a connect one time in a calm time at most: see `channel::outage`.
 
 use std::sync::Arc;
 use std::time::Duration;
