@@ -112,3 +112,14 @@ fn the_create_of_a_secret_has_its_name_its_type_and_each_value_in_base64() {
     let nowhere = NewSecret { namespace: String::new(), ..plain };
     assert!(create(&nowhere).is_err(), "no namespace");
 }
+
+/// Bad input: the namespace of a new Secret is a part of the path, so a text with `/` or
+/// `..` would send the create to an other path.
+#[test]
+fn a_namespace_that_would_name_an_other_path_gives_no_request() {
+    let plain = NewSecret::new(ClusterId::new("ams"), "shop", "plain", SecretType::Opaque);
+    let escape = NewSecret { namespace: "shop/secrets/x/../../../kube-system".to_owned(), ..plain };
+    let error = create(&escape).expect_err("no namespace name");
+    assert_eq!(error.to_string(), "`shop/secrets/x/../../../kube-system` is no namespace name");
+    assert!(read(&target(KeyKind::Secret, "..")).is_err(), "a read too");
+}

@@ -14,6 +14,7 @@ use kube::core::params::{GetParams, Patch, PatchParams, PostParams};
 use serde_json::{Map, Value as Json, json};
 
 use super::draft::Save;
+use super::name::is_namespace;
 use super::object::{KeyKind, Place, Target};
 use super::secret_type::NewSecret;
 use super::value::Value;
@@ -47,11 +48,15 @@ pub(super) fn create(secret: &NewSecret) -> Result<Request<Vec<u8>>, CoreError> 
     request.map_err(|error| CoreError::invalid(format!("the create of the Secret: {error}")))
 }
 
-/// The collection of a kind in a namespace. An empty namespace would give the path
-/// `namespaces//secrets`, so it is an error with no request.
+/// The collection of a kind in a namespace. The namespace is a part of the path, so a text
+/// that is no namespace name is an error with no request: `a/b` or `..` would name an other
+/// path, and an empty one would give `namespaces//secrets`.
 fn collection(kind: Kind, namespace: &str) -> Result<kube::core::Request, CoreError> {
     if namespace.is_empty() {
         return Err(CoreError::invalid(format!("a {} is in a namespace, and the request has none", kind.info().name)));
+    }
+    if !is_namespace(namespace) {
+        return Err(CoreError::invalid(format!("`{namespace}` is no namespace name")));
     }
     Ok(kube::core::Request::new(kind.info().path_in(namespace)))
 }

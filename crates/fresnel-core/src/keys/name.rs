@@ -1,8 +1,21 @@
-//! The rule for the name of a key: the rule of the server, so that an edit that the server
-//! would refuse does not wait for a save to show it.
+//! The rules for the name of a key and of a namespace: the rules of the server, so that an
+//! edit that the server would refuse does not wait for a save to show it.
 
 /// The longest name of a key, the length of a DNS subdomain.
 const MAX_KEY: usize = 253;
+/// The longest name of a namespace, the length of a DNS label.
+const MAX_NAMESPACE: usize = 63;
+
+/// True for a namespace name: a DNS label of lower case letters, digits and `-`, with a
+/// letter or a digit at each end.
+pub(super) fn is_namespace(name: &str) -> bool {
+    let end = |byte: &u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    let bytes = name.as_bytes();
+    name.len() <= MAX_NAMESPACE
+        && bytes.iter().all(|byte| end(byte) || *byte == b'-')
+        && bytes.first().is_some_and(end)
+        && bytes.last().is_some_and(end)
+}
 
 /// Why the server refuses this name of a key of a Secret or a ConfigMap. `None` for a good
 /// name. The rule is `IsConfigMapKey` of the server: letters, digits, `-`, `_` and `.`, and
@@ -41,5 +54,15 @@ mod tests {
         assert_eq!(problem("."), "`.`: a key is not `.`, and does not start with `..`");
         assert_eq!(problem(".."), "`..`: a key is not `.`, and does not start with `..`");
         assert_eq!(problem("..data"), "`..data`: a key is not `.`, and does not start with `..`");
+    }
+
+    #[test]
+    fn a_namespace_is_a_dns_label() {
+        for good in ["shop", "kube-system", "a", "0-x9", &"n".repeat(63)] {
+            assert!(is_namespace(good), "{good}");
+        }
+        for bad in ["", "Shop", "-shop", "shop-", "a/b", "..", "a.b", "a b", "%2e%2e", &"n".repeat(64)] {
+            assert!(!is_namespace(bad), "{bad}");
+        }
     }
 }
