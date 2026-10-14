@@ -1100,13 +1100,28 @@ workload and its ReplicaSets or ControllerRevisions as JSON and compares templat
 ## Run again checks the new Job before it deletes the old one
 
 The server checks the new manifest in a dry run with a name that it makes, because the old Job
-holds the name. Then the delete, a wait for the watch event of the delete and the create follow.
-After the delete, the outcome holds the manifest, so the user can copy it when the create fails.
-A Job whose labels are the copy of its template gets none, so the server copies the new ones.
+holds the name. The store of the Jobs must follow them, and the manifest must have its text. Then
+come the delete, a wait for its watch event and the create. After the delete, the outcome holds
+the manifest for a copy. A Job whose labels copy its template gets none, so the server copies
+the new ones.
 
 ## The rules of a namespace decide an action, and HTTP 403 drops them
 
 One SelfSubjectRulesReview for each namespace that a view opens gives the rules, which stay 5
 minutes. An action on the cluster and rules that are not complete are unknown: an access review
-asks the server. The rules are a hint, so a job that the server refuses with HTTP 403 drops the
-rules of its namespace, and its state shows the message of the server.
+asks the server. A review with no status is a failure, not a denial. The rules are a hint, so a
+job that the server refuses with HTTP 403 drops the rules of its namespace, and its state shows
+the message of the server.
+
+## The core keeps 256 answers of the permissions of each type
+
+Each frame copies the permissions of each cluster, and a view can ask about each object that it
+shows. Thus a cluster keeps the rules of 256 namespaces and 256 answers of access reviews. The
+oldest answer leaves first, and a view that needs it asks again, so nothing is lost. A review on
+its way stays: the queue of 64 reviews limits those.
+
+## The same order does not run two times at once
+
+A fast second click gives an order again while its job runs. A second "roll back to the revision
+before" would undo the first one, and a second "run again" would race the first one for the name
+of the Job. Thus that order ends at once as not sent, with the number of the job that runs.

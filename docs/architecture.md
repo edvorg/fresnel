@@ -101,10 +101,10 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   `Draft` saves a merge patch of its changed keys with the version of its read, so no other key
   changes, and HTTP 409 is a conflict. The core follows the object of the open key view.
 - **Operations** (`ops`): a function builds each request of plan section 10, with a unit test
-  of its URL and body. An `Order` runs as a job in its own task, with steps and a state. A write
-  goes out one time; after an unknown result a step reads the object. A cancel ends a wait for
-  a store. **Permissions**: the rules of a namespace (or an access review) decide an action, and
-  HTTP 403 drops them. **Write result**: `Snapshot::is_pending` compares an answer with a store.
+  of its URL and body. An `Order` runs as a job in its own task, with steps and a state, not two
+  times at once. A write goes out one time; after an unknown result a step reads the object. A
+  cancel, or a store that follows nothing, ends a wait. **Permissions**: rules or a review decide
+  an action; HTTP 403 drops them. **Write result**: `Snapshot::is_pending` (answer and store).
 - **App core**: `app::Core` owns the registry, the tasks and the journal. After its start, one
   task reads the settings file, the login shell environment and the kubeconfig files, connects
   each selected cluster and runs each command. A cluster has its stores, indexes and a task.
