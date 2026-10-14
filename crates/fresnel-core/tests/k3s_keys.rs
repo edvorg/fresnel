@@ -75,10 +75,11 @@ async fn save(gateway: &Gateway, draft: &Draft) -> WriteState {
     WriteState::of_save(keys::save(gateway, &draft.save().expect("a save")).await)
 }
 
+/// The answer of a write that the server stored. Each other state ends the test.
 fn done(state: &WriteState) -> Arc<KeyObject> {
     match state {
         WriteState::Done(object) => Arc::clone(object),
-        other => panic!("the save did not end well: {other:?}"),
+        other => panic!("the write did not end well: {other:?}"),
     }
 }
 
@@ -248,7 +249,7 @@ async fn special_types_give_their_views(gateway: &Gateway) {
     tls.entries.insert("tls.crt".to_owned(), Value::new(pem("CERTIFICATE", cert.der()).into_bytes()));
     tls.entries.insert("tls.key".to_owned(), Value::new(pem("PRIVATE KEY", &signing_key.serialize_der()).into_bytes()));
     assert_eq!(tls.hints(), Vec::<String>::new());
-    WriteState::of_create(keys::create(gateway, &tls).await);
+    done(&WriteState::of_create(keys::create(gateway, &tls).await));
     let Special::Certificates(certificates) = read(gateway, KeyKind::Secret, "web-tls").await.special() else {
         panic!("a TLS Secret has certificates");
     };
@@ -259,7 +260,7 @@ async fn special_types_give_their_views(gateway: &Gateway) {
     let config = br#"{"auths":{"ghcr.io":{"auth":"cm9ib3Q6aGlkZGVu"}}}"#;
     let mut pull = NewSecret::new(ClusterId::new("default"), NAMESPACE, "pull", SecretType::DockerConfigJson);
     pull.entries.insert(".dockerconfigjson".to_owned(), Value::new(config.to_vec()));
-    WriteState::of_create(keys::create(gateway, &pull).await);
+    done(&WriteState::of_create(keys::create(gateway, &pull).await));
     let Special::Registries(Ok(registries)) = read(gateway, KeyKind::Secret, "pull").await.special() else {
         panic!("an image pull Secret has registries");
     };

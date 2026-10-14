@@ -13,8 +13,10 @@ use crate::cluster::{ClusterId, Fate, Gateway, WriteError};
 use crate::error::CoreError;
 use crate::store::Written;
 
-/// How far a save or a create is: the states of a job (plan section 7.3).
+/// How far a save or a create is: the states of a job (plan section 7.3). A state that
+/// nobody reads hides the end of a write, so the compiler refuses to drop one.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[must_use]
 pub enum WriteState {
     /// The request is on its way.
     Pending,
@@ -34,16 +36,22 @@ pub enum WriteState {
 }
 
 impl WriteState {
-    /// The state of a save after its result.
+    /// The state of a save after its result. HTTP 409 is a conflict: the object changed
+    /// after the read of the edit.
     pub fn of_save(result: Result<KeyObject, WriteError>) -> Self {
         match result {
             Err(WriteError { fate: Fate::Refused, error }) if error.status() == Some(409) => Self::Conflict(error),
-            other => Self::of_create(other),
+            other => Self::of_write(other),
         }
     }
 
-    /// The state of a create after its result. HTTP 409 means a Secret with the name exists.
+    /// The state of a create after its result. HTTP 409 means a Secret with the name
+    /// exists, so it is a refusal like any other.
     pub fn of_create(result: Result<KeyObject, WriteError>) -> Self {
+        Self::of_write(result)
+    }
+
+    fn of_write(result: Result<KeyObject, WriteError>) -> Self {
         match result {
             Ok(object) => Self::Done(Arc::new(object)),
             Err(WriteError { fate: Fate::Refused, error }) => Self::Failed(error),
