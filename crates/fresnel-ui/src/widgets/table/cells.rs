@@ -70,6 +70,11 @@ pub(super) fn filler_header(ui: &Ui, palette: &Palette) {
     ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, (1.0, palette.border));
 }
 
+/// A text in the middle of the place of the table, in place of the rows.
+pub(super) fn note(ui: &mut Ui, palette: &Palette, text: &str) {
+    ui.centered_and_justified(|ui| ui.label(RichText::new(text).color(palette.text_muted)));
+}
+
 /// Paints the background of a row and gives its click.
 pub(super) fn row(ui: &mut Ui, palette: &Palette, selected: bool, is_cursor: bool) -> Response {
     let rect = ui.max_rect();

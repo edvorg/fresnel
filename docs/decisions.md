@@ -830,7 +830,30 @@ the user stays: a wider window shows it again.
 
 ## A double click on an edge fits the column to its cells
 
-`egui_table` gives a column the width of its widest cell after a double click on its edge.
-It measures each cell in a pass that sizes only, in a place of the narrowest width. The
-cells cut their text to their place, so the column got the narrowest width and the state
-file kept it. In that pass, a title and a cell now give their full width.
+After a double click on an edge, `egui_table` lays out the cells of that column on the
+screen in a pass that sizes only, in a place of the narrowest width. The table takes the
+widest title or cell of that pass as the width. The cells cut their text to their place, so
+the column got the narrowest width and the state file kept it. In that pass, a title and a
+cell now give their full width.
+
+## The table owns the handle of each edge
+
+The handle of `egui_table` took clicks and drags, so egui started its drag after a move of
+6 points: until then the edge stayed. It also changed a width after its layout, one frame
+late. Now the table puts a handle that takes only drags on each edge, above the titles and
+rows. Before the layout, the width is the width at the press plus the move of the pointer.
+A click changes nothing, and Escape gives back the width.
+
+## The first widths come from the table, not from the cells
+
+A column has the width that its table gives until the user changes it. A width from the
+cells of the first frame would depend on the cluster whose rows came first: the layout would
+differ from run to run, and the state file could not tell a width of the user from a
+measured one. A double click on an edge fits a column to its cells when the user wants it.
+
+## A test of a drag moves as a mouse does
+
+The first drag tests moved the pointer 6 points or more in each frame, at a scale of 1. A
+mouse moves one point or less in a frame, on the pixel grid of a Retina display, and a
+fast one moves far. The tests in `pods/mouse.rs` do each of these in a table of 1,750
+points at a scale of 1 and of 2. They check the edge in the frame of each move.

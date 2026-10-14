@@ -5,12 +5,14 @@
 //! - `detail`: the detail panel. `snapshots`: PNG files of the view.
 //! - `resize`: a drag of the edge of a column. `layout`: the widths in the state file.
 //! - `resize_stress`: long moves, new data during a drag, extreme widths, a double click.
+//! - `mouse`: drags as a mouse sends them, at a scale of 1 and of 2, in a wide window.
 //! - `bad_data`: objects that a healthy API server does not give.
 //! - `rest`: the view while the window shows some other page.
 
 mod bad_data;
 mod detail;
 mod layout;
+mod mouse;
 pub(crate) mod resize;
 mod resize_stress;
 mod rest;

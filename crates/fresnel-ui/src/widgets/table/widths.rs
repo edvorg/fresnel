@@ -14,8 +14,9 @@
 //! pointer, and each frame would take more width from the column.
 //!
 //! The first column does not scroll to the side. Wider than the table, it would hide its
-//! own edge and each other column, so a frame shows it inside the table. That is no change
-//! of its width: a wider window shows the width of the user again.
+//! own edge and each other column, so a frame shows it inside the table, and a drag of its
+//! edge stops there. A narrow window is no change of its width: a wider window shows the
+//! width of the user again.
 //!
 //! The state file keeps the widths that the user changed, in whole points (`TableLayout`).
 
@@ -48,8 +49,6 @@ pub(super) struct Widths {
 pub(super) struct FrameWidths {
     /// The width of each column, in the sequence of the columns.
     pub(super) columns: Vec<f32>,
-    /// The widest that the first column can be in this frame.
-    pub(super) first_widest: f32,
     /// The width of the filler after the last column.
     pub(super) filler: f32,
 }
@@ -73,13 +72,12 @@ impl Widths {
     /// less its vertical scroll bar. The first column stays inside that place, and the
     /// filler comes after the last column.
     pub(super) fn for_frame(&self, place: f32) -> FrameWidths {
-        let first_widest = (place - SCROLLED_PLACE).clamp(NARROWEST, WIDEST);
         let mut columns = self.columns.clone();
         if let Some(first) = columns.first_mut() {
-            *first = first.min(first_widest);
+            *first = first.min(first_widest(place));
         }
         let filler = self.filler(place, columns.iter().sum());
-        FrameWidths { columns, first_widest, filler }
+        FrameWidths { columns, filler }
     }
 
     /// The width of the filler after columns of the width `sum` in this place: the free
@@ -100,8 +98,15 @@ impl Widths {
         self.shown = Some(Shown { content: sum + frame.filler, scrolled: (sum - end).max(0.0) });
     }
 
-    /// Takes the width of a drag of the user. A column that the model does not have and
-    /// a width that is not a number change nothing.
+    /// Takes the width of a drag of the user in a frame with this place. The first column
+    /// stays inside the table, so its drag stops there.
+    pub(super) fn drag(&mut self, index: usize, width: f32, place: f32) {
+        let widest = if index == 0 { first_widest(place) } else { WIDEST };
+        self.set(index, width.min(widest));
+    }
+
+    /// Takes a width that the user gave. A column that the model does not have and a
+    /// width that is not a number change nothing.
     pub(super) fn set(&mut self, index: usize, width: f32) {
         if let Some(old) = self.columns.get_mut(index)
             && width.is_finite()
@@ -139,6 +144,12 @@ impl Widths {
             }
         }
     }
+}
+
+/// The widest that the first column can be in a frame with this place: it leaves some
+/// place for the columns that scroll to the side.
+fn first_widest(place: f32) -> f32 {
+    (place - SCROLLED_PLACE).clamp(NARROWEST, WIDEST)
 }
 
 /// The width that a column of the model gives.
@@ -219,16 +230,22 @@ mod tests {
         let mut widths = widths(&[2000.0, 100.0]);
         let narrow = widths.for_frame(900.0);
         let first_widest = 900.0 - SCROLLED_PLACE;
-        assert_eq!((narrow.columns.as_slice(), narrow.first_widest), ([first_widest, 100.0].as_slice(), first_widest));
+        assert_eq!(narrow.columns, [first_widest, 100.0]);
         assert_eq!(narrow.filler, 0.0, "the columns fill the table");
         assert_eq!(widths.for_frame(2400.0).columns, [2000.0, 100.0], "a wide table shows the width of the user");
         assert_eq!(widths.for_frame(50.0).columns, [NARROWEST, 100.0], "a table narrower than one column");
-        assert_eq!(widths.for_frame(f32::MAX).first_widest, WIDEST);
+        assert_eq!(super::first_widest(f32::MAX), WIDEST);
 
         // The place that a scrolled table showed counts the widths on the screen: 952 points.
         show(&mut widths, 900.0, 848.0);
         assert_eq!(widths.shown, Some(Shown { content: 952.0, scrolled: 104.0 }));
         assert!(!widths.changed(), "a narrow table is no change of the user");
+
+        // A drag of its edge stops inside the table, and the other columns have no such limit.
+        widths.drag(0, 3000.0, 900.0);
+        widths.drag(1, 3000.0, 900.0);
+        assert_eq!(widths.columns, [first_widest, WIDEST]);
+        assert!(widths.changed());
     }
 
     #[test]
