@@ -1,6 +1,7 @@
 //! The domain of fresnel: clusters, the watch loop, stores, search, operations and the journal.
 //!
-//! - [`app`]: the app core, which the window reads and commands.
+//! - [`app`]: the app core, which the window reads and commands. [`commands`]: the table of
+//!   the commands of the user, with their keys.
 //! - [`cluster`]: the clusters and the requests to them. [`kubeconfig`]: their source.
 //! - [`kinds`]: the registry of the resource types. [`store`]: the objects of each kind of
 //!   a cluster, which the watch loop keeps current. [`index`]: the relations between them.
@@ -14,6 +15,7 @@
 
 pub mod app;
 pub mod cluster;
+pub mod commands;
 mod error;
 #[cfg(test)]
 mod fixture;

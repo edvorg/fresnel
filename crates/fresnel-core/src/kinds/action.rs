@@ -77,7 +77,7 @@ impl Action {
     ];
 
     /// The words of a menu entry.
-    pub fn label(self) -> &'static str {
+    pub const fn label(self) -> &'static str {
         match self {
             Self::ViewManifest => "View manifest",
             Self::EditManifest => "Edit manifest",
