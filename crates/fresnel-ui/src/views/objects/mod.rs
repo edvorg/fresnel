@@ -62,7 +62,7 @@ pub(crate) trait Page {
     /// Runs an action of the command table on the object of the panel.
     fn act(&mut self, ctx: &Context, action: Action);
 
-    /// True while a dialog of an action is open: the keys of the commands wait.
+    /// True while a dialog of an action or of the panel is open: the keys of the commands wait.
     fn has_dialog(&self) -> bool;
 
     /// Puts the focus into the text filter in the next frame.

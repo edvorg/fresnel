@@ -56,16 +56,24 @@ impl Confirm {
     }
 
     /// Draws the dialog. `color` is the color of the cluster, `secret` true for a Secret.
-    pub(super) fn show(&mut self, ctx: &Context, color: egui::Color32, secret: bool) -> Option<Answer> {
+    /// `refusal` tells why the save cannot go now: its button is off, and the dialog stays
+    /// for a cancel.
+    pub(super) fn show(
+        &mut self,
+        ctx: &Context,
+        color: egui::Color32,
+        secret: bool,
+        refusal: Option<&str>,
+    ) -> Option<Answer> {
         let modal = Modal::new(Id::new("save keys")).show(ctx, |ui| {
             ui.set_width(WIDTH);
-            self.contents(ui, color, secret)
+            self.contents(ui, color, secret, refusal)
         });
         let escape = ctx.input(|input| input.key_pressed(Key::Escape));
         modal.inner.or(escape.then_some(Answer::Cancel))
     }
 
-    fn contents(&mut self, ui: &mut Ui, color: egui::Color32, secret: bool) -> Option<Answer> {
+    fn contents(&mut self, ui: &mut Ui, color: egui::Color32, secret: bool, refusal: Option<&str>) -> Option<Answer> {
         let palette = theme::palette(ui);
         let target = &self.save.target;
         let (kind, key) = (target.kind.kind().info().name, &target.key);
@@ -97,9 +105,13 @@ impl Confirm {
             }
         });
         ui.add_space(8.0);
+        if let Some(reason) = refusal {
+            ui.label(RichText::new(reason).color(palette.warn));
+        }
         let mut answer = None;
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let save = ui.button(RichText::new(format!("Save {count}")).strong());
+            let save =
+                ui.add_enabled(refusal.is_none(), egui::Button::new(RichText::new(format!("Save {count}")).strong()));
             widgets::name(&save, &format!("Save {count}"));
             if save.clicked() {
                 answer = Some(Answer::Save);

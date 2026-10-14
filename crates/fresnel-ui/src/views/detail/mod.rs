@@ -114,6 +114,11 @@ impl<K: Describe> DetailPanel<K> {
         self.keys.as_ref().map(KeyPanel::target)
     }
 
+    /// True while the dialog of a save of the keys is open.
+    pub(crate) fn has_dialog(&self) -> bool {
+        self.keys.as_ref().is_some_and(KeyPanel::has_dialog)
+    }
+
     /// True while the store of the cluster has the object.
     pub(crate) fn is_present(&self) -> bool {
         self.presence == Presence::Present
@@ -208,7 +213,10 @@ impl<K: Describe> DetailPanel<K> {
             let store = data.and_then(|data| data.snapshot::<K>());
             let old = store.as_ref().and_then(|store| old_since(store, scene.clock));
             self.state_line(ui, palette, scene, nouns, old.as_deref());
-            if store.is_some_and(|store| pending(scene.view, &self.id, &store)) {
+            // A write of a job, or the last save of the keys.
+            let written = self.keys.as_ref().and_then(|keys| keys.written(data));
+            let saved = written.is_some_and(|written| store.as_ref().is_some_and(|store| store.is_pending(&written)));
+            if saved || store.is_some_and(|store| pending(scene.view, &self.id, &store)) {
                 let text = "Change pending: the server stored a change, and the watch did not bring it yet.";
                 ui.label(RichText::new(text).color(palette.info));
             }
@@ -289,13 +297,17 @@ impl<K: Describe> DetailPanel<K> {
         cluster: Option<&ClusterRow>,
     ) -> Option<Pick> {
         let data = cluster.and_then(|row| row.data.as_ref());
-        let cx = Context { palette, view: scene.view, clock: scene.clock, id: &self.id, data };
         let mut picked = self.metadata(ui, palette, scene).map(Pick::Open);
         ui.add_space(14.0);
-        if let Some(keys) = &mut self.keys {
-            keys.show(ui, palette, scene, data);
+        if self.keys.is_some() {
+            // The keys pass the gate of each action of the panel.
+            let gate = self.gate(Action::EditKeys, scene);
+            if let Some(keys) = &mut self.keys {
+                keys.show(ui, palette, scene, data, &gate);
+            }
             ui.add_space(14.0);
         }
+        let cx = Context { palette, view: scene.view, clock: scene.clock, id: &self.id, data };
         picked = sections::details(ui, &cx, &*self.object).or(picked);
         let (conditions, total) = &self.conditions;
         conditions::show(ui, palette, scene.clock, conditions, *total);

@@ -62,7 +62,7 @@ fn a_user_who_cannot_patch_the_secret_sees_why_and_cannot_change_a_value() {
     open(&mut window, "Secrets", "db");
     let db = target("ams-prod", KeyKind::Secret, "db");
     give(&mut window, "ams-prod", Some(loaded(read(&db, "1", &[("password", Place::Data, b"made-up")]))));
-    assert!(shows(&window, "You cannot change this Secret: no rule allows patch secrets in scene"));
+    assert!(shows(&window, "You cannot change this Secret. Forbidden: no rule allows patch secrets in scene."));
     assert!(window.get_by_label("Remove the key password").accesskit_node().is_disabled());
     assert!(!window.get_by_label("Copy the value of password").accesskit_node().is_disabled(), "a copy reads only");
 }

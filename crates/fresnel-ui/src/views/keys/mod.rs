@@ -33,7 +33,7 @@ use egui::{Align, RichText, Ui};
 use fresnel_core::app::{ClusterData, Command, KeysView};
 use fresnel_core::keys::{Conflict, Draft, KeyKind, KeyObject, Special, Target, WriteState};
 use fresnel_core::kinds::Action;
-use fresnel_core::ops::access::Decision;
+use fresnel_core::store::Written;
 
 use self::add::AddKey;
 use self::confirm::{Answer, Confirm};
@@ -43,6 +43,7 @@ use self::rows::{Act, Editors, Rows};
 use crate::format;
 use crate::shell::Scene;
 use crate::theme::Palette;
+use crate::views::act::Gate;
 use crate::widgets::tone::Tone;
 
 /// The keys of the object of a detail panel, with the edit of the user.
@@ -63,8 +64,6 @@ pub(crate) struct KeyPanel {
     note: Option<(Tone, String)>,
     /// An action of the command table for the next frame: the section scrolls into view.
     focus: Option<Action>,
-    /// True after the panel asked the core for the rules of the namespace.
-    asked_rules: bool,
 }
 
 impl KeyPanel {
@@ -81,13 +80,28 @@ impl KeyPanel {
             special: None,
             note: None,
             focus: None,
-            asked_rules: false,
         }
     }
 
     /// The object whose values the core reads for the panel.
     pub(crate) fn target(&self) -> &Target {
         &self.target
+    }
+
+    /// True while the dialog of a save is open: the keys of the shell wait, as for the
+    /// dialog of an action, so no command opens a view over it or closes the panel below it.
+    pub(crate) fn has_dialog(&self) -> bool {
+        self.confirm.is_some()
+    }
+
+    /// The result of the last save that the server stored, for the mark "change pending"
+    /// of the panel until the watch brings that version (plan section 9.10).
+    pub(crate) fn written(&self, data: Option<&ClusterData>) -> Option<Written> {
+        let view = data?.keys.as_deref().filter(|view| view.target == self.target)?;
+        match &view.save.as_ref()?.state {
+            WriteState::Done(object) => object.written(),
+            _ => None,
+        }
     }
 
     /// Runs an action of the command table on the keys: the next frame shows the section,
@@ -103,42 +117,41 @@ impl KeyPanel {
     }
 
     /// Draws the section of the keys. `data` is the data of the cluster of the object, or
-    /// `None` while the cluster is not connected.
-    pub(crate) fn show(&mut self, ui: &mut Ui, palette: &Palette, scene: &mut Scene<'_>, data: Option<&ClusterData>) {
+    /// `None` while the cluster is not connected. `gate` is the gate of a change of the keys
+    /// in the panel: it closes for a change that the rules forbid and for an object that
+    /// left its store, as for each other action of the panel (plan section 11.2).
+    pub(crate) fn show(
+        &mut self,
+        ui: &mut Ui,
+        palette: &Palette,
+        scene: &mut Scene<'_>,
+        data: Option<&ClusterData>,
+        gate: &Gate,
+    ) {
         let view = data.and_then(|data| data.keys.as_deref()).filter(|view| view.target == self.target);
         if let Some(object) = view.and_then(|view| view.object.as_ref()) {
             self.take(object);
         }
-        self.ask_rules(scene, data.is_some());
         let title = state::heading(ui, palette, self.draft.as_ref());
         if matches!(self.focus.take(), Some(Action::EditKeys | Action::RemoveKey)) {
             title.scroll_to_me(Some(Align::TOP));
         }
         let version = self.draft.as_ref().map(|draft| &*draft.base().version);
         state::read(ui, palette, &self.target.cluster, data.is_some(), view, version);
-        let kind = self.target.kind.kind().info().name;
-        let denied =
-            match data.map(|data| data.access.decide(Action::EditKeys, self.target.kind.kind(), &self.target.key)) {
-                Some(Decision::Denied(reason)) => Some(reason),
-                _ => None,
-            };
         let Some(draft) = &self.draft else {
             return;
         };
-        let immutable = draft.base().immutable;
-        if immutable {
-            let text = format!(
-                "This {kind} is immutable: the server refuses each change of a value. Only a delete and a new create change it."
-            );
+        let kind = self.target.kind.kind().info().name;
+        let lock = lock(kind, draft.base().immutable, gate);
+        if let Some(text) = &lock {
             ui.label(RichText::new(text).color(palette.warn));
         }
-        if let Some(reason) = &denied {
-            ui.label(RichText::new(format!("You cannot change this {kind}: {reason}")).color(palette.warn));
-        }
-        let editable = !immutable && denied.is_none();
+        // An edit while a save is on its way would meet the answer of that save as a change
+        // of the server: a conflict of the user with the own save.
+        let editable = lock.is_none() && !saving(view);
         let secret = self.target.kind == KeyKind::Secret;
         // The bar is above the keys, so a long list does not hide it or the state of a save.
-        self.save_bar(ui, palette, editable, view);
+        self.save_bar(ui, palette, lock.is_none(), view);
         if let Some(job) = view.and_then(|view| view.save.as_ref()) {
             state::save(ui, palette, kind, job);
         }
@@ -153,7 +166,8 @@ impl KeyPanel {
         if let Some((name, value)) = self.add.show(ui, palette, editable) {
             self.add_key(&name, value);
         }
-        self.dialog(ui, palette, scene, secret);
+        let refusal = lock.or_else(|| self.wait(view).map(str::to_owned));
+        self.dialog(ui, palette, scene, secret, refusal.as_deref());
         self.special(ui, palette, scene);
     }
 
@@ -179,16 +193,6 @@ impl KeyPanel {
         let changes = draft.changes();
         self.editors.forget(|key| changes.contains_key(key));
         self.changed();
-    }
-
-    /// Asks the core one time for the rules of the user in the namespace, which decide if
-    /// the user can change the object (plan section 10).
-    fn ask_rules(&mut self, scene: &mut Scene<'_>, connected: bool) {
-        if connected && !self.asked_rules {
-            let (cluster, namespace) = (self.target.cluster.clone(), Arc::clone(&self.target.key.namespace));
-            scene.commands.push(Command::ReadRules { cluster, namespace });
-            self.asked_rules = true;
-        }
     }
 
     /// The draft changed: the results that the panel keeps are old, and a conflict whose
@@ -274,23 +278,29 @@ impl KeyPanel {
         }
     }
 
-    /// The buttons Save and Discard, and why a save cannot start now. With no view of the
-    /// core, its cluster is not connected and a save would not go: the core has no holder.
-    fn save_bar(&mut self, ui: &mut Ui, palette: &Palette, editable: bool, view: Option<&KeysView>) {
-        let Some(draft) = &self.draft else {
-            return;
-        };
-        let pending = view.and_then(|view| view.save.as_ref()).is_some_and(|job| job.state == WriteState::Pending);
-        let changes = draft.changes().len();
-        let why_not = if view.is_none() {
+    /// Why a save of an object that the user can change cannot start now. With no view of
+    /// the core, its cluster is not connected and a save would not go: the core has no holder.
+    fn wait(&self, view: Option<&KeysView>) -> Option<&'static str> {
+        if view.is_none() {
             Some("The cluster of the object is not connected.")
-        } else if pending {
+        } else if saving(view) {
             Some("A save is on its way.")
         } else if !self.conflicts.is_empty() {
             Some("Choose a value for each conflict first.")
         } else {
             None
+        }
+    }
+
+    /// The buttons Save and Discard, and why a save cannot start now. `unlocked` is false
+    /// for an object that the user cannot change; the reason shows above the bar. During a
+    /// save, a discard would also meet its answer, so it waits too.
+    fn save_bar(&mut self, ui: &mut Ui, palette: &Palette, unlocked: bool, view: Option<&KeysView>) {
+        let wait = self.wait(view);
+        let Some(draft) = &self.draft else {
+            return;
         };
+        let changes = draft.changes().len();
         let base = Arc::clone(draft.base());
         let mut discard = false;
         ui.horizontal(|ui| {
@@ -299,15 +309,15 @@ impl KeyPanel {
             } else {
                 format!("Save {}…", format::count(changes as u64, "key"))
             };
-            let save = ui.add_enabled(editable && changes > 0 && why_not.is_none(), egui::Button::new(label));
+            let save = ui.add_enabled(unlocked && changes > 0 && wait.is_none(), egui::Button::new(label));
             if save.clicked() {
                 match draft.save() {
                     Ok(save) => self.confirm = Some(Confirm::new(save, draft.base())),
                     Err(refusal) => self.note = Some((Tone::Error, refusal.to_string())),
                 }
             }
-            discard = ui.add_enabled(changes > 0, egui::Button::new("Discard")).clicked();
-            if let Some(reason) = why_not.filter(|_| changes > 0) {
+            discard = ui.add_enabled(changes > 0 && !saving(view), egui::Button::new("Discard")).clicked();
+            if let Some(reason) = wait.filter(|_| changes > 0) {
                 ui.label(RichText::new(reason).color(palette.text_muted));
             }
         });
@@ -319,13 +329,15 @@ impl KeyPanel {
         }
     }
 
-    /// The dialog of a save while it is open. A save of the dialog goes to the core.
-    fn dialog(&mut self, ui: &mut Ui, palette: &Palette, scene: &mut Scene<'_>, secret: bool) {
+    /// The dialog of a save while it is open. A save of the dialog goes to the core, unless
+    /// `refusal` tells why it cannot go now: while the dialog is open, the object can leave
+    /// its store, the rules can forbid the change and the cluster can go.
+    fn dialog(&mut self, ui: &mut Ui, palette: &Palette, scene: &mut Scene<'_>, secret: bool, refusal: Option<&str>) {
         let Some(confirm) = &mut self.confirm else {
             return;
         };
         let color = scene.colors.color(&self.target.cluster, palette);
-        match confirm.show(ui.ctx(), color, secret) {
+        match confirm.show(ui.ctx(), color, secret, refusal) {
             Some(Answer::Save) => {
                 scene.commands.push(Command::SaveKeys(confirm.save().clone()));
                 self.confirm = None;
@@ -347,4 +359,23 @@ impl KeyPanel {
             special::show(ui, palette, scene.clock, special);
         }
     }
+}
+
+/// Why the user cannot change the keys: an immutable object, or the closed gate of the
+/// change. `None` when the user can change them.
+fn lock(kind: &str, immutable: bool, gate: &Gate) -> Option<String> {
+    if immutable {
+        return Some(format!(
+            "This {kind} is immutable: the server refuses each change of a value. Only a delete and a new create change it."
+        ));
+    }
+    match gate {
+        Gate::Closed(reason) => Some(format!("You cannot change this {kind}. {reason}")),
+        Gate::Open | Gate::Unknown(_) => None,
+    }
+}
+
+/// True while the last save of the view is on its way.
+fn saving(view: Option<&KeysView>) -> bool {
+    view.and_then(|view| view.save.as_ref()).is_some_and(|job| job.state == WriteState::Pending)
 }

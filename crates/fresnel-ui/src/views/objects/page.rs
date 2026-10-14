@@ -355,7 +355,7 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
     }
 
     fn has_dialog(&self) -> bool {
-        self.acts.has_dialog()
+        self.acts.has_dialog() || self.detail.as_ref().is_some_and(DetailPanel::has_dialog)
     }
 
     fn focus_filter(&mut self) {
