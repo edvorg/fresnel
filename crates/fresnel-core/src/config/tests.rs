@@ -98,3 +98,16 @@ fn an_absent_file_gives_no_settings_and_a_folder_in_its_place_is_an_error() {
     assert_eq!(load(&path).map(|loaded| loaded.map(|loaded| loaded.used)), Ok(Some(true)));
     std::fs::remove_dir_all(&folder).expect("the folder of the test goes");
 }
+
+/// A file of thousands of unknown keys gives the journal a bounded count of entries.
+#[test]
+fn the_problems_of_a_file_have_a_limit_and_a_count_of_the_rest() {
+    let keys: String = (0..1_000).map(|number| format!("key-{number} = 1\n")).collect();
+    let loaded = parse(&format!("version = 1\n{keys}"));
+    let texts = texts(&loaded);
+    assert_eq!(texts.len(), 21);
+    assert_eq!(texts.first().map(String::as_str), Some("line 2, column 1: unknown key `key-0`; the app ignores it"));
+    let rest = "line 22, column 1: 980 more problems from here; the journal shows the first 20 only";
+    assert_eq!(texts.last().map(String::as_str), Some(rest));
+    assert!(loaded.used);
+}

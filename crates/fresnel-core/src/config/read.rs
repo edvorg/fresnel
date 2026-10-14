@@ -9,6 +9,10 @@ use toml::de::{DeTable, DeValue};
 use super::{Config, Loaded, Problem, VERSION};
 use crate::commands::{self, CommandId, Keys, Shortcut};
 
+/// The most problems of a file that go to the journal, and one line for the rest. A file of
+/// unknown keys would else push each other entry out of the journal.
+const MAX_PROBLEMS: usize = 20;
+
 /// Reads the settings of a text. A key that does not fit is a problem, and the other keys
 /// stay in use.
 pub fn parse(text: &str) -> Loaded {
@@ -35,7 +39,7 @@ pub fn parse(text: &str) -> Loaded {
         Some(Some(found)) => {
             let text = format!("the file has the version {found}, and this app reads the version {VERSION} only");
             reader.problem(0..0, text);
-            return Loaded { config: Config::default(), problems: reader.problems, used: false };
+            return Loaded { config: Config::default(), problems: limited(reader.problems), used: false };
         }
         None => reader.problem(0..0, format!("the file has no `version`; the app reads it as version {VERSION}")),
     }
@@ -46,7 +50,20 @@ pub fn parse(text: &str) -> Loaded {
         reader.problem(span, text);
     }
     reader.problems.sort_by_key(|problem| (problem.line, problem.column));
-    Loaded { config: Config { keys }, problems: reader.problems, used: true }
+    Loaded { config: Config { keys }, problems: limited(reader.problems), used: true }
+}
+
+/// The first [`MAX_PROBLEMS`] problems, and the count of the others at the place of the
+/// first one of them.
+fn limited(mut problems: Vec<Problem>) -> Vec<Problem> {
+    if let Some(first) = problems.get(MAX_PROBLEMS) {
+        let (line, column) = (first.line, first.column);
+        let more = problems.len() - MAX_PROBLEMS;
+        problems.truncate(MAX_PROBLEMS);
+        let text = format!("{more} more problems from here; the journal shows the first {MAX_PROBLEMS} only");
+        problems.push(Problem { line, column, text });
+    }
+    problems
 }
 
 struct Reader<'a> {
