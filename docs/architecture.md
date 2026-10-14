@@ -9,8 +9,7 @@ This page gives the structure of fresnel. [decisions.md](decisions.md) gives the
 - **Watch**: one stream of changes for one kind in one cluster.
 - **Store**: the copy in memory of all objects of one kind in one cluster.
 - **Snapshot**: a view of a store that a reader holds. It does not change.
-- **Task**: one background activity with a visible state.
-- **Journal**: the list of events, warnings and errors that the app shows.
+- **Task**: one background activity with a visible state. **Journal**: the entries of the app.
 
 ## Design rules (they have priority over features)
 
@@ -62,8 +61,7 @@ xtask
 
 ## Background tasks
 
-`fresnel_net::task::Tasks::start` is the one function that starts a background task on the
-runtime. `Tasks::start_thread` starts one on a thread of its own, for a worker.
+`fresnel_net::task::Tasks::start` starts each background task, `start_thread` a worker thread.
 
 - The caller gives a name, a restart rule and a body. The body builds one run of the task.
   `Restart::Always` runs it again after each end, with a pause that grows to a limit.
@@ -154,18 +152,20 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 ## Window
 
-`fresnel_ui::Shell` draws one frame from a `CoreView`: the top bar, the sidebar, the center,
-the dock (Journal, Connections) and the status bar. `fresnel::frame::draw` is one frame.
+`fresnel_ui::Shell` draws one frame from a `CoreView`: the top bar, the sidebar with the kinds
+and their counts, the page of the open kind, the dock (Journal, Connections) and the status
+bar. It holds the page of one kind and names that kind to the core with `ShowKinds`.
 
 - **Table**: `widgets/table.rs` wraps `egui_table`. A kind gives a `Model`: columns, rows,
   their sequence and cells. The cursor and the selection hold objects (cluster, name, UID).
-  The table owns the widths and a handle on each edge. A filler takes the free width.
+  The table owns the widths, the columns that show and a handle on each edge.
 - **Worker**: one thread for each table computes the rows. Its mailbox has one request and
   one result. New data does not stop a computation; a new sort or filter does. After a
   panic, the thread starts again with the request that waits, and the table tells why.
-- **Pods view**: the pods of each selected cluster. It follows each store by the differences
-  of two snapshots: new rows only after a change, and no deleted pod in the selection. The
-  detail panel reads its pod in each frame, and a pod that left its store shows as deleted.
+- **Object page**: the objects of one kind in each selected cluster (`views/objects`), followed
+  by the differences of two snapshots. Pods have a model of their own, other kinds their columns.
+- **Detail panel**: metadata, conditions, related objects as links, Events and the Manifest
+  tab. It reads its object in each frame; an object that left its store shows as deleted.
 - **Freshness**: a row from a store that is not live has a mark, and a note above the table
   gives the state and the reason of each such cluster. The rows stay in each state.
 - **Program**: the folders, the lock of the process, the log file, the panic hook, the runtime

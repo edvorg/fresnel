@@ -18,7 +18,7 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::store::ObjectKey;
 
-use super::model::{Cell, Computed};
+use super::model::{Cell, Column, Computed};
 use super::worker::Cancel;
 use super::*;
 use crate::testing::{LIMIT, TestTasks};

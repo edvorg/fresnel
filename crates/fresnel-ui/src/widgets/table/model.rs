@@ -35,15 +35,22 @@ pub(crate) struct Column {
     pub(crate) width: f32,
     /// A number aligns to the right.
     pub(crate) numeric: bool,
+    /// False for a column that shows only after the user chose it.
+    pub(crate) shown: bool,
 }
 
 impl Column {
     pub(crate) const fn new(title: &'static str, width: f32) -> Self {
-        Self { title, width, numeric: false }
+        Self { title, width, numeric: false, shown: true }
     }
 
     pub(crate) const fn numeric(mut self) -> Self {
         self.numeric = true;
+        self
+    }
+
+    pub(crate) const fn hidden(mut self) -> Self {
+        self.shown = false;
         self
     }
 }
@@ -126,7 +133,8 @@ pub(crate) trait Model: Send + Sync + 'static {
     /// the state of each store.
     type Scene;
 
-    fn columns(&self) -> &'static [Column];
+    /// The columns, in their sequence. The first one has the name of the object.
+    fn columns(&self) -> &[Column];
 
     /// The rows that pass the filter. `None` after `cancel` is set: the result has no use.
     fn rows(

@@ -1488,6 +1488,7 @@ dependencies = [
  "jiff",
  "k8s-openapi",
  "serde",
+ "serde-saphyr",
  "serde_json",
  "tokio",
 ]

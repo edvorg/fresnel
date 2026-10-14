@@ -5,20 +5,17 @@
 //! sorts by the creation time, so no row moves because time passes.
 
 use std::cmp::{Ordering, Reverse};
-use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use egui::Color32;
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::kinds::{ObjectHealth, PodStatus};
-use fresnel_core::published::Held;
-use fresnel_core::store::{ObjectKey, Snapshot};
+use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 
 use crate::format::{self, Clock};
-use crate::theme::Palette;
+use crate::views::objects::{NamespaceSet, Namespaces, Nouns, ObjectFilter, ObjectModel, RowScene, Stores, uid};
 use crate::widgets::table::model::{Cell, Column, Computed, Lead, Model, ObjectId, contains_ignore_case};
 use crate::widgets::table::worker::Cancel;
 use crate::widgets::tone::Tone;
@@ -66,23 +63,6 @@ const NONE: &str = "–";
 /// The count of pods between two reads of the cancel mark.
 const CANCEL_STEP: usize = 1024;
 
-/// The Pod stores of the selected clusters at one moment.
-#[derive(Clone)]
-pub(crate) struct PodData {
-    pub(crate) clusters: Vec<(ClusterId, Held<Snapshot<Pod>>)>,
-}
-
-/// The filters of the Pods view.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct PodFilter {
-    /// A part of the name, the namespace, the cluster, the status or the node.
-    pub(crate) text: String,
-    /// The namespaces whose pods show. Empty: each namespace.
-    pub(crate) namespaces: BTreeSet<Arc<str>>,
-    /// True to show only the pods that are not healthy.
-    pub(crate) problems: bool,
-}
-
 /// One row: a pod with its identity and the state that `kubectl get pods` prints.
 pub(crate) struct PodRow {
     pub(crate) id: ObjectId,
@@ -98,34 +78,6 @@ impl PodRow {
     fn created(&self) -> Option<&Time> {
         self.pod.metadata.creation_timestamp.as_ref()
     }
-}
-
-/// What the view shows of all pods besides the rows.
-pub(crate) struct PodSummary {
-    /// Each namespace with a pod, in the sequence of the alphabet.
-    pub(crate) namespaces: Vec<Arc<str>>,
-}
-
-/// What a row shows of its cluster.
-pub(crate) struct ClusterMark {
-    pub(crate) color: Color32,
-    /// Set for a cluster whose Pod store is not live: since when its rows are old.
-    pub(crate) old: Option<String>,
-}
-
-/// What a cell of the Pod table needs at its paint that is not in its row.
-pub(crate) struct PodScene {
-    pub(crate) palette: &'static Palette,
-    pub(crate) clock: Clock,
-    pub(crate) marks: HashMap<ClusterId, ClusterMark>,
-}
-
-/// The mark of a row whose cluster left the selection. The row goes with the next rows.
-const NOT_SELECTED: &str = "old: the cluster is not selected";
-
-/// The UID of a pod. Empty for a pod that its server gave none.
-pub(super) fn uid(pod: &Pod) -> &str {
-    pod.metadata.uid.as_deref().unwrap_or_default()
 }
 
 /// The age of a time of the cluster on the clock of the view.
@@ -145,45 +97,44 @@ impl PodModel {
 }
 
 impl Model for PodModel {
-    type Data = PodData;
-    type Filter = PodFilter;
+    type Data = Stores<Pod>;
+    type Filter = ObjectFilter;
     type Row = PodRow;
-    type Summary = PodSummary;
-    type Scene = PodScene;
+    type Summary = Namespaces;
+    type Scene = RowScene;
 
-    fn columns(&self) -> &'static [Column] {
+    fn columns(&self) -> &[Column] {
         &COLUMNS
     }
 
-    fn rows(&self, data: &PodData, filter: &PodFilter, cancel: &Cancel<'_>) -> Option<Computed<PodRow, PodSummary>> {
-        let needle = filter.text.trim().to_ascii_lowercase();
-        let (mut rows, mut total, mut namespaces) = (Vec::new(), 0, BTreeSet::new());
+    fn rows(
+        &self,
+        data: &Stores<Pod>,
+        filter: &ObjectFilter,
+        cancel: &Cancel<'_>,
+    ) -> Option<Computed<PodRow, Namespaces>> {
+        let needle = filter.needle();
+        let (mut rows, mut total, mut namespaces) = (Vec::new(), 0, NamespaceSet::default());
         for (cluster, snapshot) in &data.clusters {
             total += snapshot.items.len();
-            let mut namespace: Option<&Arc<str>> = None;
             for (count, (key, pod)) in snapshot.items.iter().enumerate() {
                 if count.is_multiple_of(CANCEL_STEP) && cancel.is_set() {
                     return None;
                 }
-                // The pods come by namespace, so one comparison finds a new one.
-                if namespace != Some(&key.namespace) {
-                    namespaces.insert(Arc::clone(&key.namespace));
-                    namespace = Some(&key.namespace);
-                }
+                namespaces.add(key);
+                // A pod of an other namespace needs no status.
                 if !(filter.namespaces.is_empty() || filter.namespaces.contains(&key.namespace)) {
                     continue;
                 }
                 let status = PodStatus::of(pod);
-                if (filter.problems && !status.health.is_problem())
-                    || !Self::matches(cluster, key, pod, &status, &needle)
-                {
+                if !filter.passes(key, status.health) || !Self::matches(cluster, key, pod, &status, &needle) {
                     continue;
                 }
-                let id = ObjectId { cluster: cluster.clone(), key: key.clone(), uid: uid(pod).into() };
+                let id = ObjectId { cluster: cluster.clone(), key: key.clone(), uid: uid(&pod.metadata).into() };
                 rows.push(PodRow { id, pod: Arc::clone(pod), status });
             }
         }
-        Some(Computed { rows, total, summary: PodSummary { namespaces: namespaces.into_iter().collect() } })
+        Some(Computed { rows, total, summary: namespaces.done() })
     }
 
     fn compare(&self, a: &PodRow, b: &PodRow, column: usize) -> Ordering {
@@ -210,24 +161,17 @@ impl Model for PodModel {
         &row.id
     }
 
-    fn has(&self, data: &PodData, row: &PodRow) -> bool {
-        let pods = data.clusters.iter().find(|(cluster, _)| *cluster == row.id.cluster);
-        let pod = pods.and_then(|(_, pods)| pods.items.get(&row.id.key));
-        // A new pod with the name of the row is an other object.
-        pod.is_some_and(|pod| uid(pod) == &*row.id.uid)
+    fn has(&self, data: &Stores<Pod>, row: &PodRow) -> bool {
+        data.has(&row.id)
     }
 
-    fn cell<'a>(&self, row: &'a PodRow, column: usize, scene: &'a PodScene) -> Cell<'a> {
-        let mark = scene.marks.get(&row.id.cluster);
-        let old = mark.map_or(Some(NOT_SELECTED), |mark| mark.old.as_deref());
+    fn cell<'a>(&self, row: &'a PodRow, column: usize, scene: &'a RowScene) -> Cell<'a> {
+        let old = scene.old(&row.id.cluster);
         let status = &row.status;
         let cell = match FIELDS.get(column) {
             Some(Field::Name) => Cell::new(&*row.id.key.name).lead(old.map_or(Lead::None, Lead::Old)),
             Some(Field::Namespace) => Cell::new(&*row.id.key.namespace).tone(Tone::Muted),
-            Some(Field::Cluster) => {
-                let color = mark.map_or(scene.palette.text_faint, |mark| mark.color);
-                Cell::new(row.id.cluster.as_str()).lead(Lead::Dot(color))
-            }
+            Some(Field::Cluster) => Cell::new(row.id.cluster.as_str()).lead(Lead::Dot(scene.color(&row.id.cluster))),
             Some(Field::Ready) => {
                 let short = status.ready < status.containers && status.health != ObjectHealth::Healthy;
                 let tone = if short { Tone::Warn } else { Tone::Normal };
@@ -254,6 +198,18 @@ impl Model for PodModel {
         };
         // An old row has no color that tells a state of now.
         if old.is_some() { cell.tone(Tone::Faint) } else { cell }
+    }
+}
+
+impl ObjectModel for PodModel {
+    type Object = Pod;
+
+    fn nouns(&self) -> Nouns {
+        Nouns { title: "Pods", one: "pod", many: "pods" }
+    }
+
+    fn object<'a>(&self, row: &'a PodRow) -> &'a Arc<Pod> {
+        &row.pod
     }
 }
 

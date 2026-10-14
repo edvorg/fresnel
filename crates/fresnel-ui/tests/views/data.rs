@@ -15,6 +15,7 @@ use fresnel_core::published::{Disposal, Held, Notice, Publisher};
 use fresnel_core::store::{Snapshot, StoreState};
 use jiff::{SignedDuration, Timestamp};
 use k8s_openapi::api::core::v1::{Event, Pod};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::runtime::{Builder, Runtime};
@@ -46,12 +47,30 @@ fn move_times(value: &mut Value, shift: SignedDuration) {
 }
 
 fn objects<T: DeserializeOwned>(text: &str) -> Vec<Arc<T>> {
-    let mut value: Value = serde_json::from_str(text).expect("a file of the fixture");
-    let fixture_time: Timestamp = FIXTURE_TIME.parse().expect("a time");
+    let value: Value = serde_json::from_str(text).expect("a file of the fixture");
+    moved(value, FIXTURE_TIME.parse().expect("a time"))
+}
+
+/// The objects of a JSON list with each time moved from the moment `then` to the time of
+/// the view tests.
+fn moved<T: DeserializeOwned>(mut value: Value, then: Timestamp) -> Vec<Arc<T>> {
     let test_time = Timestamp::try_from(now()).expect("a time");
-    move_times(&mut value, test_time.duration_since(fixture_time));
+    move_times(&mut value, test_time.duration_since(then));
     let objects: Vec<T> = serde_json::from_value(value).expect("the objects of the fixture");
     objects.into_iter().map(Arc::new).collect()
+}
+
+/// The objects of a kind in the scene of the kinds test of `fresnel-core`: the table that
+/// the server printed has the object of each row. Its newest object is 60 s old.
+pub(crate) fn of_kinds<K: Describe>() -> Vec<Arc<K>> {
+    let folder = concat!(env!("CARGO_MANIFEST_DIR"), "/../fresnel-core/fixtures/kinds");
+    let text = std::fs::read_to_string(format!("{folder}/{}.json", K::ID.info().plural)).expect("a file");
+    let table: Value = serde_json::from_str(&text).expect("JSON");
+    let rows = table["rows"].as_array().expect("the rows of a table");
+    let objects: Vec<Value> = rows.iter().map(|row| row["object"].clone()).collect();
+    let created = objects.iter().filter_map(|object| object.pointer("/metadata/creationTimestamp")?.as_str());
+    let newest = created.filter_map(|time| time.parse::<Timestamp>().ok()).max().expect("a creation time");
+    moved(Value::Array(objects), newest + SignedDuration::from_secs(60))
 }
 
 /// Each object of a kind of tier A in the scene, as `fresnel-core` keeps it in its fixture.
@@ -82,9 +101,14 @@ pub(crate) fn pod(name: &str) -> Arc<Pod> {
 /// A pod after a change of its JSON: a state that the scene does not hold, or one more
 /// pod for a table with many rows.
 pub(crate) fn changed(pod: &Pod, change: impl FnOnce(&mut Value)) -> Arc<Pod> {
-    let mut value = serde_json::to_value(pod).expect("JSON");
+    changed_object(pod, change)
+}
+
+/// An object of any kind after a change of its JSON.
+pub(crate) fn changed_object<K: Serialize + DeserializeOwned>(object: &K, change: impl FnOnce(&mut Value)) -> Arc<K> {
+    let mut value = serde_json::to_value(object).expect("JSON");
     change(&mut value);
-    Arc::new(serde_json::from_value(value).expect("a pod"))
+    Arc::new(serde_json::from_value(value).expect("an object"))
 }
 
 /// A copy of a pod with an other name and UID.
@@ -126,7 +150,7 @@ pub(crate) fn store<T: fresnel_core::kinds::Object>(state: StoreState, objects: 
 }
 
 /// A store before its first data: no object, and no complete list.
-pub(crate) fn empty_store(state: StoreState, since: SystemTime) -> Snapshot<Pod> {
+pub(crate) fn empty_store<T: fresnel_core::kinds::Object>(state: StoreState, since: SystemTime) -> Snapshot<T> {
     Snapshot { since, last_contact: None, listed: false, generation: 0, ..store(state, &[]) }
 }
 
@@ -143,8 +167,8 @@ pub(crate) fn held<T: Send + Sync + 'static>(value: T) -> Held<T> {
 }
 
 /// The same objects in an other state, as a store publishes them when its watch stops.
-pub(crate) fn in_state(pods: &Snapshot<Pod>, state: StoreState) -> Snapshot<Pod> {
-    Snapshot { items: pods.items.clone(), ..store(state, &[]) }
+pub(crate) fn in_state<T: fresnel_core::kinds::Object>(objects: &Snapshot<T>, state: StoreState) -> Snapshot<T> {
+    Snapshot { items: objects.items.clone(), ..store(state, &[]) }
 }
 
 /// The Event index of the scene on a store of the Events in this state.

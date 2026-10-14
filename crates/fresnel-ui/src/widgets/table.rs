@@ -7,13 +7,18 @@
 //!
 //! - `model`: what a kind gives to its table. `worker`: the thread that computes the rows.
 //! - `rows`: a request and its rows. `supply`: the last request and the rows on the screen.
-//! - `cells`: the paint of each part. `keys`: the keys. `widths`: the widths of the columns.
+//! - `delegate`: what `egui_table` asks in a frame. `cells`: the paint of each part.
+//! - `keys`: the keys. `widths`: the widths of the columns. `choice`: the columns that show.
+//! - `layout`: the widths and the columns that the state file keeps.
 //! - `edges`: the handle at the right of each column, for a drag and a double click.
 //! - `selection`: the selected objects. `select`: what a click and a key do to them.
 
 pub(crate) mod cells;
+mod choice;
+mod delegate;
 mod edges;
 mod keys;
+mod layout;
 pub(crate) mod model;
 mod rows;
 mod select;
@@ -22,17 +27,17 @@ mod supply;
 mod widths;
 pub(crate) mod worker;
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use egui::{EventFilter, Modifiers, Sense, Ui};
-use fresnel_core::app::Command;
+use egui::{EventFilter, Sense, Ui};
 use fresnel_core::net::task::Tasks;
 use fresnel_core::state_file::TableLayout;
 
+use self::choice::Choice;
+use self::delegate::Delegate;
 use self::edges::{Edges, Seen};
-use self::model::{Column, Model, ObjectId, Sort};
+use self::model::{Model, ObjectId};
 pub(crate) use self::rows::Rows;
 use self::select::{click, forget_gone, key, position};
 pub(crate) use self::selection::Selection;
@@ -40,7 +45,7 @@ pub(crate) use self::supply::Progress;
 use self::supply::Supply;
 use self::widths::{FrameWidths, NARROWEST, WIDEST, Widths};
 use self::worker::Wake;
-use crate::theme::{self, Palette, ROW_HEIGHT};
+use crate::theme::{self, ROW_HEIGHT};
 
 /// What the user did to the cursor of a table in one frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +66,7 @@ pub(crate) struct Table<M: Model> {
     /// The object whose row the next frame scrolls to.
     reveal: Option<ObjectId>,
     widths: Widths,
+    choice: Choice,
     edges: Edges,
     /// The layout that the core has of this table, as far as the table knows. `None` before
     /// the core read the state file.
@@ -72,41 +78,19 @@ impl<M: Model> Table<M> {
     pub(crate) fn new(tasks: &Tasks, wake: Wake, name: &'static str, model: M) -> Self {
         let model = Arc::new(model);
         let supply = Supply::start(tasks, wake, name, Arc::clone(&model));
-        let widths = Widths::new(model.columns());
+        let (widths, choice) = (Widths::new(model.columns()), Choice::new(model.columns()));
         let (selection, edges) = (Selection::default(), Edges::default());
-        Self { name, model, supply, selection, reveal: None, widths, edges, saved: None }
-    }
-
-    /// Takes the saved layout of the table one time, when the core read the state file
-    /// (`CoreView::tables`). A width that the user changed before that stays.
-    pub(crate) fn restore(&mut self, tables: Option<&BTreeMap<String, TableLayout>>) {
-        let Some(tables) = tables.filter(|_| self.saved.is_none()) else {
-            return;
-        };
-        let layout = tables.get(self.name).cloned().unwrap_or_default();
-        if !self.widths.changed() {
-            self.widths.restore(self.model.columns(), &layout);
-        }
-        self.saved = Some(layout);
-    }
-
-    /// The command that saves the widths that the user changed. It comes one time, after
-    /// the end of the drag, and only after `restore`: the core does not write the file
-    /// before it read it.
-    pub(crate) fn save_layout(&mut self, ui: &Ui) -> Option<Command> {
-        let saved = self.saved.as_mut()?;
-        if ui.input(|input| input.pointer.any_down()) {
-            return None;
-        }
-        let layout = self.widths.take_layout(self.model.columns()).filter(|layout| layout != saved)?;
-        saved.clone_from(&layout);
-        Some(Command::SaveTable { table: self.name.to_owned(), layout })
+        Self { name, model, supply, selection, reveal: None, widths, choice, edges, saved: None }
     }
 
     /// Tells the table what its rows come from in this frame, and takes a result of the
     /// worker. `data_serial` grows when the objects change, and `data` gives them.
     pub(crate) fn request(&mut self, filter: &M::Filter, data_serial: u64, data: impl FnOnce() -> M::Data) {
         self.supply.request(filter, data_serial, data);
+    }
+
+    pub(crate) fn model(&self) -> &M {
+        &self.model
     }
 
     pub(crate) fn progress(&self) -> Progress<'_> {
@@ -134,6 +118,12 @@ impl<M: Model> Table<M> {
 
     pub(crate) fn clear_selection(&mut self) {
         self.selection.clear();
+    }
+
+    /// Selects this object only, and the next frame scrolls to its row: a link opened it.
+    pub(crate) fn select(&mut self, id: ObjectId) {
+        self.selection.only(id.clone());
+        self.reveal = Some(id);
     }
 
     /// Gives up the rows, the objects of the last request and the selection. A view
@@ -173,7 +163,7 @@ impl<M: Model> Table<M> {
             cells::note(ui, palette, &empty());
             return None;
         }
-        let (model, columns) = (&*self.model, self.model.columns());
+        let (model, columns, visible) = (&*self.model, self.model.columns(), self.choice.visible());
         let rect = ui.available_rect_before_wrap();
         // The focus of the keys is an area below the rows. The rows are above it and
         // get the clicks.
@@ -186,8 +176,8 @@ impl<M: Model> Table<M> {
             self.widths.drag(column, width, place);
         }
         let fit = self.edges.take_fit();
-        let frame = self.widths.for_frame(place);
-        let table_columns = self.table_columns(&frame, fit);
+        let frame = self.widths.for_frame(place, &visible);
+        let table_columns = self.table_columns(&visible, &frame, fit);
         let mut table = egui_table::Table::new()
             .id_salt(self.name)
             .num_rows(rows.len() as u64)
@@ -206,6 +196,7 @@ impl<M: Model> Table<M> {
             scene,
             palette,
             columns,
+            visible: &visible,
             sort: self.supply.sort(),
             selection: &self.selection,
             widths: &frame.columns,
@@ -225,7 +216,10 @@ impl<M: Model> Table<M> {
             self.widths.set(column, delegate.fitted);
         }
         let id = |column: usize| ui.make_persistent_id((self.name, columns.get(column).map(|c| c.title), "edge"));
-        let widths = |column: usize| Some((*frame.columns.get(column)?, self.widths.get(column)?));
+        let widths = |column: usize| {
+            let position = visible.iter().position(|index| *index == column)?;
+            Some((*frame.columns.get(position)?, self.widths.get(column)?))
+        };
         self.edges.handles(ui, &delegate.seen, rect, id, widths);
 
         let (mut acted, mut by_key) = (None, false);
@@ -265,11 +259,13 @@ impl<M: Model> Table<M> {
         acted
     }
 
-    /// The columns of `egui_table`: one for each column of the model, with the widths of
+    /// The columns of `egui_table`: one for each column that shows, with the widths of
     /// this frame, and the filler after them. The table changes a width, not `egui_table`:
     /// it measures the cells of the column `fit` only.
-    fn table_columns(&self, frame: &FrameWidths, fit: Option<usize>) -> Vec<egui_table::Column> {
-        let columns = self.model.columns().iter().zip(&frame.columns).enumerate().map(|(index, (column, width))| {
+    fn table_columns(&self, visible: &[usize], frame: &FrameWidths, fit: Option<usize>) -> Vec<egui_table::Column> {
+        let columns = self.model.columns();
+        let shown = visible.iter().filter_map(|index| Some((*index, columns.get(*index)?)));
+        let columns = shown.zip(&frame.columns).map(|((index, column), width)| {
             // The identity keys the width in the state of `egui_table`.
             egui_table::Column::new(*width)
                 .range(NARROWEST..=WIDEST)
@@ -296,90 +292,17 @@ fn write_widths(ui: &Ui, table_id: egui::Id, columns: &[egui_table::Column]) {
     state.store(ui.ctx(), table_id);
 }
 
-struct Delegate<'a, M: Model> {
-    model: &'a M,
-    rows: &'a [M::Row],
-    scene: &'a M::Scene,
-    palette: &'static Palette,
-    columns: &'static [Column],
-    sort: Sort,
-    selection: &'a Selection,
-    /// The width of each column in this frame.
-    widths: &'a [f32],
-    header_clicked: Option<usize>,
-    row_clicked: Option<(usize, Modifiers)>,
-    /// Where the title of the filler starts on the screen: the end of the columns.
-    columns_end: Option<f32>,
-    /// The edges, the titles and the rows of the frame, for the handles.
-    seen: Seen,
-    /// The column that a double click fits, and the widest part of it in the pass that
-    /// measures it.
-    fit: Option<usize>,
-    fitted: f32,
-}
-
-impl<M: Model> Delegate<'_, M> {
-    /// The row with this number. New data can arrive between two frames, so no number
-    /// of `egui_table` is an index with no check.
-    fn row(&self, number: u64) -> Option<(usize, &M::Row)> {
-        let index = usize::try_from(number).ok()?;
-        Some((index, self.rows.get(index)?))
-    }
-
-    /// Takes the width that a title or a cell of the column `fit` needs, in the pass that
-    /// measures that column.
-    fn measure(&mut self, ui: &Ui, column: usize) {
-        if self.fit == Some(column) && ui.is_sizing_pass() {
-            self.fitted = self.fitted.max(ui.min_size().x);
-        }
-    }
-}
-
 impl<M: Model> egui_table::TableDelegate for Delegate<'_, M> {
     fn header_cell_ui(&mut self, ui: &mut Ui, cell: &egui_table::HeaderCellInfo) {
-        let index = cell.col_range.start;
-        self.seen.title(ui, index, self.widths.get(index).copied());
-        if index == self.columns.len() {
-            // `egui_table` lays out a title in the fixed part and in the part that scrolls
-            // to the side. The part that scrolls gives the smaller place.
-            let left = ui.max_rect().left();
-            self.columns_end = Some(self.columns_end.map_or(left, |end| end.min(left)));
-        }
-        if cells::is_clipped(ui) {
-            return;
-        }
-        let Some(column) = self.columns.get(index) else {
-            cells::filler_header(ui, self.palette);
-            return;
-        };
-        let descending = (self.sort.column == index).then_some(self.sort.descending);
-        if cells::header(ui, self.palette, column, descending) {
-            self.header_clicked = Some(index);
-        }
-        self.measure(ui, index);
+        self.header(ui, cell.col_range.start);
     }
 
     fn row_ui(&mut self, ui: &mut Ui, row_nr: u64) {
-        let Some((index, row)) = self.row(row_nr) else {
-            return;
-        };
-        let id = self.model.id(row);
-        let (selected, is_cursor) = (self.selection.contains(id), self.selection.cursor() == Some(id));
-        self.seen.row(ui);
-        if cells::row(ui, self.palette, selected, is_cursor).clicked() {
-            self.row_clicked = Some((index, ui.input(|input| input.modifiers)));
-        }
+        self.row_background(ui, row_nr);
     }
 
     fn cell_ui(&mut self, ui: &mut Ui, cell: &egui_table::CellInfo) {
-        if cells::is_clipped(ui) {
-            return;
-        }
-        let (Some((_, row)), Some(column)) = (self.row(cell.row_nr), self.columns.get(cell.col_nr)) else {
-            return;
-        };
-        cells::cell(ui, self.palette, column, &self.model.cell(row, cell.col_nr, self.scene));
-        self.measure(ui, cell.col_nr);
+        self.cell(ui, cell.row_nr, cell.col_nr);
     }
 
     fn default_row_height(&self) -> f32 {

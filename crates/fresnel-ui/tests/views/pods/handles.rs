@@ -195,7 +195,7 @@ fn a_window_that_changes_its_size_during_a_drag() {
     let wide = window.ctx.content_rect().size();
     let mut drag = MouseDrag::press(&mut window, "Namespace", Grip::Rows);
     drag.slide(&mut window, 20.0);
-    for size in [egui::vec2(1100.0, 900.0), egui::vec2(700.0, 900.0), wide] {
+    for size in [egui::vec2(1148.0, 900.0), egui::vec2(748.0, 900.0), wide] {
         window.set_size(size);
         window.run();
         drag.check(&window, &format!("in a window of {} points", size.x));
@@ -242,7 +242,7 @@ fn a_click_beside_the_handle_sorts_and_a_click_on_it_does_not() {
 #[test]
 fn columns_that_the_detail_panel_hides_show_again_with_their_widths_and_handles() {
     let mut window = window_with(view(vec![live("ams-prod", &many_pods(35))]), egui::Theme::Dark, 2.0);
-    window.set_size(egui::vec2(1300.0, 900.0));
+    window.set_size(egui::vec2(1348.0, 900.0));
     window.run();
     let age = width(&window, "Age");
     let mut drag = MouseDrag::press(&mut window, "Age", Grip::Rows);

@@ -7,13 +7,14 @@ use fresnel_core::store::StoreState;
 use super::*;
 use crate::testing::{TestTasks, fixture_pods, snapshot};
 use crate::theme::DARK;
+use crate::views::objects::ClusterMark;
 
 /// The rows of the fixture pods in the clusters `ams` and `fra`, for this filter.
-fn rows(bed: &TestTasks, filter: &PodFilter) -> Computed<PodRow, PodSummary> {
+fn rows(bed: &TestTasks, filter: &ObjectFilter) -> Computed<PodRow, Namespaces> {
     let pods = fixture_pods();
     let clusters = ["ams", "fra"].map(|name| (ClusterId::new(name), bed.held(snapshot(&pods, StoreState::Live))));
     let never = AtomicU64::new(0);
-    PodModel.rows(&PodData { clusters: clusters.to_vec() }, filter, &Cancel::new(&never, 0)).expect("no cancel")
+    PodModel.rows(&Stores { clusters: clusters.to_vec() }, filter, &Cancel::new(&never, 0)).expect("no cancel")
 }
 
 fn names(rows: &[PodRow]) -> Vec<String> {
@@ -31,24 +32,24 @@ fn row<'a>(rows: &'a [PodRow], cluster: &str, name: &str) -> &'a PodRow {
 #[test]
 fn each_filter_selects_pods_of_each_cluster_and_the_count_is_of_all_pods() {
     let bed = TestTasks::new();
-    let all = rows(&bed, &PodFilter::default());
+    let all = rows(&bed, &ObjectFilter::default());
     assert_eq!((all.rows.len(), all.total), (50, 50));
-    assert_eq!(all.summary.namespaces.iter().map(|name| &**name).collect::<Vec<_>>(), ["kube-system", "scene"]);
+    assert_eq!(all.summary.names.iter().map(|name| &**name).collect::<Vec<_>>(), ["kube-system", "scene"]);
     let twice = row(&all.rows, "ams", "crash").id.uid == row(&all.rows, "fra", "crash").id.uid;
     assert!(twice && row(&all.rows, "ams", "crash").id != row(&all.rows, "fra", "crash").id, "one UID, two objects");
 
-    let system = PodFilter { namespaces: [Arc::from("kube-system")].into(), ..PodFilter::default() };
+    let system = ObjectFilter { namespaces: [Arc::from("kube-system")].into(), ..ObjectFilter::default() };
     let system = rows(&bed, &system);
     assert_eq!((system.rows.len(), system.total), (4, 50), "the count before the filter stays");
-    assert_eq!(system.summary.namespaces.len(), 2, "the menu lists each namespace, also with a filter");
+    assert_eq!(system.summary.names.len(), 2, "the menu lists each namespace, also with a filter");
 
     // The text finds a part of a name and a part of a status, with no difference of case.
-    let crash = rows(&bed, &PodFilter { text: " CRASH ".to_owned(), ..PodFilter::default() });
+    let crash = rows(&bed, &ObjectFilter { text: " CRASH ".to_owned(), ..ObjectFilter::default() });
     assert_eq!(names(&crash.rows), ["ams/crash", "ams/init-crash", "fra/crash", "fra/init-crash"]);
-    let by_cluster = rows(&bed, &PodFilter { text: "fra".to_owned(), ..PodFilter::default() });
+    let by_cluster = rows(&bed, &ObjectFilter { text: "fra".to_owned(), ..ObjectFilter::default() });
     assert_eq!(by_cluster.rows.len(), 25, "the text finds the cluster of a row");
 
-    let problems = rows(&bed, &PodFilter { problems: true, ..PodFilter::default() });
+    let problems = rows(&bed, &ObjectFilter { problems: true, ..ObjectFilter::default() });
     let of_ams: Vec<String> = names(&problems.rows).into_iter().filter(|name| name.starts_with("ams/")).collect();
     let expected = [
         "broken-6bf768c954-gjvsw",
@@ -70,9 +71,9 @@ fn each_filter_selects_pods_of_each_cluster_and_the_count_is_of_all_pods() {
 fn a_cancel_ends_the_computation_with_no_rows() {
     let bed = TestTasks::new();
     let data =
-        PodData { clusters: vec![(ClusterId::new("ams"), bed.held(snapshot(&fixture_pods(), StoreState::Live)))] };
+        Stores { clusters: vec![(ClusterId::new("ams"), bed.held(snapshot(&fixture_pods(), StoreState::Live)))] };
     let newest = AtomicU64::new(2);
-    assert!(PodModel.rows(&data, &PodFilter::default(), &Cancel::new(&newest, 1)).is_none());
+    assert!(PodModel.rows(&data, &ObjectFilter::default(), &Cancel::new(&newest, 1)).is_none());
 }
 
 /// The table asks this for a row that is older than the snapshots, so that a click
@@ -80,9 +81,9 @@ fn a_cancel_ends_the_computation_with_no_rows() {
 #[test]
 fn the_data_has_the_pod_of_a_row_by_its_cluster_its_name_and_its_uid() {
     let bed = TestTasks::new();
-    let all = rows(&bed, &PodFilter::default()).rows;
+    let all = rows(&bed, &ObjectFilter::default()).rows;
     let crash = row(&all, "ams", "crash");
-    let data = |cluster: &str, pods: &[Arc<Pod>]| PodData {
+    let data = |cluster: &str, pods: &[Arc<Pod>]| Stores {
         clusters: vec![(ClusterId::new(cluster), bed.held(snapshot(pods, StoreState::Live)))],
     };
     assert!(PodModel.has(&data("ams", &fixture_pods()), crash));
@@ -101,7 +102,7 @@ fn the_data_has_the_pod_of_a_row_by_its_cluster_its_name_and_its_uid() {
 #[test]
 fn each_column_has_a_typed_sequence_and_two_pods_are_never_equal() {
     let bed = TestTasks::new();
-    let all = rows(&bed, &PodFilter::default()).rows;
+    let all = rows(&bed, &ObjectFilter::default()).rows;
     let (crash, web, done) =
         (row(&all, "ams", "crash"), row(&all, "ams", "web-6888b778b6-p2twl"), row(&all, "ams", "done"));
     let column = |title: &str| COLUMNS.iter().position(|column| column.title == title).expect("the column");
@@ -132,14 +133,14 @@ fn each_column_has_a_typed_sequence_and_two_pods_are_never_equal() {
 #[test]
 fn a_row_of_a_store_that_is_not_live_has_the_mark_and_no_state_color() {
     let bed = TestTasks::new();
-    let all = rows(&bed, &PodFilter::default()).rows;
+    let all = rows(&bed, &ObjectFilter::default()).rows;
     let marks = [
         (ClusterId::new("ams"), ClusterMark { color: DARK.clusters[0], old: None }),
         (ClusterId::new("fra"), ClusterMark { color: DARK.clusters[1], old: Some("old since 07:59:12".to_owned()) }),
     ];
     let clock = Clock::fixed(SystemTime::UNIX_EPOCH);
-    let mut scene = PodScene { palette: &DARK, clock, marks: marks.into() };
-    let cells = |row: &PodRow, scene: &PodScene| -> Vec<(String, Tone, Lead<'static>)> {
+    let mut scene = RowScene { palette: &DARK, clock, marks: marks.into() };
+    let cells = |row: &PodRow, scene: &RowScene| -> Vec<(String, Tone, Lead<'static>)> {
         let cell = |column| PodModel.cell(row, column, scene);
         (0..COLUMNS.len())
             .map(|column| {
@@ -172,5 +173,5 @@ fn a_row_of_a_store_that_is_not_live_has_the_mark_and_no_state_color() {
     // The cluster left the selection, and the rows of the next result do not have it.
     scene.marks.remove(&ClusterId::new("ams"));
     let left = PodModel.cell(row(&all, "ams", "crash"), 0, &scene);
-    assert_eq!(left.lead, Lead::Old(NOT_SELECTED));
+    assert_eq!(left.lead, Lead::Old("old: the cluster is not selected"));
 }

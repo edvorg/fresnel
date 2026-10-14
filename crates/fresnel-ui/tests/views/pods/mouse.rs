@@ -36,7 +36,7 @@ pub(crate) fn wide_window(scale: f32) -> Window {
     until(&mut window, "the 35 rows", |window| shows(window, "35 pods"));
     let left = span_of(&spans(&window), "Name").expect("the first column").min;
     let width = table_right(&window) - left;
-    assert!((1700.0..=1800.0).contains(&width), "the table is {width} points wide");
+    assert!((1650.0..=1750.0).contains(&width), "the table is {width} points wide");
     window
 }
 

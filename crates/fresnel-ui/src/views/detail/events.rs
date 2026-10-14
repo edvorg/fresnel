@@ -1,4 +1,4 @@
-//! The Events of the pod of the detail panel, the newest first.
+//! The Events of the object of the detail panel, the newest first.
 //!
 //! The Event index tells what its answer is good for. The section shows that next to the
 //! Events, so "no Events" and "the Events are not loaded" never look the same.
@@ -7,11 +7,12 @@ use std::time::SystemTime;
 
 use egui::{Align, Label, Layout, RichText, Ui};
 use fresnel_core::app::ClusterData;
-use fresnel_core::index::{Basis, IndexState, last_seen};
+use fresnel_core::index::last_seen;
 use fresnel_core::kinds::Kind;
 use k8s_openapi::api::core::v1::Event;
 
-use super::{NONE, heading};
+use super::fields::{NONE, heading};
+use super::related::basis_note;
 use crate::format::{self, Clock, short};
 use crate::theme::{Palette, SMALL};
 use crate::widgets::dot;
@@ -26,8 +27,9 @@ const MESSAGE_LIMIT: usize = 2000;
 /// The most characters of the reason and of the type of one Event.
 const REASON_LIMIT: usize = 80;
 
-/// The pod of the panel and the data of its cluster.
+/// The object of the panel and the data of its cluster.
 pub(super) struct Source<'a> {
+    pub(super) kind: Kind,
     pub(super) id: &'a ObjectId,
     /// `None` for a cluster that is not connected.
     pub(super) data: Option<&'a ClusterData>,
@@ -44,8 +46,8 @@ pub(super) fn show(ui: &mut Ui, palette: &Palette, clock: &Clock, source: &Sourc
         note(ui, Tone::Muted, "The settings give the Events of this cluster no store.");
         return;
     };
-    let answer = index.events_of(Kind::Pod, &source.id.key, &source.id.uid);
-    if let Some(text) = basis_note(&answer.basis) {
+    let answer = index.events_of(source.kind, &source.id.key, &source.id.uid);
+    if let Some(text) = basis_note("Events", "Event index", &answer.basis) {
         note(ui, Tone::Warn, &text);
     }
     if answer.found.is_empty() {
@@ -60,24 +62,6 @@ pub(super) fn show(ui: &mut Ui, palette: &Palette, clock: &Clock, source: &Sourc
     if let Some(more) = answer.found.len().checked_sub(LIMIT).filter(|more| *more > 0) {
         ui.add_space(4.0);
         note(ui, Tone::Muted, &format!("{} do not show.", format::count(more as u64, "older Event")));
-    }
-}
-
-/// What the Events of the section are good for, when they are not the state of now.
-fn basis_note(basis: &Basis) -> Option<String> {
-    match basis {
-        Basis::Current => None,
-        Basis::Old(source) => Some(format!("The Events can be old: their store {}.", source.state)),
-        Basis::NotLoaded(source) => Some(format!("The Events are not loaded: their store {}.", source.state)),
-        Basis::NotFollowed(IndexState::Failed { reason }) => {
-            Some(format!("The Events can be old: the Event index failed ({reason}). It starts again."))
-        }
-        Basis::NotFollowed(IndexState::Starting) => {
-            Some("The Events are not loaded: the Event index starts.".to_owned())
-        }
-        Basis::NotFollowed(IndexState::Following | IndexState::Stopped) => {
-            Some("The Events can be old: the Event index stopped.".to_owned())
-        }
     }
 }
 

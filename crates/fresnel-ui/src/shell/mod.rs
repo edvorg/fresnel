@@ -3,16 +3,19 @@
 //!
 //! [`Shell`] draws one frame from a copy of the state of the core and gives back what the
 //! user asked for. It holds no handle to the core, so a view can start no network work.
+//! It holds the page of the open kind only: a page that is not painted holds no rows.
 
 mod dock;
 mod sidebar;
 mod status_bar;
 mod top_bar;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use egui::{CentralPanel, Frame, Margin, Panel, Ui};
 use fresnel_core::app::{Command, CoreView};
+use fresnel_core::kinds::Kind;
 use fresnel_core::net::task::Tasks;
 
 pub(crate) use dock::Tab;
@@ -20,9 +23,10 @@ use sidebar::Page;
 
 use crate::format::Clock;
 use crate::theme::{self, ClusterColors};
-use crate::views::connections;
 use crate::views::journal::JournalTab;
-use crate::views::pods::PodsView;
+use crate::views::objects::{self, Link};
+use crate::views::{connections, kinds};
+use crate::widgets::table::worker::Wake;
 
 /// The state of the window that is not state of the core: the open page, the open tab,
 /// the filters and the selection.
@@ -31,8 +35,13 @@ pub struct Shell {
     page: Page,
     tab: Tab,
     journal: JournalTab,
-    pods: PodsView,
+    /// The page of the kind that the sidebar opened last. The Connections page keeps it.
+    open: Box<dyn objects::Page>,
+    /// The kinds whose full objects the core holds for the views, as far as the shell knows.
+    shown: BTreeSet<Kind>,
     colors: ClusterColors,
+    tasks: Tasks,
+    wake: Wake,
 }
 
 /// What one frame can read and change. Each view gets the parts that it needs.
@@ -50,17 +59,20 @@ impl Shell {
     /// the report of a worker that ends, and the worker starts again.
     pub fn new(ctx: &egui::Context, clock: Clock, tasks: &Tasks) -> Self {
         theme::install(ctx);
-        let wake = {
+        let wake: Wake = {
             let ctx = ctx.clone();
             Arc::new(move || ctx.request_repaint())
         };
         Self {
             clock,
-            page: Page::Pods,
+            page: Page::Kind(Kind::Pod),
             tab: Tab::Journal,
             journal: JournalTab::default(),
-            pods: PodsView::new(tasks, wake),
+            open: kinds::page(Kind::Pod, tasks, Arc::clone(&wake)),
+            shown: BTreeSet::new(),
             colors: ClusterColors::default(),
+            tasks: tasks.clone(),
+            wake,
         }
     }
 
@@ -81,7 +93,8 @@ impl Shell {
         Panel::left("sidebar")
             .exact_size(sidebar::WIDTH)
             .frame(chrome.inner_margin(Margin::symmetric(6, 0)))
-            .show(ui, |ui| sidebar::show(ui, &mut self.page));
+            .show(ui, |ui| sidebar::show(ui, view, &mut self.page));
+        follow_page(&mut self.open, self.page, &self.tasks, &self.wake);
         let dock = Panel::bottom("dock").resizable(true).default_size(dock::HEIGHT).min_size(dock::SMALLEST);
         dock.frame(Frame::new().fill(palette.bg_sunken)).show(ui, |ui| {
             dock::tab_bar(ui, &mut self.tab);
@@ -91,14 +104,57 @@ impl Shell {
                 Tab::Connections => connections::show(ui, &mut scene),
             });
         });
-        CentralPanel::default().frame(Frame::new().fill(palette.bg_surface)).show(ui, |ui| match self.page {
-            Page::Pods => self.pods.show(ui, &mut scene),
-            Page::Connections => {
-                self.pods.rest();
-                connections::show(ui, &mut scene);
-            }
-        });
+        let link =
+            CentralPanel::default().frame(Frame::new().fill(palette.bg_surface)).show(ui, |ui| match self.page {
+                Page::Kind(_) => self.open.show(ui, &mut scene),
+                Page::Connections => {
+                    self.open.rest();
+                    connections::show(ui, &mut scene);
+                    None
+                }
+            });
+        if let Some(link) = link.inner {
+            self.follow_link(link);
+            ui.ctx().request_repaint();
+        }
+        commands.extend(self.show_kinds());
         commands
+    }
+
+    /// Opens the page of the kind of a link, and the panel of its object there.
+    fn follow_link(&mut self, link: Link) {
+        self.page = Page::Kind(link.kind);
+        follow_page(&mut self.open, self.page, &self.tasks, &self.wake);
+        self.open.open(link);
+    }
+
+    /// The command that names the kind of the open page to the core, when it changed. The
+    /// core holds the store of its full objects; the Pods need none. The Connections page
+    /// keeps the store of the page before it, which shows again at once.
+    fn show_kinds(&mut self) -> Option<Command> {
+        let wanted = match self.page {
+            Page::Kind(Kind::Pod) => BTreeSet::new(),
+            Page::Kind(kind) => BTreeSet::from([kind]),
+            Page::Connections => return None,
+        };
+        if wanted == self.shown {
+            return None;
+        }
+        self.shown.clone_from(&wanted);
+        Some(Command::ShowKinds(wanted))
+    }
+}
+
+/// Makes `open` the page of the kind of `page`. A page of an other kind gives up its rows,
+/// and its worker thread ends.
+fn follow_page(open: &mut Box<dyn objects::Page>, page: Page, tasks: &Tasks, wake: &Wake) {
+    let Page::Kind(kind) = page else {
+        return;
+    };
+    if open.kind() != kind {
+        let mut old = std::mem::replace(open, kinds::page(kind, tasks, Arc::clone(wake)));
+        // The worker thread frees the rows of the old page before it ends.
+        old.rest();
     }
 }
 

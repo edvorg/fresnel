@@ -8,8 +8,8 @@ use fresnel_core::net::ChannelState;
 
 use crate::data::{live, pods};
 use crate::fake::{
-    Window, connected, connections_window, error, journal, live_channels, live_status, new_channel, off, open_page,
-    open_tab, row, shows, status, view, window,
+    WINDOW, Window, connected, connections_window, error, journal, live_channels, live_status, new_channel, off,
+    open_page, open_tab, row, shows, status, view, window,
 };
 
 fn select(cluster: &str, selected: bool) -> Command {
@@ -110,7 +110,7 @@ fn many_selected_clusters_scroll_and_do_not_push_the_counts_out_of_the_window() 
     let clusters = (0..30).map(|index| connected(&format!("cluster-number-{index}"), live_status())).collect();
     let mut window = window(view(clusters));
     let counts = window.get_by_label("0 errors   0 warnings");
-    assert!(counts.rect().right() <= 1280.0, "the counts are in the window: {:?}", counts.rect());
+    assert!(counts.rect().right() <= WINDOW.x, "the counts are in the window: {:?}", counts.rect());
     counts.click();
     window.run();
     assert!(shows(&window, "Entry"), "a click on the counts opens the journal");
@@ -155,7 +155,7 @@ fn each_page_and_each_tab_draws_at_each_window_size() {
     window.get_by_label("crash").click();
     window.run();
     for (page, tab) in [("Pods", "Journal"), ("Pods", "Connections"), ("Connections", "Connections")] {
-        window.set_size(egui::vec2(1280.0, 800.0));
+        window.set_size(WINDOW);
         window.run();
         open_page(&mut window, page);
         open_tab(&mut window, tab);

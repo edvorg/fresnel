@@ -924,3 +924,41 @@ object. A read that fails shows in the panel with its reason.
 
 The sidebar shows the count of objects of each kind, so each new snapshot of a store and each
 new value of an index asks for a repaint. The notifier keeps the limit of 60 in one second.
+
+## One page type for each kind, and the Pods keep their own model
+
+The page of a kind (`views/objects`) has the follower of the stores, the notes, the bar, the
+table and the detail panel. A kind gives a model: the Pods keep the model of milestone M1 with
+the status of `kubectl get pods`; each other kind gets one generic model from the columns of its
+description. So the weakness tests of each kind test one code, and a kind needs no view code.
+
+## The worker computes the value of each column one time
+
+A row of a kind keeps the value of each column, which the worker reads from the object. A sort
+then compares values and reads no object, the text filter reads the texts of the row, and a
+frame lays out the cells on the screen only. With 10,000 Deployments, the values cost memory
+for each row; the frame time test holds the limit of 16 ms.
+
+## The shell holds the page of one kind
+
+Each table has a worker thread and holds rows. The shell keeps the page of the open kind only:
+a click on an other kind gives the rows of the old page to its worker and ends the thread. The
+Connections page keeps the page and the store of the kind before it, so the way back is quick.
+
+## The detail panel reads the conditions from the JSON of the object
+
+Each kind has a condition type of its own. The panel writes its object as JSON one time for each
+new version and reads `status.conditions`, so one section serves each kind. It gives the
+status no color: `True` is good news for `Ready` and bad news for `MemoryPressure`.
+
+## A link of the panel opens the page of its kind and waits for the object there
+
+A related object comes from an index as a kind and a name. The link opens the page of that kind
+and waits until the store of the cluster has a complete list: then the panel opens, or a note
+says that the cluster has no such object. A store of a tier B kind starts with the page.
+
+## The sidebar is 196 points wide
+
+The kinds have long names, such as HorizontalPodAutoscalers. At 148 points, half of them were
+cut. The view tests run in a window that is 48 points wider than before, so the drags of the
+column edges have the same places in the table.

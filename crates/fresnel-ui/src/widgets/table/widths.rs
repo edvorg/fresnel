@@ -48,7 +48,7 @@ pub(super) struct Widths {
 /// The widths that one frame lays out.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct FrameWidths {
-    /// The width of each column, in the sequence of the columns.
+    /// The width of each column that shows, in the sequence of the columns.
     pub(super) columns: Vec<f32>,
     /// The width of the filler after the last column.
     pub(super) filler: f32,
@@ -70,10 +70,11 @@ impl Widths {
     }
 
     /// The widths of a frame whose columns have the width `place` on the screen: the table
-    /// less its vertical scroll bar. The first column stays inside that place, and the
-    /// filler comes after the last column.
-    pub(super) fn for_frame(&self, place: f32) -> FrameWidths {
-        let mut columns = self.columns.clone();
+    /// less its vertical scroll bar. `visible` gives the positions of the columns that
+    /// show. The first column stays inside that place, and the filler comes after the last
+    /// column.
+    pub(super) fn for_frame(&self, place: f32, visible: &[usize]) -> FrameWidths {
+        let mut columns: Vec<f32> = visible.iter().filter_map(|index| self.columns.get(*index).copied()).collect();
         if let Some(first) = columns.first_mut() {
             *first = first.min(first_widest(place));
         }
@@ -179,6 +180,8 @@ mod tests {
     use super::*;
 
     const COLUMNS: [Column; 3] = [Column::new("Name", 200.0), Column::new("Age", 20.0), Column::new("Node", 3000.0)];
+    /// The two columns of the tables of most tests.
+    const BOTH: [usize; 2] = [0, 1];
 
     fn widths(columns: &[f32]) -> Widths {
         Widths { columns: columns.to_vec(), shown: None, changed: false }
@@ -197,21 +200,29 @@ mod tests {
 
     /// One frame in this place, whose columns end at `end`.
     fn show(widths: &mut Widths, place: f32, end: f32) {
-        let frame = widths.for_frame(place);
+        let frame = widths.for_frame(place, &BOTH);
         widths.shown(&frame, end);
     }
 
     #[test]
     fn the_filler_takes_the_free_width() {
         let mut widths = widths(&[200.0, 100.0]);
-        assert_eq!(widths.for_frame(1000.0).filler, 1000.0 - 300.0);
-        assert_eq!(widths.for_frame(300.0).filler, 0.0, "a narrow table scrolls to the side");
+        assert_eq!(widths.for_frame(1000.0, &BOTH).filler, 1000.0 - 300.0);
+        assert_eq!(widths.for_frame(300.0, &BOTH).filler, 0.0, "a narrow table scrolls to the side");
 
         // A table that is not scrolled keeps no place: a narrower window gives less free width.
         show(&mut widths, 1000.0, 300.0);
-        assert_eq!(widths.for_frame(800.0).filler, 800.0 - 300.0);
+        assert_eq!(widths.for_frame(800.0, &BOTH).filler, 800.0 - 300.0);
         show(&mut widths, 300.0, 300.0 - NO_SCROLL / 2.0);
-        assert_eq!(widths.for_frame(800.0).filler, 800.0 - 300.0, "a difference in the last bits");
+        assert_eq!(widths.for_frame(800.0, &BOTH).filler, 800.0 - 300.0, "a difference in the last bits");
+    }
+
+    #[test]
+    fn a_frame_has_the_widths_of_the_columns_that_show() {
+        let widths = widths(&[200.0, 100.0, 300.0]);
+        let frame = widths.for_frame(1000.0, &[0, 2]);
+        assert_eq!((frame.columns, frame.filler), (vec![200.0, 300.0], 500.0));
+        assert_eq!(widths.for_frame(1000.0, &[0, 7]).columns, [200.0], "a column that the model does not have");
     }
 
     #[test]
@@ -220,32 +231,36 @@ mod tests {
         let mut widths = widths(&[520.0, 520.0]);
         show(&mut widths, 900.0, 900.0);
         widths.set(1, 510.0);
-        assert_eq!(widths.for_frame(900.0).filler, 10.0, "the content keeps its 1040 points");
+        assert_eq!(widths.for_frame(900.0, &BOTH).filler, 10.0, "the content keeps its 1040 points");
         show(&mut widths, 900.0, 900.0 - 10.0);
-        assert_eq!(widths.for_frame(900.0).filler, 10.0, "the next frame keeps the same place");
+        assert_eq!(widths.for_frame(900.0, &BOTH).filler, 10.0, "the next frame keeps the same place");
 
         // A wider column takes the width of the filler first.
         widths.set(1, 515.0);
-        assert_eq!(widths.for_frame(900.0).filler, 5.0);
+        assert_eq!(widths.for_frame(900.0, &BOTH).filler, 5.0);
 
         // A scroll to the left makes the place smaller: the user cannot scroll further
         // to the right than the columns go.
         show(&mut widths, 900.0, 1035.0 - 100.0);
-        assert_eq!(widths.for_frame(900.0).filler, 0.0);
+        assert_eq!(widths.for_frame(900.0, &BOTH).filler, 0.0);
         // And a wider window shows more of the columns.
         show(&mut widths, 900.0, 900.0);
-        assert_eq!(widths.for_frame(1000.0).filler, 0.0);
+        assert_eq!(widths.for_frame(1000.0, &BOTH).filler, 0.0);
     }
 
     #[test]
     fn the_first_column_stays_inside_the_table_and_keeps_the_width_of_the_user() {
         let mut widths = widths(&[2000.0, 100.0]);
-        let narrow = widths.for_frame(900.0);
+        let narrow = widths.for_frame(900.0, &BOTH);
         let first_widest = 900.0 - SCROLLED_PLACE;
         assert_eq!(narrow.columns, [first_widest, 100.0]);
         assert_eq!(narrow.filler, 0.0, "the columns fill the table");
-        assert_eq!(widths.for_frame(2400.0).columns, [2000.0, 100.0], "a wide table shows the width of the user");
-        assert_eq!(widths.for_frame(50.0).columns, [NARROWEST, 100.0], "a table narrower than one column");
+        assert_eq!(
+            widths.for_frame(2400.0, &BOTH).columns,
+            [2000.0, 100.0],
+            "a wide table shows the width of the user"
+        );
+        assert_eq!(widths.for_frame(50.0, &BOTH).columns, [NARROWEST, 100.0], "a table narrower than one column");
         assert_eq!(super::first_widest(f32::MAX), WIDEST);
 
         // The place that a scrolled table showed counts the widths on the screen: 952 points.

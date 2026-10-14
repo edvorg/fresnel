@@ -16,27 +16,32 @@ use crate::store::{ClusterStores, Demand, Snapshot};
 /// gets the snapshot of a kind with the type of its objects.
 #[derive(Clone, Default)]
 pub struct Objects {
-    /// The `Held<Snapshot<K>>` of each kind.
-    snapshots: Vec<(Kind, Arc<dyn Any + Send + Sync>)>,
+    /// The `Held<Snapshot<K>>` of each kind, with its count of objects.
+    snapshots: Vec<(Kind, usize, Arc<dyn Any + Send + Sync>)>,
 }
 
 impl Objects {
     /// The same objects and this snapshot, in place of an older one of its kind.
     pub fn with<K: Describe>(mut self, snapshot: Held<Snapshot<K>>) -> Self {
-        self.snapshots.retain(|(kind, _)| *kind != K::ID);
-        self.snapshots.push((K::ID, Arc::new(snapshot)));
+        self.snapshots.retain(|(kind, ..)| *kind != K::ID);
+        self.snapshots.push((K::ID, snapshot.items.len(), Arc::new(snapshot)));
         self
     }
 
     /// The snapshot of the full objects of a kind. `None` for a kind that no view showed.
     pub fn get<K: Describe>(&self) -> Option<&Held<Snapshot<K>>> {
-        let (_, snapshot) = self.snapshots.iter().find(|(kind, _)| *kind == K::ID)?;
+        let (.., snapshot) = self.snapshots.iter().find(|(kind, ..)| *kind == K::ID)?;
         snapshot.downcast_ref()
+    }
+
+    /// The count of the objects of a kind. `None` for a kind that no view showed.
+    pub fn count(&self, kind: Kind) -> Option<usize> {
+        self.snapshots.iter().find(|(of, ..)| *of == kind).map(|(_, count, _)| *count)
     }
 
     /// The kinds of the snapshots.
     pub fn kinds(&self) -> impl Iterator<Item = Kind> + '_ {
-        self.snapshots.iter().map(|(kind, _)| *kind)
+        self.snapshots.iter().map(|(kind, ..)| *kind)
     }
 }
 
@@ -50,8 +55,8 @@ impl std::fmt::Debug for Objects {
 trait Shown: Send + Sync {
     fn kind(&self) -> Kind;
 
-    /// The snapshot of now as a `Held<Snapshot<K>>`.
-    fn read(&self) -> Arc<dyn Any + Send + Sync>;
+    /// Adds the snapshot of now to `objects`.
+    fn read_into(&self, objects: Objects) -> Objects;
 }
 
 impl<K: Describe> Shown for Demand<K> {
@@ -59,8 +64,8 @@ impl<K: Describe> Shown for Demand<K> {
         K::ID
     }
 
-    fn read(&self) -> Arc<dyn Any + Send + Sync> {
-        Arc::new(Demand::read(self))
+    fn read_into(&self, objects: Objects) -> Objects {
+        objects.with(self.read())
     }
 }
 
@@ -86,7 +91,7 @@ impl ShownKinds {
 
     /// The snapshot of each held kind. The call copies one pointer for each kind.
     pub(super) fn read(&self) -> Objects {
-        Objects { snapshots: self.holders.iter().map(|holder| (holder.kind(), holder.read())).collect() }
+        self.holders.iter().fold(Objects::default(), |objects, holder| holder.read_into(objects))
     }
 }
 
@@ -122,5 +127,6 @@ mod tests {
         let objects = objects.with(held(StoreState::Stopped));
         assert_eq!(objects.kinds().collect::<Vec<_>>(), [Kind::ConfigMap], "one snapshot of a kind");
         assert_eq!(objects.get::<ConfigMap>().map(|snapshot| snapshot.state.clone()), Some(StoreState::Stopped));
+        assert_eq!((objects.count(Kind::ConfigMap), objects.count(Kind::Pod)), (Some(0), None));
     }
 }

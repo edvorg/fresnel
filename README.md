@@ -7,11 +7,11 @@ that looks current.
 ## Status
 
 Milestones M0 (connect) and M1 (live data) are complete, and the work is in M2 (lists). The
-repository has the workspace, the lints, CI, the function that starts each background task, the
-test kit, the network layer `fresnel-net`, `fresnel-core` (kubeconfig loader, cluster registry,
-gateway, app core, journal, state file, the 41 kinds, watch loop, stores, indexes, manifest), the
-commands `doctor` and `watch`, and the window: one live table with the pods of each selected
-cluster, the detail panel of a pod, the journal and the connection states of each cluster.
+repository has the workspace, the lints, CI, the task start function, the test kit, the network
+layer `fresnel-net`, `fresnel-core` (kubeconfig loader, cluster registry, gateway, app core,
+journal, state file, the 41 kinds, watch loop, stores, indexes, manifest), the commands `doctor`
+and `watch`, and the window: the sidebar with each kind and its count, a live table of each kind
+for all selected clusters, the detail panel with the manifest, the journal and the connections.
 
 ## The app
 
@@ -22,10 +22,10 @@ cargo xtask install --to <folder>     # the same into some other folder
 
 The earlier bundle stays as `Fresnel.app.prev`. At its first start, the app selects the
 current context of the kubeconfig files. The top bar has a switch for each cluster. The app
-keeps the selection and the widths of the columns in `state.json` of its settings folder.
+keeps the selection and the widths and columns of each table in `state.json`.
 
-- The Pods table shows each selected cluster. A row with an open ring is from a cluster
-  that is not live: its values are old, and a note above the table gives the reason.
+- A table shows each selected cluster. A row with an open ring is from a cluster that is
+  not live: its values are old, and a note above the table gives the reason.
 - Settings folder: `~/Library/Application Support/fresnel`. A debug build uses `fresnel-debug`.
 - Log folder: `~/Library/Logs/fresnel`, with `fresnel.log` and a report file for each panic.
 - Only one process runs. `cargo run --package fresnel` starts a debug build next to the app.
@@ -39,7 +39,7 @@ cargo build
 cargo test --workspace                # unit tests and UI tests, with no cluster
 FRESNEL_SNAPSHOT_DIR=<folder> cargo test --package fresnel-ui   # also PNG files of the views
 cargo test --workspace -- --ignored   # cluster tests, with k3s in Docker
-cargo test --release --package fresnel-ui --test views frame_time   # frame time, 10,000 pods
+cargo test --release --package fresnel-ui --test views frame_time   # 10,000 pods, Deployments
 cargo xtask check-sizes               # size limits of documents and source files
 cargo xtask check-borders             # no kube in fresnel-net, no egui in fresnel-core
 ```

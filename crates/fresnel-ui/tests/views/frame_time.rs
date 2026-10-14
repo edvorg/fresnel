@@ -29,18 +29,18 @@ const PODS: usize = 10_000;
 const ROWS_LIMIT: Duration = Duration::from_secs(60);
 
 /// The times of the frames of one step of the test.
-struct Step {
+pub(crate) struct Step {
     name: &'static str,
     frames: Vec<Duration>,
 }
 
 impl Step {
-    fn new(name: &'static str) -> Self {
+    pub(crate) fn new(name: &'static str) -> Self {
         Self { name, frames: Vec::new() }
     }
 
     /// Draws one frame with the event that waits, and records its time.
-    fn frame(&mut self, window: &mut Window) {
+    pub(crate) fn frame(&mut self, window: &mut Window) {
         let started = Instant::now();
         window.step();
         let output = window.output();
@@ -50,14 +50,14 @@ impl Step {
     }
 
     /// One frame for each event: a real window gets its events in this way.
-    fn events(&mut self, window: &mut Window, events: impl IntoIterator<Item = Event>) {
+    pub(crate) fn events(&mut self, window: &mut Window, events: impl IntoIterator<Item = Event>) {
         for event in events {
             window.event(event);
             self.frame(window);
         }
     }
 
-    fn click(&mut self, window: &mut Window, pos: egui::Pos2) {
+    pub(crate) fn click(&mut self, window: &mut Window, pos: egui::Pos2) {
         let button = |pressed| Event::PointerButton {
             pos,
             button: egui::PointerButton::Primary,
@@ -68,7 +68,7 @@ impl Step {
     }
 
     /// Draws frames with no pause until the window meets the condition.
-    fn until(&mut self, window: &mut Window, what: &str, met: impl Fn(&Window) -> bool) {
+    pub(crate) fn until(&mut self, window: &mut Window, what: &str, met: impl Fn(&Window) -> bool) {
         let started = Instant::now();
         while !met(window) {
             assert!(started.elapsed() < ROWS_LIMIT, "{}: in time: {what}", self.name);
@@ -77,7 +77,7 @@ impl Step {
     }
 
     /// Prints the times of the step and checks the limit.
-    fn check(&self) {
+    pub(crate) fn check(&self) {
         let mut sorted = self.frames.clone();
         sorted.sort_unstable();
         let (median, longest) = (sorted[sorted.len() / 2], sorted[sorted.len() - 1]);
@@ -89,11 +89,21 @@ impl Step {
     }
 }
 
-fn title(window: &Window, title: &str) -> egui::Pos2 {
+/// A move of the mouse wheel by this count of points.
+pub(crate) fn wheel(delta: f32) -> Event {
+    Event::MouseWheel {
+        unit: MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, delta),
+        phase: TouchPhase::Move,
+        modifiers: Modifiers::NONE,
+    }
+}
+
+pub(crate) fn title(window: &Window, title: &str) -> egui::Pos2 {
     window.get_by_role_and_label(egui::accesskit::Role::Button, title).rect().center()
 }
 
-fn first(window: &Window, title: &str) -> Option<String> {
+pub(crate) fn first(window: &Window, title: &str) -> Option<String> {
     column(window, title).into_iter().next()
 }
 
@@ -109,12 +119,6 @@ fn a_frame_with_10_000_pods_takes_16_ms_or_less_during_scroll_sort_and_filter() 
     let mut scroll = Step::new("scroll");
     let rows = title(&window, "Namespace") + egui::vec2(0.0, 200.0);
     scroll.events(&mut window, [Event::PointerMoved(rows)]);
-    let wheel = |delta: f32| Event::MouseWheel {
-        unit: MouseWheelUnit::Point,
-        delta: egui::vec2(0.0, delta),
-        phase: TouchPhase::Move,
-        modifiers: Modifiers::NONE,
-    };
     let top = first(&window, "Name");
     scroll.events(&mut window, (0..300).map(|_| wheel(-60.0)));
     assert_ne!(first(&window, "Name"), top, "the table did scroll");

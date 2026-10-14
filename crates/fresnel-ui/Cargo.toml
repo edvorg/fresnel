@@ -14,12 +14,16 @@ fresnel-core.workspace = true
 # The time of day of a journal entry, in the time zone of the system.
 jiff = { workspace = true, features = ["tz-system", "tzdb-zoneinfo"] }
 k8s-openapi.workspace = true
+# The detail panel reads the parts that each kind has, such as its conditions, from the
+# JSON of the object.
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 egui_kittest.workspace = true
 image.workspace = true
-serde.workspace = true
-serde_json.workspace = true
+# The YAML of a manifest for a picture of the tab, as the core writes it.
+serde-saphyr.workspace = true
 # The fake core of the view tests needs the handle of a runtime for the task start function.
 tokio = { workspace = true, features = ["rt"] }
 

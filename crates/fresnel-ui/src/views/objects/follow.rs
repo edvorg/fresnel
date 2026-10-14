@@ -1,18 +1,18 @@
-//! Follows the Pod stores of the selected clusters from frame to frame.
+//! Follows the stores of one kind of the selected clusters from frame to frame.
 //!
-//! The view asks its worker for new rows only when the objects changed, and it must drop
-//! each deleted pod from its selection. The differences between the snapshot of the last
+//! The page asks its worker for new rows only when the objects changed, and it must drop
+//! each deleted object from its selection. The differences between the snapshot of the last
 //! frame and the snapshot of this one give the two answers. Their cost follows the count
 //! of the changes: two frames with the same objects cost one comparison of two pointers.
 
 use std::collections::HashSet;
 
 use fresnel_core::cluster::ClusterId;
+use fresnel_core::kinds::Object;
 use fresnel_core::published::Held;
 use fresnel_core::store::{Change, Snapshot};
-use k8s_openapi::api::core::v1::Pod;
 
-use super::rows::{PodData, uid};
+use super::{Stores, uid};
 use crate::widgets::table::model::ObjectId;
 
 /// The objects that went away from one frame to the next.
@@ -20,17 +20,17 @@ use crate::widgets::table::model::ObjectId;
 pub(super) struct Gone {
     /// The clusters that left the selection, or whose connections closed.
     clusters: Vec<ClusterId>,
-    /// The pods that left the store of their cluster.
-    pods: HashSet<ObjectId>,
+    /// The objects that left the store of their cluster.
+    objects: HashSet<ObjectId>,
 }
 
 impl Gone {
     pub(super) fn is_empty(&self) -> bool {
-        self.clusters.is_empty() && self.pods.is_empty()
+        self.clusters.is_empty() && self.objects.is_empty()
     }
 
     pub(super) fn has(&self, id: &ObjectId) -> bool {
-        self.clusters.contains(&id.cluster) || self.pods.contains(id)
+        self.clusters.contains(&id.cluster) || self.objects.contains(id)
     }
 }
 
@@ -38,15 +38,20 @@ impl Gone {
 ///
 /// A snapshot that this value held goes to the thread that frees old snapshots: the UI
 /// thread never frees one (plan section 7.3).
-#[derive(Default)]
-pub(super) struct Follower {
-    seen: Vec<(ClusterId, Held<Snapshot<Pod>>)>,
+pub(super) struct Follower<T: Object> {
+    seen: Vec<(ClusterId, Held<Snapshot<T>>)>,
     serial: u64,
 }
 
-impl Follower {
+impl<T: Object> Default for Follower<T> {
+    fn default() -> Self {
+        Self { seen: Vec::new(), serial: 0 }
+    }
+}
+
+impl<T: Object> Follower<T> {
     /// Takes the snapshots of this frame and gives the objects that went away.
-    pub(super) fn step(&mut self, now: Vec<(ClusterId, Held<Snapshot<Pod>>)>) -> Gone {
+    pub(super) fn step(&mut self, now: Vec<(ClusterId, Held<Snapshot<T>>)>) -> Gone {
         let mut gone = Gone::default();
         let mut changed = now.len() != self.seen.len();
         for (cluster, before) in &self.seen {
@@ -57,14 +62,15 @@ impl Follower {
             };
             for change in before.items.changes_to(&after.items) {
                 changed = true;
-                // A new pod with the name of an old one is an other object.
+                // A new object with the name of an old one is an other object.
                 let left = match change {
                     Change::Removed(key, old) => Some((key, old)),
-                    Change::Updated { key, old, new } if uid(old) != uid(new) => Some((key, old)),
+                    Change::Updated { key, old, new } if uid(old.meta()) != uid(new.meta()) => Some((key, old)),
                     Change::Added(..) | Change::Updated { .. } => None,
                 };
                 if let Some((key, old)) = left {
-                    gone.pods.insert(ObjectId { cluster: cluster.clone(), key: key.clone(), uid: uid(old).into() });
+                    let id = ObjectId { cluster: cluster.clone(), key: key.clone(), uid: uid(old.meta()).into() };
+                    gone.objects.insert(id);
                 }
             }
         }
@@ -89,12 +95,12 @@ impl Follower {
     }
 
     /// The snapshots of the last step, for a request to the worker.
-    pub(super) fn data(&self) -> PodData {
-        PodData { clusters: self.seen.clone() }
+    pub(super) fn data(&self) -> Stores<T> {
+        Stores { clusters: self.seen.clone() }
     }
 
     /// The snapshot of one cluster at the last step.
-    pub(super) fn snapshot(&self, cluster: &ClusterId) -> Option<&Snapshot<Pod>> {
+    pub(super) fn snapshot(&self, cluster: &ClusterId) -> Option<&Snapshot<T>> {
         self.seen.iter().find(|(id, _)| id == cluster).map(|(_, snapshot)| &**snapshot)
     }
 }
@@ -104,11 +110,12 @@ mod tests {
     use std::sync::Arc;
 
     use fresnel_core::store::{ObjectKey, StoreState};
+    use k8s_openapi::api::core::v1::Pod;
 
     use super::*;
     use crate::testing::{TestTasks, fixture_pods, snapshot};
 
-    fn step(bed: &TestTasks, follower: &mut Follower, clusters: &[(&str, &[Arc<Pod>])]) -> Gone {
+    fn step(bed: &TestTasks, follower: &mut Follower<Pod>, clusters: &[(&str, &[Arc<Pod>])]) -> Gone {
         let held =
             |(name, pods): &(&str, &[Arc<Pod>])| (ClusterId::new(*name), bed.held(snapshot(pods, StoreState::Live)));
         follower.step(clusters.iter().map(held).collect())
@@ -116,7 +123,7 @@ mod tests {
 
     fn id(cluster: &str, pod: &Pod) -> ObjectId {
         let key = ObjectKey::new("scene", pod.metadata.name.as_deref().expect("a name"));
-        ObjectId { cluster: ClusterId::new(cluster), key, uid: uid(pod).into() }
+        ObjectId { cluster: ClusterId::new(cluster), key, uid: uid(&pod.metadata).into() }
     }
 
     #[test]

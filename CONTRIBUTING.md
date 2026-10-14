@@ -75,7 +75,7 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
    `FRESNEL_WRITE_FIXTURE=1` compares the columns with the server and writes `fixtures/kinds`,
    and a unit test compares them on that copy. Each branch of `health` gets a unit test on
    `fixture::of_kinds`.
-4. A view reads the objects with `ClusterStores::demand`, never with a request of its own.
+4. The page reads `ClusterData::snapshot` after `ShowKinds`. Own sections: `views/<kind>.rs`.
 
 ## Stores and indexes
 
@@ -92,8 +92,8 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 
 ## Views and tables
 
-- A table is a `Table` with the `Model` of its kind (`widgets/table/model.rs`).
-- A view calls `Table::restore` before `show`, and sends the command of `save_layout` after it.
+- A table is a `Table` with the `Model` of its kind (`widgets/table/model.rs`). A page calls
+  `Table::restore` before `show`, and sends the command of `save_layout` after it.
 - `Model::rows` and `Model::compare` run on the worker thread of the table. A sort value comes
   from the object alone, and `Model::tie` gives two objects one sequence.
 - A cursor and a selection hold an `ObjectId`, never a row number. A hidden view calls `rest`.

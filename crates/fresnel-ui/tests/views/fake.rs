@@ -64,7 +64,12 @@ impl Drop for FakeCore {
 
 pub(crate) type Window = Harness<'static, FakeCore>;
 
-/// The window of the app with no window: 1280 by 800 points in the dark theme.
+/// The size of the window of a test. The table of a page has the width that it had next to
+/// the sidebar of milestone M1 in a window of 1280 points, so the drags of the tests of
+/// the column edges keep their places.
+pub(crate) const WINDOW: egui::Vec2 = egui::vec2(1328.0, 800.0);
+
+/// The window of the app with no window, in the dark theme.
 pub(crate) fn window(view: CoreView) -> Window {
     window_with(view, egui::Theme::Dark, 1.0)
 }
@@ -86,7 +91,7 @@ fn build(view: CoreView, theme: egui::Theme, pixels_per_point: f32, gpu: bool) -
         core.sent.extend(commands);
     };
     let builder = Harness::builder()
-        .with_size([1280.0, 800.0])
+        .with_size(WINDOW)
         .with_pixels_per_point(pixels_per_point)
         .with_theme(theme)
         // A worker thread asks for a frame when its rows are there, at any moment. Some
@@ -132,8 +137,10 @@ pub(crate) fn connections_window(view: CoreView) -> Window {
 }
 
 /// Opens a page of the sidebar. The dock has a tab with the name of a page, so the role
-/// tells the two.
+/// tells the two. The sidebar scrolls to the entry first: a click needs it on the screen.
 pub(crate) fn open_page(window: &mut Window, page: &str) {
+    window.get_by_role_and_label(egui::accesskit::Role::RadioButton, page).scroll_to_me();
+    window.run();
     window.get_by_role_and_label(egui::accesskit::Role::RadioButton, page).click();
     window.run();
 }

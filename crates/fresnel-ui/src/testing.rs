@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, SystemTime};
 
+use fresnel_core::kinds::{Describe, Object};
 use fresnel_core::net::task::{TaskReport, Tasks};
 use fresnel_core::published::{Disposal, Held, Notice, Publisher};
 use fresnel_core::store::{Snapshot, StoreState};
@@ -50,8 +51,15 @@ pub(crate) fn fixture_pods() -> Vec<Arc<Pod>> {
     serde_json::from_str::<Vec<Pod>>(text).expect("the fixture").into_iter().map(Arc::new).collect()
 }
 
-/// The snapshot of a Pod store with these pods, after a complete list.
-pub(crate) fn snapshot(pods: &[Arc<Pod>], state: StoreState) -> Snapshot<Pod> {
+/// Each object of a kind of tier A in the same scene.
+pub(crate) fn fixture<K: Describe>() -> Vec<Arc<K>> {
+    let folder = concat!(env!("CARGO_MANIFEST_DIR"), "/../fresnel-core/fixtures/k3s");
+    let text = std::fs::read_to_string(format!("{folder}/{}.json", K::ID.info().plural)).expect("a fixture");
+    serde_json::from_str::<Vec<K>>(&text).expect("the fixture").into_iter().map(Arc::new).collect()
+}
+
+/// The snapshot of a store with these objects, after a complete list.
+pub(crate) fn snapshot<T: Object>(pods: &[Arc<T>], state: StoreState) -> Snapshot<T> {
     Snapshot {
         generation: 1,
         state,
