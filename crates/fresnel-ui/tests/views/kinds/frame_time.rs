@@ -52,7 +52,7 @@ fn a_frame_with_10_000_deployments_takes_16_ms_or_less_during_scroll_sort_and_fi
     scroll.check();
 
     let mut sort = Step::new("kinds: sort");
-    for (column, clicks, expected) in [("Ready", 1, "0/1"), ("Images", 2, "registry.invalid/fresnel/no-such-image:1")] {
+    for (column, clicks, expected) in [("Ready", 2, "2/2"), ("Images", 2, "registry.invalid/fresnel/no-such-image:1")] {
         for click in 1..=clicks {
             let pos = title(&window, column);
             sort.click(&mut window, pos);
