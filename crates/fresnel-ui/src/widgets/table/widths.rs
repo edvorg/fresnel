@@ -22,6 +22,7 @@
 
 use fresnel_core::state_file::TableLayout;
 
+use super::edges::DragWidth;
 use super::model::Column;
 
 /// The narrowest column. A drag stops at this width.
@@ -99,10 +100,21 @@ impl Widths {
     }
 
     /// Takes the width of a drag of the user in a frame with this place. The first column
-    /// stays inside the table, so its drag stops there.
-    pub(super) fn drag(&mut self, index: usize, width: f32, place: f32) {
-        let widest = if index == 0 { first_widest(place) } else { WIDEST };
-        self.set(index, width.min(widest));
+    /// stays inside the table, so its drag stops there. A kept width is the width of the
+    /// table at the press: the frame can show less of it.
+    pub(super) fn drag(&mut self, index: usize, width: DragWidth, place: f32) {
+        match width {
+            DragWidth::Moved(width) => {
+                let widest = if index == 0 { first_widest(place) } else { WIDEST };
+                self.set(index, width.min(widest));
+            }
+            DragWidth::Kept(width) => self.set(index, width),
+        }
+    }
+
+    /// The width of a column in the table. A frame can show less of the first column.
+    pub(super) fn get(&self, index: usize) -> Option<f32> {
+        self.columns.get(index).copied()
     }
 
     /// Takes a width that the user gave. A column that the model does not have and a
@@ -242,10 +254,14 @@ mod tests {
         assert!(!widths.changed(), "a narrow table is no change of the user");
 
         // A drag of its edge stops inside the table, and the other columns have no such limit.
-        widths.drag(0, 3000.0, 900.0);
-        widths.drag(1, 3000.0, 900.0);
+        widths.drag(0, DragWidth::Kept(2000.0), 900.0);
+        assert!(!widths.changed(), "a click on the edge keeps the width of the user");
+        widths.drag(0, DragWidth::Moved(3000.0), 900.0);
+        widths.drag(1, DragWidth::Moved(3000.0), 900.0);
         assert_eq!(widths.columns, [first_widest, WIDEST]);
         assert!(widths.changed());
+        widths.drag(0, DragWidth::Kept(2000.0), 900.0);
+        assert_eq!(widths.get(0), Some(2000.0), "Escape gives back the width of the user");
     }
 
     #[test]

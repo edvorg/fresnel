@@ -225,7 +225,8 @@ impl<M: Model> Table<M> {
             self.widths.set(column, delegate.fitted);
         }
         let id = |column: usize| ui.make_persistent_id((self.name, columns.get(column).map(|c| c.title), "edge"));
-        self.edges.handles(ui, &delegate.seen, rect, id, &frame.columns);
+        let widths = |column: usize| Some((*frame.columns.get(column)?, self.widths.get(column)?));
+        self.edges.handles(ui, &delegate.seen, rect, id, widths);
 
         let (mut acted, mut by_key) = (None, false);
         if let Some((row, modifiers)) = row_clicked {

@@ -1,7 +1,7 @@
 //! The handle of each edge at its limits: a press beside the line, the last edge past the
 //! right side of the table, the narrowest width, a double click on each edge, a window that
 //! changes its size during a drag, a click near an edge, columns that the detail panel hides
-//! and shows again, and the scroll bar below the rows.
+//! and shows again, the first column of a narrow window and the scroll bar below the rows.
 
 use egui::accesskit::Role;
 use egui::{CursorIcon, Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, TouchPhase, pos2};
@@ -266,6 +266,45 @@ fn columns_that_the_detail_panel_hides_show_again_with_their_widths_and_handles(
     drag.slide(&mut window, -40.0);
     drag.release(&mut window);
     assert_eq!(width(&window, "Age"), age);
+}
+
+/// A window narrower than the width of the first column shows that column inside the
+/// table. A click on its edge, a move to the right and a drag that Escape ends keep the
+/// width of the user: a wider window shows it again, and the state file keeps it.
+#[test]
+fn a_click_a_move_to_the_right_and_escape_at_a_first_column_that_the_window_cuts_keep_its_width() {
+    let mut window = window_with(view(vec![live("ams-prod", &many_pods(35))]), egui::Theme::Dark, 2.0);
+    window.set_size(egui::vec2(2600.0, 900.0));
+    window.run();
+    let mut drag = MouseDrag::press(&mut window, "Name", Grip::Title);
+    drag.frame(&mut window, 1780.0, 1);
+    drag.release(&mut window);
+    assert_eq!(width(&window, "Name"), 2000.0);
+    let sent = window.state().sent.clone();
+
+    window.set_size(egui::vec2(900.0, 900.0));
+    window.run();
+    let cut = width(&window, "Name");
+    assert!(cut < 900.0, "the window shows {cut} points of Name");
+    let edge = pos2(edge_of(&window, "Name"), title_y(&window));
+    click(&mut window, edge);
+    let mut drag = MouseDrag::press(&mut window, "Name", Grip::Title);
+    drag.frame_with_no_check(&mut window, 1.0);
+    drag.frame_with_no_check(&mut window, 30.0);
+    assert_eq!(width(&window, "Name"), cut, "a move to the right");
+    window.drop_at(drag.pointer);
+    window.run();
+    let mut drag = MouseDrag::press(&mut window, "Name", Grip::Rows);
+    drag.slide(&mut window, -20.0);
+    window.key_press(egui::Key::Escape);
+    window.run();
+    window.drop_at(drag.pointer);
+    window.run();
+    assert_eq!(width(&window, "Name"), cut, "the narrow window");
+    assert_eq!(window.state().sent, sent, "no width changed");
+    window.set_size(egui::vec2(2600.0, 900.0));
+    window.run();
+    assert_eq!(width(&window, "Name"), 2000.0, "the width of the user");
 }
 
 /// The place of the scroll bar below the rows: the lowest place of the table, above the
