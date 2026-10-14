@@ -1036,3 +1036,30 @@ A request to the worker of the quick search holds a snapshot of each store of ea
 cluster. The dialog empties the mailbox at its close, so a closed search holds no objects (plan
 section 7.3). A new snapshot, a new state or a cluster that comes or goes gives a new request,
 so a hit gets its mark when its store leaves the state live.
+
+## A key view reads its one object while it is open
+
+No store keeps a value of a Secret. The key view of a Secret or a ConfigMap reads its one object
+with a GET, and the core reads it again when the metadata store, which is always on, shows a new
+version. A watch of one object would need a second watch loop. The values live in the holder of
+the view, a part of the connected cluster, so they go with the view and with the connections.
+
+## A save of keys is a merge patch of the changed keys
+
+The patch has each changed key and `metadata.resourceVersion`, never `stringData`. The server
+leaves each other key as it is and refuses a save of an old read with HTTP 409. A change back to
+the bytes of the read is no change. After a conflict, the view reads again, and the draft keeps
+the changes of the user and names each key that both sides changed. The app does not send again.
+
+## A value is text only when a text editor keeps each byte
+
+A value is text when it is UTF-8 with no control character but tab, line feed and carriage
+return. Each other value shows as its size and the type of its first bytes, because a text editor
+would change bytes that the user does not see. A key of a ConfigMap stays in its map while its
+value fits there; a value that is not UTF-8 goes to `binaryData`.
+
+## A save in progress ends also when the view closes
+
+The stop of a write in progress leaves its result unknown (design rule 6). So the holder of a key
+view with a save that waits or runs stays until the save ends, and then drops its values. A
+create of a Secret runs in one task of the core, one create after the other, for the same reason.

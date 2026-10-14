@@ -100,8 +100,10 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Registry**: one entry for each context. **Gateway**: one function for each request kind: get,
   list page, watch stream, log stream, send and upgrade. A failed write tells its fate, and each
   read has a size limit.
-- **Manifest**: `manifest::fetch` gives the YAML of one object, with no `managedFields` by
-  default. One task of the core reads the manifest that the view asked for last.
+- **Manifest**: `manifest::fetch` gives the YAML of one object, by default with no `managedFields`.
+- **Keys** (`keys`): one Secret or ConfigMap with each value, as text or as size and type. A
+  `Draft` saves a merge patch of its changed keys with the version of its read, so no other key
+  changes, and HTTP 409 is a conflict. The core follows the object of the open key view.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. After its start, one
   task reads the settings file, the login shell environment and the kubeconfig files, connects
   each selected cluster and runs each command. A cluster has its stores, indexes and a task.
@@ -145,9 +147,9 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 ## Contract between the UI and the core
 
 1. **State.** `Core::view` gives a copy of each state: the clusters with their connections; of
-   each connected cluster the Pods, the indexes, the snapshot of each store and the full objects
-   of each kind that `ShowKinds` names; the settings; the last manifest read; and the journal.
-   The UI never gets a lock that can stop a task. A view holds no handle to the core.
+   each connected cluster the Pods, the indexes, the snapshot of each store, the full objects of
+   each kind that `ShowKinds` names and the key view; the settings; the last manifest read, the
+   last create of a Secret and the journal. The UI gets no lock and no handle to the core.
 2. **Commands.** A view returns a `Command`, and the task of the core runs it.
 3. **Workers.** A view computes its rows on a worker thread: see "Window".
 4. **Repaint.** A new snapshot or index asks for a repaint. One notifier limits the repaints
@@ -185,15 +187,14 @@ bar. It holds the page of one kind and names that kind to the core with `ShowKin
 freezes, delays, resets or silences connections; `K3s` is k3s in Docker; `FakeApiServer` has
 TLS, HTTP/2, HTTP/1.1, watch streams, the HTTP 101 upgrade and faults; `Home` is a home folder.
 
-- **Unit tests** run with no network and with paused time. A time limit of `fresnel-net` runs
-  on an HTTP/2 server in memory, the watch loop on a source with a script, and the indexes,
-  the health values and the columns on `fixtures/k3s` and `fixtures/kinds`: two k3s scenes.
+- **Unit tests** run with no network and with paused time: `fresnel-net` on an HTTP/2 server in
+  memory, the watch loop on a script, the indexes, health values and columns on two k3s scenes.
 - **Socket tests** use the fake API server and the fault proxy on 127.0.0.1, with no Docker.
 - **UI tests** drive the views through `egui_kittest` with no window, on a fake core. A test
   of a table holds its worker at a gate. Two tests draw the views on the real core. The
   limits of a frame and of the quick search hold in a release build.
 - **Program tests** start `fresnel-cli` and `fresnel` (no window) as from Finder, in a test home.
-- **Cluster tests** use k3s in Docker through the fault proxy (`#[ignore]`). After each fault,
-  a store test asserts a recovery time and "store equal to the API". The tests of the indexes
-  and the kinds compare them, the Pod status and each column with the API and with kubectl.
+- **Cluster tests** use k3s in Docker, mostly through the fault proxy (`#[ignore]`). After a fault,
+  a store test asserts a recovery time and "store equal to the API". The tests of the indexes,
+  the kinds and the keys compare them, each column and each saved key with the API and kubectl.
 - CI runs each check on macOS and Linux for each push, and the cluster tests on Linux.

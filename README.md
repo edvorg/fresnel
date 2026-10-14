@@ -6,12 +6,12 @@ that looks current.
 
 ## Status
 
-Milestones M0 (connect) and M1 (live data) are complete, and the work is in M2 (lists). The
-repository has the workspace, the lints, CI, the test kit, `fresnel-net`, `fresnel-core`
+Milestones M0 to M2 are complete; the work is in M3 (workloads) and M4 (Secrets and ConfigMaps).
+The repository has the workspace, the lints, CI, the test kit, `fresnel-net`, `fresnel-core`
 (kubeconfig, registry, gateway, app core, journal, state and settings files, 41 kinds, watch
-loop, stores, indexes, manifest, quick search, command table), `doctor`, `watch` and the window:
-the sidebar with each kind, a live table of each kind for all selected clusters, the detail
-panel, the quick search, Back and Forward, the journal and the connections.
+loop, stores, indexes, manifest, quick search, command table, keys of Secrets and ConfigMaps),
+`doctor`, `watch` and the window: the sidebar, a live table of each kind for all selected
+clusters, the detail panel, the quick search, Back and Forward, the journal and the connections.
 
 ## The app
 
