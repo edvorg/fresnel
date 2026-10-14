@@ -47,9 +47,12 @@ async fn the_core_does_nothing_before_its_start_and_then_connects_with_the_envir
     assert!(requests.iter().all(|seen| seen.method == Method::GET), "{requests:?}");
     assert_eq!(other.counters().connections, 0, "a cluster that is not selected gets no connection");
 
+    // The settings file comes first, before the login shell.
     let texts = app.texts_of("app");
-    assert!(texts[0].starts_with("the login shell /") && texts[0].contains(" gave its environment in "), "{texts:?}");
-    assert_eq!(texts[1..], ["read 2 contexts from 1 kubeconfig file"]);
+    let settings = format!("{}: no file; each setting has its default", home.path(super::CONFIG_FILE).display());
+    assert_eq!(texts[0], settings);
+    assert!(texts[1].starts_with("the login shell /") && texts[1].contains(" gave its environment in "), "{texts:?}");
+    assert_eq!(texts[2..], ["read 2 contexts from 1 kubeconfig file"]);
     let of_cluster = app.until_texts("fake", |texts| texts.len() >= 2).await;
     assert_eq!(of_cluster, ["the channels connect", "live: a request got an answer on each channel"]);
 }
