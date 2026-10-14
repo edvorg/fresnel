@@ -5,12 +5,14 @@
 //! so the UI thread starts no network work and reads no file.
 //!
 //! - `run`: the task that starts the core and runs each command.
-//! - `saved`: the selection of clusters and the table layouts in the state file.
+//! - `saved`: the selection of clusters and the table layouts in the state file. `config`:
+//!   the read of the settings file.
 //! - `data`: the stores and the indexes of each connected cluster. `objects`: the full
 //!   objects of the kinds that the views show. `manifest`: the read of one manifest.
 //! - `watch`: one task for each connected cluster, for the journal and the repaint.
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
 
+mod config;
 mod data;
 mod health;
 mod manifest;
@@ -40,6 +42,7 @@ pub use objects::Objects;
 pub use view::{ClusterRow, CoreView, ShellNote, Startup};
 
 use crate::cluster::{ClusterId, Registry};
+use crate::config::Config;
 use crate::journal::Journal;
 use crate::kinds::Kind;
 use crate::published::Disposal;
@@ -92,6 +95,8 @@ pub struct CoreParts {
     /// The state file: the core reads the selection and the table layouts of the last run
     /// from it, and writes each change of them to it.
     pub state_file: PathBuf,
+    /// The settings file of the user. The core reads it at its start and never writes it.
+    pub config_file: PathBuf,
     /// The detectors of a wake and of a network change.
     pub detectors: Vec<Box<dyn Detector>>,
     /// The settings.
@@ -151,6 +156,10 @@ struct State {
     in_state_file: BTreeSet<ClusterId>,
     /// The layout of each table that the user changed. `None` before the read of the state file.
     tables: Option<Arc<BTreeMap<String, TableLayout>>>,
+    /// The settings of the user: the defaults before the read of the settings file.
+    config: Arc<Config>,
+    /// True after the read of the settings file, also of a file that the app does not use.
+    config_read: bool,
     commands: VecDeque<Command>,
     /// The stores, the indexes and the tasks of each connected cluster.
     connected: HashMap<ClusterId, Connected>,
@@ -167,6 +176,7 @@ struct State {
 struct Inner {
     journal: Journal,
     state_file: PathBuf,
+    config_file: PathBuf,
     tasks: Tasks,
     runtime: Handle,
     base_env: ProcessEnv,
@@ -198,7 +208,7 @@ impl Core {
     /// Builds the core. It starts no task, reads no file and opens no connection before
     /// [`Core::start`], so the window can open first.
     pub fn new(parts: CoreParts) -> Self {
-        let CoreParts { runtime, base_env, journal, state_file, detectors, settings } = parts;
+        let CoreParts { runtime, base_env, journal, state_file, config_file, detectors, settings } = parts;
         let repaint = Repaint::new();
         let tasks = Tasks::new(runtime.clone(), reporter(journal.clone(), repaint.clone()));
         let state = State {
@@ -210,6 +220,8 @@ impl Core {
             saved: saved::Saved::Current,
             in_state_file: BTreeSet::new(),
             tables: None,
+            config: Arc::default(),
+            config_read: false,
             commands: VecDeque::new(),
             connected: HashMap::new(),
             shown: BTreeSet::new(),
@@ -221,6 +233,7 @@ impl Core {
         let inner = Inner {
             journal,
             state_file,
+            config_file,
             tasks,
             runtime,
             base_env,
@@ -273,12 +286,13 @@ impl Core {
 
     /// A copy of the state of the app.
     pub fn view(&self) -> CoreView {
-        let (startup, shell_problem, selected, tables, manifest, mut data) = {
+        let (startup, shell_problem, selected, tables, config, manifest, mut data) = {
             let state = self.inner.state();
             let data: HashMap<ClusterId, ClusterData> =
                 state.connected.iter().map(|(id, connected)| (id.clone(), connected.data())).collect();
             let manifest = state.manifests.as_ref().and_then(ManifestReader::last);
-            (state.startup, state.shell_problem.clone(), state.selected.clone(), state.tables.clone(), manifest, data)
+            let (tables, config) = (state.tables.clone(), Arc::clone(&state.config));
+            (state.startup, state.shell_problem.clone(), state.selected.clone(), tables, config, manifest, data)
         };
         let clusters = self.inner.registry.get().map(Registry::snapshot).unwrap_or_default();
         let row = |cluster: crate::cluster::ClusterView| {
@@ -291,6 +305,7 @@ impl Core {
             shell_problem,
             clusters: clusters.into_iter().map(row).collect(),
             tables,
+            config,
             manifest,
             journal: self.inner.journal.view(),
         }

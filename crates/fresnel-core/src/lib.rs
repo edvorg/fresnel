@@ -8,7 +8,8 @@
 //! - [`manifest`]: the YAML of one object, read from the server.
 //! - [`published`]: the one type that publishes a state to its readers.
 //! - [`journal`]: the list of events, warnings and errors.
-//! - [`state_file`]: what the app keeps from one run to the next.
+//! - [`config`]: the settings file of the user. [`state_file`]: what the app keeps from one
+//!   run to the next.
 //!
 //! This crate has no dependency on egui. Only this crate and the programs can use kube, and
 //! in this crate only `cluster/gateway.rs` holds a kube client.
@@ -16,6 +17,7 @@
 pub mod app;
 pub mod cluster;
 pub mod commands;
+pub mod config;
 mod error;
 #[cfg(test)]
 mod fixture;

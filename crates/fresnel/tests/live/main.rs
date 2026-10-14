@@ -144,6 +144,7 @@ fn bed() -> Bed {
         base_env: home.finder_env(),
         journal: Journal::new(1000, WallClock::system()),
         state_file: home.path("state/state.json"),
+        config_file: home.path("state/config.toml"),
         detectors: Vec::new(),
         settings: CoreSettings::default(),
     });

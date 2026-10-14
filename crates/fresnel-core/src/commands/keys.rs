@@ -35,7 +35,7 @@ impl Keys {
     /// A key that the user gives to a command is its key, also when it was the default key
     /// of an other command: that command then has no key. When the user gives one key to
     /// two commands, the first one keeps it. Each such case gives a problem at its place.
-    pub fn with_choices<P: Copy>(chosen: &[(CommandId, Option<Shortcut>, P)]) -> (Self, Vec<(P, String)>) {
+    pub fn with_choices<P: Clone>(chosen: &[(CommandId, Option<Shortcut>, P)]) -> (Self, Vec<(P, String)>) {
         let mut keys = Self::default();
         for (id, _, _) in chosen {
             keys.keys.remove(id);
@@ -51,13 +51,13 @@ impl Keys {
                     if chosen.get(..index).is_some_and(|before| before.iter().any(|(id, ..)| *id == holder)) =>
                 {
                     let text = format!("{key} is the key of `{}` already, so `{}` has no key", name(holder), name(*id));
-                    problems.push((*place, text));
+                    problems.push((place.clone(), text));
                 }
                 Some(holder) => {
                     keys.keys.remove(&holder);
                     keys.keys.insert(*id, *key);
                     let text = format!("{key} was the default key of `{}`, which now has no key", name(holder));
-                    problems.push((*place, text));
+                    problems.push((place.clone(), text));
                 }
                 None => {
                     keys.keys.insert(*id, *key);

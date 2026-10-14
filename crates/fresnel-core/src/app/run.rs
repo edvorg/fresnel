@@ -44,6 +44,9 @@ impl Inner {
         if let (Startup::Ready, Some(registry)) = (startup, self.registry.get()) {
             return Ok(registry.clone());
         }
+        // The settings come first: the login shell can take seconds, and the keys of the
+        // user must act before that.
+        self.load_config().await?;
         let env = self.environment().await;
         let registry = self.registry.get_or_init(|| {
             Registry::new(self.tasks.clone(), self.runtime.clone(), env.clone(), self.settings.net.clone())
@@ -325,6 +328,7 @@ mod tests {
             base_env: home.finder_env(),
             journal: Journal::new(100, WallClock::system()),
             state_file: home.path("state/state.json"),
+            config_file: home.path("state/config.toml"),
             detectors: Vec::new(),
             settings: CoreSettings::default(),
         });
@@ -351,6 +355,7 @@ mod tests {
             base_env: home.finder_env(),
             journal: Journal::new(100, WallClock::system()),
             state_file: home.path("state/state.json"),
+            config_file: home.path("state/config.toml"),
             detectors: Vec::new(),
             settings: CoreSettings::default(),
         });

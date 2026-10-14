@@ -12,8 +12,9 @@ fn core() -> Core {
         runtime: Handle::current(),
         base_env: ProcessEnv::default(),
         journal: Journal::new(100, WallClock::system()),
-        // No test of this module starts the core, so nothing reads or writes the file.
+        // No test of this module starts the core, so nothing reads or writes the files.
         state_file: PathBuf::from("/no/such/folder/state.json"),
+        config_file: PathBuf::from("/no/such/folder/config.toml"),
         detectors: Vec::new(),
         settings: CoreSettings::default(),
     })

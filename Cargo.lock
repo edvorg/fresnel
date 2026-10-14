@@ -1426,6 +1426,7 @@ dependencies = [
  "serde-saphyr",
  "serde_json",
  "tokio",
+ "toml",
  "tower-service",
 ]
 
