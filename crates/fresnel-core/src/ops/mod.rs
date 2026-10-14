@@ -10,10 +10,12 @@
 //! - `rollout`: the rollout status of kubectl. `history`: the revisions of a workload.
 //!   `rollback`: the patch that goes back to a revision.
 //! - `job`: run a Job again, and the Job of a CronJob that the user triggers.
+//! - `kubectl`: the `kubectl` commands that a user can copy.
 
 mod delete;
 mod history;
 mod job;
+pub mod kubectl;
 mod request;
 mod rollback;
 mod rollout;

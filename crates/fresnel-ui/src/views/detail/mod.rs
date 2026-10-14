@@ -109,7 +109,7 @@ impl<K: Describe> DetailPanel<K> {
                 Ok(Some(format!("Copied the name {}.", key.name)))
             }
             Action::CopyCommand => {
-                let command = actions::kubectl(cluster, K::ID, key);
+                let command = fresnel_core::ops::kubectl::get(cluster, K::ID, key);
                 ctx.copy_text(command.clone());
                 Ok(Some(format!("Copied: {command}")))
             }
