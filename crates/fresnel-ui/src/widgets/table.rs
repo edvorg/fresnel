@@ -31,7 +31,7 @@ use fresnel_core::app::Command;
 use fresnel_core::net::task::Tasks;
 use fresnel_core::state_file::TableLayout;
 
-use self::edges::{Edge, Edges};
+use self::edges::{Edges, Seen};
 use self::model::{Column, Model, ObjectId, Sort};
 pub(crate) use self::rows::Rows;
 use self::select::{click, forget_gone, key, position};
@@ -212,8 +212,7 @@ impl<M: Model> Table<M> {
             header_clicked: None,
             row_clicked: None,
             columns_end: None,
-            edges: Vec::new(),
-            header_top: None,
+            seen: Seen::default(),
             fit,
             fitted: 0.0,
         };
@@ -225,10 +224,9 @@ impl<M: Model> Table<M> {
         if let Some(column) = fit.filter(|_| delegate.fitted > 0.0) {
             self.widths.set(column, delegate.fitted);
         }
-        if let Some(top) = delegate.header_top {
-            let id = |column: usize| ui.make_persistent_id((self.name, columns.get(column).map(|c| c.title), "edge"));
-            self.edges.handles(ui, &delegate.edges, (top, rect.bottom()), id, &frame.columns);
-        }
+        let id = |column: usize| ui.make_persistent_id((self.name, columns.get(column).map(|c| c.title), "edge"));
+        let widths = |column: usize| Some((*frame.columns.get(column)?, self.widths.get(column)?));
+        self.edges.handles(ui, &delegate.seen, rect, id, widths);
 
         let (mut acted, mut by_key) = (None, false);
         if let Some((row, modifiers)) = row_clicked {
@@ -312,9 +310,8 @@ struct Delegate<'a, M: Model> {
     row_clicked: Option<(usize, Modifiers)>,
     /// Where the title of the filler starts on the screen: the end of the columns.
     columns_end: Option<f32>,
-    /// The edge of each title that shows, and the top of the titles.
-    edges: Vec<Edge>,
-    header_top: Option<f32>,
+    /// The edges, the titles and the rows of the frame, for the handles.
+    seen: Seen,
     /// The column that a double click fits, and the widest part of it in the pass that
     /// measures it.
     fit: Option<usize>,
@@ -341,10 +338,7 @@ impl<M: Model> Delegate<'_, M> {
 impl<M: Model> egui_table::TableDelegate for Delegate<'_, M> {
     fn header_cell_ui(&mut self, ui: &mut Ui, cell: &egui_table::HeaderCellInfo) {
         let index = cell.col_range.start;
-        self.header_top = Some(ui.max_rect().top());
-        if let Some(edge) = self.widths.get(index).and_then(|width| edges::of_title(ui, index, *width)) {
-            self.edges.push(edge);
-        }
+        self.seen.title(ui, index, self.widths.get(index).copied());
         if index == self.columns.len() {
             // `egui_table` lays out a title in the fixed part and in the part that scrolls
             // to the side. The part that scrolls gives the smaller place.
@@ -371,6 +365,7 @@ impl<M: Model> egui_table::TableDelegate for Delegate<'_, M> {
         };
         let id = self.model.id(row);
         let (selected, is_cursor) = (self.selection.contains(id), self.selection.cursor() == Some(id));
+        self.seen.row(ui);
         if cells::row(ui, self.palette, selected, is_cursor).clicked() {
             self.row_clicked = Some((index, ui.input(|input| input.modifiers)));
         }

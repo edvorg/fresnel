@@ -844,6 +844,19 @@ late. Now the table puts a handle that takes only drags on each edge, above the 
 rows. Before the layout, the width is the width at the press plus the move of the pointer.
 A click changes nothing, and Escape gives back the width.
 
+## A handle ends at the scroll bars of the rows
+
+The handles went down to the bottom of the table, over the scroll bar below the rows. In a
+table wider than its place, a drag of that scroll bar at an edge changed the width of the
+column, and the table did not scroll. A handle now ends at the scroll bars of the rows.
+
+## A click on the edge of a cut first column keeps its width
+
+A narrow window shows less of the first column. A drag starts from the width on the screen,
+so a click or Escape gave that cut width to the column, and the state file kept it. A move
+to the right cannot make that column wider on the screen. Now a click, Escape and a move to
+the right keep the width of the table.
+
 ## The first widths come from the table, not from the cells
 
 A column has the width that its table gives until the user changes it. A width from the
