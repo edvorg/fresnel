@@ -40,7 +40,15 @@ pub(crate) struct NewSecretDialog {
     /// The ServiceAccount of a token Secret.
     account: String,
     /// The create that the dialog sent; the view of the core has its state.
-    sent: Option<NewSecret>,
+    sent: Option<Sent>,
+}
+
+/// A create that the dialog sent.
+struct Sent {
+    secret: NewSecret,
+    /// The number of the last create of the view at the click. The job of this create gets
+    /// a greater one: the view can still show an earlier create of the same values.
+    after: u64,
 }
 
 impl Default for NewSecretDialog {
@@ -117,16 +125,17 @@ impl NewSecretDialog {
         ui.add_space(6.0);
         self.keys(ui);
         let secret = self.secret();
-        for hint in secret.as_ref().map(NewSecret::hints).unwrap_or_default().into_iter().chain(self.twice()) {
+        let twice = self.twice();
+        for hint in secret.as_ref().map(NewSecret::hints).unwrap_or_default().iter().chain(&twice) {
             ui.label(RichText::new(hint).color(palette.warn));
         }
-        let job = scene.view.create.as_ref().filter(|job| Some(&job.secret) == self.sent.as_ref());
-        let pending = job.is_some_and(|job| job.state == WriteState::Pending);
-        let created = job.is_some_and(|job| matches!(job.state, WriteState::Done(_)));
-        if let Some(job) = job {
-            let (tone, word) = state::word(&job.state);
-            let text = match &job.state {
-                WriteState::Done(_) => format!("Create: {word}. {} has the Secret now.", job.secret.cluster),
+        let state = self.state(scene);
+        let pending = state == Some(WriteState::Pending);
+        let created = matches!(state, Some(WriteState::Done(_)));
+        if let (Some(state), Some(sent)) = (&state, &self.sent) {
+            let (tone, word) = state::word(state);
+            let text = match state {
+                WriteState::Done(_) => format!("Create: {word}. {} has the Secret now.", sent.secret.cluster),
                 WriteState::Pending => format!("Create: {word}…"),
                 WriteState::Unknown(error) => {
                     format!("Create: {word}: {error}. The app does not send it again; the list of Secrets shows it.")
@@ -146,12 +155,16 @@ impl NewSecretDialog {
                     answer.1 = self.link();
                 }
             } else {
-                let ready = secret.is_some() && !self.name.is_empty() && !self.namespace.is_empty() && !pending;
-                let create = ui.add_enabled(ready, egui::Button::new(RichText::new("Create").strong()));
+                let filled = !self.name.is_empty() && !self.namespace.is_empty() && twice.is_empty();
+                let create = ui.add_enabled(
+                    secret.is_some() && filled && !pending,
+                    egui::Button::new(RichText::new("Create").strong()),
+                );
                 widgets::name(&create, "Create the Secret");
                 if let Some(secret) = secret.filter(|_| create.clicked()) {
                     scene.commands.push(Command::CreateSecret(secret.clone()));
-                    self.sent = Some(secret);
+                    let after = scene.view.create.as_ref().map_or(0, |job| job.number);
+                    self.sent = Some(Sent { secret, after });
                 }
             }
             answer.0 = ui.button("Close").clicked();
@@ -269,7 +282,17 @@ impl NewSecretDialog {
         Some(secret)
     }
 
-    /// A hint for each name of a key that two rows have: the Secret would keep one value.
+    /// The state of the create that the dialog sent, `None` before a create. From the click
+    /// to the first view of its job, the core did not take it yet: it is pending then, so a
+    /// second click does not send it again and get the refusal "already exists".
+    fn state(&self, scene: &Scene<'_>) -> Option<WriteState> {
+        let sent = self.sent.as_ref()?;
+        let job = scene.view.create.as_ref().filter(|job| job.number > sent.after && job.secret == sent.secret);
+        Some(job.map_or(WriteState::Pending, |job| job.state.clone()))
+    }
+
+    /// A hint for each name of a key that two rows have. The Secret would keep one value
+    /// and drop the other one with no word of the server, so the create waits for a change.
     fn twice(&self) -> Vec<String> {
         let mut names: Vec<&str> =
             self.rows.iter().map(|(key, _)| key.as_str()).filter(|key| !key.is_empty()).collect();
@@ -287,7 +310,7 @@ impl NewSecretDialog {
 
     /// The link of the Secret that the dialog created.
     fn link(&self) -> Option<Link> {
-        let sent = self.sent.as_ref()?;
+        let sent = &self.sent.as_ref()?.secret;
         Some(Link {
             cluster: sent.cluster.clone(),
             kind: Kind::Secret,
