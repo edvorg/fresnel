@@ -16,11 +16,11 @@ use http::Method;
 
 use super::{App, home, write_kubeconfig};
 
-const DB: &str = "/api/v1/namespaces/shop/secrets/db";
+pub(super) const DB: &str = "/api/v1/namespaces/shop/secrets/db";
 const SECRETS_OF_SHOP: &str = "/api/v1/namespaces/shop/secrets";
 
 /// The answer of the server for the Secret `db` with one value and this version.
-fn secret(name: &str, version: u32, password: &str) -> String {
+pub(super) fn secret(name: &str, version: u32, password: &str) -> String {
     format!(
         r#"{{"kind":"Secret","apiVersion":"v1","metadata":{{"name":"{name}","namespace":"shop","uid":"u-{name}",
         "resourceVersion":"{version}"}},"type":"Opaque","data":{{"password":"{password}"}}}}"#
@@ -33,11 +33,11 @@ fn modified(version: u32) -> String {
     format!(r#"{{"type":"MODIFIED","object":{{"kind":"PartialObjectMetadata","metadata":{metadata}}}}}"#)
 }
 
-fn target(cluster: &str) -> Target {
+pub(super) fn target(cluster: &str) -> Target {
     named(cluster, "db")
 }
 
-fn named(cluster: &str, name: &str) -> Target {
+pub(super) fn named(cluster: &str, name: &str) -> Target {
     Target {
         cluster: ClusterId::new(cluster),
         kind: KeyKind::Secret,
@@ -47,17 +47,17 @@ fn named(cluster: &str, name: &str) -> Target {
 }
 
 /// The key view of a cluster in the view of the core.
-fn keys(view: &CoreView, cluster: &str) -> Option<Arc<KeysView>> {
+pub(super) fn keys(view: &CoreView, cluster: &str) -> Option<Arc<KeysView>> {
     view.clusters.iter().find(|row| row.id.as_str() == cluster)?.data.as_ref()?.keys.clone()
 }
 
 /// The value of `password` of the object of the key view, once read.
-fn password(view: &CoreView, cluster: &str) -> Option<Vec<u8>> {
+pub(super) fn password(view: &CoreView, cluster: &str) -> Option<Vec<u8>> {
     let keys = keys(view, cluster).filter(|keys| keys.read == ReadState::Read)?;
     keys.object.as_ref()?.value("password").map(|value| value.bytes().to_vec())
 }
 
-fn requests(server: &FakeApiServer, method: &Method, path: &str) -> usize {
+pub(super) fn requests(server: &FakeApiServer, method: &Method, path: &str) -> usize {
     server.requests().iter().filter(|seen| seen.method == method && seen.uri.path() == path).count()
 }
 
@@ -77,7 +77,7 @@ async fn the_object_of_the_key_view_loads_while_the_view_is_open_and_a_save_goes
 
     app.core.send(Command::ShowKeys(Some(target("ams"))));
     let open = app.until("the Secret of ams", |view| password(view, "ams").is_some()).await;
-    assert_eq!(password(&open, "ams").as_deref(), Some(&b"ams-1"[..]));
+    assert!(password(&open, "ams").as_deref() == Some(b"ams-1"), "the value of ams");
     assert!(keys(&open, "fra").is_none(), "the view shows the object of ams only");
 
     // A new version in the metadata store of the Secrets gives a new read.
@@ -101,7 +101,8 @@ async fn the_object_of_the_key_view_loads_while_the_view_is_open_and_a_save_goes
     let job = keys(&saved, "ams").and_then(|keys| keys.save.clone()).expect("the job");
     assert_eq!(job.save, save);
     let WriteState::Done(answer) = &job.state else { panic!("a done save: {job:?}") };
-    assert_eq!((&*answer.version, password(&saved, "ams").as_deref()), ("43", Some(&b"ams-3"[..])));
+    assert_eq!(&*answer.version, "43");
+    assert!(password(&saved, "ams").as_deref() == Some(b"ams-3"), "the value of the answer");
     assert_eq!((requests(&ams, &Method::PATCH, DB), requests(&fra, &Method::PATCH, DB)), (1, 0));
 
     // The view closes: the core holds no value. A save with no open view does not go.
@@ -201,7 +202,7 @@ async fn a_read_that_fails_keeps_the_object_before_and_the_next_version_reads_ag
     let ReadState::Failed(error) = &view.read else { panic!("a failed read: {view:?}") };
     assert_eq!(error.status(), Some(403));
     let kept = view.object.as_ref().and_then(|object| object.value("password")).map(|value| value.bytes().to_vec());
-    assert_eq!(kept.as_deref(), Some(&b"ams-1"[..]), "the object of the read before stays");
+    assert!(kept.as_deref() == Some(b"ams-1"), "the object of the read before stays");
 
     server.clear_faults();
     server.set_body(DB, &secret("db", 43, "YW1zLTM="));

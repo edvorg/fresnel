@@ -11,7 +11,7 @@ use super::request;
 use super::secret_type::NewSecret;
 use crate::cluster::{ClusterId, Fate, Gateway, WriteError};
 use crate::error::CoreError;
-use crate::store::Written;
+use crate::store::{ObjectKey, Written};
 
 /// How far a save or a create is: the states of a job (plan section 7.3). A state that
 /// nobody reads hides the end of a write, so the compiler refuses to drop one.
@@ -88,28 +88,21 @@ pub async fn read(gateway: &Gateway, target: &Target) -> Result<KeyObject, CoreE
             KeyObject::of_config_map(target.cluster.clone(), gateway.get::<ConfigMap>(request).await?)?
         }
     };
-    if object.target.key != target.key {
-        return Err(CoreError::invalid("the server answered the read with an other object"));
-    }
-    if !target.uid.is_empty() && object.target.uid != target.uid {
-        return Err(CoreError::invalid("the object of this name is an other object now: it has an other UID"));
-    }
-    Ok(object)
+    same_object(target, object)
 }
 
-/// Sends a save one time. The answer is the object after the save.
+/// Sends a save one time. The answer is the object after the save. An answer of an other
+/// object leaves the result unknown: the view must not show its values as the new values.
 pub async fn save(gateway: &Gateway, save: &Save) -> Result<KeyObject, WriteError> {
     let not_sent = |error| WriteError { fate: Fate::NotSent, error };
     same_cluster(gateway, &save.target.cluster).map_err(not_sent)?;
     let request = request::save(save).map_err(not_sent)?;
     let cluster = save.target.cluster.clone();
-    let after = |error| WriteError { fate: Fate::Unknown, error };
-    match save.target.kind {
-        KeyKind::Secret => KeyObject::of_secret(cluster, gateway.send::<Secret>(request).await?).map_err(after),
-        KeyKind::ConfigMap => {
-            KeyObject::of_config_map(cluster, gateway.send::<ConfigMap>(request).await?).map_err(after)
-        }
-    }
+    let object = match save.target.kind {
+        KeyKind::Secret => KeyObject::of_secret(cluster, gateway.send::<Secret>(request).await?),
+        KeyKind::ConfigMap => KeyObject::of_config_map(cluster, gateway.send::<ConfigMap>(request).await?),
+    };
+    object.and_then(|object| same_object(&save.target, object)).map_err(unknown)
 }
 
 /// Sends the create of a Secret one time. The answer is the new Secret.
@@ -118,7 +111,32 @@ pub async fn create(gateway: &Gateway, secret: &NewSecret) -> Result<KeyObject, 
     same_cluster(gateway, &secret.cluster).map_err(not_sent)?;
     let request = request::create(secret).map_err(not_sent)?;
     let answer = gateway.send::<Secret>(request).await?;
-    KeyObject::of_secret(secret.cluster.clone(), answer).map_err(|error| WriteError { fate: Fate::Unknown, error })
+    let target = Target {
+        cluster: secret.cluster.clone(),
+        kind: KeyKind::Secret,
+        key: ObjectKey::new(&secret.namespace, &secret.name),
+        uid: "".into(),
+    };
+    KeyObject::of_secret(secret.cluster.clone(), answer)
+        .and_then(|object| same_object(&target, object))
+        .map_err(unknown)
+}
+
+/// The server took the write, and its answer does not tell the result.
+fn unknown(error: CoreError) -> WriteError {
+    WriteError { fate: Fate::Unknown, error }
+}
+
+/// The object of an answer, when it is the object of `target`: the same name, and the same
+/// UID when the target names one.
+fn same_object(target: &Target, object: KeyObject) -> Result<KeyObject, CoreError> {
+    if object.target.key != target.key {
+        return Err(CoreError::invalid("the server answered with an other object"));
+    }
+    if !target.uid.is_empty() && object.target.uid != target.uid {
+        return Err(CoreError::invalid("the object of this name is an other object now: it has an other UID"));
+    }
+    Ok(object)
 }
 
 /// A request goes to the cluster of its object only (design rule 8).
