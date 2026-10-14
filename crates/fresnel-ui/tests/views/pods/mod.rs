@@ -4,7 +4,7 @@
 //! - `weakness`: the weaknesses of Headlamp of plan section 6 that apply to this view.
 //! - `detail`: the detail panel. `snapshots`: PNG files of the view.
 //! - `resize`: a drag of the edge of a column. `layout`: the widths in the state file.
-//! - `resize_stress`: long moves, and new data during a drag.
+//! - `resize_stress`: long moves, new data during a drag, extreme widths.
 //! - `bad_data`: objects that a healthy API server does not give.
 //! - `rest`: the view while the window shows some other page.
 

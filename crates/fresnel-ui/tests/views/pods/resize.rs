@@ -12,7 +12,7 @@ use egui_kittest::kittest::Queryable as _;
 use crate::data::{live, pod, pods};
 use crate::fake::{Window, open_page, shows, until, view, window};
 
-const TITLES: [&str; 9] =
+pub(crate) const TITLES: [&str; 9] =
     ["Name", "Namespace", "Cluster", "Ready", "Status", "Restarts", "Last restart", "Node", "Age"];
 /// The widths that a column can have.
 const WIDTHS: Rangef = Rangef { min: 48.0, max: 2000.0 };
@@ -28,7 +28,7 @@ const DRAG_START: f32 = 6.0;
 const QUIET_FRAMES: usize = 4;
 
 /// The span of each column whose title shows, from the rect of the title.
-fn spans(window: &Window) -> Vec<(&'static str, Rangef)> {
+pub(crate) fn spans(window: &Window) -> Vec<(&'static str, Rangef)> {
     let span = |title: &&'static str| {
         let node = window.query_by_role_and_label(Role::Button, title)?;
         Some((*title, node.rect().x_range()))
@@ -36,7 +36,7 @@ fn spans(window: &Window) -> Vec<(&'static str, Rangef)> {
     TITLES.iter().filter_map(span).collect()
 }
 
-fn span_of(spans: &[(&str, Rangef)], title: &str) -> Option<Rangef> {
+pub(crate) fn span_of(spans: &[(&str, Rangef)], title: &str) -> Option<Rangef> {
     spans.iter().find(|(name, _)| *name == title).map(|(_, span)| *span)
 }
 
@@ -47,7 +47,7 @@ pub(crate) fn width(window: &Window, title: &str) -> f32 {
 }
 
 /// The right end of the rows: the right edge of the window, less the scroll bar.
-fn table_right(window: &Window) -> f32 {
+pub(crate) fn table_right(window: &Window) -> f32 {
     window.ctx.content_rect().right() - 12.0
 }
 
@@ -60,6 +60,8 @@ pub(crate) struct Drag {
     span: Rangef,
     /// The span of each column whose title showed at the start.
     before: Vec<(&'static str, Rangef)>,
+    /// The widths that the column can have.
+    widths: Rangef,
 }
 
 impl Drag {
@@ -73,7 +75,12 @@ impl Drag {
         window.run();
         window.drag_at(start);
         window.run();
-        Self { title, start, span, before }
+        Self { title, start, span, before, widths: WIDTHS }
+    }
+
+    /// Sets the widest width that the column can have in this drag.
+    pub(crate) fn with_widest(self, widest: f32) -> Self {
+        Self { widths: Rangef::new(WIDTHS.min, widest), ..self }
     }
 
     /// Moves the pointer to `by` points from the start. Then the edge is at the pointer
@@ -87,7 +94,7 @@ impl Drag {
         window.run_steps(QUIET_FRAMES);
         let now = spans(window);
         let shown = span_of(&now, title).unwrap_or_else(|| panic!("the title {title} shows during its drag"));
-        let width = (span.span() + by).clamp(WIDTHS.min, WIDTHS.max);
+        let width = (span.span() + by).clamp(self.widths.min, self.widths.max);
         let at = format!("{title} after a move of {by:+} points");
         assert!((shown.min - span.min).abs() <= NEAR, "{at}: its left edge moved from {} to {}", span.min, shown.min);
         assert!(

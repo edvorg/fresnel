@@ -811,3 +811,11 @@ A drag changes a width in each frame. The table sends `SaveTable` when no pointe
 down, so the core writes the file one time for each drag. The table takes the saved layout one
 time, after the core read the file. A later layout of the core only repeats the commands of
 the table, and a table that took it could undo a drag in progress.
+
+## The first column stays inside the table
+
+The first column does not scroll to the side. A saved width, a drag or a narrower window
+could make it wider than the table: then its edge and each other column were off the
+screen, and the user could not change that. Now a frame shows the first column inside the
+table, with room for the other columns, and a drag of its edge stops there. The width of
+the user stays: a wider window shows it again.

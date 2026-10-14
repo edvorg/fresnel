@@ -35,7 +35,7 @@ use self::select::{click, forget_gone, key, position};
 pub(crate) use self::selection::Selection;
 pub(crate) use self::supply::Progress;
 use self::supply::Supply;
-use self::widths::{NARROWEST, WIDEST, Widths};
+use self::widths::{FrameWidths, NARROWEST, WIDEST, Widths};
 use self::worker::Wake;
 use crate::theme::{self, Palette, ROW_HEIGHT};
 
@@ -174,8 +174,8 @@ impl<M: Model> Table<M> {
         let focus_id = ui.make_persistent_id((self.name, "keys"));
         let focus = ui.interact(rect, focus_id, Sense::focusable_noninteractive());
 
-        let filler = self.widths.filler(rect.width());
-        let table_columns = self.table_columns(filler);
+        let frame = self.widths.for_frame(rect.width());
+        let table_columns = self.table_columns(&frame);
         let mut table = egui_table::Table::new()
             .id_salt(self.name)
             .num_rows(rows.len() as u64)
@@ -203,7 +203,7 @@ impl<M: Model> Table<M> {
         table.show(ui, &mut delegate);
         let (header_clicked, row_clicked) = (delegate.header_clicked, delegate.row_clicked);
         if let Some(end) = delegate.columns_end {
-            self.widths.shown(end - rect.left(), filler);
+            self.widths.shown(&frame, end - rect.left());
         }
         read_widths(ui, table_id, &table_columns, &mut self.widths);
 
@@ -244,14 +244,15 @@ impl<M: Model> Table<M> {
         acted
     }
 
-    /// The columns of `egui_table`: one for each column of the model, with the width of
-    /// the table, and the filler after them.
-    fn table_columns(&self, filler: f32) -> Vec<egui_table::Column> {
-        let columns = self.model.columns().iter().zip(self.widths.iter()).map(|(column, width)| {
+    /// The columns of `egui_table`: one for each column of the model, with the widths of
+    /// this frame, and the filler after them. A drag stops the first column inside the table.
+    fn table_columns(&self, frame: &FrameWidths) -> Vec<egui_table::Column> {
+        let columns = self.model.columns().iter().zip(&frame.columns).enumerate().map(|(index, (column, width))| {
+            let widest = if index == 0 { frame.first_widest } else { WIDEST };
             // The identity keys the width in the state of `egui_table`.
-            egui_table::Column::new(width).range(NARROWEST..=WIDEST).id(egui::Id::new((self.name, column.title)))
+            egui_table::Column::new(*width).range(NARROWEST..=widest).id(egui::Id::new((self.name, column.title)))
         });
-        let filler = egui_table::Column::new(filler)
+        let filler = egui_table::Column::new(frame.filler)
             .range(0.0..=f32::INFINITY)
             .resizable(false)
             .id(egui::Id::new((self.name, "filler")));
@@ -275,9 +276,11 @@ fn write_widths(ui: &Ui, table_id: egui::Id, columns: &[egui_table::Column]) {
     state.store(ui.ctx(), table_id);
 }
 
-/// Takes the widths that a drag of the user gave to `egui_table` in this frame. A pass
-/// that only measures gives each column the width of its content, and that is no width of
-/// the user. The filler is no column of the model, so `Widths::set` ignores it.
+/// Takes the widths that a drag or a double click of the user gave to `egui_table` in this
+/// frame: each width that differs from the width that the frame gave. The first column of a narrow
+/// table keeps the width of the user that way. A pass that only measures gives each column
+/// the width of its content, and that is no width of the user. The filler is no column of
+/// the model, so `Widths::set` ignores it.
 fn read_widths(ui: &Ui, table_id: egui::Id, columns: &[egui_table::Column], widths: &mut Widths) {
     if ui.is_sizing_pass() {
         return;
@@ -286,7 +289,9 @@ fn read_widths(ui: &Ui, table_id: egui::Id, columns: &[egui_table::Column], widt
         return;
     };
     for (index, column) in columns.iter().enumerate() {
-        if let Some(width) = state.col_widths.get(&column.id_for(index)) {
+        if let Some(width) = state.col_widths.get(&column.id_for(index))
+            && *width != column.current
+        {
             widths.set(index, *width);
         }
     }
