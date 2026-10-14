@@ -14,7 +14,7 @@ use k8s_openapi::api::coordination::v1::Lease;
 
 use super::scene::{deployments, live, with};
 use crate::data::{of_kinds, store};
-use crate::fake::{Window, error, now, off, open_page, row, view, window};
+use crate::fake::{Window, error, now, off, open_page, row, shows, until, view, window};
 use crate::pods::scenes::{forbidden, no_answer};
 
 /// The facts of the stores of a cluster with these counts of objects, each store live.
@@ -112,4 +112,32 @@ fn a_page_names_its_kind_to_the_core_and_the_connections_page_keeps_it() {
     open_page(&mut window, "ConfigMaps");
     open_page(&mut window, "Pods");
     assert_eq!(window.state().sent[1..], [kinds(&[Kind::ConfigMap]), kinds(&[])]);
+}
+
+/// Fast input: a click on each kind of the sidebar, one frame each, with no wait for rows.
+/// Each page that goes away ends its worker thread (the fake core fails the test for a
+/// thread that ended with a fault), the core gets each new kind, and the last page shows
+/// its rows.
+#[test]
+fn a_click_on_each_kind_in_each_frame_leaves_the_last_page_with_its_rows() {
+    let mut window = window(view(vec![live("ams-prod", &deployments())]));
+    // A window as tall as the sidebar: a click needs no scroll, which moves the entries.
+    window.set_size(egui::vec2(crate::fake::WINDOW.x, 1600.0));
+    window.run();
+    let clicks: Vec<Kind> = Kind::ALL.iter().copied().chain([Kind::Pod, Kind::Deployment]).collect();
+    for kind in &clicks {
+        window.get_by_role_and_label(Role::RadioButton, kind.info().title).click();
+        window.step();
+    }
+    until(&mut window, "the rows of the last page", |window| shows(window, "4 Deployments"));
+    let mut shown = BTreeSet::new();
+    let mut expected = Vec::new();
+    for kind in clicks {
+        let wanted = if kind == Kind::Pod { BTreeSet::new() } else { BTreeSet::from([kind]) };
+        if wanted != shown {
+            shown.clone_from(&wanted);
+            expected.push(Command::ShowKinds(wanted));
+        }
+    }
+    assert_eq!(window.state().sent, expected, "one command for each new page, and the last one holds Deployments");
 }

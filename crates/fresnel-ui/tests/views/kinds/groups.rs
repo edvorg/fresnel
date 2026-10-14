@@ -163,3 +163,20 @@ fn the_panel_shows_each_new_version_and_a_deleted_object_as_deleted() {
     assert!(shows(&window, text) && !shows(&window, "This Deployment is deleted. The panel shows its last state."));
     assert_eq!(Kind::Deployment, Deployment::ID);
 }
+
+/// Extreme sizes: a window from 1 point to 4,000 points wide, with the panel and its
+/// Manifest tab open. Each size settles in a few frames with no panic, and the panel stays.
+#[test]
+fn the_page_with_the_panel_and_the_manifest_tab_draws_in_a_window_of_each_size() {
+    let mut window = page::<Deployment>(vec![live("ams-prod", &deployments())], 4);
+    open(&mut window, "web");
+    window.get_by_label("Manifest").click();
+    window.run();
+    let sizes = [egui::vec2(300.0, 200.0), egui::vec2(120.0, 80.0), egui::vec2(1.0, 1.0), egui::vec2(4000.0, 3000.0)];
+    for size in sizes.into_iter().chain([crate::fake::WINDOW]) {
+        window.set_size(size);
+        // `run` fails when the frames ask for more frames with no end.
+        window.run();
+    }
+    assert!(shows(&window, "Close the details") && shows(&window, "The manifest is read from ams-prod…"));
+}
