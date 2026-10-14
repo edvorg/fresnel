@@ -19,7 +19,12 @@ impl Progress for Seen {
 #[test]
 fn each_change_of_a_job_shows_its_full_report_and_the_end_closes_the_running_step() {
     let mut seen = Seen::default();
-    let mut job = Steps { target: target(Kind::Job, "shop", "once"), report: Report::default(), progress: &mut seen };
+    let mut job = Steps {
+        target: target(Kind::Job, "shop", "once"),
+        reads: target(Kind::Job, "shop", "once"),
+        report: Report::default(),
+        progress: &mut seen,
+    };
     job.begin("read the Job");
     job.done("read");
     job.begin("delete the old Job");
@@ -32,7 +37,12 @@ fn each_change_of_a_job_shows_its_full_report_and_the_end_closes_the_running_ste
     assert_eq!(seen.0[0].state, JobState::Pending);
 
     let mut seen = Seen::default();
-    let mut job = Steps { target: target(Kind::Job, "shop", "once"), report: Report::default(), progress: &mut seen };
+    let mut job = Steps {
+        target: target(Kind::Job, "shop", "once"),
+        reads: target(Kind::Job, "shop", "once"),
+        report: Report::default(),
+        progress: &mut seen,
+    };
     job.begin("wait until the old Job is gone");
     assert_eq!(job.close(JobState::Cancelled), JobState::Cancelled);
     assert_eq!(seen.0.last().map(|report| report.steps[0].state.clone()), Some(StepState::Stopped));

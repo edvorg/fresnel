@@ -26,7 +26,7 @@ use crate::cluster::Gateway;
 use crate::error::CoreError;
 use crate::kinds::Kind;
 use crate::published::Reader;
-use crate::store::{Snapshot, Written};
+use crate::store::{ObjectKey, Snapshot, Written};
 
 /// Takes each new report of a job: the owner shows it.
 pub trait Progress: Send {
@@ -80,7 +80,8 @@ pub struct Parts {
 
 /// Runs an order to its final state. `progress` gets each change of the report.
 pub async fn run(order: &Order, parts: Parts, progress: &mut impl Progress) -> JobState {
-    let mut job = Steps { target: order.target.clone(), report: Report::default(), progress };
+    let (target, reads) = (order.target.clone(), order.target.clone());
+    let mut job = Steps { target, reads, report: Report::default(), progress };
     let state = match steps(order, &parts, &mut job).await {
         Ok(()) => JobState::Done,
         Err(state) => state,
@@ -91,6 +92,9 @@ pub async fn run(order: &Order, parts: Parts, progress: &mut impl Progress) -> J
 /// The report of a running job, which each change gives to the owner.
 struct Steps<'a, P: Progress> {
     target: Target,
+    /// The object that a write makes or changes: the target, or the Job of a trigger. A
+    /// write with an unknown result reads it.
+    reads: Target,
     report: Report,
     progress: &'a mut P,
 }
@@ -163,6 +167,7 @@ async fn steps<P: Progress>(order: &Order, parts: &Parts, job: &mut Steps<'_, P>
             let cron_job = read(parts, job, "read the CronJob", request::get(target)).await?;
             let manifest = job::of_cron_job(&cron_job, name).map_err(JobState::Failed)?;
             let create = request::create(Kind::Job, &target.key.namespace, &manifest, false);
+            job.reads = Target { kind: Kind::Job, key: ObjectKey::new(&target.key.namespace, name), ..target.clone() };
             write(parts, job, format!("create the Job {name}"), create).await
         }
         Operation::RolloutStatus => long::rollout(target, parts, job).await,
@@ -249,7 +254,7 @@ async fn send<P: Progress>(
 /// the write is in effect. The store shows it too, after its next event.
 async fn read_after<P: Progress>(parts: &Parts, job: &mut Steps<'_, P>) {
     job.begin("read the object, because the result of the write is not known");
-    let result = match request::get(&job.target) {
+    let result = match request::get(&job.reads) {
         Ok(request) => parts.gateway.get::<Json>(request).await,
         Err(error) => Err(error),
     };
