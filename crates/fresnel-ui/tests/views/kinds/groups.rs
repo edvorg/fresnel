@@ -54,8 +54,11 @@ fn a_node_shows_its_conditions_with_no_namespace_and_a_link_of_a_pod_on_it_opens
 
     // The link opens the Pods with the panel of the pod, and the core holds no Nodes for it.
     follow(&mut window, "db-0");
-    until(&mut window, "the panel of the pod", |window| in_panel(window, "db-0") && in_panel(window, "Pod"));
-    assert!(shows(&window, "25 pods") && in_panel(&window, "StatefulSet db"));
+    // The panel reads the snapshot, and the count waits for the rows of the worker thread.
+    until(&mut window, "the panel of the pod on the page of the Pods", |window| {
+        in_panel(window, "db-0") && in_panel(window, "Pod") && shows(window, "25 pods")
+    });
+    assert!(in_panel(&window, "StatefulSet db"));
     assert_eq!(window.state().sent.last(), Some(&Command::ShowKinds(BTreeSet::new())));
 }
 
@@ -76,12 +79,15 @@ fn a_deployment_shows_its_replica_sets_and_its_pods_and_the_links_go_down_and_up
     }
 
     follow(&mut window, "ReplicaSet web-6888b778b6");
-    until(&mut window, "the panel of the ReplicaSet", |window| in_panel(window, "Deployment web"));
     let replica_sets = count_of::<ReplicaSet>(scene::<ReplicaSet>().len());
-    assert!(shows(&window, &replica_sets) && in_panel(&window, "ReplicaSet"), "{replica_sets}");
+    until(&mut window, &format!("the panel of the ReplicaSet and {replica_sets}"), |window| {
+        in_panel(window, "Deployment web") && shows(window, &replica_sets)
+    });
+    assert!(in_panel(&window, "ReplicaSet"));
     follow(&mut window, "Deployment web");
-    until(&mut window, "the panel of the Deployment", |window| in_panel(window, "REPLICASETS"));
-    assert!(shows(&window, "4 Deployments"));
+    until(&mut window, "the panel of the Deployment and 4 Deployments", |window| {
+        in_panel(window, "REPLICASETS") && shows(window, "4 Deployments")
+    });
 }
 
 #[test]

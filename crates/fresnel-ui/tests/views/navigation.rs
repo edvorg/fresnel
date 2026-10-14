@@ -47,8 +47,10 @@ fn back_and_forward_move_through_the_visited_objects_of_each_kind() {
     until(&mut window, "the panel of the Secret", |window| in_panel(window, "web-secret"));
 
     back(&mut window);
-    until(&mut window, "the pod before the Secret", |window| in_panel(window, "failed"));
-    assert!(shows(&window, "25 pods"), "the page of the Pods");
+    // The panel reads the snapshot, and the count waits for the rows of the worker thread.
+    until(&mut window, "the pod before the Secret on the page of the Pods", |window| {
+        in_panel(window, "failed") && shows(window, "25 pods")
+    });
     back(&mut window);
     until(&mut window, "the first pod", |window| in_panel(window, "crash"));
     back(&mut window);
@@ -61,7 +63,7 @@ fn back_and_forward_move_through_the_visited_objects_of_each_kind() {
 
     // A visit after a step back drops the objects after it.
     back(&mut window);
-    until(&mut window, "the second pod", |window| in_panel(window, "failed"));
+    until(&mut window, "the second pod and the rows", |window| in_panel(window, "failed") && shows(window, "25 pods"));
     click_row(&mut window, "done");
     forward(&mut window);
     assert!(in_panel(&window, "done"), "no object after the new visit");
@@ -158,7 +160,10 @@ fn the_namespace_filter_of_the_top_bar_holds_for_each_page() {
     until(&mut window, "no ConfigMap of kube-system", |window| window.query_by_label_contains(none).is_some());
     assert!(shows(&window, "Namespace: kube-system"), "the top bar tells the filter");
     open_page(&mut window, "Nodes");
-    until(&mut window, "each node", |window| !column(window, "Name").is_empty());
+    // The title of a column shows with the first rows of the worker thread.
+    until(&mut window, "each node", |window| {
+        window.query_by_role_and_label(Role::Button, "Name").is_some() && !column(window, "Name").is_empty()
+    });
 }
 
 /// The Connections page has no filter and no object. The page of a kind that it keeps hidden
@@ -220,8 +225,9 @@ fn a_link_that_waits_for_its_store_has_a_note_and_a_later_click_ends_the_wait() 
     until_hit(&mut window, "Secret kinds/web-secret of ams-prod");
     window.key_press(Key::Enter);
     let note = "The Secret web-secret of ams-prod opens when its store has a complete list.";
-    until(&mut window, "the note of the link", |window| shows(window, note));
-
+    until(&mut window, "the note of the link and the row of the worker thread", |window| {
+        shows(window, note) && shows(window, "other")
+    });
     click_row(&mut window, "other");
     until(&mut window, "the panel of the row", |window| in_panel(window, "other"));
     assert!(!shows(&window, note), "the click ended the wait");

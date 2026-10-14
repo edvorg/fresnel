@@ -19,8 +19,10 @@ fn w5_the_name_of_a_secret_gives_a_hit_that_opens_the_secret() {
     until_hit(&mut window, "Secret kinds/web-secret of ams-prod");
 
     window.get_by_label("Secret kinds/web-secret of ams-prod").click();
-    until(&mut window, "the panel of the Secret", |window| in_panel(window, "web-secret"));
-    assert!(shows(&window, "1 Secret"), "the page of the Secrets is open");
+    // The panel reads the snapshot, and the count waits for the rows of the worker thread.
+    until(&mut window, "the panel of the Secret on the page of the Secrets", |window| {
+        in_panel(window, "web-secret") && shows(window, "1 Secret")
+    });
     assert!(window.query_by_label("Search text").is_none(), "the hit closed the search");
 }
 
