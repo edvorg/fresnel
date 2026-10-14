@@ -2,6 +2,7 @@
 //! first holder, the stop after the time of the settings, and the states of a kind that the
 //! server refuses or does not serve.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use fresnel_core::kinds::Kind;
@@ -175,4 +176,51 @@ async fn a_kind_that_the_server_does_not_serve_or_refuses_shows_its_state_and_th
     until(config_maps.reader(), "the store of the ConfigMaps is live", StoreState::is_live).await;
     let live = stores.stores.statuses().iter().filter(|status| status.state.is_live()).count();
     assert_eq!(live, STORES - 2, "a refused store on demand changes no other store");
+}
+
+/// High load: the holders of one kind come and go on many threads, and the time of the
+/// settings is zero, so the last holder that goes stops the store and the next one starts
+/// a new store. A store never stops while a holder lives, and the stores that stopped
+/// leave no task, no list slot and no watch.
+#[tokio::test(flavor = "multi_thread")]
+async fn holders_that_come_and_go_on_many_threads_never_stop_a_held_store_and_leave_nothing() {
+    const THREADS: usize = 8;
+    const ROUNDS: usize = 200;
+    let bed = Bed::start(NetSettings::default()).await;
+    let settings = StoreSettings { linger: Duration::ZERO, ..StoreSettings::default() };
+    let stores = Stores::start(&bed.tasks, &bed.link, settings);
+    stores.until_live(LIMIT).await;
+    let tasks = bed.tasks.tasks.snapshot().len();
+
+    let stopped_while_held = AtomicUsize::new(0);
+    tokio::task::block_in_place(|| {
+        std::thread::scope(|scope| {
+            for _ in 0..THREADS {
+                scope.spawn(|| {
+                    for _ in 0..ROUNDS {
+                        let held = stores.stores.demand::<Lease>().expect("a store of the Leases");
+                        let second = held.clone();
+                        drop(held);
+                        if second.read().state == StoreState::Stopped {
+                            stopped_while_held.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                });
+            }
+        });
+    });
+    assert_eq!(stopped_while_held.into_inner(), 0, "a store that a holder has never stops");
+
+    let last = stores.stores.demand::<Lease>().expect("a store of the Leases");
+    until(last.reader(), "the next store is live: no list slot stays taken", StoreState::is_live).await;
+    drop(last);
+    let stored_kinds = u64::try_from(STORES).expect("a small count");
+    in_time(
+        "each watch of a store on demand closes",
+        bed.server.wait_for(|counters| counters.open_watches == stored_kinds),
+    )
+    .await;
+    // A store leaves the list of the tasks before its task stops, and so before its watch.
+    assert_eq!(bed.tasks.tasks.snapshot().len(), tasks, "each task of a store on demand ended");
+    assert!(stores.stores.statuses().iter().all(|status| status.state.is_live()), "{:#?}", stores.states());
 }
