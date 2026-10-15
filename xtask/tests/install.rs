@@ -3,6 +3,8 @@
 //! No test writes to `/Applications`. The tests give the bundle this test program in
 //! place of the app, so they need no release build.
 
+// The bundle is for macOS, and a test tells a folder by its inode.
+#![cfg(unix)]
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 use std::path::{Path, PathBuf};

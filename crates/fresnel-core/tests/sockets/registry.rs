@@ -1,18 +1,16 @@
 //! The registry: the list of the clusters and the owner of their connections.
 
-use std::os::unix::fs::symlink;
 use std::path::Path;
 
 use fresnel_core::cluster::{ClusterId, LinkState, Registry};
 use fresnel_core::kubeconfig;
-use fresnel_core::net::credential::CredentialState;
-use fresnel_core::net::{Cause, ChannelState, ClusterStatus, ErrorClass, NetSettings, Protocol};
+use fresnel_core::net::{Cause, ChannelState, ErrorClass, NetSettings, Protocol};
 use fresnel_testkit::FakeApiServer;
 use k8s_openapi::apimachinery::pkg::version::Info;
 use tokio::runtime::Handle;
 
 use crate::bed::{Bed, CONTEXT, Folder, authority, get, kubeconfig as kubeconfig_text};
-use crate::common::{TestTasks, connect, in_time, registry, until, until_live};
+use crate::common::{TestTasks, connect, in_time, registry, until_live};
 
 fn states(registry: &Registry) -> Vec<(String, &'static str)> {
     let state = |state: &LinkState| match state {
@@ -124,13 +122,14 @@ contexts:
 
 /// The plugin of a kubeconfig user: a command with a path that starts from the folder of
 /// the kubeconfig file, with the variables and the cluster data that the entry asks for.
+#[cfg(unix)]
 #[tokio::test]
 async fn the_plugin_of_the_kubeconfig_gives_the_token_of_each_request() {
     let server = FakeApiServer::start().await.expect("a server");
     let folder = Folder::new("plugin");
     std::fs::create_dir(folder.path().join("bin")).expect("a folder");
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fresnel-net/tests/fixtures/fake-plugin");
-    symlink(fixture, folder.path().join("bin/plugin")).expect("a link to the plugin of the tests");
+    std::os::unix::fs::symlink(fixture, folder.path().join("bin/plugin")).expect("a link to the plugin of the tests");
     let (address, authority, state) = (server.addr(), authority(&server), folder.path().display());
     let text = format!(
         "clusters:
@@ -169,8 +168,14 @@ contexts:
 
 /// Two parts of the app can connect one cluster at the same moment. The cluster starts one
 /// time for each round: a second start would run the plugin of the user a second time.
+#[cfg(unix)]
 #[test]
 fn threads_that_connect_one_cluster_at_the_same_moment_start_it_one_time() {
+    use fresnel_core::net::ClusterStatus;
+    use fresnel_core::net::credential::CredentialState;
+
+    use crate::common::until;
+
     const THREADS: usize = 8;
     const ROUNDS: usize = 25;
     let runtime =

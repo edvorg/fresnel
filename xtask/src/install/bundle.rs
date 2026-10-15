@@ -1,7 +1,6 @@
 //! The bundle `Fresnel.app`: the program, `Info.plist` and the icon.
 
 use std::io;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use super::icon;
@@ -27,7 +26,7 @@ pub fn assemble(program: &Path, version: &str, folder: &Path) -> io::Result<Path
 
     let installed = programs.join(PROGRAM);
     std::fs::copy(program, &installed)?;
-    std::fs::set_permissions(&installed, std::fs::Permissions::from_mode(0o755))?;
+    make_program(&installed)?;
     std::fs::write(contents.join("Info.plist"), info_plist(version))?;
     std::fs::write(contents.join("PkgInfo"), "APPL????")?;
 
@@ -38,6 +37,20 @@ pub fn assemble(program: &Path, version: &str, folder: &Path) -> io::Result<Path
     run("iconutil", [Path::new("--convert"), Path::new("icns"), Path::new("--output"), &icns, &icon_set])?;
     std::fs::remove_dir_all(&icon_set)?;
     Ok(app)
+}
+
+/// Lets each user run the program of the bundle.
+#[cfg(unix)]
+fn make_program(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+}
+
+/// The bundle is for macOS; Windows only builds this task, and has no mode bits.
+#[cfg(windows)]
+fn make_program(_path: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 /// The text of `Info.plist` for a version of the app.

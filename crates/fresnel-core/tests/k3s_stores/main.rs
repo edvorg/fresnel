@@ -10,6 +10,8 @@
 //! - `indexes`: the indexes and the Pod status on a scene. `kinds`: the store and the
 //!   columns of each kind, and a kind that the server refuses or does not serve.
 
+// k3s in Docker: the cluster job of CI runs on Linux.
+#![cfg(unix)]
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 mod api;

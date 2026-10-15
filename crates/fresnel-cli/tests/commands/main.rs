@@ -4,6 +4,8 @@
 //! Finder. The home folder is a folder of the test, so the login shell of the user runs a
 //! profile of the test and not the profile of the user.
 
+// The fake plugin and the login shell are shell scripts: these tests run on unix.
+#![cfg(unix)]
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 mod doctor;

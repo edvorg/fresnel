@@ -2,7 +2,8 @@
 //!
 //! Each test gives the core a home folder of its own with a shell profile. The login shell
 //! of the user reads that profile, so the core finds the kubeconfig and the plugin as the
-//! installed app does.
+//! installed app does. On Windows, the environment of the test has these variables. The
+//! plugin and the fake shell are shell scripts: a test that runs one is for unix.
 //!
 //! - `start`: the start and the stop. `commands`: the selection and "Retry now".
 //! - `config`: the settings file. `search`: the quick search on the stores of the core.
@@ -19,6 +20,7 @@
 mod commands;
 mod config;
 mod data;
+#[cfg(unix)]
 mod faults;
 mod key_faults;
 mod keys;
@@ -28,7 +30,9 @@ mod network;
 mod orders;
 mod search;
 mod selection;
+#[cfg(unix)]
 mod slow_disk;
+#[cfg(unix)]
 mod start;
 
 use std::net::SocketAddr;
