@@ -105,11 +105,8 @@ impl Inner {
         match command {
             Command::Select { cluster, selected } => self.select(cluster, selected),
             Command::RetryNow(cluster) => self.retry(registry, &cluster).await?,
-            Command::ReloadFiles => self.reload_files(registry).await?,
-            Command::EditSettings(edits) => {
-                self.edit_config(edits).await;
-                self.reload_files(registry).await?;
-            }
+            Command::ReloadFiles => self.reload_files(registry, None).await?,
+            Command::EditSettings(edits) => self.save_config(registry, edits).await?,
             other => {
                 self.apply_in_place(registry, other);
                 return Ok(());

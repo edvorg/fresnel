@@ -129,7 +129,8 @@ impl FileRead {
 pub struct SaveState {
     /// The number of the save: each one has a new number.
     pub number: u64,
-    /// `None` while the core writes the file, then the result.
+    /// `None` while the core writes the file and reads it again, then the result. It comes in
+    /// the same `CoreView` as the settings of that read.
     pub result: Option<Result<(), String>>,
 }
 
