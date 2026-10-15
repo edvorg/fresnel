@@ -7,19 +7,20 @@
 //! cursor. The points of a line are built one time for each new sample, not for each frame.
 //!
 //! - `time`: the marks of the time axis. `value`: the marks of a decimal value axis.
-//! - `legend`: the names of the lines beside the heading of a chart; a click hides one.
+//! - `legend`: the names of the lines beside the heading of a chart; a click hides one. It
+//!   gives the `Shown` that `show` draws.
 
 mod legend;
 mod time;
 mod value;
 
-use std::collections::BTreeSet;
 use std::ops::{Range, RangeInclusive};
 use std::time::{Duration, SystemTime};
 
 use egui::{Color32, Id, RichText, Ui};
 use egui_plot::{GridMark, HLine, LineStyle, Plot, PlotPoint, PlotPoints, log_grid_spacer, uniform_grid_spacer};
 
+pub(crate) use self::legend::Shown;
 use crate::format::Clock;
 use crate::theme::Palette;
 use crate::widgets::{self, dot};
@@ -103,24 +104,25 @@ pub(crate) struct Chart<'a> {
 }
 
 /// Draws the legend of one chart of a stack where the caller puts it, as beside the heading
-/// of the chart: there it takes no line of its own. Call it before `show` in each frame.
-pub(crate) fn legend(ui: &mut Ui, palette: &Palette, (group, number): (Id, usize), chart: &Chart<'_>) {
-    legend::show(ui, palette, group.with(number), (chart.lines, chart.marks));
+/// of the chart: there it takes no line of its own. Gives what `show` draws in this frame.
+pub(crate) fn legend(ui: &mut Ui, palette: &Palette, (group, number): (Id, usize), chart: &Chart<'_>) -> Shown {
+    legend::show(ui, palette, group.with(number), (chart.lines, chart.marks))
 }
 
 /// Draws one chart over the times of `range`, in seconds since 1970. The charts of one
 /// `group` share their time axis and their cursor; the range moves with the clock, so a
-/// chart has no zoom and no drag. `number` tells the charts of a group apart.
+/// chart has no zoom and no drag. `number` tells the charts of a group apart. A line that
+/// `shown` hides leaves the plot and its bounds, and the line of the entry under the pointer
+/// is thicker and in front.
 pub(crate) fn show(
     ui: &mut Ui,
     palette: &Palette,
     clock: &Clock,
     (group, number): (Id, usize),
     range: &RangeInclusive<f64>,
-    chart: &Chart<'_>,
+    (chart, shown): (&Chart<'_>, &Shown),
 ) {
     let id = group.with(number);
-    let hidden = legend::hidden(ui, id);
     let label = |mark: GridMark, _: &RangeInclusive<f64>| {
         let time = time_of(mark.value);
         if mark.step_size < 60.0 { clock.time_of_day(time) } else { clock.hour_minute(time) }
@@ -144,35 +146,39 @@ pub(crate) fn show(
         .y_axis_formatter(|mark, _| (chart.text)(mark.value));
     let response = plot.show(ui, |plot| {
         plot.set_plot_bounds_x(range.clone());
-        for line in chart.lines.iter().filter(|line| !hidden.contains(&line.name)) {
+        for line in shown.lines(chart.lines) {
+            // `egui_plot` draws a highlighted item thicker, and after the others.
+            let thick = shown.hovers_line(line);
             for run in &line.runs {
                 let points = PlotPoints::Borrowed(line.points.get(run.clone()).unwrap_or_default());
-                plot.line(egui_plot::Line::new(line.legend.as_str(), points).color(line.color).width(1.5));
+                let part = egui_plot::Line::new(line.legend.as_str(), points).color(line.color).width(1.5);
+                plot.line(part.highlight(thick));
             }
         }
-        for mark in chart.marks {
-            plot.hline(HLine::new(mark.name.as_str(), mark.value).color(mark.color).style(LineStyle::dashed_dense()));
+        for mark in shown.marks(chart.marks) {
+            let fixed = HLine::new(mark.name.as_str(), mark.value).color(mark.color).style(LineStyle::dashed_dense());
+            plot.hline(fixed.highlight(shown.hovers_mark(mark)));
         }
     });
     widgets::name(&response.response, &format!("{} chart", chart.title));
     if let Some(pointer) = response.response.hover_pos() {
         let x = response.transform.value_from_position(pointer).x;
-        response.response.on_hover_ui_at_pointer(|ui| tooltip(ui, palette, clock, chart, (x, &hidden)));
+        response.response.on_hover_ui_at_pointer(|ui| tooltip(ui, palette, clock, (chart, shown), x));
     }
 }
 
-/// The value of each shown line and each mark at the time of the pointer: `egui_plot` gives
-/// the value of the nearest line only. A line that the user hid has no value there.
-fn tooltip(ui: &mut Ui, palette: &Palette, clock: &Clock, chart: &Chart<'_>, (x, hidden): (f64, &BTreeSet<String>)) {
+/// The value of each shown line and each shown mark at the time of the pointer: `egui_plot`
+/// gives the value of the nearest line only. A line that the user hid has no value there.
+fn tooltip(ui: &mut Ui, palette: &Palette, clock: &Clock, (chart, shown): (&Chart<'_>, &Shown), x: f64) {
     ui.label(RichText::new(format!("{} at {}", chart.title, clock.time_of_day(time_of(x)))).strong());
-    for line in chart.lines.iter().filter(|line| !hidden.contains(&line.name)) {
+    for line in shown.lines(chart.lines) {
         let value = line.at(x, chart.reach).map_or_else(|| "no sample".to_owned(), |value| (chart.text)(value));
         ui.horizontal(|ui| {
             dot(ui, line.color);
             ui.label(format!("{}: {value}", line.name));
         });
     }
-    for mark in chart.marks {
+    for mark in shown.marks(chart.marks) {
         ui.horizontal(|ui| {
             dot(ui, mark.color);
             ui.label(RichText::new(format!("{}: {}", mark.name, (chart.text)(mark.value))).color(palette.text_muted));
@@ -207,6 +213,50 @@ mod tests {
             [Some(2.0), Some(2.0), None],
             "the samples of minutes"
         );
+    }
+
+    /// The top of the value axis of a chart with the lines "app" near zero and "burst" near
+    /// 8, and the fixed line "limit" on 4, after these clicks on its legend.
+    fn top_after(clicks: &[(&str, egui::Modifiers)]) -> f64 {
+        use egui_kittest::kittest::Queryable as _;
+
+        let flat = |name: &str, y: f64| Line::new(name.to_owned(), Color32::WHITE, [Some([0.0, y]), Some([60.0, y])]);
+        let lines = [flat("app", 0.02), flat("burst", 8.0)];
+        let marks = [Mark { name: "limit".to_owned(), value: 4.0, color: Color32::RED }];
+        let top = std::cell::Cell::new(f64::NAN);
+        let mut harness = egui_kittest::Harness::new_ui(|ui| {
+            let palette = crate::theme::palette(ui);
+            let text = |value: f64| value.to_string();
+            let chart = Chart { title: "CPU", lines: &lines, marks: &marks, text: &text, reach: 15.0, binary: false };
+            let group = Id::new("charts");
+            let shown = legend(ui, palette, (group, 0), &chart);
+            let clock = Clock::fixed(SystemTime::UNIX_EPOCH);
+            show(ui, palette, &clock, (group, 0), &(0.0..=60.0), (&chart, &shown));
+            // The place of the memory of the plot, as `Plot::show` makes it.
+            let memory = egui_plot::PlotMemory::load(ui.ctx(), ui.make_persistent_id(Id::new(group.with(0))));
+            top.set(memory.map_or(f64::NAN, |memory| memory.bounds().max()[1]));
+        });
+        harness.run();
+        for (name, modifiers) in clicks {
+            harness.get_by_label(name).click_modifiers(*modifiers);
+            harness.run();
+        }
+        drop(harness);
+        top.get()
+    }
+
+    #[test]
+    fn a_line_that_the_legend_hides_leaves_the_bounds_of_the_value_axis() {
+        let none = egui::Modifiers::NONE;
+        assert!(top_after(&[]) > 8.0, "each line: {}", top_after(&[]));
+        let burst = top_after(&[("burst", none)]);
+        assert!((4.0..8.0).contains(&burst), "the limit is the top: {burst}");
+        let both = top_after(&[("burst", none), ("limit", none)]);
+        assert!(both < 1.0, "the line near zero fills the chart: {both}");
+        let alone = top_after(&[("app", egui::Modifiers::ALT)]);
+        assert!(alone < 1.0, "an Alt+click shows the line alone: {alone}");
+        let again = top_after(&[("app", egui::Modifiers::ALT), ("app", egui::Modifiers::ALT)]);
+        assert!(again > 8.0, "a second Alt+click shows each line again: {again}");
     }
 
     #[test]

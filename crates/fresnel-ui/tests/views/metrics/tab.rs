@@ -101,7 +101,7 @@ pub(super) fn names(window: &mut Window) -> Vec<String> {
 }
 
 #[test]
-fn the_legend_names_each_pod_by_the_end_of_its_name_and_a_click_hides_its_line_and_shows_it_again() {
+fn the_legend_names_each_pod_by_the_end_of_its_name_and_a_click_hides_a_line_or_a_fixed_line() {
     let mut window = wide(vec![of_kind("ams", &scene::<Deployment>(), scene_metrics("ams", 1))]);
     metrics_tab(&mut window, "Deployments", "web");
     for name in ["all pods", "75md7", "p2twl"] {
@@ -116,6 +116,10 @@ fn the_legend_names_each_pod_by_the_end_of_its_name_and_a_click_hides_its_line_a
     assert_eq!(names(&mut window), ["all pods", "web-6888b778b6-p2twl", "request", "limit"]);
     click(&mut window);
     assert_eq!(names(&mut window), ["all pods", "web-6888b778b6-75md7", "web-6888b778b6-p2twl", "request", "limit"]);
+    // A fixed line hides too, so the value axis can give its room to the usage.
+    window.query_all_by_role_and_label(Role::Button, "limit").next().expect("the limit in the legend of CPU").click();
+    window.run();
+    assert_eq!(names(&mut window), ["all pods", "web-6888b778b6-75md7", "web-6888b778b6-p2twl", "request"]);
 }
 
 #[test]

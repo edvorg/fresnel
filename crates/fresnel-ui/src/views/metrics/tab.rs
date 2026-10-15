@@ -90,25 +90,27 @@ impl MetricsTab {
         let reach = GAP / 2.0 * data.metrics.period.as_secs_f64();
         let (group, range) =
             (Id::new(("metrics", &cx.id.cluster, &cx.id.key)), seconds(start) as f64..=seconds(now) as f64);
-        for (number, (resource, lines)) in Resource::BOTH.into_iter().zip(&built.lines).enumerate() {
-            let (more, text) = (&lines.more, |value: f64| resource.text_of(value));
-            let (lines, marks) = (&lines.lines, &lines.marks);
+        for (number, (resource, parts)) in Resource::BOTH.into_iter().zip(&built.lines).enumerate() {
+            let value_text = |value: f64| resource.text_of(value);
             let binary = resource == Resource::Memory;
-            let chart = Chart { title: resource.title(), lines, marks, text: &text, reach, binary };
-            ui.horizontal(|ui| {
-                heading(ui, palette, &resource.title().to_uppercase());
-                ui.add_space(8.0);
-                chart::legend(ui, palette, (group, number), &chart);
-            });
+            let (lines, marks) = (&parts.lines, &parts.marks);
+            let chart = Chart { title: resource.title(), lines, marks, text: &value_text, reach, binary };
+            let shown = ui
+                .horizontal(|ui| {
+                    heading(ui, palette, &resource.title().to_uppercase());
+                    ui.add_space(8.0);
+                    chart::legend(ui, palette, (group, number), &chart)
+                })
+                .inner;
             // The words of the cell of a table, with the reason of an old value first.
             let cell = cells::cell(usage.as_ref(), resource, problem, cx.clock);
-            let text = cell.hint.as_deref().unwrap_or(&cell.text).replace('\n', "  ·  ");
+            let cell_text = cell.hint.as_deref().unwrap_or(&cell.text).replace('\n', "  ·  ");
             let old = matches!(cell.lead, Lead::Old(_));
-            ui.label(RichText::new(text).color(if old { palette.warn } else { palette.text }));
-            if let Some(more) = more {
+            ui.label(RichText::new(cell_text).color(if old { palette.warn } else { palette.text }));
+            if let Some(more) = &parts.more {
                 ui.label(RichText::new(more).color(palette.text_muted));
             }
-            chart::show(ui, palette, cx.clock, (group, number), &range, &chart);
+            chart::show(ui, palette, cx.clock, (group, number), &range, (&chart, &shown));
             ui.add_space(10.0);
         }
         self.built = Some(built);
