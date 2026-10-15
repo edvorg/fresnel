@@ -27,7 +27,7 @@ impl Inner {
     /// and then the files of the settings.
     pub(super) fn kubeconfig_sources(&self, env: &fresnel_net::env::ProcessEnv) -> Vec<PathBuf> {
         let mut sources = kubeconfig::default_sources(env);
-        let home = env.get("HOME").map(PathBuf::from);
+        let home = env.home().map(PathBuf::from);
         let extra = self.state().config.list(Setting::KubeconfigFiles);
         for path in extra.iter().map(|path| expand(path, home.as_deref())) {
             if !sources.contains(&path) {

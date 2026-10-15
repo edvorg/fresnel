@@ -5,17 +5,16 @@ use std::path::PathBuf;
 use fresnel_net::env::ProcessEnv;
 
 const VARIABLE: &str = "KUBECONFIG";
-const DEFAULT_FILE: &str = ".kube/config";
 
 /// The files of the user in the sequence of their priority: each file of `KUBECONFIG`, then
-/// `~/.kube/config`.
+/// `.kube/config` of the home folder (`%USERPROFILE%\.kube\config` on Windows).
 ///
 /// `env` is the resolved environment of the login shell. A program that starts from Finder
 /// has no `KUBECONFIG` in its own environment.
 pub fn default_sources(env: &ProcessEnv) -> Vec<PathBuf> {
     let listed = env.get(VARIABLE).map(std::env::split_paths).into_iter().flatten();
     let mut sources: Vec<PathBuf> = Vec::new();
-    let default = env.get("HOME").map(|home| PathBuf::from(home).join(DEFAULT_FILE));
+    let default = env.home().map(|home| PathBuf::from(home).join(".kube").join("config"));
     for path in listed.chain(default) {
         // `kubectl` skips an empty entry of the list.
         if !path.as_os_str().is_empty() && !sources.contains(&path) {
@@ -34,6 +33,8 @@ mod tests {
         default_sources(&env).iter().map(|path| path.display().to_string()).collect()
     }
 
+    /// Unix paths and separators.
+    #[cfg(unix)]
     #[test]
     fn the_files_of_the_variable_come_first_and_the_default_file_comes_last() {
         let home = ("HOME", "/Users/tester");
@@ -49,5 +50,15 @@ mod tests {
         );
         assert_eq!(sources(&[("KUBECONFIG", "/work/a.yaml")]), ["/work/a.yaml"]);
         assert_eq!(sources(&[]), Vec::<String>::new());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_default_file_is_in_the_profile_folder_of_the_user() {
+        let home = ("USERPROFILE", r"C:\Users\tester");
+        assert_eq!(sources(&[home]), [r"C:\Users\tester\.kube\config"]);
+        let listed = sources(&[home, ("KubeConfig", r"C:\work\a.yaml;;C:\Users\tester\.kube\config")]);
+        assert_eq!(listed, [r"C:\work\a.yaml", r"C:\Users\tester\.kube\config"], "one list, with no case in a name");
+        assert_eq!(sources(&[("HOME", "/home/tester")]), Vec::<String>::new(), "HOME is not the home folder");
     }
 }

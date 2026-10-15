@@ -47,7 +47,7 @@ pub(super) fn start(options: &Options, runtime: Handle) -> Result<App, String> {
     state_file::save(&state_file, &state).map_err(|error| format!("cannot write the state file: {error}"))?;
 
     let mut base_env = ProcessEnv::default();
-    base_env.set("HOME", home.as_os_str());
+    base_env.set_home(&home);
     base_env.set("PATH", FINDER_PATH);
     let core = Core::new(CoreParts {
         runtime,

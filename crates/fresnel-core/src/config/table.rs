@@ -231,8 +231,9 @@ use Unit::{Count, Kib, Mib, Millis, Percent, Points, Seconds};
 pub const THEMES: &[&str] = &["system", "dark", "light"];
 /// The forms of a time of day.
 pub const TIME_FORMATS: &[&str] = &["24h", "12h"];
-/// The folders after `PATH` where the app looks for a credential plugin (plan section 8.1).
-pub const FIXED_FOLDERS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin"];
+/// The folders after `PATH` where the app looks for a credential plugin (plan section 8.1):
+/// none on Windows, where the process has the full `PATH` of the user.
+pub const FIXED_FOLDERS: &[&str] = fresnel_net::env::FIXED_FOLDERS;
 /// Which Events a cluster keeps (plan section 9.6).
 pub const EVENT_MODES: &[&str] = &["all", "warnings", "on-demand"];
 /// The confirm rules: a dialog, or a dialog that waits for the name of the cluster.
