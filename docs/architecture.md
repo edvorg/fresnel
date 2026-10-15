@@ -167,9 +167,9 @@ dock (Operations, Journal, Connections) and status bar. `ShowKinds` names the ki
   mailbox has one request and one result. New data does not stop a computation; a new query
   does. After a panic, the thread starts again with the request that waits; the view tells why.
 - **Object page** (`views/objects`): the objects of one kind in each selected cluster and the
-  detail panel: metadata, the sections of the kind (`views/workloads`), conditions, related
-  objects as links, Events and the Manifest. An object that left its store shows as deleted. A
-  row of a store that is not live has a mark; a note above the table gives the reason.
+  panel: metadata, the sections of the kind (a folder of `views` for each sidebar group, and
+  `sections::also_shown` for the other kinds that they read), conditions, related objects as
+  links, Events and the Manifest. An object that left its store shows as deleted.
 - **Actions** (`views/act`): the panel, the menus, a key and the quick search ask for an action
   of the command table. A gate closes it for a later milestone, the state of the object or the
   rules, with the reason. A change asks in a dialog and ends as one order for each object.
@@ -192,7 +192,7 @@ TLS, HTTP/2, HTTP/1.1, watch streams, the HTTP 101 upgrade and faults; `Home` is
   memory, the watch loop on a script, the indexes, health values and columns on two k3s scenes.
 - **Socket tests** use the fake API server and the fault proxy on 127.0.0.1, with no Docker.
 - **UI tests**: `egui_kittest` with no window, on a fake core; a table test holds its worker at a
-  gate, and two tests use the real core. The time limits hold in a release build.
+  gate. The program tests `live` and `k3s_views` draw the real core. Time limits: release build.
 - **Program tests** start `fresnel-cli` and `fresnel` (no window) as from Finder, in a test home.
 - **Cluster tests** use k3s in Docker, mostly through the fault proxy (`#[ignore]`). After a fault,
   a store test asserts a recovery time and "store equal to the API". The tests of the indexes,

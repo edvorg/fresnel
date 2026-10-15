@@ -73,9 +73,9 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 3. Add an object of the kind to `tests/k3s_stores/kinds/scene.yaml`, and each column that
    kubectl shows too to `SAME` in `tests/common/columns.rs`. The cluster test `kinds` with
    `FRESNEL_WRITE_FIXTURE=1` compares the columns with the server and writes `fixtures/kinds`,
-   and a unit test compares them on that copy. Each branch of `health` gets a unit test on
-   `fixture::of_kinds`.
-4. Own sections: a file of `views` (model: `workloads/job.rs`) that `detail/sections.rs` calls.
+   which a unit test reads. Each branch of `health` gets a unit test on `fixture::of_kinds`.
+4. Own sections: a file in the group folder of `views` (model: `network/ingress.rs`) that
+   `detail/sections.rs` calls; its `also_shown` names each other kind that the file reads.
 
 ## Stores and indexes
 
