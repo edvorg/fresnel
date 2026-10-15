@@ -1,6 +1,8 @@
 //! The views of the Config kinds besides the keys: an autoscaler, a disruption budget, a
-//! quota and a limit range, the two classes, a Lease and the webhook configurations.
+//! quota and a limit range, the two classes, a Lease and the webhook configurations, whose
+//! page has the longest title of a kind.
 
+use egui_kittest::kittest::Queryable as _;
 use k8s_openapi::api::admissionregistration::v1::{MutatingWebhookConfiguration, ValidatingWebhookConfiguration};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::autoscaling::v2::HorizontalPodAutoscaler;
@@ -105,4 +107,15 @@ fn a_webhook_configuration_shows_each_webhook_with_its_service_and_rules() {
     assert_eq!(missing(&window, &["validate.fresnel.test", "second.fresnel.test"]), Vec::<String>::new());
     assert!(!in_panel(&window, "Reinvocation"), "a validating webhook changes no object");
     assert!(shows_part(&window, "DELETE of widgets in fresnel.test (v1), scope *"));
+}
+
+/// The longest title of a kind, with the panel open: the bar cuts the count of the rows,
+/// which ran under the button "Problems" before.
+#[test]
+fn the_bar_of_a_page_with_a_long_title_cuts_its_count_before_its_buttons() {
+    let hooks = of_kinds::<ValidatingWebhookConfiguration>();
+    let window = opened::<ValidatingWebhookConfiguration>(vec![live("ams-prod", &hooks)], "fresnel-validate");
+    let count = window.get_by_label("1 ValidatingWebhookConfiguration").rect();
+    let problems = window.get_by_label("Problems").rect();
+    assert!(count.right() <= problems.left(), "the count {count:?} ends before the button {problems:?}");
 }

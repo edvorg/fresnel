@@ -3,7 +3,7 @@
 //! the columns. The namespace filter is in the top bar: it is one filter for each page.
 
 use egui::containers::menu::{MenuButton, MenuConfig};
-use egui::{Align, Frame, Id, Layout, Margin, PopupCloseBehavior, RichText, TextEdit, Ui, UiBuilder};
+use egui::{Align, Frame, Id, Label, Layout, Margin, PopupCloseBehavior, RichText, TextEdit, Ui, UiBuilder};
 use fresnel_core::commands::{self, CommandId};
 use fresnel_core::kinds::{Action, Describe, Kind};
 
@@ -45,33 +45,6 @@ pub(super) fn show<M: ObjectModel>(
     Frame::new().inner_margin(Margin::symmetric(12, 0)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.set_height(BAR_HEIGHT);
-            ui.label(RichText::new(nouns.title).size(15.0).strong());
-            let count = ui.label(RichText::new(count_text(table, nouns)).color(palette.text_muted));
-            if let Some(time) = table.compute_time() {
-                count.on_hover_ui(|ui| {
-                    ui.label(format!("The worker thread computed the rows in {}.", format::short_time(time)));
-                });
-            }
-
-            if table.selection().len() > 1 {
-                chosen = bulk_menu(ui, palette, table.selection().len(), bulk).map(Picked::Bulk);
-            }
-            let create = create_command(<M::Object as Describe>::ID).and_then(commands::entry);
-            if let Some(entry) = create
-                && ui.small_button(entry.label).clicked()
-            {
-                chosen = Some(Picked::Create(entry.id));
-            }
-            match table.progress() {
-                Progress::Current => {}
-                Progress::Behind => {
-                    ui.label(RichText::new("updating…").color(palette.text_faint));
-                }
-                Progress::Failed(reason) => {
-                    let text = format!("The rows are not current: the worker thread {reason}");
-                    ui.label(RichText::new(text).color(palette.error));
-                }
-            }
             // The id of a widget counts the widgets before it. A note before the filters that
             // comes and goes, as "updating…" for a slow worker, thus gave them new ids: the
             // field lost the focus and the next keys, and an open menu closed. These are fixed.
@@ -86,9 +59,53 @@ pub(super) fn show<M: ObjectModel>(
                 columns(ui, table);
                 let problems = ui.toggle_value(&mut filter.problems, "Problems");
                 problems.on_hover_text(format!("Shows only the {} that are not healthy", nouns.many));
+                // The rest of the bar takes the room that the filters leave, so a long title
+                // of a kind cuts its texts and does not run under the buttons.
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    chosen = state(ui, palette, nouns, table, bulk);
+                });
             });
         });
     });
+    chosen
+}
+
+/// The left part of the bar: the title, the count of rows, the bulk menu, the button of a
+/// new object and the state of the rows.
+fn state<M: ObjectModel>(
+    ui: &mut Ui,
+    palette: &Palette,
+    nouns: &Nouns,
+    table: &Table<M>,
+    bulk: &[(Action, Gate)],
+) -> Option<Picked> {
+    let mut chosen = None;
+    ui.add(Label::new(RichText::new(nouns.title).size(15.0).strong()).truncate());
+    let count = ui.add(Label::new(RichText::new(count_text(table, nouns)).color(palette.text_muted)).truncate());
+    if let Some(time) = table.compute_time() {
+        count.on_hover_ui(|ui| {
+            ui.label(format!("The worker thread computed the rows in {}.", format::short_time(time)));
+        });
+    }
+    if table.selection().len() > 1 {
+        chosen = bulk_menu(ui, palette, table.selection().len(), bulk).map(Picked::Bulk);
+    }
+    let create = create_command(<M::Object as Describe>::ID).and_then(commands::entry);
+    if let Some(entry) = create
+        && ui.small_button(entry.label).clicked()
+    {
+        chosen = Some(Picked::Create(entry.id));
+    }
+    match table.progress() {
+        Progress::Current => {}
+        Progress::Behind => {
+            ui.label(RichText::new("updating…").color(palette.text_faint));
+        }
+        Progress::Failed(reason) => {
+            let text = format!("The rows are not current: the worker thread {reason}");
+            ui.add(Label::new(RichText::new(text).color(palette.error)).truncate());
+        }
+    }
     chosen
 }
 
