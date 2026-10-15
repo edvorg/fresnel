@@ -13,7 +13,7 @@ use super::follow::Follower;
 use super::uid;
 use crate::shell::Scene;
 use crate::views::act::{
-    Ask, Close, Commands, ConfirmDialog, Dialog, DrainDialog, Found, Gate, Permits, Subject, asks_first, facts,
+    Ask, Close, Commands, ConfirmDialog, Dialog, DrainDialog, Found, Gate, Permits, Subject, asks_first_on, facts,
     operation, over_room,
 };
 use crate::views::detail::DetailPanel;
@@ -94,7 +94,7 @@ impl Acts {
             scene.logs = Some(self.logs.take().unwrap_or_default().request(&subject.target));
             return None;
         }
-        if asks_first(action) {
+        if asks_first_on(action, subject.target.kind) {
             self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(action, vec![subject], ask.revision)));
             return None;
         }

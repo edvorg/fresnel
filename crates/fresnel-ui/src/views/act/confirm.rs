@@ -256,6 +256,10 @@ impl Confirm {
                 }
             }
             (Action::Evict, _) => texts.push("The eviction obeys each PodDisruptionBudget: a budget can refuse it.".to_owned()),
+            (Action::Download, _) => texts.push(
+                "The file in Downloads has the value of each key of the Secret, as base64: each program of your user can read it."
+                    .to_owned(),
+            ),
             (Action::Cordon, _) => texts.push("The scheduler puts no new pod on the node. Its pods go on to run.".to_owned()),
             (Action::Uncordon, _) => texts.push("The scheduler can put new pods on the node again.".to_owned()),
             (Action::RunAgain, _) => {

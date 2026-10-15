@@ -1,15 +1,16 @@
 //! The task of one save: it makes a new file, writes the lines or the streams into it in
 //! pieces on a thread for blocking calls, and tells its state after each piece.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 
 use tokio::sync::watch;
 
 use super::{LogSave, SaveState, SaveView, text};
+use crate::downloads;
 use crate::error::CoreError;
 use crate::logs::request::Origin;
 use crate::logs::ring::Lines;
@@ -19,8 +20,6 @@ use crate::published::Publisher;
 
 /// The bytes that the task collects before one write: few writes, and a small buffer.
 const PIECE: usize = 1024 * 1024;
-/// The most names that a save tries when files of its name exist.
-const NAMES: u32 = 100;
 
 /// What the file of a save gets.
 #[derive(Clone)]
@@ -58,7 +57,8 @@ pub(super) async fn run<O: Opener>(
     let first = SaveView::clone(&publisher.read());
     let mut report = Report { publisher, view: first, ended: false };
     let (folder, save) = (job.folder.clone(), job.save.clone());
-    let (file, path) = match blocking(move || create(&folder, &save, at)).await.and_then(|made| made.map_err(fault)) {
+    let create = move || downloads::create(&folder, |attempt| text::file_name(&save, at, attempt));
+    let (file, path) = match blocking(create).await.and_then(|made| made.map_err(fault)) {
         Ok(made) => made,
         Err(error) => {
             report.end(SaveState::Failed(error));
@@ -264,20 +264,6 @@ impl Drop for Report {
         let error = CoreError::invalid(format!("the save stopped before its end; {file}"));
         self.view.state = SaveState::Failed(error);
         self.publisher.publish(self.view.clone());
-    }
-}
-
-/// Makes the folder and a new file in it with a name that no file has.
-fn create(folder: &Path, save: &LogSave, at: SystemTime) -> io::Result<(File, PathBuf)> {
-    std::fs::create_dir_all(folder)?;
-    let mut attempt = 0;
-    loop {
-        let path = folder.join(text::file_name(save, at, attempt));
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => return Ok((file, path)),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists && attempt + 1 < NAMES => attempt += 1,
-            Err(error) => return Err(error),
-        }
     }
 }
 

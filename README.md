@@ -19,12 +19,10 @@ that looks current.
 
 ## Status
 
-Milestones M0 to M4, M6, M7 and M9 are complete; the work is in M8 (settings, keys, notices).
-The repository has CI, the test kit, `fresnel-net`, `fresnel-core` (kubeconfig, gateway, app
-core, journal, state and settings files, 41 kinds, watch loop, stores, indexes, manifest, quick
-search, command table, keys, operations as jobs, permissions, metrics, logs, notices), `doctor`,
-`watch` and the window: a live table and a panel with the sections of each kind in scope, actions,
-a node drain, Secret and ConfigMap keys, the Operations tab, metrics, logs, overviews, settings.
+Milestones M0 to M4, M6, M7 and M9 are complete; the work is in M8 (settings, keys, notices, soak).
+`fresnel-core` has the kubeconfig, gateway, journal, settings, 41 kinds, stores, indexes, quick
+search, commands, operations as jobs, downloads, metrics, logs and notices. The window has a live
+table and a panel for each kind, actions, keys, the Operations tab, metrics, logs and settings.
 
 ## The app
 
@@ -45,8 +43,8 @@ context of the kubeconfig files. It keeps the selection and the table layouts in
   Cmd+, opens the settings view, which edits `config.toml` and keeps its comments. The app reads
   it again after each change; the journal tells each problem with its line and column.
 - A failed operation, and a cluster that stays lost while the window is hidden, give a notification.
-- Log folder: `~/Library/Logs/fresnel` (`fresnel.log`, panic reports). Saved logs: `~/Downloads`.
-- Only one process runs. `cargo run --package fresnel` starts a debug build next to the app.
+- Log folder: `~/Library/Logs/fresnel` (`fresnel.log`, panic reports). Saved logs and manifests:
+  `~/Downloads`. Only one process runs; `cargo run --package fresnel` starts a debug build too.
 
 ## Build and test
 
@@ -54,38 +52,39 @@ Install [rustup](https://rustup.rs). The file `rust-toolchain.toml` selects the 
 Linux, the UI tests need the package `mesa-vulkan-drivers`.
 
 ```sh
-cargo build
 cargo test --workspace                # unit tests and UI tests, with no cluster
 FRESNEL_SNAPSHOT_DIR=<folder> cargo test --package fresnel-ui   # also PNG files of the views
 cargo test --workspace -- --ignored   # cluster tests, with k3s in Docker
 cargo test --release --package fresnel-ui --test views -- frame_time search::time
 cargo xtask check-sizes               # size limits of documents and source files
 cargo xtask check-borders             # no kube in fresnel-net, no egui in fresnel-core
+cargo xtask soak --hours 1            # the core on k3s in Docker with changes and faults
 cargo xtask screenshots               # the pictures above, from made-up data with no cluster
 ```
 
 ## The commands of fresnel-cli
 
-Each command runs the code of the app and changes nothing in a cluster. With no context, a
-command lists the contexts and connects to nothing.
+Each command runs the code of the app and changes nothing in a cluster. With no context,
+`doctor` and `watch` list the contexts and connect to nothing.
 
 ```sh
 cargo run --package fresnel-cli -- doctor --context <name>   # one cluster; --all: each one
 cargo run --package fresnel-cli -- watch --context <name>    # the stores of one cluster
 ```
 
-- `doctor` sends `GET /version` only, so it reads no object. It writes `fresnel-doctor.json`:
-  the times of the login shell, the credential plugin and the connects, HTTP/2 with its
-  stream limit and, with `--idle-close`, when the server closes an idle connection.
+- `doctor` sends `GET /version` only and writes `fresnel-doctor.json`: the times of the login
+  shell, the plugin and the connects, the stream limit and, with `--idle-close`, the idle close.
 - `watch` reads the objects of each kind, as the app does: of a Secret, only the metadata.
   Each 5 seconds, it prints the state and the object count of each store.
+- `soak` runs the app core on one cluster and compares each store with the API: a store that shows
+  "live" and is behind for more than 20 s, a store or a log view that does not recover, or a heap
+  that grows fails it. `cargo xtask soak` adds k3s, faults and a report into `target/release/soak/`.
 
 ## Layout
 
-`crates/` has `fresnel-net` (connections, the credential plugin, the task start function),
-`fresnel-core` (the domain), `fresnel-ui` (the views), the programs `fresnel` and `fresnel-cli`,
-and `fresnel-testkit` (the fault proxy, k3s in Docker, a fake API server). `xtask` has the
-repository tasks: `cargo xtask <command>`.
+`crates/` has `fresnel-net` (connections, credential plugin, task start), `fresnel-core` (the
+domain), `fresnel-ui` (the views), the programs `fresnel` and `fresnel-cli`, and `fresnel-testkit`
+(fault proxy, k3s in Docker, fake API server, soak harness). `xtask` has the repository tasks.
 
 ## Documents
 

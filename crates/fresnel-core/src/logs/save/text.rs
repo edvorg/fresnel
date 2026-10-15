@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use k8s_openapi::jiff::Timestamp;
 
 use super::{LogSave, SavePart};
+use crate::downloads;
 use crate::logs::line::{LineKind, LogLine};
 use crate::logs::view::SourceView;
 
@@ -42,38 +43,18 @@ fn prefix(source: &SourceView) -> String {
     format!("[pod/{}/{}]", source.pod.name, source.container)
 }
 
-/// The most characters of the cluster and of the object in the name of a file. A file system
-/// takes a name of 255 bytes at most, and a context or a pod can have a name of 253: the
-/// longest file name has 60 + 63 + 32 + 60 + 40 bytes.
-const NAME_PART: usize = 60;
-/// The most characters of a namespace: its limit in Kubernetes.
-const NAMESPACE: usize = 63;
-
 /// The name of the file of a save, for example `ams-prod_shop_pod-web-1_full_20270115-080000.log`:
-/// the cluster, the namespace, the kind and the name, each one cut to its limit, the part and
-/// the time in UTC. Each character that some file system or shell takes in a special way is
-/// `_`. `attempt` 0 gives no number; a later attempt adds one, when a file of the name exists.
+/// the object (`downloads::stem`), the part and the time in UTC. `attempt` 0 gives no
+/// number; a later attempt adds one, when a file of the name exists.
 pub(super) fn file_name(save: &LogSave, at: SystemTime, attempt: u32) -> String {
     let request = &save.request;
-    let kind = request.kind.info().name.to_ascii_lowercase();
     let part = match save.part {
         SavePart::Buffer => "buffer",
         SavePart::Full if request.options.previous => "previous",
         SavePart::Full => "full",
     };
-    let time =
-        Timestamp::try_from(at).map_or_else(|_| "no-time".to_owned(), |at| at.strftime("%Y%m%d-%H%M%S").to_string());
-    let number = if attempt == 0 { String::new() } else { format!("-{}", attempt + 1) };
-    let (cluster, namespace) = (safe(request.cluster.as_str(), NAME_PART), safe(&request.key.namespace, NAMESPACE));
-    let name = safe(&request.key.name, NAME_PART);
-    format!("{cluster}_{namespace}_{kind}-{name}_{part}_{time}{number}.log")
-}
-
-/// The first `most` characters of a text, each one that is not a letter, a digit, `.`, `-` or
-/// `_` as `_`.
-fn safe(text: &str, most: usize) -> String {
-    let safe = |c: char| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' };
-    text.chars().take(most).map(safe).collect()
+    let stem = downloads::stem(&request.cluster, request.kind, &request.key);
+    format!("{stem}_{part}_{}{}.log", downloads::time(at), downloads::number(attempt))
 }
 
 #[cfg(test)]

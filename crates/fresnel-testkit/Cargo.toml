@@ -19,7 +19,9 @@ hyper-util = { workspace = true, features = ["tokio"] }
 rcgen.workspace = true
 rustls.workspace = true
 socket2.workspace = true
-tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
+# `rt-multi-thread` and `signal`: the harness of the soak, `src/bin/fresnel-soak`, runs for
+# hours and ends its cluster after Ctrl+C.
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-rustls.workspace = true
 
 # The size of the send buffer of a socket, for the reset of the fault proxy.

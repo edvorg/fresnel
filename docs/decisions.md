@@ -1239,6 +1239,13 @@ The sampler keeps one hour of samples and 24 hours of minutes in memory. A limit
 cluster, not one for all, keeps a large cluster from pushing the history of a small one out.
 A history from before the start of the app needs Prometheus, a later option of the plan.
 
+## A cluster with no metrics API gets a poll each 5 minutes
+
+A 404 of both metrics lists means no metrics-server, which a user installs seldom; two reads each
+15 s would give the same 404 again. The next poll then comes after 5 minutes, and "retry now", a
+wake and a network change end that pause. After a 503, the sampler reads the APIService of the
+metrics one time: its `Available` condition tells why the API server cannot reach metrics-server.
+
 ## The CPU and memory columns come after the age
 
 The columns of the Pods fit next to the sidebar in a window of 1,328 points; the two columns with
@@ -1396,6 +1403,13 @@ writes each save into `~/Downloads` as a new file with the cluster, the object, 
 time in its name, and never over a file that exists. The tab shows the path, the size and a
 cancel, which removes the part that was written.
 
+## A download is a job that writes a new file, and a Secret asks first
+
+The Download action of plan section 10 reads the manifest from the server, as the Manifest tab
+does, with no `managedFields`, and writes it as a new YAML file in the folder of downloads with no
+dialog, as a log save does. It is a job, so the Operations tab shows its file or its error. The
+file of a Secret has the value of each key in base64, so that download asks first and tells it.
+
 ## A save that does not end removes its file
 
 A part of a log would look like a full one. A cancel, a failed write, a panic and a stop of the
@@ -1511,10 +1525,37 @@ the window is minimized or has no focus. The program shows notices only from its
 An alias of the settings replaces the name of a cluster in the top bar and the status bar, where
 room is short. The tables, the panel, the dialogs and the journal keep the name of the context: it
 is the identity of the cluster, and a dialog of a change must name the target as kubectl does.
+## The soak compares each store with a list on a path of its own
+
+A store and a list are seldom equal while the cluster changes, so the soak tests "at least as
+new": each listed object is in the store in its version or a later one, each other object of the
+store came after the list, and an absent one is gone in a second list. The lists go on a
+connection with no fault proxy. A store that shows "live" and is behind for more than 20 s fails it.
+
+## A soak check ends at its limit, and a store or a log view must recover
+
+A check of a store that shows "live" past 20 s ends at once, so a gap near the end of the soak is
+in the report. A store that is behind for 5 minutes with a visible state did not recover: the
+longest break of the harness is 3 minutes. The pods of the log view write two lines each second,
+so 5 minutes with no line is a view that stopped; no line at all fails too.
+
+## The soak counts the heap with its allocator
+
+The memory of the soak is the count of the bytes that the allocator of `fresnel-cli` holds, not
+the resident size: a growth shows at once and the same in each run. The base of the growth is the
+heap at the end of the warm-up, because the first lists, the history of the metrics and the ring
+of the log view grow at the start.
+
+## The harness of the soak is a program of the test kit
+
+`xtask` uses no other crate of the workspace, so its build stays small. `cargo xtask soak` builds
+`fresnel-cli` and `fresnel-soak`, a program of the test kit with k3s, the fault proxy, the changes
+and the faults, and runs it. The core runs in a child process of the harness, so the heap and the
+connections that the soak records are those of the core alone.
 
 ## The pictures of the README come from the view tests
 
 `cargo xtask screenshots` draws eight pictures with the harness of the view tests, on made-up
 clusters with one fixed time, so a run needs no cluster and two runs give the same bytes. oxipng
 compresses them with no loss: at scale 1.5 each one has less than 450 KB. Their grid gives the
-README 94 lines, so its limit is 99: 5 lines are for a later change of the release pipeline.
+README 93 lines, so its limit is 99: 5 lines are for a later change of the release pipeline.

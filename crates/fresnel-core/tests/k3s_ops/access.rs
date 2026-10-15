@@ -80,6 +80,8 @@ pub(crate) async fn a_forbidden_action_is_denied_with_its_reason_and_its_request
         daemon_sets: None,
         jobs: None,
         pods: None,
+        // A refused delete writes no file.
+        downloads: std::env::temp_dir(),
         cancel: Cancel::pair().1,
     };
     let report = run_parts(&order, parts).await;

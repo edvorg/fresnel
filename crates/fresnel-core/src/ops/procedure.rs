@@ -7,11 +7,14 @@
 //! - `long`: the steps that wait for a store: the rollout status and "run again".
 //! - `revisions`: the history and the rollback, which read the workload and its revisions.
 //! - `drain`: the drain of a node, with a task for each of its pods.
+//! - `download`: the manifest of an object as a file.
 
+mod download;
 mod drain;
 mod long;
 mod revisions;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use http::Request;
@@ -79,6 +82,8 @@ pub struct Parts {
     pub jobs: Option<Reader<Snapshot<Job>>>,
     /// The Pods, whose end a drain waits for.
     pub pods: Option<Reader<Snapshot<Pod>>>,
+    /// The folder of the files that the user saves: a download writes there.
+    pub downloads: PathBuf,
     /// The cancel of the job.
     pub cancel: Cancel,
 }
@@ -182,6 +187,7 @@ async fn steps<P: Progress>(order: &Order, parts: &Parts, job: &mut Steps<'_, P>
         Operation::Cordon => write(parts, job, "cordon the node", node::cordon(target, true)).await,
         Operation::Uncordon => write(parts, job, "uncordon the node", node::cordon(target, false)).await,
         Operation::Drain(options) => drain::drain(target, options, parts, job).await,
+        Operation::Download => download::save(target, parts, job).await,
     }
 }
 

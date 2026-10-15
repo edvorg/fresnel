@@ -33,7 +33,17 @@ fn order(cluster: &str, operation: Operation) -> Order {
 fn parts(bed: &Bed) -> Parts {
     let gateway = bed.link.gateway.clone();
     let cancel = Cancel::pair().1;
-    Parts { gateway, deployments: None, stateful_sets: None, daemon_sets: None, jobs: None, pods: None, cancel }
+    let downloads = bed.folder.path().join("Downloads");
+    Parts {
+        gateway,
+        deployments: None,
+        stateful_sets: None,
+        daemon_sets: None,
+        jobs: None,
+        pods: None,
+        downloads,
+        cancel,
+    }
 }
 
 async fn run(bed: &Bed, order: &Order) -> Report {
@@ -81,4 +91,34 @@ async fn a_refusal_of_the_server_fails_with_its_message_and_an_other_cluster_get
     let JobState::NotSent(error) = &report.state else { panic!("not sent: {report:#?}") };
     assert_eq!(error.to_string(), "a request for other cannot go to bed");
     assert_eq!(sent(&bed, &Method::PATCH, SCALE), 1, "only the first order went out");
+}
+
+/// Plan section 10: a download is a read of the server and a new file in the folder of
+/// downloads, with no `managedFields`. A second download never writes over the first file.
+#[tokio::test]
+async fn a_download_writes_the_manifest_of_the_server_into_a_new_file_of_the_downloads() {
+    let bed = Bed::start(NetSettings::default()).await;
+    let object = r#"{"apiVersion":"apps/v1","kind":"Deployment","metadata":{"name":"web","namespace":"shop",
+        "uid":"u1","resourceVersion":"88","managedFields":[{"manager":"kubectl"}]},"spec":{"replicas":2}}"#;
+    bed.server.set_body(WEB, object);
+    let saved = |report: &Report| {
+        let steps: Vec<(&str, &StepState)> =
+            report.steps.iter().map(|step| (step.text.as_str(), &step.state)).collect();
+        let [("read the manifest", read), ("write the file", StepState::Done(saved))] = steps[..] else {
+            panic!("the steps of a download: {report:#?}")
+        };
+        assert_eq!((read, &report.state), (&StepState::Done("read, version 88".into()), &JobState::Done));
+        std::path::PathBuf::from(saved.strip_prefix("saved as ").expect("the path of the file"))
+    };
+    let first = saved(&run(&bed, &order(CONTEXT, Operation::Download)).await);
+    let second = saved(&run(&bed, &order(CONTEXT, Operation::Download)).await);
+    assert_ne!(first, second, "a new file");
+    assert_eq!(first.parent(), Some(bed.folder.path().join("Downloads").as_path()));
+    let name = first.file_name().and_then(|name| name.to_str()).expect("a name");
+    assert!(name.starts_with(&format!("{CONTEXT}_shop_deployment-web_")) && name.ends_with(".yaml"), "{name}");
+    let text = std::fs::read_to_string(&first).expect("the file");
+    assert!(text.contains("replicas: 2") && text.contains("resourceVersion: \"88\""), "{text}");
+    assert!(!text.contains("managedFields"), "{text}");
+    assert_eq!(std::fs::read_to_string(&second).expect("the second file"), text);
+    assert_eq!(sent(&bed, &Method::GET, WEB), 2, "one read for each download, and no write");
 }

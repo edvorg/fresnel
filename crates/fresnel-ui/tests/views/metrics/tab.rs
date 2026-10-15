@@ -115,7 +115,7 @@ fn an_object_with_no_sample_says_so() {
 /// charts, and the value of now tells the reason first.
 #[test]
 fn the_charts_of_a_cluster_whose_list_fails_keep_the_history_and_the_value_tells_why_it_is_old() {
-    let unavailable = PollState::Unavailable(error("service unavailable (HTTP 503)"));
+    let unavailable = PollState::Unavailable(error("service unavailable (HTTP 503)"), None);
     let metrics = failed(scene_metrics("fra", 1), unavailable, now() - 3 * SECOND);
     let mut window = wide(vec![of_pods("fra", metrics)]);
     metrics_tab(&mut window, "Pods", "crash");

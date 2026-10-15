@@ -89,7 +89,8 @@ fn state<M: ObjectModel>(
         });
     }
     if table.selection().len() > 1 {
-        chosen = bulk_menu(ui, palette, table.selection().len(), bulk).map(Picked::Bulk);
+        let (count, kind) = (table.selection().len(), <M::Object as Describe>::ID);
+        chosen = bulk_menu(ui, palette, (count, kind), bulk).map(Picked::Bulk);
     }
     let create = create_command(<M::Object as Describe>::ID).and_then(commands::entry);
     if let Some(entry) = create
@@ -113,21 +114,21 @@ fn state<M: ObjectModel>(
 /// The menu of the selected rows with a button for each bulk action and its gate. A menu
 /// needs no more room in the bar, and a line of its own would move the rows under the
 /// pointer when a click with Cmd adds the second row. Gives the action of a click.
-fn bulk_menu(ui: &mut Ui, palette: &Palette, count: usize, bulk: &[(Action, Gate)]) -> Option<Action> {
+fn bulk_menu(ui: &mut Ui, palette: &Palette, (count, kind): (usize, Kind), bulk: &[(Action, Gate)]) -> Option<Action> {
     let selected = RichText::new(format!("{} selected", format::thousands(count as u64))).color(palette.accent);
     let config = MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside);
-    let (_, inner) = MenuButton::new(selected).config(config).ui(ui, |ui| bulk_buttons(ui, bulk));
+    let (_, inner) = MenuButton::new(selected).config(config).ui(ui, |ui| bulk_buttons(ui, kind, bulk));
     inner.and_then(|inner| inner.inner)
 }
 
 /// A button for each bulk action, with its gate. Gives the action of a click.
-fn bulk_buttons(ui: &mut Ui, bulk: &[(Action, Gate)]) -> Option<Action> {
+fn bulk_buttons(ui: &mut Ui, kind: Kind, bulk: &[(Action, Gate)]) -> Option<Action> {
     let mut chosen = None;
     if bulk.is_empty() {
         ui.label("This kind has no bulk action.");
     }
     for (action, gate) in bulk {
-        let button = ui.add_enabled(!gate.is_closed(), egui::Button::new(actions::label(*action)));
+        let button = ui.add_enabled(!gate.is_closed(), egui::Button::new(actions::label(*action, kind)));
         widgets::name(&button, &format!("{} the selected", action.label()));
         let button = match gate.hint() {
             Some(hint) => button.on_hover_text(&hint).on_disabled_hover_text(hint),

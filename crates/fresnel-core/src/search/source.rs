@@ -3,6 +3,8 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+
 use super::score::Matcher;
 use crate::cluster::ClusterId;
 use crate::kinds::{Describe, Kind, Meta, Object};
@@ -36,6 +38,9 @@ trait Searchable: Send + Sync {
     /// The count of objects in one namespace.
     fn count_in(&self, namespace: &str) -> usize;
 
+    /// Gives the metadata of each object.
+    fn each_meta(&self, visit: &mut dyn FnMut(&ObjectKey, &ObjectMeta));
+
     /// Gives each object that matches, with its score. False when `cancel` stopped the walk.
     fn find<'s>(
         &'s self,
@@ -52,6 +57,10 @@ impl<T: Searched> Searchable for Held<Snapshot<T>> {
 
     fn count_in(&self, namespace: &str) -> usize {
         self.items.count_in(namespace)
+    }
+
+    fn each_meta(&self, visit: &mut dyn FnMut(&ObjectKey, &ObjectMeta)) {
+        self.items.iter().for_each(|(key, object)| visit(key, object.meta()));
     }
 
     fn find<'s>(
@@ -107,6 +116,13 @@ impl Source {
     /// its objects of each kind, with no type of their objects.
     pub fn count_in(&self, namespace: &str) -> usize {
         self.objects.count_in(namespace)
+    }
+
+    /// Gives the metadata of each object, in the sequence of the store, with no type of the
+    /// objects: the soak of `fresnel-cli` compares the UID and the version of each one with
+    /// a list of the API.
+    pub fn each_meta(&self, visit: &mut dyn FnMut(&ObjectKey, &ObjectMeta)) {
+        self.objects.each_meta(visit);
     }
 
     pub(super) fn find<'s>(

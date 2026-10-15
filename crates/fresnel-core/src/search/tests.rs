@@ -233,3 +233,18 @@ fn a_cancel_stops_the_search_and_an_empty_text_reads_no_object() {
     assert_eq!((empty.hits.len(), empty.total), (0, 0));
     assert!(empty.unread.iter().any(|unread| unread.why == Why::NoStore), "the notes come with no text too");
 }
+
+#[test]
+fn a_source_gives_the_metadata_of_each_object_of_a_full_or_a_metadata_store() {
+    let bed = Bed::new();
+    let names = |source: &Source| {
+        let mut names = Vec::new();
+        source.each_meta(&mut |key, meta| names.push((key.name.to_string(), meta.uid.is_some())));
+        names
+    };
+    let full = bed.full(StoreState::Live, fixture::all::<Service>());
+    assert_eq!(names(&full).len(), fixture::all::<Service>().len());
+    assert!(names(&full).iter().all(|(_, uid)| *uid), "each object has its UID");
+    let metadata = bed.metadata(StoreState::Live, vec![secret()]);
+    assert_eq!(names(&metadata), [("web-secret".to_owned(), true)]);
+}

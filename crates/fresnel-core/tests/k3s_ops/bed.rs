@@ -105,6 +105,8 @@ impl Cluster {
             daemon_sets: stores.full(),
             jobs: stores.full(),
             pods: stores.full(),
+            // No operation of the k3s tests is a download.
+            downloads: std::env::temp_dir(),
             cancel,
         }
     }

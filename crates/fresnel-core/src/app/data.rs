@@ -7,6 +7,7 @@
 use std::any::Any;
 use std::collections::BTreeSet;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use fresnel_net::WallClock;
@@ -149,7 +150,9 @@ impl Connected {
         let pods = stores.full::<Pod>().ok_or_else(absent)?;
         let notice = Notice::new();
         let settings = inner.settings().metrics.clone();
-        let parts = SamplerParts { settings, bin: bin.clone(), notice: notice.clone(), clock: WallClock::system() };
+        let clock = WallClock::system();
+        let parts =
+            SamplerParts { settings, bin: bin.clone(), notice: notice.clone(), clock, signal: link.net.signal() };
         let sampler = Sampler::start(tasks, link.gateway.clone(), Inputs::of(&stores, &indexes)?, parts);
         let version = ClusterVersion::start(tasks, link.gateway.clone(), bin.clone(), notice.clone());
         let always = Restart::Always(Backoff::default());
@@ -242,7 +245,7 @@ impl Connected {
 
     /// What a job on an object of the cluster gets: the gateway, the stores that its steps
     /// follow, its cancel and the permissions.
-    pub(super) fn job_parts(&self, cancel: Cancel) -> ClusterParts {
+    pub(super) fn job_parts(&self, cancel: Cancel, downloads: PathBuf) -> ClusterParts {
         let stores = &self.stores;
         let parts = Parts {
             gateway: self.gateway.clone(),
@@ -251,6 +254,7 @@ impl Connected {
             daemon_sets: stores.full(),
             jobs: stores.full(),
             pods: Some(self.pods.clone()),
+            downloads,
             cancel,
         };
         (parts, self.access.handle())

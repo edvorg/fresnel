@@ -24,8 +24,7 @@ CI runs these commands on macOS and Linux, with the time tests in a release buil
 - A view is a function of a copy of the state (`CoreView`). It returns a `Command` and holds
   no handle to the core. Work that can block runs in the task of the core, never in a frame.
 - A widget gets the color of a cluster with the identity of the cluster, not with a position.
-- Do not take a lock in the head of `if let` or `match`: the guard lives to the end of the
-  body. Copy the value in a statement of its own. A lint refuses the other form.
+- Do not take a lock in the head of `if let` or `match` (a lint refuses it): copy the value first.
 
 ## Background tasks
 
@@ -35,11 +34,10 @@ one run. A direct `tokio::spawn` or `std::thread::spawn` does not compile.
 - Keep the handle: the task stops when it drops. `Restart::Always` keeps a task alive, and
   `Restart::Never` runs a job one time. A body builds each new run from a clean state.
 - A task can own a `JoinSet` for its short child tasks, if it reads the result of each one.
-- A task reads no file itself. A read can wait for a slow disk, and a thread of the runtime
-  that waits holds other tasks. Run the read with `spawn_blocking` and wait for its result.
-- A worker thread starts with `Tasks::start_thread`. Nothing can stop a thread from outside:
-  its body returns when its input ends, or when its `Stop` is set. The owner drops the handle
-  before that input, so that end is not a fault. `std::thread::scope` joins each thread.
+- A task reads no file itself: a read can wait for a slow disk and hold a thread of the runtime.
+  Run the read with `spawn_blocking` and wait for its result.
+- A worker thread starts with `Tasks::start_thread`. Its body returns when its input ends or its
+  `Stop` is set; the owner drops the handle before that input. `std::thread::scope` joins each.
 
 ## Requests
 
@@ -121,6 +119,8 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 - A change of a view in a picture of the README needs a new run of `cargo xtask screenshots`.
 - A test of a program starts it as a child process with `env -i`, the `PATH` of Finder and a
   home folder of the test (`fresnel_testkit::Home`). No test reads the home folder of the user.
+- `cargo xtask soak --hours <N>` runs the core on k3s with changes and random faults, and
+  `fresnel-cli soak` checks each store against the API and writes a report of each minute.
 - No test opens the window of `fresnel`: it runs `Boot`, or `frame::draw` in a harness. A
   test of `xtask` works in the test folder of the build, never in `/Applications`.
 - A test file that needs `expect` starts with an `#![allow(clippy::expect_used, reason = "…")]`.
@@ -137,9 +137,8 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 
 - The root `Cargo.toml` holds the one version table, and a crate takes `workspace = true`.
   An exact pin (`=`) has a comment that gives its reason.
-- `fresnel-net` does not depend on kube, and `fresnel-core` not on egui, also not through some
-  other crate: `cargo xtask check-borders` and `cargo test` check it. `fresnel-ui` uses no
-  type of kube. Only `widgets/table.rs` uses `egui_table`, only `widgets/chart.rs` `egui_plot`.
+- `fresnel-net` has no kube and `fresnel-core` no egui (`cargo xtask check-borders`). `fresnel-ui`
+  uses no kube type; only `widgets/table.rs` has `egui_table`, only `widgets/chart.rs` `egui_plot`.
 - A crate above `fresnel-core` names the connection layer `fresnel_core::net`, not `fresnel-net`.
 
 ## Documents and commits
@@ -147,4 +146,5 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 - `README.md` has 99 lines or fewer, `docs/architecture.md` 200 and this file 150. Each
   decision of `docs/decisions.md` has one paragraph of 80 words or fewer, changed with it.
 - Commit in small steps. The message says what changed and why, in plain words. For now,
-  changes go directly to `master`. Push only when the five checks pass.
+  changes go directly to `master`. Push seldom, and only when the five checks pass. Test a change
+  of a workflow of CI on a branch `ci/<topic>`, and remove the branch after.

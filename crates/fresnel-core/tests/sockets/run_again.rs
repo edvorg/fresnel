@@ -79,6 +79,7 @@ async fn run_again(bed: &Bed, jobs: &Jobs, cancel: Cancel, at_wait: impl FnOnce(
         daemon_sets: None,
         jobs: Some(jobs.publisher.reader()),
         pods: None,
+        downloads: bed.folder.path().join("Downloads"),
         cancel,
     };
     let (sender, mut reports) = mpsc::unbounded_channel();

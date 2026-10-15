@@ -6,7 +6,8 @@ use std::time::{Duration, SystemTime};
 
 use super::history::{History, SeriesKey};
 use super::series::{Sample, Series, Tiers};
-use super::state::{PollState, PollStatus};
+use super::service::Availability;
+use super::state::{ABSENT_PAUSE, PollState, PollStatus};
 use super::wire::{NodeSample, PodSample, Read};
 use super::world::{NodeLoad, World};
 use super::{MetricsSettings, rollup};
@@ -17,6 +18,14 @@ use crate::store::ObjectKey;
 /// The longest time between two polls that the window of the server sets. metrics-server
 /// has 60 s as its default resolution (research 11 section 4.2).
 const LONGEST_PERIOD: Duration = Duration::from_secs(60);
+
+/// The answers of one poll.
+pub(crate) struct Poll {
+    pub(crate) pods: Result<Read<PodSample>, CoreError>,
+    pub(crate) nodes: Result<Read<NodeSample>, CoreError>,
+    /// The read of the APIService after a 503 of a list.
+    pub(crate) service: Option<Availability>,
+}
 
 /// The last value of a series, and if the last answer had it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,6 +115,17 @@ impl Metrics {
         (self.cluster == *cluster).then_some(self)
     }
 
+    /// True when both lists of the last poll told that the cluster has no `metrics.k8s.io`.
+    pub fn is_absent(&self) -> bool {
+        self.pods.state.is_absent() && self.nodes.state.is_absent()
+    }
+
+    /// The time from a poll to the next one: the period, or a longer pause for a cluster
+    /// with no `metrics.k8s.io`.
+    pub fn pause(&self) -> Duration {
+        if self.is_absent() { ABSENT_PAUSE.max(self.period) } else { self.period }
+    }
+
     /// The same metrics in a new state of both poll stores: a fault or the stop of the task.
     pub(crate) fn in_state(&self, state: &PollState, now: SystemTime) -> Self {
         let mut metrics = self.clone();
@@ -118,17 +138,11 @@ impl Metrics {
     /// Takes the answers of one poll and the stores of that moment: the samples of each
     /// series, the drop of the series of the objects that are gone, the memory limit and
     /// the requests of the nodes.
-    pub(crate) fn take(
-        &mut self,
-        pods: Result<Read<PodSample>, CoreError>,
-        nodes: Result<Read<NodeSample>, CoreError>,
-        world: World,
-        now: SystemTime,
-        settings: &MetricsSettings,
-    ) {
+    pub(crate) fn take(&mut self, poll: Poll, world: World, now: SystemTime, settings: &MetricsSettings) {
         let tiers = settings.tiers();
-        self.pods.take(pods.as_ref().map_err(Clone::clone), now);
-        self.nodes.take(nodes.as_ref().map_err(Clone::clone), now);
+        let Poll { pods, nodes, service } = poll;
+        self.pods.take(pods.as_ref().map_err(Clone::clone), service.as_ref(), now);
+        self.nodes.take(nodes.as_ref().map_err(Clone::clone), service.as_ref(), now);
         let mut windows = Vec::new();
         if let Ok(read) = &nodes {
             windows.extend(read.items.iter().filter_map(|node| node.window));
@@ -148,7 +162,7 @@ impl Metrics {
         self.history.sweep(|key| world.exists(key), now, settings.keep_gone);
         self.history.limit(settings.memory_limit);
         self.loads = Arc::new(world.loads);
-        self.next = Some(now + self.period);
+        self.next = Some(now + self.pause());
     }
 
     /// Takes one answer of each list with these samples of the sums and the requests on

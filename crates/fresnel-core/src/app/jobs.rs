@@ -260,7 +260,7 @@ impl Inner {
             let refusal = state.config.refusal(id).filter(|_| order.operation.writes());
             let cluster = match (refusal, state.connected.get(id)) {
                 (Some(refusal), _) => Err(CoreError::new(ErrorClass::Forbidden, refusal)),
-                (None, Some(connected)) => Ok(connected.job_parts(signal)),
+                (None, Some(connected)) => Ok(connected.job_parts(signal, self.downloads.clone())),
                 (None, None) => Err(CoreError::invalid(format!("{id} is not connected"))),
             };
             state.jobs.start(&self.tasks, order, cluster, cancel, ends.clone());

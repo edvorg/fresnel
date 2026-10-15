@@ -105,8 +105,17 @@ async fn drain(bed: &Bed, pods: &Pods, options: DrainOptions, cancel: Cancel, mu
     let order = Order::new(target, Operation::Drain(options)).expect("an order");
     let gateway = bed.link.gateway.clone();
     let reader = Some(pods.publisher.reader());
-    let parts =
-        Parts { gateway, deployments: None, stateful_sets: None, daemon_sets: None, jobs: None, pods: reader, cancel };
+    let downloads = bed.folder.path().join("Downloads");
+    let parts = Parts {
+        gateway,
+        deployments: None,
+        stateful_sets: None,
+        daemon_sets: None,
+        jobs: None,
+        pods: reader,
+        downloads,
+        cancel,
+    };
     let (sender, mut reports) = mpsc::unbounded_channel();
     let run = async move { ops::run(&order, parts, &mut Forward(Some(sender))).await };
     let follow = async move {

@@ -9,7 +9,7 @@ use crate::store::ObjectKey;
 
 /// The requests of an action on an object. Empty for an action that reads only the stores
 /// of the app or that sends nothing, such as "copy name". The verbs of the actions of
-/// later milestones (logs, terminal, forward, drain) come with them.
+/// later milestones (the terminal, the port forward) come with them.
 pub fn needs(action: Action, kind: Kind, key: &ObjectKey) -> Vec<Attributes> {
     let on = |verb: &'static str, kind: Kind, subresource: &'static str, name: &Arc<str>| {
         let info = kind.info();

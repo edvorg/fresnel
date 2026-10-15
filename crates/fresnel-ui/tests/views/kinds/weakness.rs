@@ -8,11 +8,12 @@ use fresnel_core::app::ClusterRow;
 use fresnel_core::cluster::LinkState;
 use fresnel_core::kinds::Describe;
 use fresnel_core::net::{ChannelState, ChannelStatus};
-use fresnel_core::store::{StoreState, Wait};
+use fresnel_core::store::{Snapshot, StoreState, Wait};
+use k8s_openapi::api::core::v1::Event;
 
 use super::in_panel;
 use super::scene::{config_maps, deployments, live, nodes, revisions, service_accounts, services, with};
-use crate::data::{empty_store, in_state, store};
+use crate::data::{empty_store, events, in_state, store};
 use crate::fake::{SECOND, Window, channel, connected, error, now, open_page, row, shows, status, until, view, window};
 use crate::pods::scenes::{forbidden, no_answer};
 use crate::pods::{column, marks};
@@ -191,4 +192,22 @@ fn w8_each_row_of_a_cluster_with_no_connection_shows_old_since_and_the_other_clu
         );
     }
     each_group!(check);
+}
+
+/// Design rule 12: the page of the Events tells how many left the store at its limit, for a
+/// live store too, and after the state of a store that is not live.
+#[test]
+fn the_events_page_tells_the_count_of_events_that_left_the_store_at_its_limit() {
+    let events = events();
+    let full = |state| Snapshot { dropped: 12_000, ..store(state, &events) };
+    let pause = StoreState::Backoff { failures: 1, reason: no_answer(), until: now() + SECOND };
+    let clusters = vec![with::<Event>("ams-prod", full(StoreState::Live)), with("fra-prod", full(pause))];
+    let window = page::<Event>(clusters, 2 * events.len());
+    let limit = "12,000 older Events left the store at its limit.";
+    let paused = format!(
+        "Events: pause after 1 failures: {}; next attempt in 1 s. Its rows are old since 07:59:12. {limit}",
+        no_answer()
+    );
+    assert!(shows(&window, &format!("Events: {limit}")), "the note of the live store");
+    assert!(shows(&window, &paused), "the note of the store in a pause");
 }
