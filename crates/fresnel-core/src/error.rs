@@ -14,12 +14,15 @@ pub struct CoreError {
     class: ErrorClass,
     status: Option<u16>,
     text: Arc<str>,
+    /// The causes of the `Status` of the server, as (reason, message): a step reads them,
+    /// for example the PodDisruptionBudget that blocks an eviction.
+    causes: Option<Arc<[(String, String)]>>,
 }
 
 impl CoreError {
     /// An error of this class. The text must hold no token, no key and no content of an object.
     pub fn new(class: ErrorClass, text: impl Into<Arc<str>>) -> Self {
-        Self { class, status: None, text: text.into() }
+        Self { class, status: None, text: text.into(), causes: None }
     }
 
     /// An entry or a request that cannot work as it is.
@@ -29,7 +32,18 @@ impl CoreError {
 
     /// The server answered with an error status. The class follows from the status.
     pub(crate) fn answered(status: u16, text: impl Into<Arc<str>>) -> Self {
-        Self { class: class_of(status), status: Some(status), text: text.into() }
+        Self { class: class_of(status), status: Some(status), text: text.into(), causes: None }
+    }
+
+    /// The same error with the causes of the `Status` of the server: (reason, message).
+    pub(crate) fn with_causes(self, causes: Vec<(String, String)>) -> Self {
+        Self { causes: Some(causes).filter(|causes| !causes.is_empty()).map(Into::into), ..self }
+    }
+
+    /// The message of the first cause with this reason, for example `DisruptionBudget`.
+    pub(crate) fn cause(&self, reason: &str) -> Option<&str> {
+        let causes = self.causes.as_deref().unwrap_or_default();
+        causes.iter().find(|(of, _)| of == reason).map(|(_, message)| message.as_str())
     }
 
     /// The class of the error.
@@ -88,5 +102,12 @@ mod tests {
         );
         assert_eq!(CoreError::answered(404, "no such pod").status(), Some(404));
         assert_eq!(CoreError::invalid("no server").status(), None);
+        let causes = vec![("DisruptionBudget".to_owned(), "The disruption budget web needs 1".to_owned())];
+        let blocked = CoreError::answered(429, "Cannot evict pod").with_causes(causes);
+        assert_eq!(blocked.cause("DisruptionBudget"), Some("The disruption budget web needs 1"));
+        assert_eq!(
+            (blocked.cause("NamespaceTerminating"), CoreError::invalid("x").cause("DisruptionBudget")),
+            (None, None)
+        );
     }
 }

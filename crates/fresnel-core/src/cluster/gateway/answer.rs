@@ -21,6 +21,11 @@ const MAX_REFUSAL_BYTES: usize = 1024 * 1024;
 /// the memory of the app.
 const MAX_ANSWER_BYTES: usize = 1024 * 1024 * 1024;
 
+/// The causes of a refusal that a step of an operation reads (research 08 section 7.2): the
+/// PodDisruptionBudget that blocks an eviction, and a namespace that goes away. The error
+/// keeps no other cause: the cause of an invalid object can quote a value of it.
+const KEPT_CAUSES: [&str; 2] = ["DisruptionBudget", "NamespaceTerminating"];
+
 /// The error of a request that got no answer, as it comes out of the kube client. An error
 /// of the connection layer keeps its class.
 pub(super) fn transport(error: kube::Error) -> CoreError {
@@ -57,10 +62,14 @@ pub(super) async fn refusal(response: Response<Body>, limit: Duration) -> CoreEr
     // A body that is too long, too slow or broken gives no message.
     let body = timeout(limit, read(response.into_body(), MAX_REFUSAL_BYTES)).await.ok().and_then(Result::ok);
     let status = body.and_then(|body| serde_json::from_slice::<Status>(&body).ok());
-    match status.map(|status| status.message).filter(|message| !message.is_empty()) {
+    let causes = status.as_ref().and_then(|status| status.details.as_ref()).map(|details| &details.causes);
+    let causes = causes.into_iter().flatten().filter(|cause| KEPT_CAUSES.contains(&cause.reason.as_str()));
+    let causes = causes.map(|cause| (cause.reason.clone(), cause.message.clone())).collect();
+    let error = match status.map(|status| status.message).filter(|message| !message.is_empty()) {
         Some(message) => CoreError::answered(code, format!("{message} (HTTP {code})")),
         None => CoreError::answered(code, format!("the server answered HTTP {code}")),
-    }
+    };
+    error.with_causes(causes)
 }
 
 /// Reads a body to its end. A body of more than `max` bytes is an error, and the read ends
@@ -111,5 +120,23 @@ mod tests {
         let error = read(body(&[Some("{\"a\":1}"), None]), 100).await.expect_err("the body broke");
         let text = "the request failed: the connection broke";
         assert_eq!((error.class(), error.to_string().as_str()), (ErrorClass::Network, text));
+    }
+
+    /// The answer of k3s to an eviction that a PodDisruptionBudget blocks.
+    #[tokio::test]
+    async fn a_refusal_has_the_message_and_only_the_causes_that_a_step_reads() {
+        let message = "Cannot evict pod as it would violate the pod's disruption budget.";
+        let budget = "The disruption budget web needs 1 healthy pods and has 1 currently";
+        let status = serde_json::json!({"kind": "Status", "status": "Failure", "message": message,
+            "reason": "TooManyRequests", "code": 429, "details": {"causes": [
+                {"reason": "FieldValueInvalid", "message": "Invalid value: \"hunter2\"", "field": "data"},
+                {"reason": "DisruptionBudget", "message": budget}]}});
+        let response =
+            Response::builder().status(429).body(Body::from(status.to_string().into_bytes())).expect("an answer");
+        let error = refusal(response, Duration::from_secs(1)).await;
+        assert_eq!(error.status(), Some(429));
+        assert_eq!(error.to_string(), format!("{message} (HTTP 429)"));
+        assert_eq!(error.cause("DisruptionBudget"), Some(budget));
+        assert!(!format!("{error:?}").contains("hunter2"), "no other cause: it can quote a value");
     }
 }
