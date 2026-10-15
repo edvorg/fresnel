@@ -130,19 +130,24 @@ impl Drop for Child {
     }
 }
 
-/// Collects a child that dropped before its end was collected.
+/// Collects a child that dropped before its end was collected, and then kills the rest of
+/// its group, as [`super::Group::stop`] does.
 ///
 /// The owner kills the process group before the drop of its child (`Group`), so the end
 /// comes a moment later. No later child may come to collect it: the stop of the core kills
 /// the last plugin. Thus a thread of the blocking pool of the runtime waits for the end. It
 /// is not a task of `Tasks`: a drop has none, the wait has no state to show, and SIGKILL
-/// cannot be refused. With no runtime, the list [`UNCOLLECTED`] takes the child.
+/// cannot be refused. The child leads its group (SETSID), so its id is the group id. The
+/// one kill of the drop misses a process that a member starts at that moment, so the kill
+/// repeats after the collect. With no runtime, the list [`UNCOLLECTED`] takes the child,
+/// and no kill repeats.
 fn collect_later(pid: Pid) {
     let mut dropped = Dropped(Some(pid));
     if let Ok(runtime) = tokio::runtime::Handle::try_current() {
         let wait = move || {
             if let Some(pid) = dropped.0.take() {
                 wait_blocking(pid);
+                super::kill_the_rest_blocking(pid);
             }
         };
         // The handle drops: nothing reads the end of a child that its owner gave up.

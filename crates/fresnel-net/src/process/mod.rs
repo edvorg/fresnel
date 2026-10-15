@@ -146,6 +146,17 @@ async fn kill_the_rest(group: Pid) {
     }
 }
 
+/// [`kill_the_rest`] on a thread of the blocking pool, after the collect of a child that
+/// dropped before its end (`child::collect_later`).
+fn kill_the_rest_blocking(group: Pid) {
+    for _ in 0..REST_KILLS {
+        if killpg(group, Signal::SIGKILL).is_err() {
+            return;
+        }
+        std::thread::sleep(REST_KILL_PAUSE);
+    }
+}
+
 impl Drop for Group {
     fn drop(&mut self) {
         self.kill();
@@ -288,17 +299,47 @@ mod tests {
         assert!(matches!(output.end, End::Complete) && output.stopped, "{:?}", output.end);
     }
 
+    /// One run of the shell with the hook that drops at the moment of its output, as the
+    /// stop of the core drops the run of a plugin.
+    async fn drop_with_exit_hook(hook_file: std::path::PathBuf) {
+        let mut shell = program(SHELL_WITH_EXIT_HOOK);
+        shell.env.set("HOOK_FILE", hook_file);
+        let limits = RunLimits { time: LONG, output_bytes: 1024 };
+        let ready = tokio::sync::Notify::new();
+        let run = run(&shell, limits, |out| {
+            if out.ends_with(b"ready\n") {
+                ready.notify_one();
+            }
+            false
+        });
+        tokio::select! {
+            output = run => panic!("the run ended before its drop: {:?}", output.map(|output| output.end)),
+            () = ready.notified() => {}
+        }
+    }
+
     /// A process that a member of the group starts at the moment of the kill is not in the
     /// group yet. One kill does not reach it, and it stays after the app is gone.
     #[test]
     fn the_stop_of_a_group_leaves_no_process_that_a_member_starts_at_that_moment() {
+        no_hook_stays(run_with_exit_hook);
+    }
+
+    /// The same for the drop of a run: the kill of a drop repeats after the collect too.
+    #[test]
+    fn the_drop_of_a_run_leaves_no_process_that_a_member_starts_at_that_moment() {
+        no_hook_stays(drop_with_exit_hook);
+    }
+
+    /// Runs the shell with the hook many times at once and asserts that no hook stayed.
+    fn no_hook_stays<F: Future<Output = ()> + Send + 'static>(one_run: fn(std::path::PathBuf) -> F) {
         let folder = std::env::temp_dir().join(format!("fresnel-net-test-hook-{:08x}", fastrand::u32(..)));
         std::fs::create_dir(&folder).expect("a new folder");
         let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(THREADS).enable_all().build();
         runtime.expect("a runtime").block_on(async {
             let mut runs = JoinSet::new();
             for number in 0..THREADS * ROUNDS {
-                runs.spawn(run_with_exit_hook(folder.join(number.to_string())));
+                runs.spawn(one_run(folder.join(number.to_string())));
             }
             while let Some(done) = runs.join_next().await {
                 done.expect("no panic");
