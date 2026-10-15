@@ -54,7 +54,8 @@ impl ClusterLogs {
         }
     }
 
-    /// The views of the sessions, in the sequence of their requests.
+    /// The views of the sessions, in the sequence of their start: a view of the UI finds its
+    /// own by `LogView::request`.
     pub(super) fn views(&self) -> Arc<[Held<LogView>]> {
         self.sessions.iter().map(LogSession::view).collect()
     }

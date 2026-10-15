@@ -15,7 +15,7 @@ use fresnel_core::kinds::Kind;
 use fresnel_core::logs::{LineKind, LogOptions, LogRequest, LogView, SourceState};
 use fresnel_core::metrics::MetricsSettings;
 use fresnel_core::store::ObjectKey;
-use fresnel_testkit::{FakeApiServer, SeenRequest};
+use fresnel_testkit::{FakeApiServer, Home, SeenRequest};
 
 use super::{App, home, row, write_kubeconfig};
 use crate::common::in_time;
@@ -39,6 +39,37 @@ fn request(cluster: &str) -> LogRequest {
         key: ObjectKey::new("shop", "web-1"),
         uid: "u1".into(),
         options: LogOptions::default(),
+    }
+}
+
+/// The core with the clusters ams and fra, each with the pod `web-1`, once each store of ams
+/// holds its watch. Only ams is selected.
+struct Bed {
+    app: App,
+    ams: FakeApiServer,
+    fra: FakeApiServer,
+    /// The count of the watches of the stores of ams.
+    watches: u64,
+    _home: Home,
+}
+
+impl Bed {
+    async fn start(label: &str) -> Self {
+        let (ams, fra) =
+            (FakeApiServer::start().await.expect("a server"), FakeApiServer::start().await.expect("a server"));
+        ams.set_body(PODS, &pods());
+        fra.set_body(PODS, &pods());
+        let home = home(label);
+        write_kubeconfig(&home, "ams", &[("ams", ams.addr(), &ams, false), ("fra", fra.addr(), &fra, false)]);
+        // The sampler of the metrics wakes the UI after each poll. With one poll in an hour,
+        // only the new value of a log view wakes a wait of a test.
+        let metrics = MetricsSettings { period: Duration::from_secs(3600), ..MetricsSettings::default() };
+        let app = App::started(&home, CoreSettings { metrics, ..CoreSettings::default() });
+        app.until_health("ams", Health::Live).await;
+        let shown = app.until("each store of ams", |view| live_stores(view, "ams").is_some()).await;
+        let watches = live_stores(&shown, "ams").unwrap_or_default();
+        in_time("each watch of ams", ams.wait_for(|counters| counters.open_watches == watches)).await;
+        Self { app, ams, fra, watches, _home: home }
     }
 }
 
@@ -83,19 +114,7 @@ fn query(seen: &SeenRequest) -> &str {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_log_view_follows_its_pod_in_its_cluster_and_a_new_stream_loses_no_line() {
-    let (ams, fra) = (FakeApiServer::start().await.expect("a server"), FakeApiServer::start().await.expect("a server"));
-    ams.set_body(PODS, &pods());
-    fra.set_body(PODS, &pods());
-    let home = home("logs");
-    write_kubeconfig(&home, "ams", &[("ams", ams.addr(), &ams, false), ("fra", fra.addr(), &fra, false)]);
-    // The sampler of the metrics wakes the UI after each poll. With one poll in an hour, only
-    // the new value of a log view wakes a wait of this test.
-    let metrics = MetricsSettings { period: Duration::from_secs(3600), ..MetricsSettings::default() };
-    let app = App::started(&home, CoreSettings { metrics, ..CoreSettings::default() });
-    app.until_health("ams", Health::Live).await;
-    let shown = app.until("each store of ams", |view| live_stores(view, "ams").is_some()).await;
-    let watches = live_stores(&shown, "ams").unwrap_or_default();
-    in_time("each watch of ams", ams.wait_for(|counters| counters.open_watches == watches)).await;
+    let Bed { app, ams, fra, watches, _home } = Bed::start("logs").await;
 
     app.core.send(Command::ShowLogs(vec![request("ams")]));
     app.until("the stream of ams", |view| streams(view, "ams")).await;
@@ -141,4 +160,27 @@ async fn a_log_view_follows_its_pod_in_its_cluster_and_a_new_stream_loses_no_lin
     let fra_watches = live_stores(&shown, "fra").unwrap_or_default();
     in_time("the stream of fra closes", fra.wait_for(|counters| counters.open_watches == fra_watches)).await;
     assert_eq!((log_requests(&ams).len(), log_requests(&fra).len()), (2, 1), "no new stream");
+}
+
+/// Fast input: the UI shows and hides a view many times in a row. Each session that drops
+/// ends its stream, and the last view has the one log stream of ams.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_view_that_the_ui_shows_and_hides_fast_leaves_one_stream() {
+    let bed = Bed::start("logs-fast").await;
+    for _ in 0..50 {
+        bed.app.core.send(Command::ShowLogs(vec![request("ams")]));
+        bed.app.core.send(Command::ShowLogs(Vec::new()));
+    }
+    let mut last = request("ams");
+    last.options.tail = Some(10);
+    bed.app.core.send(Command::ShowLogs(vec![last.clone()]));
+    let is_last =
+        |view: &CoreView| streams(view, "ams") && log_view(view, "ams").is_some_and(|log| log.request == last);
+    bed.app.until("the stream of the last view", is_last).await;
+    let one_more = bed.watches + 1;
+    in_time("one log stream", bed.ams.wait_for(|counters| counters.open_watches == one_more)).await;
+    assert!(bed.ams.send_event(LOG, "2026-10-12T20:00:00.100000000Z hello") > 0);
+    let shown = bed.app.until("the line", |view| log_view(view, "ams").is_some_and(|log| log.lines.len() == 1)).await;
+    assert_eq!(data(&shown, "ams").map(|data| data.logs.len()), Some(1));
+    assert!(bed.fra.requests().is_empty(), "fra is not selected");
 }
