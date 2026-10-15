@@ -102,7 +102,8 @@ fn first_values(window: &mut Window, k3s: &K3s, runtime: &Runtime) -> Duration {
     started.elapsed()
 }
 
-/// The state of the sampler of each cluster, and the answers of kubectl about metrics-server.
+/// The state of the sampler of each cluster, and the answers of kubectl about metrics-server,
+/// the node and the pods of the scene.
 fn diagnosis(window: &Window, k3s: &K3s, runtime: &Runtime) -> String {
     let view = window.state().core.view();
     let mut text: Vec<String> = view
@@ -119,8 +120,11 @@ fn diagnosis(window: &Window, k3s: &K3s, runtime: &Runtime) -> String {
             ))
         })
         .collect();
-    let commands: [&[&str]; 4] = [
+    let node = "jsonpath={range .items[*]}{.metadata.name}: {.spec.taints} {.status.conditions[*].type}={.status.conditions[*].status}{end}";
+    let commands: [&[&str]; 6] = [
         &["get", "apiservice", "v1beta1.metrics.k8s.io"],
+        &["get", "nodes", "-o", node],
+        &["get", "events", "-n", SHOP],
         &["get", "pods", "-A", "-o", "wide"],
         &["top", "pods", "-n", SHOP],
         &["logs", "-n", "kube-system", "deployment/metrics-server", "--tail=30"],
