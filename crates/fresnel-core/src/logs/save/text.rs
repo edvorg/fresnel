@@ -42,10 +42,17 @@ fn prefix(source: &SourceView) -> String {
     format!("[pod/{}/{}]", source.pod.name, source.container)
 }
 
+/// The most characters of the cluster and of the object in the name of a file. A file system
+/// takes a name of 255 bytes at most, and a context or a pod can have a name of 253: the
+/// longest file name has 60 + 63 + 32 + 60 + 40 bytes.
+const NAME_PART: usize = 60;
+/// The most characters of a namespace: its limit in Kubernetes.
+const NAMESPACE: usize = 63;
+
 /// The name of the file of a save, for example `ams-prod_shop_pod-web-1_full_20270115-080000.log`:
-/// the cluster, the namespace, the kind and the name, the part and the time in UTC. Each
-/// character that some file system or shell takes in a special way is `_`. `attempt` 0
-/// gives no number; a later attempt adds one, when a file of the name exists.
+/// the cluster, the namespace, the kind and the name, each one cut to its limit, the part and
+/// the time in UTC. Each character that some file system or shell takes in a special way is
+/// `_`. `attempt` 0 gives no number; a later attempt adds one, when a file of the name exists.
 pub(super) fn file_name(save: &LogSave, at: SystemTime, attempt: u32) -> String {
     let request = &save.request;
     let kind = request.kind.info().name.to_ascii_lowercase();
@@ -57,15 +64,16 @@ pub(super) fn file_name(save: &LogSave, at: SystemTime, attempt: u32) -> String 
     let time =
         Timestamp::try_from(at).map_or_else(|_| "no-time".to_owned(), |at| at.strftime("%Y%m%d-%H%M%S").to_string());
     let number = if attempt == 0 { String::new() } else { format!("-{}", attempt + 1) };
-    let name = format!(
-        "{}_{}_{kind}-{}_{part}_{time}{number}",
-        request.cluster.as_str(),
-        request.key.namespace,
-        request.key.name
-    );
-    let safe: String =
-        name.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect();
-    format!("{safe}.log")
+    let (cluster, namespace) = (safe(request.cluster.as_str(), NAME_PART), safe(&request.key.namespace, NAMESPACE));
+    let name = safe(&request.key.name, NAME_PART);
+    format!("{cluster}_{namespace}_{kind}-{name}_{part}_{time}{number}.log")
+}
+
+/// The first `most` characters of a text, each one that is not a letter, a digit, `.`, `-` or
+/// `_` as `_`.
+fn safe(text: &str, most: usize) -> String {
+    let safe = |c: char| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' };
+    text.chars().take(most).map(safe).collect()
 }
 
 #[cfg(test)]
@@ -129,5 +137,24 @@ mod tests {
             file_name(&save(Kind::Pod, SavePart::Full, true), at, 0),
             "ams_prod_shop_pod-web-1_previous_20270115-080000.log"
         );
+    }
+
+    /// A file system refuses a name of more than 255 bytes, and an object can have a name of
+    /// 253 characters: each part has its limit, and the longest name fits.
+    #[test]
+    fn the_longest_names_give_a_file_name_of_255_bytes_or_less() {
+        let kind = Kind::ALL.iter().copied().max_by_key(|kind| kind.info().name.len()).unwrap_or(Kind::Pod);
+        let request = LogRequest {
+            cluster: ClusterId::new("arn:aws:eks:eu-west-1:123456789012:cluster/c".repeat(8)),
+            kind,
+            key: ObjectKey::new(&"n".repeat(70), &"p".repeat(253)),
+            uid: "u".into(),
+            options: LogOptions { previous: true, ..LogOptions::default() },
+        };
+        let save = LogSave { request, part: SavePart::Full, times: true };
+        let name = file_name(&save, SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000), 99);
+        assert!(name.len() <= 255, "{} bytes: {name}", name.len());
+        assert!(name.starts_with("arn_aws_eks_eu-west-1_123456789012_cluster_carn_aws_eks_eu-w_nnn"), "{name}");
+        assert!(name.ends_with(&format!("-{}_previous_20270115-080000-100.log", "p".repeat(60))), "{name}");
     }
 }

@@ -243,3 +243,17 @@ async fn a_folder_that_cannot_exist_fails_the_save_with_the_reason() {
     assert_eq!(ended.file, None);
     std::fs::remove_file(&bed.folder.0).expect("the file of the test goes");
 }
+
+/// Extreme sizes: a context and a pod with names of 253 characters. A file system takes a
+/// name of 255 bytes at most: the save cuts each part of the name and makes its file.
+#[tokio::test]
+async fn a_save_of_an_object_with_the_longest_names_makes_its_file() {
+    let mut bed = Bed::new();
+    let mut long = view();
+    long.request.cluster = ClusterId::new("c".repeat(253));
+    long.request.key = ObjectKey::new(&"n".repeat(63), &"p".repeat(253));
+    bed.save(SavePart::Buffer, false, &long);
+    let ended = bed.ended(1).await;
+    assert!(matches!(ended.state, SaveState::Done { .. }), "{:?}", ended.state);
+    assert_eq!(bed.folder.files().len(), 1);
+}
