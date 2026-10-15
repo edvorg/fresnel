@@ -36,6 +36,9 @@ impl Metered {
     }
 
     /// True when the two hold the same poll of the same cluster: the rows need no new values.
+    /// The pods and the owners do not count: a change of the pods of a workload alone reaches
+    /// the requests of its row at the next poll, so a busy cluster gives no new rows of the
+    /// workloads at each change of a pod.
     pub(crate) fn is_same(&self, other: &Self) -> bool {
         self.cluster == other.cluster && std::ptr::eq::<Metrics>(&*self.metrics, &*other.metrics)
     }
@@ -50,7 +53,10 @@ impl Metered {
         if let Some(node) = any.downcast_ref::<Node>() {
             return self.node(&key.name, node);
         }
-        super::has_columns(K::ID).then(|| self.workload(K::ID, key, uid(object.meta())))?
+        if !super::has_columns(K::ID) {
+            return None;
+        }
+        self.workload(K::ID, key, uid(object.meta()))
     }
 
     fn latest(&self, key: SeriesKey) -> Option<Latest> {

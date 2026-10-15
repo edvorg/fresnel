@@ -2,9 +2,10 @@
 //! metrics of a kind with the CPU and memory columns.
 //!
 //! The page asks its worker for new rows only when the objects or the metrics changed, and
-//! it must drop each deleted object from its selection. The differences between the snapshot of the last
-//! frame and the snapshot of this one give the two answers. Their cost follows the count
-//! of the changes: two frames with the same objects cost one comparison of two pointers.
+//! it must drop each deleted object from its selection. The differences between the
+//! snapshot of the last frame and the snapshot of this one give the two answers. Their cost
+//! follows the count of the changes: two frames with the same objects cost one comparison
+//! of two pointers.
 
 use std::collections::HashSet;
 
