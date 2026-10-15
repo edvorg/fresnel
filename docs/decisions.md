@@ -1396,6 +1396,13 @@ writes each save into `~/Downloads` as a new file with the cluster, the object, 
 time in its name, and never over a file that exists. The tab shows the path, the size and a
 cancel, which removes the part that was written.
 
+## A save that does not end removes its file
+
+A part of a log would look like a full one. A cancel, a failed write, a panic and a stop of the
+cluster or of the app remove the file of a save; the drop of its task does the last two. A save
+holds a stream, so four saves of a cluster write at a time, and a fifth one fails at once. Each
+part of a file name has a limit: the name fits in 255 bytes.
+
 ## The search of a log ignores the case until the text has a capital letter
 
 One field and no switch: a text in small letters ignores the case of ASCII letters, and a text
