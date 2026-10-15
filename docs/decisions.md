@@ -1532,6 +1532,13 @@ new": each listed object is in the store in its version or a later one, each oth
 store came after the list, and an absent one is gone in a second list. The lists go on a
 connection with no fault proxy. A store that shows "live" and is behind for more than 20 s fails it.
 
+## A soak check ends at its limit, and a store or a log view must recover
+
+A check of a store that shows "live" past 20 s ends at once, so a gap near the end of the soak is
+in the report. A store that is behind for 5 minutes with a visible state did not recover: the
+longest break of the harness is 3 minutes. The pods of the log view write two lines each second,
+so 5 minutes with no line is a view that stopped; no line at all fails too.
+
 ## The soak counts the heap with its allocator
 
 The memory of the soak is the count of the bytes that the allocator of `fresnel-cli` holds, not

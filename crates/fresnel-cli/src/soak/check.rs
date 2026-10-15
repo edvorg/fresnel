@@ -3,7 +3,8 @@
 //! A task for each kind lists the kind on the path of the comparison each period and waits
 //! until the store holds that state or a later one: the time to that point is the lag of the
 //! store. A store that is behind for longer than the limit while it shows "live" is a gap
-//! with no visible state, the fault that the soak looks for (design rule 4).
+//! with no visible state, the fault that the soak looks for (design rule 4). A store that is
+//! behind for `GIVE_UP` with a visible state did not recover.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
@@ -29,9 +30,10 @@ pub(super) const PERIOD: Duration = Duration::from_secs(10);
 pub(super) const LIMIT: Duration = Duration::from_secs(20);
 /// A check that takes this long is a gap of the report, with a visible state or not.
 const GAP: Duration = Duration::from_secs(5);
-/// A check ends after this time also when the store is still behind, so that a store that
-/// never catches up is in the report.
-const GIVE_UP: Duration = Duration::from_secs(300);
+/// A check ends after this time also when the store is still behind: the store did not
+/// recover. The longest break of the harness is 3 minutes, and a store lists again in seconds
+/// after it.
+pub(super) const GIVE_UP: Duration = Duration::from_secs(300);
 /// The most texts of states that a gap keeps: a state of a retry has its count of attempts in
 /// its text, so a long gap has many.
 const STATES: usize = 8;
@@ -50,7 +52,8 @@ pub(super) struct Gap {
     pub(super) states: Vec<String>,
     /// The first difference.
     pub(super) reason: String,
-    /// True when the store was still behind when the check gave up.
+    /// True when the store was still behind at the end of the check: it showed "live" past
+    /// the limit, or the check gave up.
     pub(super) open: bool,
 }
 
@@ -151,6 +154,18 @@ impl Behind {
         }
     }
 
+    /// True when the store showed "live" and was behind for longer than the limit.
+    fn is_silent(&self) -> bool {
+        self.longest_live > LIMIT
+    }
+
+    /// True when the check ends with the store still behind: at once past the limit, as a
+    /// later end could come after the end of the soak and leave the gap out of the report, or
+    /// when the store did not recover in `GIVE_UP`.
+    fn is_over(&self, at: Instant) -> bool {
+        self.is_silent() || at.saturating_duration_since(self.start) > GIVE_UP
+    }
+
     fn note(&mut self, state: String) {
         if self.states.len() < STATES {
             self.states.insert(state);
@@ -164,7 +179,7 @@ impl Behind {
             self.longest_live = self.longest_live.max(at - since);
         }
         let lag = at - self.start;
-        let without_state = self.longest_live > LIMIT;
+        let without_state = self.is_silent();
         if lag < GAP && !without_state && !open {
             return (lag, None);
         }
@@ -219,7 +234,7 @@ async fn until_covered(
             Verdict::Behind(reason) => reason,
         };
         behind.see(store.as_ref().map(|store| &store.state), look.at, reason);
-        if look.at - start > GIVE_UP {
+        if behind.is_over(look.at) {
             return behind.end(look.at, true);
         }
         // The sender lives as long as the soak, and the soak stops this task first.
@@ -245,12 +260,16 @@ mod tests {
         let start = Instant::now();
         let at = |seconds| start + Duration::from_secs(seconds);
         let mut check = behind(start);
-        for second in [0, 10, 21] {
+        for second in [0, 10, 20] {
             check.see(Some(&StoreState::Live), at(second), "ns/a has an older version".to_owned());
+            assert!(!check.is_over(at(second)), "live and behind for {second} s");
         }
-        let (lag, gap) = check.end(at(22), false);
+        check.see(Some(&StoreState::Live), at(21), "ns/a has an older version".to_owned());
+        assert!(check.is_over(at(21)), "the check ends at once past the limit");
+        let (lag, gap) = check.end(at(22), true);
         let gap = gap.expect("a gap");
         assert_eq!((lag, gap.kind, gap.without_state, gap.live_seconds), (at(22) - start, "Pod", true, 22.0));
+        assert!(gap.open);
         assert_eq!(gap.reason, "ns/a has an older version");
     }
 
@@ -267,6 +286,10 @@ mod tests {
         let gap = check.end(at(45), false).1.expect("a gap of 45 s");
         assert_eq!((gap.without_state, gap.live_seconds, gap.reason.as_str()), (false, 14.0, "first"));
         assert_eq!(gap.states, ["waits for a connection"]);
+
+        let mut check = behind(start);
+        check.see(Some(&waits), at(0), "a pause".to_owned());
+        assert!(!check.is_over(at(300)) && check.is_over(at(301)), "a visible state ends the check at the give-up");
 
         let mut check = behind(start);
         check.see(Some(&StoreState::Live), at(0), "an event on its way".to_owned());

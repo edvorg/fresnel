@@ -9,7 +9,9 @@ Runs the app core on one cluster: each store, the indexes, the metrics sampler a
 view. Each minute, it records the state of each store, each gap between a store and the
 API, the lag of the stores, the heap and the open connections, in soak.json and soak.txt of
 the report folder. The exit status is 1 when a store shows \"live\" and is behind the API
-for more than 20 s, or when the heap grows above its limit. It changes nothing in a cluster.
+for more than 20 s, when a store is behind for 5 minutes, when a log line does not come, when
+the log view or the checks stop for 5 minutes, or when the heap grows above its limit. It
+changes nothing in a cluster.
 
 options:
   --context <name>        the cluster

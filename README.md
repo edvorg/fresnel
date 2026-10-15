@@ -63,8 +63,8 @@ cargo run --package fresnel-cli -- watch --context <name>    # the stores of one
 - `watch` reads the objects of each kind, as the app does: of a Secret, only the metadata.
   Each 5 seconds, it prints the state and the object count of each store.
 - `soak` runs the app core on one cluster and compares each store with the API: a store that shows
-  "live" and is behind for more than 20 s, or a heap that grows, fails it. `cargo xtask soak` adds
-  k3s, changes and faults, and writes a report of each minute into `target/release/soak/`.
+  "live" and is behind for more than 20 s, a store or a log view that does not recover, or a heap
+  that grows fails it. `cargo xtask soak` adds k3s, faults and a report into `target/release/soak/`.
 
 ## Layout
 
