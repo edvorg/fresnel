@@ -1,6 +1,7 @@
 //! The Pod status text of the app against the row of the API server and of kubectl.
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use fresnel_core::kinds::{Describe, ObjectHealth, PodStatus};
 use fresnel_core::store::{ObjectKey, Snapshot};
@@ -9,15 +10,18 @@ use http::header::ACCEPT;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
 use serde_json::Value;
-use tokio::time::sleep;
+use tokio::time::{Instant, sleep};
 
 use super::read::text;
 use super::scene::{self, ENDING, NAMESPACE};
 use crate::bed::{App, Cluster};
 
-/// The most reads for one moment in which the store, the API and kubectl show the same
-/// pods, and the scene is at rest.
-const ATTEMPTS: usize = 40;
+/// The longest wait for one moment in which the store, the API and kubectl show the same
+/// pods, and the scene is at rest. A pod in a loop of restarts or of image pulls leaves its
+/// state at each try, on a slow runner for 10 s or more: 40 reads in CI run 38786102379 each
+/// found one such pod. The pause between two tries doubles up to 5 minutes, so the moments
+/// at rest grow longer.
+const PATIENCE: Duration = Duration::from_secs(180);
 
 /// What the Pod table shows of one pod: Ready, Status, Restarts, and whether the row has
 /// the time of the last restart.
@@ -59,7 +63,10 @@ fn versions(pods: &Snapshot<Pod>) -> BTreeMap<ObjectKey, String> {
 /// that the API server prints for the same version of the pod.
 pub(crate) async fn each_pod_has_the_row_of_kubectl_and_of_the_api(cluster: &Cluster, app: &App) {
     let pods = app.stores.stores.full::<Pod>().expect("the store of the pods");
-    for attempt in 1..=ATTEMPTS {
+    let end = Instant::now() + PATIENCE;
+    let mut attempt = 0;
+    while Instant::now() < end {
+        attempt += 1;
         let before = pods.read();
         let lines = scene::pod_lines(cluster).await.1;
         let table = table(cluster).await;
@@ -90,7 +97,7 @@ pub(crate) async fn each_pod_has_the_row_of_kubectl_and_of_the_api(cluster: &Clu
         assert!(restarted >= 2, "the scene has two pods with a last restart, and {restarted} lines show one");
         return;
     }
-    panic!("the pods changed or the scene was not at rest in each of {ATTEMPTS} reads");
+    panic!("the pods changed or the scene was not at rest in each of {attempt} reads in {PATIENCE:?}");
 }
 
 /// The health value of one object of the live scene, read from its store of the app.
