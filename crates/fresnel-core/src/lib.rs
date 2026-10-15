@@ -7,6 +7,7 @@
 //!   a cluster, which the watch loop keeps current. [`index`]: the relations between them.
 //! - [`manifest`]: the YAML of one object, read from the server. [`search`]: the quick
 //!   search in the stores. [`keys`]: the keys and values of a Secret or a ConfigMap.
+//! - [`logs`]: the log streams of pods and workloads.
 //! - [`ops`]: the operations on objects, as jobs, and the permissions of the user.
 //! - [`metrics`]: the sampler of each cluster and the history of its CPU and memory.
 //! - [`published`]: the one type that publishes a state to its readers.
@@ -29,6 +30,7 @@ pub mod journal;
 pub mod keys;
 pub mod kinds;
 pub mod kubeconfig;
+pub mod logs;
 pub mod manifest;
 pub mod metrics;
 pub mod ops;

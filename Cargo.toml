@@ -58,6 +58,9 @@ x509-parser = { version = "0.18.1", default-features = false }
 # The map of a store. A copy shares each part that did not change, so a snapshot of 10,000
 # objects costs no copy. The store prototype measured this crate.
 imbl = "7.0.2"
+# The escape sequences of a log line: the parser of the terminal of M10 too. `ansi` gives
+# each SGR code as a style, so the app decodes no parameter itself.
+vte = { version = "0.15.0", default-features = false, features = ["std", "ansi"] }
 
 # Only the test kit and tests use these.
 libc = "0.2.180"
