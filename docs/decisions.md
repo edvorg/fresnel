@@ -1347,3 +1347,24 @@ its lines; a change of the options is a new request with a new session.
 
 The test binary counts each allocation. The kubelet rotates a log above 10 MiB, and a stream that
 follows can stop at a rotation, so eight pods write 125,000 lines each, some 6 MB each.
+
+## An HTTP 429 with no Retry-After refuses one request and throttles nothing
+
+The API server sets `Retry-After` on each throttle. An eviction that a PodDisruptionBudget blocks
+gets HTTP 429 with no header and a cause that names the budget. As a throttle it went out four
+times and held each request of its cluster for a second. Now the drain gets it at once, shows the
+budget by its name and sends the eviction again after 5 s, as kubectl does.
+
+## A drain follows kubectl drain, and a pod that blocks stops it before an eviction
+
+The job cordons the node, lists its pods, reads their DaemonSets and gives each pod the verdict of
+the filters of kubectl. A pod that blocks fails the job; the dialog shows the same verdicts first
+and keeps its button off. A cancel or the time limit stops the drain, and the node stays cordoned
+after each end, as kubectl leaves it: the Operations tab says so, and the user uncordons it.
+
+## Each pod of a drain has its own task, and the pod store tells its end
+
+kubectl starts a goroutine for each pod. A task for each pod in a `JoinSet` of the job lets a pod
+that a budget holds wait with no effect on the others, and a panic fails that pod only. The wait
+for the end of an evicted pod reads the pod store, so it sends no request. The eviction keeps the
+UID of the listed pod: a new pod of its name answers HTTP 409 and counts as gone.

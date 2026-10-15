@@ -69,7 +69,7 @@ xtask
 request carries a `RequestKind`, which selects the connection, the time limits and gzip.
 
 ```text
-request -> time limit -> throttle (HTTP 429) -> token and HTTP 401 rule -> lane of the kind
+request -> time limit -> throttle (429, Retry-After) -> token and HTTP 401 rule -> lane of the kind
 lane: watches | requests | logs  (HTTP/2 channels)      upgrade (HTTP/1.1, warm set)
 new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 ```
@@ -102,10 +102,10 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Logs** (`logs`): a session for each view of `ShowLogs` in its cluster runs a source for each
   container; a new stream starts at the second of its latest line, with a marker (`logs/mod.rs`).
 - **Operations** (`ops`): a function builds each request of plan section 10, with a unit test
-  of its URL and body. An `Order` runs as a job in its own task, with steps and a state, not two
-  times at once. A write goes out one time; after an unknown result a step reads the object. A
-  cancel, or a store that follows nothing, ends a wait. **Permissions**: rules or a review decide
-  an action; HTTP 403 drops them. **Write result**: `Snapshot::is_pending` (answer and store).
+  of its URL and body. An `Order` is a job in its own task, with steps and a state, not two at
+  once. A write goes out one time; an unknown result gets a read of the object. A cancel or a
+  store that follows nothing ends a wait. A drain has a task for each pod (`ops/drain`).
+  **Permissions**: rules or a review, dropped by HTTP 403. **Write result**: `Snapshot::is_pending`.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. After its start, one
   task reads the settings file, the login shell environment and the kubeconfig files, connects
   each selected cluster and runs each command. A cluster has stores, indexes, a sampler and a task.
@@ -172,8 +172,8 @@ dock (Operations, Journal, Connections) and status bar. `ShowKinds` names the ki
   `sections::also_shown` for the other kinds that they read), conditions, related objects as
   links, Events and the Manifest. An object that left its store shows as deleted.
 - **Actions** (`views/act`): the panel, the menus, a key and the quick search ask for an action
-  of the command table. A gate closes it for a later milestone, the state of the object or the
-  rules, with the reason. A change asks in a dialog and ends as one order for each object.
+  of the command table. A gate closes it with the reason: a later milestone, the state of the
+  object, the rules. A change asks in a dialog (`drain` lists the pods): an order for each object.
 - **Quick search**: a dialog with the last text selected; the cursor holds a row by identity, and
   Enter waits for the hits of the text. A hit opens its object, with a note while its store lists,
   or "Show it" when a filter hides its row. The top bar has one namespace filter for each page.
@@ -185,8 +185,8 @@ dock (Operations, Journal, Connections) and status bar. `ShowKinds` names the ki
 ## Tests
 
 `fresnel-testkit` runs in the test process, and each part stops at its drop: `FaultProxy` holds,
-freezes, delays, resets or silences connections; `K3s` is k3s in Docker; `FakeApiServer` has
-TLS, HTTP/2, HTTP/1.1, watch and log streams, the HTTP 101 upgrade and faults; `Home` is a home.
+freezes, delays, resets or silences connections; `K3s` is k3s in Docker, with agents as nodes;
+`FakeApiServer` has TLS, HTTP/2, HTTP/1.1, watch and log streams, the HTTP 101 upgrade and faults.
 
 - **Unit tests** run with no network and with paused time: `fresnel-net` on an HTTP/2 server in
   memory, the watch loop on a script, the indexes, health values and columns on two k3s scenes.

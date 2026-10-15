@@ -10,8 +10,8 @@ Milestones M0 to M4 are complete; the work is in M6 (metrics), M7 (other kinds) 
 The repository has CI, the test kit, `fresnel-net`, `fresnel-core` (kubeconfig, gateway, app
 core, journal, state and settings files, 41 kinds, watch loop, stores, indexes, manifest, quick
 search, command table, keys, operations as jobs, permissions, metrics, log streams), `doctor`,
-`watch` and the window: a live table of each kind, the panel with the sections of each kind in
-scope, workload actions, the keys of Secrets and ConfigMaps, the Operations tab, CPU and memory.
+`watch` and the window: a live table and a panel with the sections of each kind in scope, workload
+actions, a node drain, the keys of Secrets and ConfigMaps, the Operations tab, CPU and memory.
 
 ## The app
 
