@@ -151,15 +151,10 @@ impl<O: Opener> Source<O> {
         }
     }
 
-    /// Where the next stream starts: the options of the view for the first one, then the
-    /// second of the latest line. After a first stream with no line, the full log.
+    /// Where the next stream starts: the second of the latest line. With no line yet, the
+    /// options of the view, also after a stream that gave none.
     fn origin(&self) -> Origin {
-        let memory = self.memory();
-        match (memory.instance.is_some(), memory.ingest.start()) {
-            (false, _) => self.parts.first,
-            (true, Some(start)) => Origin::Time(start),
-            (true, None) => Origin::Whole,
-        }
+        self.memory().ingest.start().map_or(self.parts.first, Origin::Time)
     }
 
     /// Reads one stream to its end, and waits as its end asks.
@@ -176,8 +171,11 @@ impl<O: Opener> Source<O> {
                 }
                 Some(Err(error)) => break Some(error),
                 None => {
-                    self.memory().ingest.finish(&mut lines);
+                    let refusal = self.memory().ingest.finish(&mut lines);
                     self.send(lines).await?;
+                    if let Some(text) = refusal {
+                        return self.wait_for_the_pod(format!("the kubelet gave no log: {text}")).await;
+                    }
                     break None;
                 }
             }
@@ -221,16 +219,7 @@ impl<O: Opener> Source<O> {
     async fn refused(&mut self, error: CoreError) -> Result<(), CoreError> {
         match (error.class(), error.status()) {
             // The kubelet refuses the log of a container that waits to start, with its reason.
-            (_, Some(400)) => {
-                self.failures += 1;
-                let pause = self.parts.retry.pause(self.failures, fastrand::u32(..));
-                self.tell(SourceState::Waiting { reason: error.to_string().into() }).await?;
-                tokio::select! {
-                    () = self.pods.changed() => {}
-                    () = sleep(pause) => {}
-                }
-                Ok(())
-            }
+            (_, Some(400)) => self.wait_for_the_pod(error.to_string()).await,
             // The store tells if the pod is gone, at the next look.
             (_, Some(404)) => self.pause(error, true).await,
             (ErrorClass::Forbidden | ErrorClass::Invalid, _) => {
@@ -239,6 +228,19 @@ impl<O: Opener> Source<O> {
             }
             _ => self.pause(error, false).await,
         }
+    }
+
+    /// The wait after the kubelet gave no log: for a change of the pod, which the store can
+    /// show later than the kubelet, or for the end of a pause.
+    async fn wait_for_the_pod(&mut self, reason: String) -> Result<(), CoreError> {
+        self.failures += 1;
+        let pause = self.parts.retry.pause(self.failures, fastrand::u32(..));
+        self.tell(SourceState::Waiting { reason: reason.into() }).await?;
+        tokio::select! {
+            () = self.pods.changed() => {}
+            () = sleep(pause) => {}
+        }
+        Ok(())
     }
 
     /// The pause before a new stream after a failure. A change of the pod ends it when

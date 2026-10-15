@@ -47,6 +47,7 @@ pub struct SessionParts {
 
 /// One running log view. Its task and its streams stop when this value drops.
 pub struct LogSession {
+    request: LogRequest,
     publisher: Publisher<LogView>,
     _task: TaskHandle,
 }
@@ -70,12 +71,17 @@ impl LogSession {
         };
         let publisher = Publisher::new(first, parts.bin.clone(), parts.notice.clone());
         let name = TaskName::scoped("log view", request.cluster.as_str());
-        let (request, restart, tasks) = (Arc::new(request), Restart::Always(parts.restart), parts.tasks.clone());
+        let (restart, tasks) = (Restart::Always(parts.restart), parts.tasks.clone());
         let task = tasks.start(name, restart, {
-            let (parts, publisher) = (Arc::new(parts), publisher.clone());
+            let (request, parts, publisher) = (Arc::new(request.clone()), Arc::new(parts), publisher.clone());
             move || run::run(Arc::clone(&request), Arc::clone(&parts), opener.clone(), publisher.clone())
         });
-        Self { publisher, _task: task }
+        Self { request, publisher, _task: task }
+    }
+
+    /// What the view asked for.
+    pub fn request(&self) -> &LogRequest {
+        &self.request
     }
 
     /// The view at this moment.
@@ -86,7 +92,7 @@ impl LogSession {
 
 impl std::fmt::Debug for LogSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LogSession").field("request", &self.publisher.read().request).finish_non_exhaustive()
+        f.debug_struct("LogSession").field("request", &self.request).finish_non_exhaustive()
     }
 }
 

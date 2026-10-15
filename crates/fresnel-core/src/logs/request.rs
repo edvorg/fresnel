@@ -80,8 +80,6 @@ pub(super) enum Origin {
     Options { tail: Option<u32>, since: Option<Since> },
     /// A time of the cluster, after a break or a restart of the container.
     Time(Timestamp),
-    /// The full log, for a stream after a first one that had no line.
-    Whole,
 }
 
 /// The request of one stream of one container.
@@ -111,7 +109,6 @@ pub(super) fn stream(
             }
         }
         Origin::Time(time) => params.since_time = Some(time),
-        Origin::Whole => {}
     }
     let path = Kind::Pod.info().path_in(&pod.namespace);
     let request = kube::core::Request::new(path).logs(&pod.name, &params);
@@ -161,10 +158,6 @@ mod tests {
         assert_eq!(
             uri(false, Origin::Time(second)),
             "/api/v1/namespaces/shop/pods/web-1/log?&container=app&follow=true&sinceTime=2025-10-12T20%3A00%3A00Z&timestamps=true"
-        );
-        assert_eq!(
-            uri(false, Origin::Whole),
-            "/api/v1/namespaces/shop/pods/web-1/log?&container=app&follow=true&timestamps=true"
         );
     }
 }

@@ -3,6 +3,7 @@
 
 use std::time::{Duration, SystemTime};
 
+use bytes::Bytes;
 use fresnel_net::task::{Backoff, TaskHandle, TaskReport, Tasks};
 use fresnel_net::{ErrorClass, Signal, WallClock};
 use serde_json::json;
@@ -86,7 +87,6 @@ fn since(origin: &Origin) -> String {
     match origin {
         Origin::Options { tail, since } => format!("options {tail:?} {since:?}"),
         Origin::Time(time) => format!("from {time}"),
-        Origin::Whole => "whole".to_owned(),
     }
 }
 
@@ -196,7 +196,15 @@ async fn the_earlier_instance_is_one_stream_with_no_follow_and_a_refusal_of_the_
         pod["status"]["containerStatuses"][0]["lastState"] =
             json!({"terminated": {"exitCode": 2, "reason": "Error", "containerID": "containerd://a0"}});
     });
-    let mut bed = Bed::start(vec![crashed], true);
+    let mut bed = Bed::start(vec![crashed.clone()], true);
+    // Seen on k3s: the status can name an earlier instance that the runtime removed. The
+    // kubelet then writes its error into an answer with HTTP 200, with no time.
+    let gone = bed.call().await.open();
+    gone.send(Ok(Bytes::from_static(b"unable to retrieve container logs for containerd://a0\n"))).expect("open");
+    drop(gone);
+    let text = "2: waiting: the kubelet gave no log: unable to retrieve container logs for containerd://a0";
+    assert_eq!(bed.reports(3).await[2], text, "a refusal is a state, not a line");
+    bed.pods.set(vec![crashed]);
     let call = bed.call().await;
     assert_eq!((call.previous, since(&call.origin)), (true, "options Some(1000) None".to_owned()));
     let stream = call.open();
