@@ -19,10 +19,12 @@ use jiff::Timestamp;
 use k8s_openapi::api::core::v1::Pod;
 use serde_json::Value;
 
-use super::objects::{DAY, HOUR, MINUTE, RESOURCE_VERSION, hash, suffix};
-use super::world::{CHECKOUT, CHECKOUT_NEXT, PROD_EU, RC_REVISION, RC_ROLLOUT, STAGING, rollout};
+use super::objects::{RESOURCE_VERSION, hash, suffix};
+use super::world::{
+    CANDIDATE, CANDIDATE_AGE, CHECKOUT, CHECKOUT_NEXT, PROD_EU, RC_REVISION, RC_ROLLOUT, RELEASE_AGE, STAGING, rollout,
+};
 use super::{TO_THE_END, save, target, uid_of, window};
-use crate::fake::{Window, grow_dock, now, shows, until, widen_panel};
+use crate::fake::{Window, grow_dock, now, open_tab, shows, until, widen_panel};
 use crate::frame_time::wheel;
 use crate::keys::scene::{give, loaded, read};
 use crate::keys::{click, typed};
@@ -34,15 +36,58 @@ use crate::workloads::scene::{job, jobs, open};
 const LIMIT: Duration = Duration::from_secs(30);
 /// The revision of the release of checkout-api that prod runs.
 const RELEASE: u32 = RC_REVISION - 2;
-/// The panel of the metrics grows this much, near its widest, so the legend leaves each
-/// chart its newest samples and each title of a chart fits on one line.
-const METRICS_WIDENING: f32 = 200.0;
+/// The panel of the metrics grows this much, so the line of the values above each chart
+/// fits on one line and the bar of the page keeps its count.
+const METRICS_WIDENING: f32 = 170.0;
+/// The dock gets one row of its journal lower under the metrics, so both charts fit.
+const METRICS_DOCK: f32 = -24.0;
 /// The panel of the rollback grows this much, so the list of the revisions fits.
-const ROLLBACK_WIDENING: f32 = 100.0;
+const ROLLBACK_WIDENING: f32 = 60.0;
 /// The dock with the logs grows this much, so the log takes most of the window.
 const LOGS_DOCK: f32 = 250.0;
+/// The dock gets two rows of its journal lower under the save of a Secret: the journal
+/// tells nothing of the Secret.
+const SECRET_DOCK: f32 = -48.0;
 /// A place in the panel this far below its tabs, over its fields: the wheel there scrolls it.
 const BELOW_TABS: egui::Vec2 = egui::vec2(20.0, 100.0);
+/// The top of the scroll area of a panel is this far above its first section (the margin of
+/// `views/detail`).
+const PANEL_MARGIN: f32 = 10.0;
+
+/// The rects of the accessibility tree are in whole pixels: a label this near to an edge
+/// is not cut by it.
+const NEAR: f32 = 0.5;
+/// The most scrolls of `whole_rows_at_top`: a row that shows in full can bring the lower
+/// part of the row above it.
+const MOST_SCROLLS: usize = 4;
+
+/// The top of the first section of a panel at the top of its scroll.
+fn first_section(window: &Window) -> f32 {
+    window.get_by_label("METADATA").rect().top()
+}
+
+/// The tops of the labels of the panel that the top edge of its scroll area cuts.
+fn cut_at_top(window: &Window, first: f32) -> Vec<f32> {
+    let (edge, tabs) = (first - PANEL_MARGIN, window.get_by_role_and_label(Role::Button, "Overview").rect());
+    let labels = window.query_all_by_role(Role::Label).map(|label| label.rect());
+    let in_panel = |label: &egui::Rect| label.left() > tabs.left() - PANEL_MARGIN;
+    let cut = labels.filter(|label| in_panel(label) && label.top() < edge - NEAR && label.bottom() > edge + NEAR);
+    cut.map(|label| label.top()).collect()
+}
+
+/// Scrolls the panel back by the part of a row that the top of its scroll area cuts, so
+/// the row shows in full. `first` is the top of its first section at the top of its scroll.
+fn whole_rows_at_top(window: &mut Window, first: f32) {
+    for _ in 0..MOST_SCROLLS {
+        let Some(top) = cut_at_top(window, first).into_iter().reduce(f32::min) else {
+            return;
+        };
+        window.hover_at(window.get_by_role_and_label(Role::Button, "Overview").rect().left_bottom() + BELOW_TABS);
+        window.event(wheel(first - PANEL_MARGIN - top));
+        window.run();
+    }
+    assert_eq!(cut_at_top(window, first), Vec::<f32>::new(), "a row under the tabs of the panel");
+}
 
 /// Empties the filter of the page, so its table shows each row of the three clusters again;
 /// `count` is the count of the rows then. The row of the panel stays selected.
@@ -79,16 +124,17 @@ fn the_metrics_of_a_deployment() {
     let mut window = window(egui::Theme::Dark);
     checkout_of(&mut window, PROD_EU.name);
     widen_panel(&mut window, METRICS_WIDENING);
+    grow_dock(&mut window, METRICS_DOCK);
     window.get_by_role_and_label(Role::Button, "Metrics").click();
     until(&mut window, "the charts", |window| shows(window, "CPU chart") && shows(window, "Memory chart"));
     save(&mut window, "deployment-metrics");
 }
 
 /// One revision of checkout-api: its number, version, age, cause and ReplicaSet.
-fn revision(number: u32, (version, age, cause): (&str, u64, &str), replica_set: Option<String>) -> Revision {
+fn revision(number: u32, (version, age, cause): (&str, u64, &str), replica_set: String) -> Revision {
     Revision {
         number: number.into(),
-        name: replica_set.expect("the ReplicaSet of a Deployment"),
+        name: replica_set,
         created: Timestamp::try_from(now() - Duration::from_secs(age)).ok(),
         change_cause: Some(cause.to_owned()),
         images: vec![format!("shop/checkout-api:{version}")],
@@ -97,22 +143,23 @@ fn revision(number: u32, (version, age, cause): (&str, u64, &str), replica_set: 
     }
 }
 
-/// The revisions of checkout-api of staging from a read of the server, and the dialog of a
-/// rollback from the release candidate that crashes to the release that prod runs. The
-/// revision before the current one is the candidate before, so the two choices differ.
+/// The revisions of checkout-api of staging from a read of the server, as the Operations tab
+/// shows that read, and the dialog of a rollback from the release candidate that crashes to
+/// the release that prod runs. The revision before the current one is the candidate before,
+/// so the two choices differ.
 #[test]
 fn a_rollback_to_an_earlier_revision() {
     let mut window = window(egui::Theme::Dark);
-    let candidate = format!("checkout-api-{}", suffix(&["1.43.0-rc.0"], 9));
+    let set = |hash: &str| format!("checkout-api-{hash}");
     let current = rollout(&STAGING, &CHECKOUT_NEXT, RC_ROLLOUT);
     let revisions = vec![
-        revision(RELEASE, ("1.42.3", 3 * DAY + 2 * HOUR + 41 * MINUTE, "release 1.42.3"), CHECKOUT.replica_set()),
+        revision(RELEASE, ("1.42.3", RELEASE_AGE, "release 1.42.3"), CHECKOUT.replica_set().expect("a Deployment")),
+        revision(RC_REVISION - 1, ("1.43.0-rc.0", CANDIDATE_AGE, "candidate 1.43.0-rc.0"), set(CANDIDATE.0)),
         revision(
-            RC_REVISION - 1,
-            ("1.43.0-rc.0", DAY + 5 * HOUR + 9 * MINUTE, "candidate 1.43.0-rc.0"),
-            Some(candidate),
+            RC_REVISION,
+            ("1.43.0-rc.1", current, "candidate 1.43.0-rc.1"),
+            CHECKOUT_NEXT.replica_set().expect("a Deployment"),
         ),
-        revision(RC_REVISION, ("1.43.0-rc.1", current, "candidate 1.43.0-rc.1"), CHECKOUT_NEXT.replica_set()),
     ];
     let checkout = target(STAGING.name, Kind::Deployment, "shop", "checkout-api");
     let mut history = job(1, checkout, Operation::History, JobState::Done, &[]);
@@ -120,11 +167,17 @@ fn a_rollback_to_an_earlier_revision() {
     window.state_mut().view.jobs = jobs(vec![history], 0);
     checkout_of(&mut window, STAGING.name);
     widen_panel(&mut window, ROLLBACK_WIDENING);
-    // The panel scrolls to its end, where the list of the revisions is.
+    open_tab(&mut window, "Operations");
+    // The panel scrolls its list of the revisions to the place of its first section, so no
+    // row is half under its tabs.
+    let top = |window: &Window, heading: &str| window.get_by_label(heading).rect().top();
+    let first = first_section(&window);
     let tabs = window.get_by_role_and_label(Role::Button, "Overview").rect();
     window.hover_at(tabs.left_bottom() + BELOW_TABS);
-    window.event(wheel(TO_THE_END));
+    window.event(wheel(first - top(&window, "REVISIONS")));
     window.run();
+    assert!((top(&window, "REVISIONS") - first).abs() <= 1.0, "the revisions at the top of the panel");
+    assert_eq!(cut_at_top(&window, first), Vec::<f32>::new(), "a row under the tabs of the panel");
     let button = format!("Roll back to {RELEASE}…");
     let dock = window.get_by_role_and_label(Role::Button, "Operations").rect().top();
     let shown = window.get_by_role_and_label(Role::Button, &button).rect();
@@ -202,6 +255,14 @@ fn an_edit_of_the_keys_of_a_secret() {
     let mut window = window(egui::Theme::Dark);
     open(&mut window, "Secrets", "postgres-credentials");
     clear_filter(&mut window, "12 Secrets");
+    grow_dock(&mut window, SECRET_DOCK);
+    let first = first_section(&window);
+    // The open of the page scrolled the sidebar to put Secrets in its middle; it was there.
+    window.hover_at(window.get_by_role_and_label(Role::RadioButton, "Secrets").rect().center());
+    window.event(wheel(-TO_THE_END));
+    window.run();
+    let entry = |page: &str| window.get_by_role_and_label(Role::RadioButton, page).rect();
+    assert!(entry("Nodes").top() > entry("Settings").bottom(), "the sidebar at its top");
     let key = ObjectKey::new("payments", "postgres-credentials");
     let uid = uid_of(PROD_EU.name, Kind::Secret, "payments", "postgres-credentials");
     let target = Target { cluster: ClusterId::new(PROD_EU.name), kind: KeyKind::Secret, key, uid: uid.into() };
@@ -214,7 +275,11 @@ fn an_edit_of_the_keys_of_a_secret() {
     give(&mut window, PROD_EU.name, Some(loaded(read(&target, RESOURCE_VERSION, values))));
     click(&mut window, "Show the value of password");
     typed(&mut window, "Value of password", "example-password-2\n");
-    click(&mut window, "Save 1 key…");
+    whole_rows_at_top(&mut window, first);
+    // The button shows: a click with no scroll to it keeps the rows of the panel whole.
+    window.get_by_label("Save 1 key…").click();
+    window.run();
     click(&mut window, "Show the values");
+    assert_eq!(cut_at_top(&window, first), Vec::<f32>::new(), "a row under the tabs of the panel");
     save(&mut window, "secret-save");
 }

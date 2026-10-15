@@ -16,9 +16,9 @@ The pods of three clusters. prod-us has no connection: its rows are old, and a n
 <td width="50%"><a href="docs/screenshots/rollback.png"><img src="docs/screenshots/rollback.png" alt="The rollback dialog"></a><br>The revisions of a Deployment whose new version crashes, and the dialog of a rollback.</td></tr>
 <tr><td width="50%"><a href="docs/screenshots/secret-save.png"><img src="docs/screenshots/secret-save.png" alt="The save dialog of a Secret"></a><br>The keys of a Secret: a save sends only the changed key, after its diff.</td>
 <td width="50%"><a href="docs/screenshots/node-drain.png"><img src="docs/screenshots/node-drain.png" alt="A node drain in the Operations tab"></a><br>A node drain as a job of the Operations tab, with the state of each pod.</td></tr>
-<tr><td width="50%"><a href="docs/screenshots/cluster-overview-light.png"><img src="docs/screenshots/cluster-overview-light.png" alt="The cluster overview"></a><br>The cluster overview in the light theme, and the connections of prod-us, which try again.</td>
-<td width="50%"></td></tr>
 </table>
+<p><a href="docs/screenshots/cluster-overview-light.png"><img src="docs/screenshots/cluster-overview-light.png" alt="The cluster overview"></a><br>
+The cluster overview in the light theme, and the connections of prod-us, which try again.</p>
 
 ## Status
 
