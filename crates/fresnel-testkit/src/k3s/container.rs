@@ -23,6 +23,11 @@ const LOG_LINES: &str = "30";
 const STOP_SECONDS: &str = "3";
 /// The variable of the token with which an agent joins the server. k3s reads it as `--token`.
 const TOKEN: &str = "K3S_TOKEN";
+/// The kubelet of k3s evicts the pods of its node below 5 percent of free disk, and then
+/// takes no new pod until 15 percent are free. On Linux in CI, the pods of a test ended after
+/// their start and their new pods waited with no node: the disk of a runner after the build
+/// of the workspace can be that full. The node of a test evicts only below 1 percent.
+const EVICTION: &str = "--kubelet-arg=eviction-hard=imagefs.available<1%,nodefs.available<1%";
 
 /// A k3s container. Its drop removes it with its volumes.
 pub(super) struct Container {
@@ -57,6 +62,7 @@ impl Container {
             // The kubelet refuses each image pull above 5 in one second. A test that starts
             // many pods at once would see some of them fail and wait, a different set each time.
             "--kubelet-arg=registry-qps=0",
+            EVICTION,
         ];
         let arguments = [&run[..], &["--publish", &publish, "--env", TOKEN, IMAGE], &k3s[..], extra].concat();
         docker_with_secret(&arguments, (TOKEN, token)).await?;
@@ -77,7 +83,7 @@ impl Container {
         let network = network.name();
         let run = ["run", "--detach", "--privileged", "--name", name, "--network", network, "--ip", &address];
         let node = format!("--node-name={node}");
-        let k3s = ["agent", "--server", &server, &node, "--kubelet-arg=registry-qps=0"];
+        let k3s = ["agent", "--server", &server, &node, "--kubelet-arg=registry-qps=0", EVICTION];
         docker_with_secret(&[&run[..], &["--env", TOKEN, IMAGE], &k3s[..], extra].concat(), (TOKEN, token)).await?;
         Ok(container)
     }
