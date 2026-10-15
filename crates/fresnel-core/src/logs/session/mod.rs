@@ -68,13 +68,19 @@ impl LogSession {
             dropped: 0,
             bytes: 0,
             unstreamed: 0,
+            restarts: 0,
         };
         let publisher = Publisher::new(first, parts.bin.clone(), parts.notice.clone());
         let name = TaskName::scoped("log view", request.cluster.as_str());
         let (restart, tasks) = (Restart::Always(parts.restart), parts.tasks.clone());
         let task = tasks.start(name, restart, {
             let (request, parts, publisher) = (Arc::new(request.clone()), Arc::new(parts), publisher.clone());
-            move || run::run(Arc::clone(&request), Arc::clone(&parts), opener.clone(), publisher.clone())
+            // Each run after the first one follows an internal error of the app.
+            let mut runs = 0_u32;
+            move || {
+                runs = runs.saturating_add(1);
+                run::run(Arc::clone(&request), Arc::clone(&parts), opener.clone(), publisher.clone(), runs - 1)
+            }
         });
         Self { request, publisher, _task: task }
     }

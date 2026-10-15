@@ -46,11 +46,12 @@ pub(super) async fn run<O: Opener>(
     parts: Arc<SessionParts>,
     opener: O,
     publisher: Publisher<LogView>,
+    restarts: u32,
 ) -> Result<(), CoreError> {
     // The view drops before the channel: each source stops before its sender would fail.
     let (sender, mut reports) = mpsc::channel(REPORTS);
     let (mut pods, mut owners) = (parts.pods.clone(), parts.owners.clone());
-    let mut view = View::new(&request, &parts, opener, sender);
+    let mut view = View::new(&request, &parts, opener, sender, restarts);
     loop {
         if view.follow_again {
             view.follow(&parts, &pods.read(), &owners.read());
@@ -107,10 +108,17 @@ struct View<'a, O> {
     /// True when the view has a change that it did not publish.
     changed: bool,
     published: Option<Instant>,
+    restarts: u32,
 }
 
 impl<'a, O: Opener> View<'a, O> {
-    fn new(request: &'a LogRequest, parts: &SessionParts, opener: O, sender: mpsc::Sender<Report>) -> Self {
+    fn new(
+        request: &'a LogRequest,
+        parts: &SessionParts,
+        opener: O,
+        sender: mpsc::Sender<Report>,
+        restarts: u32,
+    ) -> Self {
         Self {
             sources: Vec::new(),
             request,
@@ -124,6 +132,7 @@ impl<'a, O: Opener> View<'a, O> {
             follow_again: true,
             changed: true,
             published: None,
+            restarts,
         }
     }
 
@@ -238,6 +247,7 @@ impl<'a, O: Opener> View<'a, O> {
             dropped: self.ring.dropped(),
             bytes: self.ring.bytes(),
             unstreamed: self.unstreamed,
+            restarts: self.restarts,
         });
         (self.changed, self.published) = (false, Some(now));
     }

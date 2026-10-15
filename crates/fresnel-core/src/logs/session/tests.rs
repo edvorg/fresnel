@@ -1,6 +1,7 @@
 //! A view on a script of streams, with the stores and the owner index of a test. The time
 //! is paused, so the hold of the merge is exact.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use bytes::Bytes;
@@ -18,25 +19,66 @@ use crate::cluster::ClusterId;
 use crate::error::CoreError;
 use crate::index::TestOwners;
 use crate::kinds::Kind;
-use crate::logs::request::LogOptions;
-use crate::logs::testing::{Call, Script, Store, data, pod};
+use crate::logs::request::{LogOptions, Origin};
+use crate::logs::testing::{Call, Script, Scripted, Store, data, pod};
 use crate::logs::view::SourceState;
 use crate::published::{Changes, Disposal};
 use crate::store::ObjectKey;
+
+/// The opener of the tests: the script, and a fault that a test arms. The task of a view
+/// clones its opener for each new source, so the fault is a panic in that task.
+struct Faulty {
+    script: Script,
+    fault: Arc<AtomicBool>,
+}
+
+impl Clone for Faulty {
+    fn clone(&self) -> Self {
+        assert!(!self.fault.swap(false, Ordering::Relaxed), "a fault of the test");
+        Self { script: self.script.clone(), fault: Arc::clone(&self.fault) }
+    }
+}
+
+impl Opener for Faulty {
+    type Stream = Scripted;
+
+    async fn open(
+        &self,
+        pod: &ObjectKey,
+        container: &str,
+        previous: bool,
+        origin: Origin,
+    ) -> Result<Scripted, CoreError> {
+        self.script.open(pod, container, previous, origin).await
+    }
+}
 
 struct Bed {
     session: LogSession,
     calls: mpsc::UnboundedReceiver<Call>,
     changes: Changes,
     pods: Store<Pod>,
+    /// The report of each run of a task that ended. A test with no fault has none.
+    ended: mpsc::UnboundedReceiver<String>,
+    fault: Arc<AtomicBool>,
     _owners: TestOwners,
     _others: (Store<ReplicaSet>, Store<Job>, Store<EndpointSlice>),
     _disposal: Disposal,
 }
 
+impl Drop for Bed {
+    fn drop(&mut self) {
+        let ended = self.ended.try_recv();
+        assert!(ended.is_err() || std::thread::panicking(), "a task ended: {ended:?}");
+    }
+}
+
 impl Bed {
     fn start(kind: Kind, name: &str, uid: &str, settings: LogSettings, pods: Vec<Pod>) -> Self {
-        let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("a task ended: {report}"));
+        let (end, ended) = mpsc::unbounded_channel();
+        let tasks = Tasks::new(Handle::current(), move |report: TaskReport| {
+            end.send(report.to_string()).expect("the test reads each report");
+        });
         let disposal = Disposal::start(&tasks);
         let pods = Store::new(&disposal, pods);
         let others =
@@ -69,8 +111,10 @@ impl Bed {
             uid: uid.into(),
             options: LogOptions::default(),
         };
-        let session = LogSession::start_with(request, parts, script);
-        Self { session, calls, changes: notice.changes(), pods, _owners: owners, _others: others, _disposal: disposal }
+        let fault = Arc::new(AtomicBool::new(false));
+        let session = LogSession::start_with(request, parts, Faulty { script, fault: Arc::clone(&fault) });
+        let changes = notice.changes();
+        Self { session, calls, changes, pods, ended, fault, _owners: owners, _others: others, _disposal: disposal }
     }
 
     /// The next opens, in the sequence of their pods.
@@ -214,4 +258,25 @@ async fn one_million_lines_keep_the_ring_of_a_view_at_its_limit() {
     let last = view.lines.get(999_999).expect("the last line");
     assert_eq!(last.text.as_ref(), "line 999999");
     assert!(view.bytes < 200_000 * 100, "{} bytes for 200,000 lines", view.bytes);
+}
+
+/// Plan section 13, test 5: a panic in the task of a view gives a report, a count in the
+/// view and a new run, and the streams of the earlier run end.
+#[tokio::test(start_paused = true)]
+async fn a_panic_of_the_task_of_a_view_gives_a_report_a_count_and_a_new_run_with_no_old_stream() {
+    let mut bed = Bed::start(Kind::ReplicaSet, "web", "rs1", LogSettings::default(), vec![owned("web-1", "u1")]);
+    let one = bed.calls(1).await.pop().expect("web-1").open();
+    one.send(data(&[(1.0, "a")])).expect("open");
+    bed.until("a line", |view| view.lines.len() == 1).await;
+
+    bed.fault.store(true, Ordering::Relaxed);
+    bed.pods.set(vec![owned("web-1", "u1"), owned("web-2", "u2")]);
+    let ended = timeout(LIMIT, bed.ended.recv()).await.expect("in time").expect("a report");
+    assert!(ended.contains("log view") && ended.contains("a fault of the test"), "{ended}");
+    timeout(LIMIT, one.closed()).await.expect("the stream of the earlier run ends");
+    let streams: Vec<_> = bed.calls(2).await.into_iter().map(Call::open).collect();
+    let view = bed.until("the new run", |view| view.restarts == 1 && view.sources.len() == 2).await;
+    assert!(view.lines.is_empty(), "the new run has no line of the earlier one, and its count tells it");
+    streams[1].send(data(&[(2.0, "b")])).expect("open");
+    bed.until("a line of the new run", |view| view.lines.len() == 1).await;
 }

@@ -25,8 +25,12 @@ pub struct LogView {
     pub dropped: u64,
     /// The bytes of the lines in the ring, with their text and styles.
     pub bytes: usize,
-    /// The count of containers with no stream, because the view has its most streams.
+    /// The count of containers with no stream, because the view has its most streams, or
+    /// its most sources over its life.
     pub unstreamed: usize,
+    /// The count of runs of the task of the view that ended with an internal error of the
+    /// app. Each new run starts with no line and new sources: the earlier lines are gone.
+    pub restarts: u32,
 }
 
 /// How far a view knows the pods that it shows.
