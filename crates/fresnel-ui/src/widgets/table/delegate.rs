@@ -36,6 +36,8 @@ pub(super) struct Delegate<'a, M: Model> {
     pub(super) fitted: f32,
     /// Draws the menu of the row of an object.
     pub(super) menu: &'a mut dyn FnMut(&mut Ui, &ObjectId),
+    /// The height of a row.
+    pub(super) row_height: f32,
 }
 
 impl<M: Model> Delegate<'_, M> {

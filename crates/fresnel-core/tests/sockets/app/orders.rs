@@ -7,7 +7,9 @@ use std::sync::Arc;
 
 use fresnel_core::app::{AccessView, CheckState, Command, CoreSettings, CoreView, Health, JobView, RulesState};
 use fresnel_core::cluster::ClusterId;
+use fresnel_core::config::{Edit, EditValue};
 use fresnel_core::journal::TASK_SOURCE;
+use fresnel_core::keys::{NewSecret, SecretType};
 use fresnel_core::kinds::{Action, Kind};
 use fresnel_core::ops::access::{self, Decision};
 use fresnel_core::ops::{JobState, Operation, Order, Outcome, Rollout, Target};
@@ -181,4 +183,53 @@ async fn the_rules_and_the_reviews_of_each_cluster_decide_its_actions() {
     let reviews =
         |server: &FakeApiServer| (requests(server, &Method::POST, RULES), requests(server, &Method::POST, ACCESS));
     assert_eq!((reviews(&ams), reviews(&fra)), ((1, 2), (1, 2)), "each review went to its own cluster one time");
+}
+
+/// A read-only cluster of the settings gets no write from the core, also from a view that
+/// did not close its gate: the job ends as not sent with the reason, and the server sees
+/// no request. A read runs, the other cluster gets its write, and a save of the settings
+/// view that ends the read-only state acts at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_only_cluster_gets_no_write_and_a_read_and_the_other_cluster_go_on() {
+    let (mut app, ams, fra, _home) = started("read-only").await;
+    let ams_only = vec![Edit::new(&["clusters", "ams", "read_only"], EditValue::Flag(true))];
+    app.core.send(Command::EditSettings(ams_only));
+    app.until("the read-only cluster", |view| view.config.read_only(&ClusterId::new("ams"))).await;
+    for server in [&ams, &fra] {
+        server.set_body(SCALE, r#"{"kind":"Scale","metadata":{"name":"web","namespace":"shop","uid":"u-web"}}"#);
+    }
+    let orders =
+        vec![order("ams", Operation::Scale(3)), order("fra", Operation::Scale(3)), order("ams", Operation::History)];
+    app.core.send(Command::Run(orders));
+    let ended = |numbers: &'static [u64]| {
+        move |view: &CoreView| {
+            numbers.iter().all(|number| job(view, *number).is_some_and(|job| job.report.state.is_final()))
+        }
+    };
+    let view = app.until("the end of the three jobs", ended(&[1, 2, 3])).await;
+    let refusal = "ams is read-only in the settings: the app makes no change in it.";
+    assert!(
+        matches!(job(&view, 1).map(|job| &job.report.state), Some(JobState::NotSent(error)) if error.to_string() == refusal),
+        "{:#?}",
+        job(&view, 1)
+    );
+    assert_eq!(job(&view, 2).map(|job| &job.report.state), Some(&JobState::Done), "the other cluster");
+    assert!(!matches!(job(&view, 3).map(|job| &job.report.state), Some(JobState::NotSent(_))), "a read runs");
+    assert_eq!((requests(&ams, &Method::PATCH, SCALE), requests(&fra, &Method::PATCH, SCALE)), (0, 1));
+
+    let secret = NewSecret::new(ClusterId::new("ams"), "shop", "token", SecretType::Opaque);
+    app.core.send(Command::CreateSecret(secret));
+    let texts = app.until_texts("ams", |texts| texts.iter().any(|text| text.contains("did not go"))).await;
+    assert!(texts.contains(&format!("the create of Secret shop/token did not go: {refusal}")), "{texts:#?}");
+    assert_eq!(requests(&ams, &Method::POST, "/api/v1/namespaces/shop/secrets"), 0);
+
+    app.core.send(Command::EditSettings(vec![Edit::new(&["clusters", "ams", "read_only"], EditValue::Flag(false))]));
+    app.until("the end of the read-only state", |view| !view.config.read_only(&ClusterId::new("ams"))).await;
+    app.core.send(Command::Run(vec![order("ams", Operation::Scale(3))]));
+    let view = app.until("the scale after the change", ended(&[4])).await;
+    assert_eq!(job(&view, 4).map(|job| &job.report.state), Some(&JobState::Done));
+    assert_eq!(requests(&ams, &Method::PATCH, SCALE), 1);
+    // Each job that went out is a task that runs one time; the refused one had no task.
+    app.until_texts(TASK_SOURCE, |texts| texts.len() == 3).await;
+    app.expected_task_ends = 3;
 }

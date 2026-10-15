@@ -9,7 +9,8 @@
 //! - `act`: the actions on objects and their dialogs. `operations`: the jobs of the core.
 //! - `logs`: the tabs of the log views.
 //! - `overview`: the overviews of the Cluster and the Workloads groups.
-//! - `connections`, `journal`: the pages of the app itself. `search`: the quick search.
+//! - `connections`, `journal`, `settings`: the pages of the app itself. `search`: the quick search.
+//! - `help`: the overlay of the keys.
 
 pub(crate) mod access;
 pub(crate) mod act;
@@ -17,6 +18,7 @@ pub(crate) mod cluster;
 pub(crate) mod config;
 pub(crate) mod connections;
 pub(crate) mod detail;
+pub(crate) mod help;
 pub(crate) mod journal;
 pub(crate) mod keys;
 pub(crate) mod kinds;
@@ -29,4 +31,5 @@ pub(crate) mod overview;
 pub(crate) mod pod_spec;
 pub(crate) mod pods;
 pub(crate) mod search;
+pub(crate) mod settings;
 pub(crate) mod workloads;

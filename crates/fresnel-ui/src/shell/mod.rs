@@ -13,9 +13,12 @@
 //!
 //! - `top_bar`, `sidebar`, `dock`, `status_bar`: the parts of the window. `namespaces`:
 //!   the namespace filter of each view. `keys`: the key of each command. `history`: Back
-//!   and Forward.
+//!   and Forward. `focus`: the focus of the keys between the areas. `appearance`: the
+//!   settings that act on the window at once.
 
+mod appearance;
 mod dock;
+mod focus;
 mod history;
 pub(crate) mod keys;
 mod namespaces;
@@ -28,19 +31,22 @@ use std::sync::Arc;
 
 use egui::{CentralPanel, Frame, Margin, Panel, Ui};
 use fresnel_core::app::{Command, CoreView};
-use fresnel_core::commands::CommandId;
+use fresnel_core::commands::{Area, CommandId};
 use fresnel_core::keys::Target;
 use fresnel_core::kinds::Kind;
 use fresnel_core::logs::LogRequest;
 use fresnel_core::net::task::Tasks;
 
+use appearance::Appearance;
 pub(crate) use dock::Tab;
+use focus::Focus;
 use history::History;
 use sidebar::Page;
 
 use crate::format::Clock;
 use crate::theme::{self, ClusterColors};
 use crate::views::detail::sections;
+use crate::views::help;
 use crate::views::journal::JournalTab;
 use crate::views::keys::new_secret::NewSecretDialog;
 use crate::views::logs::LogTabs;
@@ -48,6 +54,7 @@ use crate::views::objects::{self, Link};
 use crate::views::operations::OperationsTab;
 use crate::views::overview::{Jump, OverviewPage};
 use crate::views::search::{Choice, QuickSearch};
+use crate::views::settings::SettingsPage;
 use crate::views::{connections, kinds};
 use crate::widgets::worker::Wake;
 
@@ -63,6 +70,7 @@ pub struct Shell {
     /// The page of the kind that the sidebar opened last. The other pages keep it.
     open: Box<dyn objects::Page>,
     overview: OverviewPage,
+    settings: SettingsPage,
     /// The kinds whose full objects the core holds for the views, as far as the shell knows.
     shown: BTreeSet<Kind>,
     /// The namespaces whose objects each view shows. Empty: each namespace.
@@ -73,6 +81,10 @@ pub struct Shell {
     keys: Option<Target>,
     history: History,
     colors: ClusterColors,
+    appearance: Appearance,
+    focus: Focus,
+    /// True while the overlay of the keys shows.
+    help: bool,
     tasks: Tasks,
     wake: Wake,
 }
@@ -112,6 +124,7 @@ impl Shell {
             logs: LogTabs::new(tasks, Arc::clone(&wake)),
             open: kinds::page(Kind::Pod, tasks, Arc::clone(&wake)),
             overview: OverviewPage::new(tasks, Arc::clone(&wake)),
+            settings: SettingsPage::default(),
             shown: BTreeSet::new(),
             namespaces: BTreeSet::new(),
             search: QuickSearch::new(tasks, Arc::clone(&wake)),
@@ -119,6 +132,9 @@ impl Shell {
             keys: None,
             history: History::default(),
             colors: ClusterColors::default(),
+            appearance: Appearance::default(),
+            focus: Focus::default(),
+            help: false,
             tasks: tasks.clone(),
             wake,
         }
@@ -127,12 +143,14 @@ impl Shell {
     /// Draws one frame into the root `Ui` and returns the commands of the user.
     pub fn show(&mut self, ui: &mut Ui, view: &CoreView) -> Vec<Command> {
         self.colors.assign(view.clusters.iter().map(|row| &row.id));
+        self.appearance.apply(ui.ctx(), view, (&mut self.clock, &mut self.colors, &mut self.namespaces));
         // The keys act before the widgets of the frame, which would take them. Back and
         // Forward take one step for each press; each other command acts one time.
         // A dialog takes the keys of the user.
         if !self.search.is_open()
             && !self.new_secret.is_open()
             && !self.open.has_dialog()
+            && !self.help
             && let Some((command, presses)) = keys::pressed(ui.ctx(), &view.config.keys)
         {
             let times = if matches!(command, CommandId::Back | CommandId::Forward) { presses } else { 1 };
@@ -166,7 +184,7 @@ impl Shell {
         Panel::left("sidebar")
             .exact_size(sidebar::WIDTH)
             .frame(chrome.inner_margin(Margin::symmetric(6, 0)))
-            .show(ui, |ui| sidebar::show(ui, view, &mut self.page));
+            .show(ui, |ui| sidebar::show(ui, view, &mut self.page, self.focus.take(Area::Sidebar)));
         follow_page(&mut self.open, self.page, &self.tasks, &self.wake);
         let titles = self.logs.titles(view);
         // A dock with a log view has a height of its own: a log needs more rows.
@@ -176,7 +194,8 @@ impl Shell {
         };
         let dock = Panel::bottom(name).resizable(true).default_size(height).min_size(dock::SMALLEST);
         dock.frame(Frame::new().fill(palette.bg_sunken)).show(ui, |ui| {
-            if let Some(closed) = dock::tab_bar(ui, &mut self.tab, &titles, scene.colors) {
+            let focus = self.focus.take(Area::Dock);
+            if let Some(closed) = dock::tab_bar(ui, (&mut self.tab, focus), &titles, scene.colors) {
                 self.logs.close(closed);
             }
             // The center can show the same view, so the two have widgets with different identities.
@@ -208,9 +227,16 @@ impl Shell {
                     connections::show(ui, &mut scene);
                     None
                 }
+                Page::Settings => {
+                    self.open.rest();
+                    self.overview.rest();
+                    self.settings.show(ui, &mut scene);
+                    None
+                }
             });
         let chosen = self.search.show(ui.ctx(), &scene, &view.config.keys);
         let created = self.new_secret.show(ui.ctx(), &mut scene, &on_page);
+        help::show(ui.ctx(), &view.config.keys, &mut self.help);
         let asked = scene.asked.take();
         if let Some(request) = scene.logs.take() {
             self.tab = Tab::Logs(self.logs.open(request));
@@ -268,9 +294,25 @@ impl Shell {
             }
             CommandId::Filter => self.open.focus_filter(),
             CommandId::NewSecret => self.new_secret.open(),
+            CommandId::Settings => self.page = Page::Settings,
+            CommandId::Help => self.help = !self.help,
+            CommandId::Focus(area) => self.focus_area(area),
+            CommandId::NextArea | CommandId::PreviousArea => {
+                let area = self.focus.step(command == CommandId::NextArea);
+                self.focus_area(area);
+            }
             CommandId::Object(action) => self.open.act(ctx, action),
         }
         ctx.request_repaint();
+    }
+
+    /// Puts the focus of the keys into an area. The page of a kind holds the table and the
+    /// panel; the sidebar and the dock take theirs in the frame.
+    fn focus_area(&mut self, area: Area) {
+        self.focus.to(area);
+        if matches!(area, Area::Table | Area::Panel) && self.focus.take(area) && matches!(self.page, Page::Kind(_)) {
+            self.open.focus(area);
+        }
     }
 
     /// Opens the page of the kind of a link, and the panel of its object there.
@@ -289,7 +331,7 @@ impl Shell {
             Page::Kind(Kind::Pod) => BTreeSet::new(),
             Page::Kind(kind) => std::iter::once(kind).chain(sections::also_shown(kind).iter().copied()).collect(),
             Page::Overview(overview) => overview.kinds().iter().copied().collect(),
-            Page::Connections => return None,
+            Page::Connections | Page::Settings => return None,
         };
         if wanted == self.shown {
             return None;

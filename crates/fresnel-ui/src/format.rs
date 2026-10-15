@@ -101,17 +101,29 @@ const NO_TIME: &str = "--:--:--";
 pub struct Clock {
     now: WallClock,
     zone: TimeZone,
+    /// True for the form "02:03:07 PM" of the settings.
+    twelve: bool,
 }
 
 impl Clock {
     /// The clock and the time zone of the system.
     pub fn system() -> Self {
-        Self { now: WallClock::system(), zone: TimeZone::system() }
+        Self { now: WallClock::system(), zone: TimeZone::system(), twelve: false }
     }
 
     /// A clock that always shows `now`, in UTC.
     pub fn fixed(now: SystemTime) -> Self {
-        Self { now: WallClock::new(move || now), zone: TimeZone::UTC }
+        Self { now: WallClock::new(move || now), zone: TimeZone::UTC, twelve: false }
+    }
+
+    /// Takes the time zone and the form of a time of day of the settings.
+    pub(crate) fn set(&mut self, zone: TimeZone, twelve: bool) {
+        (self.zone, self.twelve) = (zone, twelve);
+    }
+
+    /// The form of a time of day of the strftime of jiff, with or without seconds.
+    fn form(&self, seconds: &'static str) -> String {
+        if self.twelve { format!("%I:%M{seconds} %p") } else { format!("%H:%M{seconds}") }
     }
 
     /// The time of now.
@@ -131,13 +143,13 @@ impl Clock {
 
     /// "14:03:07": the time of day in the time zone of the clock.
     pub(crate) fn time_of_day(&self, time: SystemTime) -> String {
-        self.text(time, "%H:%M:%S").unwrap_or_else(|| NO_TIME.to_owned())
+        self.text(time, &self.form(":%S")).unwrap_or_else(|| NO_TIME.to_owned())
     }
 
     /// "14:03": the hour and the minute in the time zone of the clock, for the marks of a
     /// time axis.
     pub(crate) fn hour_minute(&self, time: SystemTime) -> String {
-        self.text(time, "%H:%M").unwrap_or_else(|| NO_TIME.to_owned())
+        self.text(time, &self.form("")).unwrap_or_else(|| NO_TIME.to_owned())
     }
 
     /// The time of day `wait` after now. A wait from extreme settings can be past the end of
@@ -150,14 +162,14 @@ impl Clock {
     /// in the time zone of the clock. The calendar has each time of an `i64`.
     pub(crate) fn log_time(&self, nanos: i64) -> String {
         match Timestamp::from_nanosecond(i128::from(nanos)) {
-            Ok(time) => time.to_zoned(self.zone.clone()).strftime("%H:%M:%S%.3f").to_string(),
+            Ok(time) => time.to_zoned(self.zone.clone()).strftime(&self.form(":%S%.3f")).to_string(),
             Err(_) => format!("{NO_TIME}.---"),
         }
     }
 
     /// "2027-01-15 14:03:07": the day and the time of day in the time zone of the clock.
     pub(crate) fn date_time(&self, time: SystemTime) -> String {
-        self.text(time, "%Y-%m-%d %H:%M:%S").unwrap_or_else(|| "no date".to_owned())
+        self.text(time, &format!("%Y-%m-%d {}", self.form(":%S"))).unwrap_or_else(|| "no date".to_owned())
     }
 
     /// `None` for a time that the calendar cannot show, for example before the year -9999.
@@ -227,5 +239,19 @@ mod tests {
             (clock.time_of_day_after(3725 * SECOND), clock.time_of_day_after(Duration::MAX)),
             ("09:02:05".into(), "--:--:--".into())
         );
+    }
+
+    #[test]
+    fn the_settings_give_the_clock_its_time_zone_and_the_form_of_twelve_hours() {
+        let now = SystemTime::UNIX_EPOCH + 1_800_000_000 * SECOND;
+        let mut clock = Clock::fixed(now);
+        clock.set(TimeZone::get("America/New_York").expect("a time zone"), true);
+        assert_eq!(clock.time_of_day(now + 6 * 3600 * SECOND), "09:00:00 AM");
+        assert_eq!(clock.time_of_day(now + 12 * 3600 * SECOND), "03:00:00 PM");
+        assert_eq!(
+            (clock.hour_minute(now), clock.log_time(1_800_000_000_123_456_789)),
+            ("03:00 AM".into(), "03:00:00.123 AM".into())
+        );
+        assert_eq!(clock.date_time(now), "2027-01-15 03:00:00 AM");
     }
 }

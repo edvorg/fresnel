@@ -54,9 +54,11 @@ impl Row {
 /// of the text, then the hits of the result. `key` gives the text of the key of a command.
 pub(super) fn rows(found: Option<&Found>, text: &str, key: impl Fn(CommandId) -> Option<String>) -> Vec<Row> {
     let words: Vec<String> = text.split_whitespace().map(str::to_lowercase).collect();
+    // A move of the focus is for the keys: the search itself has the focus.
     let runs = |id: CommandId| match id {
-        CommandId::QuickSearch => false,
+        CommandId::QuickSearch | CommandId::Focus(_) | CommandId::NextArea | CommandId::PreviousArea => false,
         CommandId::Back | CommandId::Forward | CommandId::Filter | CommandId::NewSecret => true,
+        CommandId::Settings | CommandId::Help => true,
         CommandId::Object(action) => actions::can_run(action),
     };
     let matches = |label: &str| !words.is_empty() && words.iter().all(|word| label.to_lowercase().contains(word));

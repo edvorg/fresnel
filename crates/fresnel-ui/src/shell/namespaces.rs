@@ -4,6 +4,7 @@
 //! The menu lists the namespaces of the Namespace store of each selected cluster, the
 //! namespaces of the objects on the page, and each namespace of the filter: a namespace
 //! whose last object went away stays in the menu, so the user can remove it from the filter.
+//! The favorite namespaces of the selected clusters in the settings come first.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -28,21 +29,31 @@ pub(super) fn menu(ui: &mut Ui, view: &CoreView, on_page: &[Arc<str>], chosen: &
             chosen.clear();
         }
         ui.separator();
+        let favorites: BTreeSet<Arc<str>> = favorites(view).collect();
         let listed: BTreeSet<Arc<str>> =
             of_clusters(view).chain(on_page.iter().cloned()).chain(chosen.iter().cloned()).collect();
         ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-            for namespace in listed {
-                let mut on = chosen.contains(&namespace);
-                if ui.checkbox(&mut on, &*namespace).changed() {
+            for namespace in favorites.iter().chain(listed.difference(&favorites)) {
+                let mut on = chosen.contains(namespace);
+                let text =
+                    if favorites.contains(namespace) { format!("★ {namespace}") } else { namespace.to_string() };
+                if ui.checkbox(&mut on, text).changed() {
                     if on {
-                        chosen.insert(namespace);
+                        chosen.insert(Arc::clone(namespace));
                     } else {
-                        chosen.remove(&namespace);
+                        chosen.remove(namespace);
                     }
                 }
             }
         });
     });
+}
+
+/// The favorite namespaces of the selected clusters in the settings.
+fn favorites(view: &CoreView) -> impl Iterator<Item = Arc<str>> + '_ {
+    let selected = view.clusters.iter().filter(|row| row.selected);
+    let options = selected.filter_map(|row| view.config.options(&row.id));
+    options.flat_map(|options| options.favorite_namespaces.iter().map(|name| Arc::from(name.as_str())))
 }
 
 /// The namespaces of the Namespace stores of the selected clusters.

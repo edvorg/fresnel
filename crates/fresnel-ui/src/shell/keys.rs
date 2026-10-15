@@ -19,10 +19,15 @@ pub(crate) fn text(ctx: &Context, keys: &Keys, id: CommandId) -> Option<String> 
 
 /// The command of a key that the user pressed in this frame, if any, with the count of
 /// the presses: a slow frame gets each press since the frame before. The input loses that
-/// key, so no widget gets it too.
+/// key, so no widget gets it too. A text field with the focus keeps a key that is text,
+/// such as `?`.
 pub(super) fn pressed(ctx: &Context, keys: &Keys) -> Option<(CommandId, usize)> {
-    let mut shortcuts: Vec<(CommandId, KeyboardShortcut)> =
-        keys.iter().filter_map(|(id, shortcut)| Some((id, of(shortcut)?))).collect();
+    let typing = ctx.text_edit_focused();
+    let mut shortcuts: Vec<(CommandId, KeyboardShortcut)> = keys
+        .iter()
+        .filter(|(_, shortcut)| !(typing && shortcut.is_text()))
+        .filter_map(|(id, shortcut)| Some((id, of(shortcut)?)))
+        .collect();
     // A shortcut with fewer modifiers takes a key with more of them too: Cmd+K takes
     // Cmd+Shift+K. So the shortcuts with more modifiers come first.
     shortcuts.sort_by_key(|(_, shortcut)| std::cmp::Reverse(count(shortcut.modifiers)));

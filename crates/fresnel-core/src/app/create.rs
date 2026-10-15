@@ -26,6 +26,13 @@ impl Inner {
         if state.phase == Phase::Stopped {
             return;
         }
+        // A read-only cluster gets no write, also from a dialog that did not close its gate.
+        if let Some(refusal) = state.config.refusal(&secret.cluster) {
+            drop(state);
+            let text = format!("the create of Secret {}/{} did not go: {refusal}", secret.namespace, secret.name);
+            self.journal.warning(secret.cluster.as_str(), text);
+            return;
+        }
         let start = || SecretWriter::start(&self.tasks, registry.clone(), self.repaint.clone());
         state.creates.get_or_insert_with(start).ask(secret);
         drop(state);

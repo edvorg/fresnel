@@ -36,7 +36,8 @@ fn cluster_states(ui: &mut Ui, palette: &Palette, scene: &Scene<'_>, tab: &mut T
             ui.label(small("no cluster is selected").color(palette.text_faint));
         }
         for row in selected {
-            if cluster_state(ui, palette, row).clicked() {
+            let name = scene.view.config.alias(&row.id).unwrap_or(row.id.as_str());
+            if cluster_state(ui, palette, row, name).clicked() {
                 *tab = Tab::Connections;
             }
             ui.add_space(8.0);
@@ -48,13 +49,14 @@ fn small(text: impl Into<String>) -> RichText {
     RichText::new(text).size(SMALL)
 }
 
-/// The mark, the name and the state of one cluster. A click opens the Connections tab.
-fn cluster_state(ui: &mut Ui, palette: &Palette, row: &ClusterRow) -> egui::Response {
+/// The mark, the name or the alias and the state of one cluster. A click opens the
+/// Connections tab.
+fn cluster_state(ui: &mut Ui, palette: &Palette, row: &ClusterRow, name: &str) -> egui::Response {
     let (tone, state) = Tone::of_health(row.health());
     dot(ui, tone.color(palette));
-    let text = format!("{} {state}", row.id);
+    let text = format!("{name} {state}");
     let button = ui.add(Button::new(small(text).color(palette.text_muted)).frame(false));
-    widgets::name(&button, &format!("{}: {state}", row.id));
+    widgets::name(&button, &format!("{name}: {state}"));
     match row.reason() {
         Some(reason) => button.on_hover_text(reason),
         None => button,

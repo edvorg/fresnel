@@ -62,7 +62,7 @@ fn the_sidebar_has_each_kind_in_its_group_with_the_count_of_the_selected_cluster
         assert!(window.query_by_role_and_label(Role::RadioButton, overview).is_some(), "{overview}");
     }
     let entries = window.query_all_by_role(Role::RadioButton).count();
-    assert_eq!(entries, Kind::ALL.len() + 3, "the kinds, the two overviews and Connections");
+    assert_eq!(entries, Kind::ALL.len() + 4, "the kinds, the two overviews, Connections and Settings");
     assert_eq!(count(&window, "Pods").as_deref(), Some("50"), "two selected clusters");
     assert_eq!(count(&window, "Deployments").as_deref(), Some("8"));
     let some = "a selected cluster has no store of the kind, so the count is not complete";

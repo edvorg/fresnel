@@ -8,6 +8,8 @@ use std::time::Duration;
 
 use egui::{CentralPanel, Context, Frame, Panel, RichText, Ui};
 use fresnel_core::app::ClusterRow;
+use fresnel_core::commands::Area;
+use fresnel_core::config::table::Setting;
 use fresnel_core::keys::Target;
 use fresnel_core::kinds::{Action, Describe, Kind, Object};
 use fresnel_core::net::task::Tasks;
@@ -227,6 +229,7 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
         let palette = theme::palette(ui);
         self.read_stores(scene);
         self.table.restore(scene.view.tables.as_deref());
+        self.table.set_row_height(scene.view.config.number(Setting::RowHeight) as f32);
         let mut link = None;
         // The panel comes first, so it has the full height of the page.
         if let Some(panel) = &mut self.detail {
@@ -348,6 +351,13 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
 
     fn focus_filter(&mut self) {
         self.focus = true;
+    }
+
+    fn focus(&mut self, area: Area) {
+        match (area, &mut self.detail) {
+            (Area::Panel, Some(panel)) => panel.focus(),
+            _ => self.table.focus(),
+        }
     }
 
     fn show_problems(&mut self, problems: bool) {

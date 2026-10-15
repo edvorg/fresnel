@@ -37,7 +37,13 @@ impl Tab {
 ///
 /// Eight log tabs can be wider than the window, so the bar scrolls, and a tab that opens
 /// comes into it once: in each frame, it would hold the bar.
-pub(super) fn tab_bar(ui: &mut Ui, open: &mut Tab, logs: &[Title], colors: &ClusterColors) -> Option<u64> {
+/// `focus` gives the focus of the keys to the tab that is open.
+pub(super) fn tab_bar(
+    ui: &mut Ui,
+    (open, focus): (&mut Tab, bool),
+    logs: &[Title],
+    colors: &ClusterColors,
+) -> Option<u64> {
     let palette = theme::palette(ui);
     let mut closed = None;
     let last_id = ui.id().with("tab of the last frame");
@@ -51,7 +57,10 @@ pub(super) fn tab_bar(ui: &mut Ui, open: &mut Tab, logs: &[Title], colors: &Clus
             ui.horizontal(|ui| {
                 ui.set_height(BAR_HEIGHT - 2.0);
                 for (tab, title) in Tab::FIXED {
-                    ui.selectable_value(open, tab, title);
+                    let button = ui.selectable_value(open, tab, title);
+                    if focus && *open == tab {
+                        button.request_focus();
+                    }
                 }
                 for title in logs {
                     ui.add_space(4.0);
@@ -61,6 +70,9 @@ pub(super) fn tab_bar(ui: &mut Ui, open: &mut Tab, logs: &[Title], colors: &Clus
                         _ => RichText::new(&title.text),
                     };
                     let tab = ui.selectable_value(open, Tab::Logs(title.id), text);
+                    if focus && *open == Tab::Logs(title.id) {
+                        tab.request_focus();
+                    }
                     let close = ui.add(Button::new(RichText::new("×").color(palette.text_muted)).frame(false).small());
                     widgets::name(&close, &format!("Close {}", title.text));
                     if opened && *open == Tab::Logs(title.id) {

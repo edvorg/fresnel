@@ -28,8 +28,32 @@ pub enum CommandId {
     Filter,
     /// Opens the dialog of a new Secret, with its cluster and namespace (plan section 12.2).
     NewSecret,
+    /// Opens the settings view (plan section 12.5).
+    Settings,
+    /// Shows the keys of each command over the window.
+    Help,
+    /// Puts the focus into one area of the window: the sidebar, the table, the panel or the
+    /// dock. The keys of that area then act there.
+    Focus(Area),
+    /// Puts the focus into the next area, or the area before.
+    NextArea,
+    PreviousArea,
     /// An action on the object of the detail panel.
     Object(Action),
+}
+
+/// An area of the window that takes the focus of the keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Area {
+    Sidebar,
+    Table,
+    Panel,
+    Dock,
+}
+
+impl Area {
+    /// The areas in the sequence of the next area.
+    pub const ALL: [Self; 4] = [Self::Sidebar, Self::Table, Self::Panel, Self::Dock];
 }
 
 /// When a command asks the user before it acts.
@@ -73,7 +97,12 @@ impl Entry {
             | CommandId::Back
             | CommandId::Forward
             | CommandId::Filter
-            | CommandId::NewSecret => None,
+            | CommandId::NewSecret
+            | CommandId::Settings
+            | CommandId::Help
+            | CommandId::Focus(_)
+            | CommandId::NextArea
+            | CommandId::PreviousArea => None,
         };
         Kind::ALL.iter().copied().filter(move |kind| action.is_some_and(|action| kind.actions().any(|a| a == action)))
     }
@@ -81,15 +110,24 @@ impl Entry {
 
 use Confirm::{Always, Never};
 
-/// The commands of the app and the actions on objects, in the sequence of a menu. Only the
-/// commands that the app can run now have a default key; a later milestone gives one to
-/// the action that it adds.
+/// The commands of the app and the actions on objects, in the sequence of a menu. Each
+/// command that the app runs has a default key; an action of a later milestone gets one
+/// with it. A change of a cluster uses Option or Shift, so no key of a text field and no
+/// key of macOS (Cmd+C, Cmd+Backspace) starts a dialog of a change.
 pub const TABLE: &[Entry] = &[
     Entry::app(CommandId::QuickSearch, "quick-search", "Quick search", Shortcut::command("K")),
     Entry::app(CommandId::Back, "back", "Back", Shortcut::command("OpenBracket")),
     Entry::app(CommandId::Forward, "forward", "Forward", Shortcut::command("CloseBracket")),
     Entry::app(CommandId::Filter, "filter", "Filter the table", Shortcut::command("F")),
     Entry::app(CommandId::NewSecret, "new-secret", "New Secret", Shortcut::command("N").shift()),
+    Entry::app(CommandId::Settings, "settings", "Settings", Shortcut::command("Comma")),
+    Entry::app(CommandId::Help, "help", "Keys", Shortcut::plain("Questionmark")),
+    Entry::app(CommandId::Focus(Area::Sidebar), "focus-sidebar", "Focus the sidebar", Shortcut::command("1")),
+    Entry::app(CommandId::Focus(Area::Table), "focus-table", "Focus the table", Shortcut::command("2")),
+    Entry::app(CommandId::Focus(Area::Panel), "focus-panel", "Focus the panel", Shortcut::command("3")),
+    Entry::app(CommandId::Focus(Area::Dock), "focus-dock", "Focus the dock", Shortcut::command("4")),
+    Entry::app(CommandId::NextArea, "next-area", "Next area", Shortcut::plain("F6")),
+    Entry::app(CommandId::PreviousArea, "previous-area", "Area before", Shortcut::plain("F6").shift()),
     Entry::object(Action::ViewManifest, "view-manifest", Some(Shortcut::command("M").shift()), Never),
     Entry::object(Action::CopyName, "copy-name", Some(Shortcut::command("C").shift()), Never),
     Entry::object(Action::CopyCommand, "copy-command", Some(Shortcut::command("K").shift()), Never),
@@ -100,25 +138,25 @@ pub const TABLE: &[Entry] = &[
     Entry::object(Action::Attach, "attach", None, Never),
     Entry::object(Action::DebugContainer, "debug-container", None, Always),
     Entry::object(Action::Forward, "forward-port", None, Never),
-    Entry::object(Action::Scale, "scale", None, Always),
-    Entry::object(Action::Restart, "restart", None, Always),
-    Entry::object(Action::RolloutStatus, "rollout-status", None, Never),
-    Entry::object(Action::RevisionHistory, "revision-history", None, Never),
-    Entry::object(Action::Rollback, "rollback", None, Always),
-    Entry::object(Action::RunAgain, "run-again", None, Always),
-    Entry::object(Action::Suspend, "suspend", None, Always),
-    Entry::object(Action::Resume, "resume", None, Always),
-    Entry::object(Action::Trigger, "trigger", None, Always),
-    Entry::object(Action::Cordon, "cordon", None, Always),
-    Entry::object(Action::Uncordon, "uncordon", None, Always),
-    Entry::object(Action::Drain, "drain", None, Always),
+    Entry::object(Action::Scale, "scale", Some(Shortcut::command("S").shift()), Always),
+    Entry::object(Action::Restart, "restart", Some(Shortcut::command("R").shift()), Always),
+    Entry::object(Action::RolloutStatus, "rollout-status", Some(Shortcut::command("U").shift()), Never),
+    Entry::object(Action::RevisionHistory, "revision-history", Some(Shortcut::command("H").shift()), Never),
+    Entry::object(Action::Rollback, "rollback", Some(Shortcut::command("B").shift()), Always),
+    Entry::object(Action::RunAgain, "run-again", Some(Shortcut::command("A").alt()), Always),
+    Entry::object(Action::Suspend, "suspend", Some(Shortcut::command("S").alt()), Always),
+    Entry::object(Action::Resume, "resume", Some(Shortcut::command("R").alt()), Always),
+    Entry::object(Action::Trigger, "trigger", Some(Shortcut::command("T").alt()), Always),
+    Entry::object(Action::Cordon, "cordon", Some(Shortcut::command("C").alt()), Always),
+    Entry::object(Action::Uncordon, "uncordon", Some(Shortcut::command("U").alt()), Always),
+    Entry::object(Action::Drain, "drain", Some(Shortcut::command("D").alt()), Always),
     Entry::object(Action::NodeShell, "node-shell", None, Always),
-    Entry::object(Action::EditKeys, "edit-keys", None, Always),
-    Entry::object(Action::AddKey, "add-key", None, Always),
-    Entry::object(Action::RemoveKey, "remove-key", None, Always),
-    Entry::object(Action::Evict, "evict", None, Always),
-    Entry::object(Action::Delete, "delete", None, Always),
-    Entry::object(Action::ForceDelete, "force-delete", None, Always),
+    Entry::object(Action::EditKeys, "edit-keys", Some(Shortcut::command("E").shift()), Always),
+    Entry::object(Action::AddKey, "add-key", Some(Shortcut::command("N").alt()), Always),
+    Entry::object(Action::RemoveKey, "remove-key", Some(Shortcut::command("Delete").alt()), Always),
+    Entry::object(Action::Evict, "evict", Some(Shortcut::command("E").alt()), Always),
+    Entry::object(Action::Delete, "delete", Some(Shortcut::command("Backspace").alt()), Always),
+    Entry::object(Action::ForceDelete, "force-delete", Some(Shortcut::command("Backspace").alt().shift()), Always),
 ];
 
 /// The entry of a command. Each command has one: a test holds it.
@@ -144,6 +182,8 @@ mod tests {
         let app =
             [CommandId::QuickSearch, CommandId::Back, CommandId::Forward, CommandId::Filter, CommandId::NewSecret];
         wanted.extend(app);
+        wanted.extend([CommandId::Settings, CommandId::Help, CommandId::NextArea, CommandId::PreviousArea]);
+        wanted.extend(Area::ALL.map(CommandId::Focus));
         let ids: Vec<CommandId> = TABLE.iter().map(|entry| entry.id).collect();
         assert_eq!(ids.iter().copied().collect::<BTreeSet<_>>(), wanted, "each command, and no other one");
         assert_eq!(ids.len(), wanted.len(), "one entry for each command");

@@ -5,7 +5,9 @@
 
 use std::sync::Arc;
 
-use egui::{Align, Align2, Button, FontId, Layout, RichText, Sense, StrokeKind, Ui, WidgetInfo, WidgetType};
+use egui::{
+    Align, Align2, Button, Color32, FontId, Layout, Response, RichText, Sense, StrokeKind, Ui, WidgetInfo, WidgetType,
+};
 use fresnel_core::app::{ClusterRow, Command, Startup};
 use fresnel_core::commands::CommandId;
 
@@ -51,11 +53,25 @@ fn clusters(ui: &mut Ui, scene: &mut Scene<'_>, palette: &Palette) {
     }
     select_all(ui, scene, true, "All", "Select all clusters");
     select_all(ui, scene, false, "None", "Select no cluster");
+    for group in &scene.view.config.groups {
+        let name = format!("Select the group {}", group.name);
+        let button = ui.small_button(&group.name).on_hover_text(format!("{name}: {}", group.clusters.join(", ")));
+        widgets::name(&button, &name);
+        if button.clicked() {
+            let changed = scene.view.clusters.iter().filter_map(|row| {
+                let selected = group.clusters.iter().any(|member| member == row.id.as_str());
+                (row.selected != selected).then(|| Command::Select { cluster: row.id.clone(), selected })
+            });
+            scene.commands.extend(changed);
+        }
+    }
     ui.add_space(4.0);
     egui::ScrollArea::horizontal().auto_shrink(false).show(ui, |ui| {
         for row in &scene.view.clusters {
             let color = scene.colors.color(&row.id, palette);
-            if chip(ui, palette, row, color).clicked() {
+            let alias = scene.view.config.alias(&row.id);
+            let read_only = scene.view.config.read_only(&row.id);
+            if chip(ui, palette, (row, alias, read_only), color).clicked() {
                 scene.commands.push(Command::Select { cluster: row.id.clone(), selected: !row.selected });
             }
         }
@@ -81,10 +97,17 @@ fn select_all(ui: &mut Ui, scene: &mut Scene<'_>, selected: bool, title: &str, n
     }
 }
 
-/// One cluster with its color. The chip is a switch: a click selects the cluster or
+/// One cluster with its color, by its alias of the settings or the name of its context, and
+/// a lock for a read-only cluster. The chip is a switch: a click selects the cluster or
 /// removes it from the selection.
-fn chip(ui: &mut Ui, palette: &Palette, row: &ClusterRow, color: egui::Color32) -> egui::Response {
-    let name = row.id.as_str();
+fn chip(ui: &mut Ui, palette: &Palette, cluster: (&ClusterRow, Option<&str>, bool), color: Color32) -> Response {
+    let (row, alias, read_only) = cluster;
+    let shown = match alias {
+        Some(alias) => alias.to_owned(),
+        None => row.id.to_string(),
+    };
+    let name = if read_only { format!("{shown} (read-only)") } else { shown };
+    let name = name.as_str();
     let text_color = if row.selected { palette.text } else { palette.text_muted };
     let galley = ui.painter().layout_no_wrap(name.to_owned(), FontId::proportional(12.0), text_color);
     let problem_width = if row.server.is_err() { 12.0 } else { 0.0 };
@@ -109,11 +132,13 @@ fn chip(ui: &mut Ui, palette: &Palette, row: &ClusterRow, color: egui::Color32) 
         let pos = egui::pos2(text_right + 5.0, rect.center().y);
         painter.text(pos, Align2::LEFT_CENTER, "!", FontId::proportional(12.0), palette.warn);
     }
-    response.on_hover_text(hover_text(row))
+    response.on_hover_text(hover_text(row, read_only))
 }
 
-fn hover_text(row: &ClusterRow) -> String {
+fn hover_text(row: &ClusterRow, read_only: bool) -> String {
+    let changes = if read_only { "\nRead-only in the settings: the app makes no change in it." } else { "" };
     let action = if row.selected { "A click closes its connections." } else { "A click connects it." };
+    let action = format!("{action}{changes}");
     match &row.server {
         Ok(server) => format!("{}: {server}\n{action}", row.id),
         Err(error) => format!("{}: the app cannot use its kubeconfig entry.\n{error}", row.id),

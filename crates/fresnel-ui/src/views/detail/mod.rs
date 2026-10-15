@@ -101,6 +101,8 @@ pub(crate) struct DetailPanel<K: Describe> {
     facts: Facts,
     /// What the panel asked of the permissions of the user.
     permits: Permits,
+    /// True when the tab of the panel takes the focus of the keys in the next frame.
+    focus: bool,
 }
 
 impl<K: Describe> DetailPanel<K> {
@@ -112,7 +114,14 @@ impl<K: Describe> DetailPanel<K> {
             KeyPanel::new(keys::Target { cluster, kind, key, uid })
         });
         let (tab, metrics) = (Tab::Overview, MetricsTab::default());
-        Self { id, object, presence: Presence::Present, conditions, tab, manifest, metrics, keys, facts, permits }
+        let presence = Presence::Present;
+        Self { id, object, presence, conditions, tab, manifest, metrics, keys, facts, permits, focus: false }
+    }
+
+    /// Gives the focus of the keys to the tab of the panel in the next frame. The arrows
+    /// then move it to the other tabs, and Space opens one.
+    pub(crate) fn focus(&mut self) {
+        self.focus = true;
     }
 
     pub(crate) fn id(&self) -> &ObjectId {
@@ -176,7 +185,8 @@ impl<K: Describe> DetailPanel<K> {
         }
         let target = self.subject().target;
         let permits = &mut self.permits;
-        Gate::of(action, &self.facts, || permits.decide(scene.view, &target, action, scene.commands))
+        let decide = || permits.decide(scene.view, &target, action, scene.commands);
+        Gate::in_cluster(scene.view, &target.cluster, (action, &self.facts), decide)
     }
 
     /// Reads the object from the snapshot of this frame. An object with the same name and
@@ -236,10 +246,14 @@ impl<K: Describe> DetailPanel<K> {
                 act = Act::Ask(Ask { action, revision: None });
             }
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.tab, Tab::Overview, "Overview");
-                ui.selectable_value(&mut self.tab, Tab::Manifest, "Manifest");
-                if has_columns(K::ID) {
-                    ui.selectable_value(&mut self.tab, Tab::Metrics, "Metrics");
+                let metrics = has_columns(K::ID).then_some((Tab::Metrics, "Metrics"));
+                for (tab, title) in
+                    [(Tab::Overview, "Overview"), (Tab::Manifest, "Manifest")].into_iter().chain(metrics)
+                {
+                    let button = ui.selectable_value(&mut self.tab, tab, title);
+                    if self.tab == tab && std::mem::take(&mut self.focus) {
+                        button.request_focus();
+                    }
                 }
             });
         });

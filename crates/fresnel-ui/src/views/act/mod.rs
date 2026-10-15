@@ -9,7 +9,7 @@
 //! - `facts`: what an action reads of its object. `permits`: the permissions of the user.
 //!   `Found`: the object of an action in its store in a frame.
 //! - `dialog`: the dialog of an action: `confirm` before a change, `drain` with the pods of a
-//!   node, `commands` for kubectl.
+//!   node, `commands` for kubectl. `typed`: the name of a cluster before a change in it.
 
 mod commands;
 mod confirm;
@@ -17,9 +17,12 @@ mod dialog;
 mod drain;
 pub(crate) mod facts;
 mod permits;
+mod typed;
 
 use std::sync::Arc;
 
+use fresnel_core::app::CoreView;
+use fresnel_core::cluster::ClusterId;
 use fresnel_core::commands::{self as table, CommandId, Confirm};
 use fresnel_core::kinds::{Action, Describe};
 use fresnel_core::ops::access::Decision;
@@ -31,6 +34,7 @@ pub(crate) use dialog::{Close, Dialog};
 pub(crate) use drain::DrainDialog;
 pub(crate) use facts::Facts;
 pub(crate) use permits::Permits;
+pub(crate) use typed::TypedName;
 
 use crate::views::detail::actions::{can_run, later};
 use crate::widgets::table::model::ObjectId;
@@ -122,6 +126,20 @@ impl Gate {
             Decision::Allowed => Self::Open,
             Decision::Denied(reason) => Self::Closed(format!("Forbidden: {reason}.")),
             Decision::Unknown(reason) => Self::Unknown(reason),
+        }
+    }
+
+    /// The gate of an action on an object of a cluster. A cluster that is read-only in the
+    /// settings closes each action that changes it, with the reason.
+    pub(crate) fn in_cluster(
+        view: &CoreView,
+        cluster: &ClusterId,
+        (action, facts): (Action, &Facts),
+        decide: impl FnOnce() -> Decision,
+    ) -> Self {
+        match view.config.refusal(cluster).filter(|_| can_run(action) && asks_first(action)) {
+            Some(refusal) => Self::Closed(refusal),
+            None => Self::of(action, facts, decide),
         }
     }
 

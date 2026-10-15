@@ -17,7 +17,7 @@ use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::apps::v1::DaemonSet as DaemonSetObject;
 
 use super::dialog::{Close, title, warning};
-use super::{Found, Gate, Permits, Subject, over_room};
+use super::{Found, Gate, Permits, Subject, TypedName, over_room};
 use crate::shell::Scene;
 use crate::theme::{self, ROW_HEIGHT};
 use crate::views::operations::drain::verdict as verdict_cell;
@@ -35,6 +35,7 @@ pub(crate) struct DrainDialog {
     grace: String,
     timeout: String,
     permits: Permits,
+    typed: TypedName,
 }
 
 /// The pods of the node with their verdicts, and a note when the list can miss some.
@@ -46,7 +47,8 @@ struct Pods {
 impl DrainDialog {
     pub(crate) fn new(subject: Subject) -> Self {
         let (grace, timeout) = (String::new(), String::new());
-        Self { subject, options: DrainOptions::default(), grace, timeout, permits: Permits::default() }
+        let (permits, typed) = (Permits::default(), TypedName::default());
+        Self { subject, options: DrainOptions::default(), grace, timeout, permits, typed }
     }
 
     /// The options of the input, or why the input gives none.
@@ -95,12 +97,14 @@ impl DrainDialog {
                     self.subject.facts = facts;
                 }
                 let decide = || self.permits.decide(scene.view, &target, Action::Drain, scene.commands);
-                Gate::of(Action::Drain, &self.subject.facts, decide)
+                Gate::in_cluster(scene.view, &target.cluster, (Action::Drain, &self.subject.facts), decide)
             }
         };
+        let typed = self.typed.show(ui, palette, scene.view, std::iter::once(&target.cluster));
         let reason = match (&gate, &options) {
             (Gate::Closed(reason), _) => Some(reason.clone()),
             (_, Err(reason)) => Some(reason.clone()),
+            _ if typed.is_some() => typed,
             _ if unlisted.is_some() => unlisted,
             _ if blocks > 0 => Some(format!(
                 "{} the drain: turn on the option that its line names.",

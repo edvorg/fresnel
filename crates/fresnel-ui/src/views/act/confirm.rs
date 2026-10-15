@@ -12,7 +12,7 @@ use fresnel_core::kinds::{Action, Kind};
 use fresnel_core::ops::{self, Operation, Order, Propagation, Target};
 
 use super::dialog::{Close, title, warning};
-use super::{Found, Gate, Permits, Subject, operation, over_room};
+use super::{Found, Gate, Permits, Subject, TypedName, operation, over_room};
 use crate::format::{self, short};
 use crate::shell::Scene;
 use crate::theme::{self, ROW_HEIGHT};
@@ -47,6 +47,7 @@ pub(crate) struct Confirm {
     subjects: Vec<Subject>,
     input: Input,
     permits: Permits,
+    typed: TypedName,
 }
 
 impl Confirm {
@@ -67,7 +68,7 @@ impl Confirm {
             Action::Rollback => Input::Revision { to: revision.unwrap_or(0), offered: revision },
             _ => Input::None,
         };
-        Self { action, subjects, input, permits: Permits::default() }
+        Self { action, subjects, input, permits: Permits::default(), typed: TypedName::default() }
     }
 
     /// The operation of the input, or why the input does not give one.
@@ -96,6 +97,8 @@ impl Confirm {
         for text in self.warnings() {
             warning(ui, palette, &text);
         }
+        let clusters = self.subjects.iter().map(|subject| &subject.target.cluster);
+        let typed = self.typed.show(ui, palette, scene.view, clusters);
         ui.add_space(8.0);
         let operation = self.operation();
         let refused = gates.iter().find_map(|(subject, gate)| match gate {
@@ -103,7 +106,7 @@ impl Confirm {
             Gate::Open | Gate::Unknown(_) => None,
         });
         let full = || over_room(self.subjects.len(), scene.view.jobs.room());
-        let reason = refused.or_else(full).or_else(|| operation.as_ref().err().cloned());
+        let reason = refused.or_else(full).or_else(|| operation.as_ref().err().cloned()).or(typed);
         if let Some(reason) = &reason {
             ui.add(egui::Label::new(RichText::new(reason).color(palette.error)).wrap());
         }
@@ -151,7 +154,7 @@ impl Confirm {
                             subject.facts = facts;
                         }
                         let decide = || permits.decide(scene.view, &subject.target, action, scene.commands);
-                        Gate::of(action, &subject.facts, decide)
+                        Gate::in_cluster(scene.view, &subject.target.cluster, (action, &subject.facts), decide)
                     }
                 };
                 (subject.text(), gate)

@@ -28,15 +28,26 @@ pub(crate) enum Page {
     Kind(Kind),
     Overview(Overview),
     Connections,
+    Settings,
 }
 
-/// Draws the entries. A click on an entry opens its page.
-pub(super) fn show(ui: &mut Ui, view: &CoreView, open: &mut Page) {
+/// Draws the entries. A click on an entry opens its page, and so do Space and Enter on the
+/// entry of the focus. `focus` gives the focus of the keys to the entry of the open page.
+pub(super) fn show(ui: &mut Ui, view: &CoreView, open: &mut Page, focus: bool) {
     let palette = theme::palette(ui);
     ui.add_space(8.0);
     ui.spacing_mut().item_spacing.y = 1.0;
-    if entry(ui, palette, ("Connections", "Connections"), None, *open == Page::Connections).clicked() {
-        *open = Page::Connections;
+    let take = |response: egui::Response, page: Page, open: &mut Page| {
+        if focus && *open == page {
+            response.request_focus();
+            response.scroll_to_me(None);
+        }
+        if response.clicked() {
+            *open = page;
+        }
+    };
+    for (page, title) in [(Page::Connections, "Connections"), (Page::Settings, "Settings")] {
+        take(entry(ui, palette, (title, title), None, *open == page), page, open);
     }
     ScrollArea::vertical().id_salt("sidebar").auto_shrink(false).show(ui, |ui| {
         for group in Sidebar::ALL {
@@ -49,15 +60,11 @@ pub(super) fn show(ui: &mut Ui, view: &CoreView, open: &mut Page) {
             ui.add_space(2.0);
             if let Some(overview) = Overview::of(group) {
                 let page = Page::Overview(overview);
-                if entry(ui, palette, ("Overview", overview.title()), None, *open == page).clicked() {
-                    *open = page;
-                }
+                take(entry(ui, palette, ("Overview", overview.title()), None, *open == page), page, open);
             }
             for kind in group.kinds() {
-                let title = kind.info().title;
-                if entry(ui, palette, (title, title), count(view, kind), *open == Page::Kind(kind)).clicked() {
-                    *open = Page::Kind(kind);
-                }
+                let (title, page) = (kind.info().title, Page::Kind(kind));
+                take(entry(ui, palette, (title, title), count(view, kind), *open == page), page, open);
             }
         }
         ui.add_space(8.0);
@@ -113,6 +120,9 @@ fn entry(
         painter.rect_filled(rect, 4.0, palette.accent_bg);
     } else if response.hovered() {
         painter.rect_filled(rect, 4.0, palette.bg_raised);
+    }
+    if response.has_focus() {
+        painter.rect_stroke(rect, 4.0, (1.5, palette.accent), egui::StrokeKind::Inside);
     }
     let right = rect.right_center() - egui::vec2(8.0, 0.0);
     let count_width = texts.as_ref().map_or(0.0, |(text, _)| {

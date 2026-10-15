@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use egui::{Context, Ui};
 use fresnel_core::cluster::ClusterId;
+use fresnel_core::commands::Area;
 use fresnel_core::keys::Target;
 use fresnel_core::kinds::{Action, Kind};
 use fresnel_core::store::ObjectKey;
@@ -67,6 +68,10 @@ pub(crate) trait Page {
 
     /// Puts the focus into the text filter in the next frame.
     fn focus_filter(&mut self);
+
+    /// Puts the focus of the keys into the table or into the tabs of the panel in the next
+    /// frame. With no panel, the table takes it.
+    fn focus(&mut self, area: Area);
 
     /// Shows the rows of a count of an overview: no text filter, and only the objects that
     /// are not healthy when `problems` is set. The namespace filter is the one of each page.

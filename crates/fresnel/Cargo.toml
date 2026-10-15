@@ -35,6 +35,10 @@ name = "live"
 path = "tests/live/main.rs"
 
 [[test]]
+name = "settings"
+path = "tests/settings/main.rs"
+
+[[test]]
 name = "k3s_views"
 path = "tests/k3s_views/main.rs"
 

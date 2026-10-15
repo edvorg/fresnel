@@ -8,6 +8,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use fresnel_net::ErrorClass;
 use fresnel_net::task::{Restart, TaskHandle, TaskName, Tasks};
 use tokio::sync::watch;
 
@@ -77,8 +78,8 @@ pub(super) struct Jobs {
 pub(super) type ClusterParts = (Parts, AccessHandle);
 
 impl Jobs {
-    /// Starts a job. With no `cluster`, the cluster of the order is not connected, and the
-    /// job ends at once as not sent. `cancel` sets the signal of the parts. A list of running
+    /// Starts a job. With an error in place of `cluster`, the cluster of the order is not
+    /// connected or makes no change, and the job ends at once as not sent with it. `cancel` sets the signal of the parts. A list of running
     /// jobs only takes no new one: the job ends as not sent, and only the journal tells it.
     ///
     /// The same order while its job runs ends at once as not sent, as a fast second click
@@ -88,7 +89,7 @@ impl Jobs {
         &mut self,
         tasks: &Tasks,
         order: Order,
-        cluster: Option<ClusterParts>,
+        cluster: Result<ClusterParts, CoreError>,
         cancel: watch::Sender<bool>,
         ends: Ends,
     ) {
@@ -105,9 +106,8 @@ impl Jobs {
                 end_now(&slot, JobState::NotSent(error), &ends);
                 None
             }
-            (None, Some((parts, access))) => Some(start(tasks, order, parts, access, &slot, ends)),
-            (None, None) => {
-                let error = CoreError::invalid(format!("{} is not connected", order.target.cluster));
+            (None, Ok((parts, access))) => Some(start(tasks, order, parts, access, &slot, ends)),
+            (None, Err(error)) => {
                 end_now(&slot, JobState::NotSent(error), &ends);
                 None
             }
@@ -255,7 +255,14 @@ impl Inner {
         }
         for order in orders {
             let (cancel, signal) = Cancel::pair();
-            let cluster = state.connected.get(&order.target.cluster).map(|connected| connected.job_parts(signal));
+            let id = &order.target.cluster;
+            // A read-only cluster gets no write, also from a view that did not close its gate.
+            let refusal = state.config.refusal(id).filter(|_| order.operation.writes());
+            let cluster = match (refusal, state.connected.get(id)) {
+                (Some(refusal), _) => Err(CoreError::new(ErrorClass::Forbidden, refusal)),
+                (None, Some(connected)) => Ok(connected.job_parts(signal)),
+                (None, None) => Err(CoreError::invalid(format!("{id} is not connected"))),
+            };
             state.jobs.start(&self.tasks, order, cluster, cancel, ends.clone());
         }
         drop(state);

@@ -80,6 +80,7 @@ const NAMES: &[&str] = &[
     "Minus",
     "Equals",
     "Backtick",
+    "Questionmark",
 ];
 /// The keys with a symbol, which the text can use in place of the name.
 const SYMBOLS: &[(&str, &str)] = &[
@@ -94,6 +95,7 @@ const SYMBOLS: &[(&str, &str)] = &[
     ("Minus", "-"),
     ("Equals", "="),
     ("Backtick", "`"),
+    ("Questionmark", "?"),
 ];
 
 /// One key of the list `NAMES`, by its name.
@@ -123,8 +125,14 @@ impl Key {
         SYMBOLS.iter().find(|(name, _)| *name == self.0).map_or(self.0, |(_, symbol)| symbol)
     }
 
-    /// True for F1 to F12: such a key can be a shortcut with no modifier, because no text
-    /// field takes it.
+    /// True for a key that can be a shortcut with no modifier: F1 to F12, which no text
+    /// field takes, and `?`, the key of the help in many apps. The window gives such a key to
+    /// a text field that has the focus, not to its command.
+    fn is_plain(self) -> bool {
+        self.is_function() || self.0 == "Questionmark"
+    }
+
+    /// True for F1 to F12, which no text field takes.
     fn is_function(self) -> bool {
         self.0
             .strip_prefix('F')
@@ -151,9 +159,25 @@ impl Shortcut {
         Self { command: true, ctrl: false, alt: false, shift: false, key: Key(key) }
     }
 
+    /// A key with no modifier: a function key, or `?`.
+    pub(super) const fn plain(key: &'static str) -> Self {
+        Self { command: false, ctrl: false, alt: false, shift: false, key: Key(key) }
+    }
+
     /// The same shortcut with Shift.
     pub(super) const fn shift(self) -> Self {
         Self { shift: true, ..self }
+    }
+
+    /// The same shortcut with Option.
+    pub(super) const fn alt(self) -> Self {
+        Self { alt: true, ..self }
+    }
+
+    /// True for a key with no Cmd, Ctrl or Option that a text field takes as text, such as
+    /// `?`. A function key is no text.
+    pub fn is_text(&self) -> bool {
+        !(self.command || self.ctrl || self.alt || self.key.is_function())
     }
 
     /// Reads the text of a shortcut, for example `Cmd+Shift+K`. The modifiers come first,
@@ -181,7 +205,7 @@ impl Shortcut {
             }
             *flag = true;
         }
-        if !(shortcut.command || shortcut.ctrl || shortcut.alt || key.is_function()) {
+        if !(shortcut.command || shortcut.ctrl || shortcut.alt || key.is_plain()) {
             return Err("a shortcut needs Cmd, Ctrl or Alt, so that it does not act on the text of a field".to_owned());
         }
         Ok(shortcut)
@@ -224,6 +248,9 @@ mod tests {
         assert_eq!(error("Cmd+F13"), "`F13` is not a key that a shortcut can use");
         assert!(error("K").starts_with("a shortcut needs Cmd"));
         assert!(error("Shift+/").starts_with("a shortcut needs Cmd"));
+        assert_eq!(Shortcut::parse("?").map(|shortcut| shortcut.to_string()), Ok("?".to_owned()), "the help");
+        let text = |text: &str| Shortcut::parse(text).map(|shortcut| shortcut.is_text());
+        assert_eq!((text("?"), text("F6"), text("Cmd+F"), text("Shift+?")), (Ok(true), Ok(false), Ok(false), Ok(true)));
         assert_eq!(Shortcut::parse("F12").map(|shortcut| shortcut.key.name()), Ok("F12"));
     }
 
@@ -237,6 +264,7 @@ mod tests {
         assert_eq!(Key::named("]").map(Key::name), Some("CloseBracket"));
         assert_eq!(Key::named("k").map(Key::name), Some("K"));
         assert_eq!(Key::named(""), None, "an empty symbol names no key");
-        assert!(Key::named("F1").is_some_and(Key::is_function) && !Key::named("F").is_some_and(Key::is_function));
+        assert!(Key::named("F1").is_some_and(Key::is_plain) && !Key::named("F").is_some_and(Key::is_plain));
+        assert_eq!(Key::named("?").map(Key::name), Some("Questionmark"));
     }
 }

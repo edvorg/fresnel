@@ -73,6 +73,10 @@ pub(crate) struct Table<M: Model> {
     /// The last answer of `hides`: the rows it read, the object and the answer. A scan of
     /// 10,000 rows in each frame would take a part of each frame.
     hidden: Option<(RequestId, ObjectId, bool)>,
+    /// The height of a row: a setting of the user.
+    row_height: f32,
+    /// True when the table takes the focus of the keys in the next frame.
+    focus: bool,
 }
 
 impl<M: Model> Table<M> {
@@ -82,13 +86,24 @@ impl<M: Model> Table<M> {
         let supply = Supply::start(tasks, wake, name, Arc::clone(&model));
         let (widths, choice) = (Widths::new(model.columns()), Choice::new(model.columns()));
         let (selection, edges) = (Selection::default(), Edges::default());
-        Self { name, model, supply, selection, reveal: None, widths, choice, edges, saved: None, hidden: None }
+        let (saved, hidden, row_height, focus) = (None, None, ROW_HEIGHT, false);
+        Self { name, model, supply, selection, reveal: None, widths, choice, edges, saved, hidden, row_height, focus }
     }
 
     /// Tells the table what its rows come from in this frame, and takes a result of the
     /// worker. `data_serial` grows when the objects change, and `data` gives them.
     pub(crate) fn request(&mut self, filter: &M::Filter, data_serial: u64, data: impl FnOnce() -> M::Data) {
         self.supply.request(filter, data_serial, data);
+    }
+
+    /// Sets the height of a row, from the settings of this frame.
+    pub(crate) fn set_row_height(&mut self, height: f32) {
+        self.row_height = height;
+    }
+
+    /// Gives the table the focus of the keys in the next frame that shows rows.
+    pub(crate) fn focus(&mut self) {
+        self.focus = true;
     }
 
     pub(crate) fn model(&self) -> &M {
@@ -193,6 +208,9 @@ impl<M: Model> Table<M> {
         // get the clicks.
         let focus_id = ui.make_persistent_id((self.name, "keys"));
         let focus = ui.interact(rect, focus_id, Sense::focusable_noninteractive());
+        if std::mem::take(&mut self.focus) {
+            ui.memory_mut(|memory| memory.request_focus(focus_id));
+        }
 
         // The vertical scroll bar takes its place at the right of the rows.
         let place = rect.width() - ui.spacing().scroll.allocated_width();
@@ -207,7 +225,7 @@ impl<M: Model> Table<M> {
             .num_rows(rows.len() as u64)
             .columns(table_columns.clone())
             .num_sticky_cols(1)
-            .headers([egui_table::HeaderRow::new(ROW_HEIGHT + 2.0)])
+            .headers([egui_table::HeaderRow::new(self.row_height + 2.0)])
             .auto_size_mode(egui_table::AutoSizeMode::Never);
         // The object of a link can wait for the rows of a new filter. It stays until the
         // rows of the last request are on the screen.
@@ -237,6 +255,7 @@ impl<M: Model> Table<M> {
             fit,
             fitted: 0.0,
             menu,
+            row_height: self.row_height,
         };
         table.show(ui, &mut delegate);
         let (header_clicked, row_clicked) = (delegate.header_clicked, delegate.row_clicked);
@@ -264,7 +283,7 @@ impl<M: Model> Table<M> {
             // egui moves the focus to some other widget.
             let filter = EventFilter { vertical_arrows: true, escape: true, ..EventFilter::default() };
             ui.memory_mut(|memory| memory.set_focus_lock_filter(focus_id, filter));
-            let page_rows = (rect.height() / ROW_HEIGHT).floor() as usize;
+            let page_rows = (rect.height() / self.row_height).floor() as usize;
             if let Some((nav, extend)) = keys::read(ui, page_rows) {
                 acted = key(model, rows, &mut self.selection, nav, extend);
                 by_key = true;
@@ -337,7 +356,7 @@ impl<M: Model> egui_table::TableDelegate for Delegate<'_, M> {
     }
 
     fn default_row_height(&self) -> f32 {
-        ROW_HEIGHT
+        self.row_height
     }
 }
 

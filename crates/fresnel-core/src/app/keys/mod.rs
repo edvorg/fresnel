@@ -50,6 +50,13 @@ impl Inner {
         state.saves += 1;
         let number = state.saves;
         let target = save.target.clone();
+        // A read-only cluster gets no write, also from a view that did not close its gate.
+        if let Some(refusal) = state.config.refusal(&target.cluster) {
+            drop(state);
+            self.journal.warning(target.cluster.as_str(), format!("{} did not go: {refusal}", save_of(&target)));
+            self.repaint.request();
+            return;
+        }
         let holder = state.connected.get(&target.cluster).and_then(|connected| connected.keys(&target));
         let Some(holder) = holder else {
             drop(state);

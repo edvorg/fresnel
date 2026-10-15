@@ -59,7 +59,8 @@ impl Acts {
 
     /// The gate of an action on the object of a row, for the menu of the row.
     pub(super) fn gate(&mut self, view: &CoreView, subject: &Subject, action: Action, asks: &mut Vec<Command>) -> Gate {
-        Gate::of(action, &subject.facts, || self.permits.decide(view, &subject.target, action, asks))
+        let decide = || self.permits.decide(view, &subject.target, action, asks);
+        Gate::in_cluster(view, &subject.target.cluster, (action, &subject.facts), decide)
     }
 
     /// Starts the action that the user asked for on the object of the panel: a dialog, a

@@ -14,6 +14,7 @@ use fresnel_core::kinds::{Action, Kind};
 use crate::shell::keys;
 use crate::theme::SMALL;
 use crate::views::act::Gate;
+use crate::widgets;
 
 /// True for an action that this version runs.
 pub(crate) fn can_run(action: Action) -> bool {
@@ -120,10 +121,16 @@ pub(crate) fn entries(ui: &mut Ui, kind: Kind, keys: &Keys, mut gate: impl FnMut
     for action in of_kind(kind) {
         let gate = gate(action);
         let mut button = Button::new(label(action));
-        if let Some(key) = keys::text(ui.ctx(), keys, CommandId::Object(action)) {
-            button = button.shortcut_text(key);
+        let key = keys::text(ui.ctx(), keys, CommandId::Object(action));
+        if let Some(key) = &key {
+            button = button.shortcut_text(key.as_str());
         }
         let mut response = ui.add_enabled(!gate.is_closed(), button);
+        // A screen reader reads the words of the entry as its name, and its key as its value.
+        widgets::name(&response, &label(action));
+        if let Some(key) = &key {
+            response.ctx.accesskit_node_builder(response.id, |node| node.set_value(key.as_str()));
+        }
         if let Some(hint) = gate.hint() {
             response = response.on_hover_text(&hint).on_disabled_hover_text(hint);
         }
@@ -133,4 +140,26 @@ pub(crate) fn entries(ui: &mut Ui, kind: Kind, keys: &Keys, mut gate: impl FnMut
         }
     }
     chosen
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The key map is complete: each command that the app runs has a key, an action of a
+    /// later milestone has none, and a change of a cluster needs Option or Shift, so no key
+    /// of a text field starts its dialog.
+    #[test]
+    fn each_command_that_runs_has_a_default_key_and_a_change_needs_option_or_shift() {
+        for entry in commands::TABLE {
+            let runs = match entry.id {
+                CommandId::Object(action) => can_run(action),
+                _ => true,
+            };
+            assert_eq!(entry.key.is_some(), runs, "{}", entry.name);
+            if let Some(key) = entry.key.filter(|_| entry.confirm == Confirm::Always) {
+                assert!(key.alt || key.shift, "{}: {key}", entry.name);
+            }
+        }
+    }
 }

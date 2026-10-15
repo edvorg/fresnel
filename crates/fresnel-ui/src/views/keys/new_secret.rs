@@ -97,14 +97,18 @@ impl NewSecretDialog {
         link
     }
 
-    /// The first selected cluster with a connection, and the one namespace of the filter.
+    /// The first selected cluster with a connection that is not read-only, and the one
+    /// namespace of the filter, else the default namespace of the cluster in the settings.
     fn defaults(&mut self, scene: &Scene<'_>) {
-        let connected = scene.view.clusters.iter().find(|row| row.selected && row.data.is_some());
-        self.cluster = connected.map(|row| row.id.clone());
+        let config = &scene.view.config;
+        let connected = scene.view.clusters.iter().filter(|row| row.selected && row.data.is_some());
+        let mut writable = connected.clone().filter(|row| !config.read_only(&row.id));
+        self.cluster = writable.next().or_else(|| connected.clone().next()).map(|row| row.id.clone());
+        let own = self.cluster.as_ref().and_then(|id| config.options(id)).and_then(|o| o.default_namespace.clone());
         let mut filter = scene.namespaces.iter();
         self.namespace = match (filter.next(), filter.next()) {
             (Some(only), None) => only.to_string(),
-            _ => "default".to_owned(),
+            _ => own.unwrap_or_else(|| "default".to_owned()),
         };
         self.rows = vec![(String::new(), String::new())];
     }
@@ -128,6 +132,10 @@ impl NewSecretDialog {
         let twice = self.twice();
         for hint in secret.as_ref().map(NewSecret::hints).unwrap_or_default().iter().chain(&twice) {
             ui.label(RichText::new(hint).color(palette.warn));
+        }
+        let refusal = self.cluster.as_ref().and_then(|cluster| scene.view.config.refusal(cluster));
+        if let Some(refusal) = &refusal {
+            ui.label(RichText::new(refusal).color(palette.error));
         }
         let state = self.state(scene);
         let pending = state == Some(WriteState::Pending);
@@ -155,7 +163,8 @@ impl NewSecretDialog {
                     answer.1 = self.link();
                 }
             } else {
-                let filled = !self.name.is_empty() && !self.namespace.is_empty() && twice.is_empty();
+                let filled =
+                    !self.name.is_empty() && !self.namespace.is_empty() && twice.is_empty() && refusal.is_none();
                 let create = ui.add_enabled(
                     secret.is_some() && filled && !pending,
                     egui::Button::new(RichText::new("Create").strong()),

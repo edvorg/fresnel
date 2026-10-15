@@ -174,6 +174,8 @@ fn visuals(p: &Palette, mut v: Visuals) -> Visuals {
 #[derive(Debug, Default)]
 pub(crate) struct ClusterColors {
     slots: HashMap<ClusterId, usize>,
+    /// The colors that the settings give some clusters, in place of the color of the slot.
+    chosen: HashMap<ClusterId, Color32>,
 }
 
 impl ClusterColors {
@@ -186,8 +188,18 @@ impl ClusterColors {
         }
     }
 
-    /// The color of a cluster. After the last color, the first one comes again.
+    /// Takes the colors of the settings. A cluster with no color of its own keeps its slot.
+    pub(crate) fn choose(&mut self, chosen: impl Iterator<Item = (ClusterId, Color32)>) {
+        self.chosen.clear();
+        self.chosen.extend(chosen);
+    }
+
+    /// The color of a cluster: its color of the settings, else the color of its slot. After
+    /// the last color, the first one comes again.
     pub(crate) fn color(&self, id: &ClusterId, palette: &Palette) -> Color32 {
+        if let Some(color) = self.chosen.get(id) {
+            return *color;
+        }
         let slot = self.slots.get(id).copied().unwrap_or_default();
         palette.clusters.get(slot % palette.clusters.len()).copied().unwrap_or(palette.accent)
     }
@@ -212,5 +224,13 @@ mod tests {
         let all: Vec<Color32> = ids.iter().map(|id| colors.color(id, &DARK)).collect();
         assert_eq!(all.iter().filter(|color| **color == DARK.clusters[0]).count(), 2, "10 clusters, 8 colors");
         assert_eq!(colors.color(&ClusterId::new("not assigned"), &LIGHT), LIGHT.clusters[0]);
+        let red = Color32::from_rgb(0xf8, 0x51, 0x49);
+        colors.choose(std::iter::once((ids[1].clone(), red)));
+        assert_eq!(
+            (colors.color(&ids[1], &DARK), colors.color(&ids[1], &LIGHT)),
+            (red, red),
+            "the color of the settings"
+        );
+        assert_eq!(colors.color(&ids[0], &DARK), DARK.clusters[0], "the others keep their slots");
     }
 }
