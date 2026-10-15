@@ -32,7 +32,7 @@ pub(crate) fn run(boot: &Arc<Boot>) -> Result<(), String> {
     let create = move |creation: &eframe::CreationContext<'_>| {
         let ctx = creation.egui_ctx.clone();
         let shell = Shell::new(&ctx, Clock::system(), &boot.core().tasks());
-        boot.core().set_notifier(notify::notifier());
+        boot.core().set_notifier(notify::notifier(boot.journal().clone()));
         boot.core().start(move || ctx.request_repaint());
         Ok(Box::new(Window { shell, boot, nap: NapGuard::default() }) as Box<dyn eframe::App>)
     };
