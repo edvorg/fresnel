@@ -72,7 +72,7 @@ fn the_log_views_in_pictures() {
         until_row(&mut window, "INFO GET /api/v1/items?page=39");
         window.get_by_label("Search the log").click();
         window.get_by_label("Search the log").type_text("refused");
-        until(&mut window, "the hits", |window| window.query_by_label_contains("lines").is_some());
+        until(&mut window, "the hits", |window| window.query_by_label_contains(" hits").is_some());
         window.get_by_label("The next hit").click();
         window.run();
         // A selection over two rows.

@@ -54,7 +54,7 @@ fn the_worker_reads_each_part_and_the_new_lines_and_a_new_text_starts_again() {
     bed.read(&first);
     assert_eq!(bed.hits().len(), 4_500, "three parts of the worker");
     assert_eq!(bed.find.kept(), None, "no filter");
-    assert_eq!(bed.find.count(&first).as_deref(), Some("4,500 lines"));
+    assert_eq!(bed.find.count().as_deref(), Some("4,500 hits"));
 
     // New lines and lines that left the ring.
     let later = lines(5_000, 41_000);
@@ -64,7 +64,7 @@ fn the_worker_reads_each_part_and_the_new_lines_and_a_new_text_starts_again() {
     bed.find.search = "Error".to_owned();
     bed.read(&later);
     assert_eq!(bed.hits(), [] as [u64; 0], "a capital letter keeps the case");
-    assert_eq!(bed.find.count(&later).as_deref(), Some("no line"));
+    assert_eq!(bed.find.count().as_deref(), Some("no hit"));
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn the_filter_keeps_its_lines_and_each_marker_and_the_search_finds_hits_among_th
     assert_eq!(bed.find.go(true, 0), Some(109));
     assert_eq!(bed.find.go(true, 0), Some(107), "after the last hit comes the first one");
     assert_eq!(bed.find.go(false, 0), Some(109));
-    assert_eq!(bed.find.count(&view).as_deref(), Some("2 of 2 lines"));
+    assert_eq!(bed.find.count().as_deref(), Some("2 of 2 hits"));
     bed.find.current = None;
     assert_eq!(bed.find.go(true, 108), Some(109), "no current hit: from the line of the pane");
 }

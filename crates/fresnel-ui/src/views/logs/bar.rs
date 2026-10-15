@@ -79,7 +79,7 @@ pub(super) fn show(ui: &mut Ui, state: &mut State<'_>, request: &LogRequest, par
     });
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        asked.extend(search(ui, state.find, parts));
+        asked.extend(search(ui, state.find));
         let copy = ui.add_enabled(state.selected, Button::new("Copy"));
         let copy = copy.on_disabled_hover_text("Select some text first: a drag, a double click or Cmd+A.");
         if copy.clicked() {
@@ -193,7 +193,7 @@ fn of_pod(pod: &Pod) -> Vec<(Arc<str>, bool)> {
 }
 
 /// The search with its hits, and the filter.
-fn search(ui: &mut Ui, find: &mut Find, parts: &Parts<'_>) -> Vec<Asked> {
+fn search(ui: &mut Ui, find: &mut Find) -> Vec<Asked> {
     let mut asked = Vec::new();
     let fill = theme::palette(ui).bg_raised;
     let field = TextEdit::singleline(&mut find.search).hint_text("Search").background_color(fill);
@@ -211,7 +211,7 @@ fn search(ui: &mut Ui, find: &mut Find, parts: &Parts<'_>) -> Vec<Asked> {
             asked.push(Asked::Go(forward));
         }
     }
-    if let Some(count) = parts.view.and_then(|view| find.count(&view.lines)) {
+    if let Some(count) = find.count() {
         ui.label(RichText::new(count).size(SMALL).color(theme::palette(ui).text_muted));
     }
     let field = TextEdit::singleline(&mut find.filter).hint_text("Filter").background_color(fill);

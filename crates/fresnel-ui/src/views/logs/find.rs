@@ -35,6 +35,9 @@ struct Scan {
 struct Scanned {
     from: u64,
     to: u64,
+    /// True when the part ends at the last line of its request: each line that the view had
+    /// then is read.
+    whole: bool,
     kept: Vec<u64>,
     hits: Vec<u64>,
 }
@@ -57,6 +60,9 @@ pub(crate) struct Find {
     done: u64,
     /// The start of the part that the worker reads now.
     asked: Option<u64>,
+    /// True after the worker read each line of the view one time: from then on it reads the
+    /// new lines of a stream as they come, and the counts are not "so far".
+    complete: bool,
     /// The line of the hit that the user went to.
     current: Option<u64>,
     worker: Option<Worker<Scan, Scanned>>,
@@ -82,10 +88,11 @@ impl Find {
         });
         if let Some(done) = worker.take() {
             if done.id.query == self.query && Some(done.output.from) == self.asked {
-                let Scanned { to, kept, hits, .. } = done.output;
+                let Scanned { to, kept, hits, whole, .. } = done.output;
                 Arc::make_mut(&mut self.kept).extend(kept);
                 self.hits.extend(hits);
                 (self.done, self.asked) = (to, None);
+                self.complete |= whole;
             } else {
                 worker.discard(done.output);
             }
@@ -108,6 +115,7 @@ impl Find {
     pub(crate) fn restart(&mut self) {
         self.query += 1;
         (self.kept, self.hits, self.done, self.asked, self.current) = (Arc::default(), VecDeque::new(), 0, None, None);
+        self.complete = false;
     }
 
     /// The lines that the filter keeps. `None` with no filter.
@@ -142,17 +150,17 @@ impl Find {
         self.current
     }
 
-    /// "3 of 120 lines", "120 lines", "no line": the hits of the search, with "so far" while
-    /// the worker reads. `None` with no search.
-    pub(crate) fn count(&self, lines: &Lines) -> Option<String> {
+    /// "3 of 120 hits", "120 hits", "no hit": the lines with a hit of the search, with "so
+    /// far" until the worker read each line one time. `None` with no search.
+    pub(crate) fn count(&self) -> Option<String> {
         self.needles.0.as_ref()?;
-        let total = crate::format::count(self.hits.len() as u64, "line");
+        let total = crate::format::count(self.hits.len() as u64, "hit");
         let text = match self.current().and_then(|current| self.hits.binary_search(&current).ok()) {
             Some(index) => format!("{} of {total}", crate::format::thousands(index as u64 + 1)),
-            None if self.hits.is_empty() && self.done >= lines.end() => "no line".to_owned(),
+            None if self.hits.is_empty() && self.complete => "no hit".to_owned(),
             None => total,
         };
-        Some(if self.done < lines.end() { format!("{text} so far") } else { text })
+        Some(if self.complete { text } else { format!("{text} so far") })
     }
 
     /// "Reading 40,000 of 200,000 lines" while the worker reads, or why it stopped.
@@ -164,7 +172,7 @@ impl Find {
             return Some(format!("The search stopped: {failure}"));
         }
         let read = self.done.saturating_sub(lines.first()).min(lines.len() as u64);
-        (self.done < lines.end()).then(|| {
+        (!self.complete).then(|| {
             let total = crate::format::thousands(lines.len() as u64);
             format!("Reading {} of {total} lines", crate::format::thousands(read))
         })
@@ -196,7 +204,7 @@ fn read(scan: &Scan, cancel: &Cancel<'_>) -> Option<Scanned> {
             hits.push(number);
         }
     }
-    Some(Scanned { from: scan.from, to, kept, hits })
+    Some(Scanned { from: scan.from, to, kept, hits, whole: to == scan.lines.end() })
 }
 
 #[cfg(test)]

@@ -75,7 +75,7 @@ fn a_frame_with_200_000_lines_takes_16_ms_or_less_during_scroll_search_filter_wr
     for character in "error".chars() {
         search.events(&mut window, [Event::Text(character.to_string())]);
     }
-    search.until(&mut window, "each hit", |window| shows(window, "160 lines"));
+    search.until(&mut window, "each hit", |window| shows(window, "160 hits"));
     let next = window.get_by_label("The next hit").rect().center();
     search.click(&mut window, next);
     (0..10).for_each(|_| search.frame(&mut window));

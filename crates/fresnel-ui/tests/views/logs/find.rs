@@ -29,29 +29,29 @@ fn the_search_counts_its_hits_and_goes_to_the_next_and_the_one_before() {
     until_row(&mut window, "0999 ok");
     window.get_by_label("Search the log").click();
     window.get_by_label("Search the log").type_text("error");
-    until(&mut window, "the hits", |window| shows(window, "10 lines"));
+    until(&mut window, "the hits", |window| shows(window, "10 hits"));
 
     window.get_by_label("The next hit").click();
     window.run();
-    assert!(shows(&window, "1 of 10 lines"), "after the last line comes the first hit");
+    assert!(shows(&window, "1 of 10 hits"), "after the last line comes the first hit");
     until_row(&mut window, "0000 ERROR the cache missed");
     window.get_by_label("The next hit").click();
     window.run();
-    assert!(shows(&window, "2 of 10 lines"));
+    assert!(shows(&window, "2 of 10 hits"));
     until_row(&mut window, "0100 ERROR");
     window.get_by_label("The hit before").click();
     window.get_by_label("The hit before").click();
     window.run();
-    assert!(shows(&window, "10 of 10 lines"), "before the first hit comes the last one");
+    assert!(shows(&window, "10 of 10 hits"), "before the first hit comes the last one");
     until_row(&mut window, "0900 ERROR");
 
     // Enter in the field goes to the next hit; a capital letter keeps the case.
     window.get_by_label("Search the log").click();
     window.key_press(Key::Enter);
     window.run();
-    assert!(shows(&window, "1 of 10 lines"));
+    assert!(shows(&window, "1 of 10 hits"));
     window.get_by_label("Search the log").type_text("X");
-    until(&mut window, "no hit", |window| shows(window, "no line"));
+    until(&mut window, "no hit", |window| shows(window, "no hit"));
 }
 
 #[test]
@@ -76,5 +76,5 @@ fn the_filter_shows_the_lines_with_its_text_and_each_marker_and_the_search_reads
     assert_eq!(texts, ["GET /a 200", "the stream started again", "GET /c 404"]);
     window.get_by_label("Search the log").click();
     window.get_by_label("Search the log").type_text("404");
-    until(&mut window, "the hit among the kept lines", |window| shows(window, "1 line"));
+    until(&mut window, "the hit among the kept lines", |window| shows(window, "1 hit"));
 }
