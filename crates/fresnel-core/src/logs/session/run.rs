@@ -35,6 +35,10 @@ const REPORTS: usize = 64;
 /// The most sources of one view over its life. A workload whose pods come and go gets a new
 /// source for each new pod; the sources that ended stay in the view with their state.
 const SOURCE_LIMIT: usize = 4096;
+/// The lines that wait in the merge hold one eighth of the bytes of the ring at most: they
+/// are a part of the memory of the view, and a fast source must not fill it while a silent
+/// one holds the merge.
+const MERGE_SHARE: usize = 8;
 
 /// One run of the task.
 pub(super) async fn run<O: Opener>(
@@ -112,7 +116,7 @@ impl<'a, O: Opener> View<'a, O> {
             request,
             opener,
             sender,
-            merge: Merge::new(parts.settings.hold),
+            merge: Merge::new(parts.settings.hold, parts.settings.ring.bytes / MERGE_SHARE),
             ring: Ring::new(parts.settings.ring),
             default: None,
             pods: PodsState::Loading,
