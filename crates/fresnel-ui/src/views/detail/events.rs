@@ -36,6 +36,10 @@ pub(super) struct Source<'a> {
 }
 
 pub(super) fn show(ui: &mut Ui, palette: &Palette, clock: &Clock, source: &Source<'_>) {
+    // An Event has no Events of its own.
+    if source.kind == Kind::Event {
+        return;
+    }
     heading(ui, palette, "EVENTS");
     let note = |ui: &mut Ui, tone: Tone, text: &str| ui.label(RichText::new(text).color(tone.color(palette)));
     let Some(data) = source.data else {

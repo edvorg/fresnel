@@ -317,10 +317,7 @@ impl<K: Describe> DetailPanel<K> {
             picked = related::show(ui, palette, data, &self.id, &*self.object).map(Pick::Open).or(picked);
         }
         picked = sections::parts(ui, &cx, &*self.object).or(picked);
-        // An Event has no Events of its own.
-        if K::ID != Kind::Event {
-            events::show(ui, palette, scene.clock, &events::Source { kind: K::ID, id: &self.id, data });
-        }
+        events::show(ui, palette, scene.clock, &events::Source { kind: K::ID, id: &self.id, data });
         picked
     }
 
