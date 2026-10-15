@@ -109,6 +109,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The test build fills the disk as in the job `check`, and then kubelet of k3s taints its
+      # node with disk pressure: no pod starts, and the save of the cache fails.
+      - name: Disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc && df -h /
       - name: Toolchain of rust-toolchain.toml
         run: rustup toolchain install
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
