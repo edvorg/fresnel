@@ -2,13 +2,17 @@
 //! with its time and its source in the first row of a line, and a node of the
 //! accessibility tree with its text.
 
+use std::collections::BTreeMap;
+
 use egui::{Align, Align2, Button, Id, Layout, Painter, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
-use fresnel_core::logs::{LineKind, LogLine};
+use fresnel_core::kinds::Kind;
+use fresnel_core::logs::{LineKind, LogLine, LogView, SourceView};
+use fresnel_core::store::ObjectKey;
 
 use super::paint::{self, Look, Marks};
 use super::rows::{Cut, laid_out};
 use super::{Input, Metrics, Output, Pane, Placed, SOURCE_COLUMNS};
-use crate::format::{short, thousands};
+use crate::format::{pod_end, short, thousands};
 use crate::theme::{self, Palette, SMALL};
 
 /// The space above the text in a row.
@@ -20,8 +24,6 @@ struct Gutter<'a> {
     palette: &'a Palette,
     input: &'a Input<'a>,
     metrics: &'a Metrics,
-    /// True for a view with more than one source: each line names its source.
-    many: bool,
 }
 
 impl Pane {
@@ -40,7 +42,7 @@ impl Pane {
         let clip = Rect::from_min_max(pos2(metrics.time, metrics.text.top()), metrics.text.max);
         let painter = ui.painter_at(clip);
         let look = Look { font: metrics.font.clone(), palette, dark: ui.visuals().dark_mode };
-        let gutter = Gutter { painter: &painter, palette, input, metrics, many: input.view.sources.len() > 1 };
+        let gutter = Gutter { painter: &painter, palette, input, metrics };
         self.placed.clear();
         self.widest = 0.0;
         let mut y = metrics.text.top() - self.offset;
@@ -101,20 +103,38 @@ impl Gutter<'_> {
             label.push_str(&time);
             label.push_str(if line.late { " (late) " } else { " " });
         }
-        let source = usize::try_from(line.source).ok().and_then(|index| self.input.view.sources.get(index));
-        if self.many
-            && let Some(source) = source
-        {
-            let name = format!("{}/{}", source.pod.name, source.container);
+        let index = usize::try_from(line.source).ok();
+        let source = index.and_then(|index| Some((metrics.names.get(index)?, self.input.view.sources.get(index)?)));
+        if let Some((name, source)) = source {
             let slot = line.source as usize % palette.clusters.len();
             let color = palette.clusters.get(slot).copied().unwrap_or(palette.accent);
-            let text = short(&name, SOURCE_COLUMNS - 1);
-            self.painter.text(pos2(metrics.source, y + ABOVE), Align2::LEFT_TOP, text, metrics.font.clone(), color);
-            label.push_str(&name);
-            label.push(' ');
+            let text = short(name, SOURCE_COLUMNS - 1);
+            self.painter.text(pos2(metrics.source, y + ABOVE), Align2::LEFT_TOP, &text, metrics.font.clone(), color);
+            // A screen reader reads the full name, which tells the pod and the container.
+            label.push_str(&format!("{}/{} ", source.pod.name, source.container));
         }
         label
     }
+}
+
+/// The name of each source of a view in the gutter: the end of the name of its pod
+/// (`pod_end`), with the container when the view reads more than one container of that pod.
+/// The tab names the object, and the full names of a pod and its container did not fit in
+/// the gutter. The sources of a view of a pod are its containers.
+pub(super) fn source_names(view: &LogView) -> Vec<String> {
+    let mut containers: BTreeMap<&ObjectKey, usize> = BTreeMap::new();
+    for source in view.sources.iter() {
+        *containers.entry(&source.pod).or_default() += 1;
+    }
+    let name = |source: &SourceView| {
+        let pod = pod_end(&source.pod.name, &view.request.key.name);
+        match (view.request.kind, containers.get(&source.pod).copied().unwrap_or_default()) {
+            (Kind::Pod, _) => source.container.to_string(),
+            (_, 2..) => format!("{pod}/{}", source.container),
+            _ => pod.to_owned(),
+        }
+    };
+    view.sources.iter().map(name).collect()
 }
 
 /// A node of the accessibility tree for a row: a screen reader reads the text that the pane

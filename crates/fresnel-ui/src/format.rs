@@ -92,6 +92,16 @@ pub(crate) fn short(text: &str, limit: usize) -> Cow<'_, str> {
     }
 }
 
+/// The short name of a pod of an owner: the random end of its name, as `gn8jp` for
+/// `checkout-api-7d9c5b8f6-gn8jp` of `checkout-api`. The view names the owner, and the end
+/// tells its pods apart: a legend or a log line with the full names has no room for more.
+/// The number of a pod of a StatefulSet alone would read as a value, so it keeps its name.
+pub(crate) fn pod_end<'a>(pod: &'a str, owner: &str) -> &'a str {
+    let own = pod.strip_prefix(owner).and_then(|rest| rest.strip_prefix('-'));
+    let end = own.and_then(|rest| rest.rsplit('-').next());
+    end.filter(|end| !end.is_empty() && !end.bytes().all(|byte| byte.is_ascii_digit())).unwrap_or(pod)
+}
+
 /// The text of a time of day that the calendar cannot show.
 const NO_TIME: &str = "--:--:--";
 
@@ -222,6 +232,17 @@ mod tests {
         assert_eq!(short("CrashLoopBackOff", 5), "Crash…");
         assert_eq!(short("größer", 3), "grö…", "a limit counts characters, not bytes");
         assert_eq!((short("", 0), short("a", 0)), ("".into(), "…".into()));
+    }
+
+    #[test]
+    fn a_pod_has_the_end_of_its_name_as_its_short_name() {
+        assert_eq!(pod_end("checkout-api-7d9c5b8f6-gn8jp", "checkout-api"), "gn8jp");
+        assert_eq!(pod_end("node-exporter-x7k2p", "node-exporter"), "x7k2p");
+        assert_eq!(pod_end("report-29999640-k2x7p", "report"), "k2x7p", "a pod of a Job of a CronJob");
+        assert_eq!(pod_end("postgres-1", "postgres"), "postgres-1", "a number alone reads as a value");
+        assert_eq!(pod_end("all pods", "web"), "all pods");
+        assert_eq!(pod_end("web", "web"), "web");
+        assert_eq!(pod_end("webhook-1a", "web"), "webhook-1a", "an other name with the same start");
     }
 
     #[test]
