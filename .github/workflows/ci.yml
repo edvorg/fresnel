@@ -56,7 +56,9 @@ jobs:
   # shared runner is slower and less steady, so each runner has its own limits: about twice
   # its longest time in the runs of 2026-10-14. Longest frame: macOS 25 ms (one scroll frame,
   # median 1 ms), Linux 15 ms. Longest search: macOS 35 ms, Linux 114 ms (30 to 114 ms in 5
-  # runs, so on Linux the check finds only a large regression).
+  # runs, so on Linux the check finds only a large regression). Since the pod sections of M3,
+  # the first frame of the panel of a pod with extreme values is the longest one: 14 to 31 ms
+  # in 8 runs on Linux (median of its frames 1 to 4 ms), 5 to 11 ms on macOS, 6.5 ms on the Mac.
   time:
     name: time (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -69,7 +71,7 @@ jobs:
             frame: 50
             search: 70
           - os: ubuntu-24.04
-            frame: 30
+            frame: 60
             search: 230
     env:
       FRESNEL_FRAME_LIMIT_MS: ${{ matrix.frame }}
