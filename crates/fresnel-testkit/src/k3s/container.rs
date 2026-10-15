@@ -32,14 +32,9 @@ impl Container {
     ///
     /// The supervisor port 6443 gets no published port, so no test can use it by mistake.
     /// The parts of k3s that no test needs are off, which makes the start faster.
-    /// k3s runs its own container runtime, which needs the mode `--privileged`. `extra` is
-    /// one more argument of the k3s server.
-    pub(super) async fn run(
-        name: &str,
-        network: &Network,
-        host_port: u16,
-        extra: Option<&str>,
-    ) -> Result<Self, KitError> {
+    /// k3s runs its own container runtime, which needs the mode `--privileged`. `extra` has
+    /// more arguments of the k3s server.
+    pub(super) async fn run(name: &str, network: &Network, host_port: u16, extra: &[&str]) -> Result<Self, KitError> {
         // Docker can create a container and then fail to start it. The drop removes it.
         let container = Self { name: name.to_owned() };
         let address = network.address.to_string();
@@ -49,15 +44,13 @@ impl Container {
             "server",
             "--disable=traefik",
             "--disable=servicelb",
-            "--disable=metrics-server",
             // Docker can publish the port only when the server listens on the container address.
             "--kube-apiserver-arg=bind-address=0.0.0.0",
             // The kubelet refuses each image pull above 5 in one second. A test that starts
             // many pods at once would see some of them fail and wait, a different set each time.
             "--kubelet-arg=registry-qps=0",
         ];
-        let extra: Vec<&str> = extra.into_iter().collect();
-        docker(&[&run[..], &["--publish", &publish, IMAGE], &k3s[..], &extra].concat()).await?;
+        docker(&[&run[..], &["--publish", &publish, IMAGE], &k3s[..], extra].concat()).await?;
         Ok(container)
     }
 

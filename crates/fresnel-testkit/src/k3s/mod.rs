@@ -29,6 +29,29 @@ const K3S_KUBECONFIG: &str = "/etc/rancher/k3s/k3s.yaml";
 /// finds the cgroup `kubepods` with no controller. A new container then starts well.
 const START_ATTEMPTS: u32 = 3;
 
+/// What a test cluster has besides the defaults of the helper.
+#[derive(Clone, Debug, Default)]
+pub struct K3sOptions {
+    metrics_server: bool,
+    args: Vec<String>,
+}
+
+impl K3sOptions {
+    /// The metrics-server of k3s. The helper turns it off by default: it pulls an image at
+    /// each start, and only the tests of the metrics read it.
+    pub fn metrics_server(mut self) -> Self {
+        self.metrics_server = true;
+        self
+    }
+
+    /// The name of the node. Docker gives each container an other host name, and k3s takes
+    /// it as the name of its node: two clusters have a node of the same name only with this.
+    pub fn node_name(mut self, name: &str) -> Self {
+        self.args.push(format!("--node-name={name}"));
+        self
+    }
+}
+
 /// A running k3s cluster. The drop removes the container, its network and its files.
 ///
 /// The fields drop in this sequence. The network can go only after its container.
@@ -49,22 +72,29 @@ impl K3s {
     /// A k3s that ends by itself during its start gets a new container, a limited count of
     /// times. Each such end is a line of the test output.
     pub async fn start(label: &str) -> Result<Self, KitError> {
-        with_new_attempts(|| Self::start_one(label, None)).await
+        Self::start_with(label, K3sOptions::default()).await
     }
 
     /// Starts a cluster whose API server does not serve one group version of the API, for
     /// example `node.k8s.io/v1`, as an older cluster does not serve a newer kind.
     pub async fn start_without(label: &str, group_version: &str) -> Result<Self, KitError> {
         let off = format!("--kube-apiserver-arg=runtime-config={group_version}=false");
-        with_new_attempts(|| Self::start_one(label, Some(&off))).await
+        Self::start_with(label, K3sOptions { args: vec![off], ..K3sOptions::default() }).await
+    }
+
+    /// Starts a cluster with these options, as [`K3s::start`] does.
+    pub async fn start_with(label: &str, options: K3sOptions) -> Result<Self, KitError> {
+        with_new_attempts(|| Self::start_one(label, &options)).await
     }
 
     /// One container. Its drop removes it, also after an error of this start.
-    async fn start_one(label: &str, extra: Option<&str>) -> Result<Self, KitError> {
+    async fn start_one(label: &str, options: &K3sOptions) -> Result<Self, KitError> {
         let name = format!("{NAME_PREFIX}{label}-{:06x}", fastrand::u32(..0x0100_0000));
         let api = SocketAddr::from((Ipv4Addr::LOCALHOST, free_port()?));
         let network = Network::create(&name).await?;
-        let container = Container::run(&name, &network, api.port(), extra).await?;
+        let off = (!options.metrics_server).then_some("--disable=metrics-server");
+        let extra: Vec<&str> = off.into_iter().chain(options.args.iter().map(String::as_str)).collect();
+        let container = Container::run(&name, &network, api.port(), &extra).await?;
         container.wait_ready().await?;
         let k3s_kubeconfig = container.exec(&["cat", K3S_KUBECONFIG]).await?;
         let files = Files::create(&name)?;
