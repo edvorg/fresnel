@@ -49,6 +49,7 @@ fn the_fine_tier_keeps_one_hour_of_samples_and_the_coarse_tier_one_per_minute() 
     assert_eq!(all.first(), Some(&45));
     assert_eq!(all.get(60), Some(&3_600));
     assert_eq!(series.len(), 240 + 119);
+    assert_eq!((series.fine_from(), series.step()), (Some(START + 3_600), 60), "the tiers for the gaps of a chart");
 }
 
 #[test]

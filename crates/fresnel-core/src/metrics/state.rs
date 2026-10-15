@@ -102,14 +102,19 @@ impl PollStatus {
     pub(crate) fn take<T>(&mut self, result: Result<&Read<T>, CoreError>, now: SystemTime) {
         match result {
             Ok(read) => {
-                self.answered = Some(now);
-                self.answers += 1;
-                self.items = read.items.len();
+                self.answer(read.items.len(), now);
                 (self.unread, self.problem) = (read.unread, read.problem.clone());
-                self.set(PollState::Ok, now);
             }
             Err(error) => self.set(PollState::of_error(error), now),
         }
+    }
+
+    /// Counts one answer with the list, of `items` items that the sampler could read.
+    pub(crate) fn answer(&mut self, items: usize, now: SystemTime) {
+        self.answered = Some(now);
+        self.answers += 1;
+        self.items = items;
+        self.set(PollState::Ok, now);
     }
 
     /// A new state. The time of the change stays for the same state again.

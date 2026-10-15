@@ -113,6 +113,8 @@ pub struct Series {
     fine: Vector<Sample>,
     coarse: Vector<Sample>,
     step: Option<Step>,
+    /// The time of one step of the coarse tier, in seconds, from the last push.
+    step_length: u32,
     latest: Option<Sample>,
     /// The number of the last answer of the server with a value of this series that is not
     /// much older than `latest` (see `History::record`).
@@ -130,9 +132,22 @@ impl Series {
     /// The samples in the sequence of their time: the steps of the coarse tier before the
     /// first sample of the fine tier, then the fine tier.
     pub fn samples(&self) -> impl Iterator<Item = Sample> + '_ {
-        let first_fine = self.fine.front().map(|sample| sample.at);
+        let first_fine = self.fine_from();
         let older = move |sample: &&Sample| first_fine.is_none_or(|first| sample.at < first);
         self.coarse.iter().filter(older).chain(self.fine.iter()).copied()
+    }
+
+    /// The distance of two samples of the coarse tier, in seconds: one step. A view expects
+    /// one sample each step before [`Series::fine_from`] and one each period after it, and
+    /// shows a gap where samples are missing.
+    pub fn step(&self) -> u32 {
+        self.step_length
+    }
+
+    /// The time of the first sample of the fine tier. Each sample before it is of the
+    /// coarse tier.
+    pub fn fine_from(&self) -> Option<u32> {
+        self.fine.front().map(|sample| sample.at)
     }
 
     /// The count of samples that the tiers hold.
@@ -148,6 +163,7 @@ impl Series {
             return false;
         }
         self.latest = Some(sample);
+        self.step_length = tiers.step;
         self.fine.push_back(sample);
         let start = sample.at - sample.at % tiers.step.max(1);
         match &mut self.step {

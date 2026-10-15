@@ -11,13 +11,14 @@
 /// The most significant digits of a number: the reader computes in `u128`.
 const MAX_DIGITS: usize = 38;
 
-/// CPU in nanocores: `1` is 1,000,000,000, `250m` is 250,000,000.
-pub(crate) fn nanocores(text: &str) -> Result<u64, &'static str> {
+/// CPU in nanocores: `1` is 1,000,000,000, `250m` is 250,000,000. The views read the
+/// allocatable part of a node with it, in the unit of the metrics.
+pub fn nanocores(text: &str) -> Result<u64, &'static str> {
     scaled(text, -9)
 }
 
 /// Memory in bytes: `1Ki` is 1,024, `1k` is 1,000.
-pub(crate) fn bytes(text: &str) -> Result<u64, &'static str> {
+pub fn bytes(text: &str) -> Result<u64, &'static str> {
     scaled(text, 0)
 }
 

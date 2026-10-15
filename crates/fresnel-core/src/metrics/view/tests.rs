@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
 use crate::metrics::resources::Amount;
@@ -137,4 +137,28 @@ fn a_new_state_of_both_lists_keeps_each_value_and_has_no_next_poll() {
     );
     assert_eq!((stopped.nodes.since, stopped.series_count(), stopped.bytes()), (at(20), 2, metrics.bytes()));
     assert_eq!(stopped.dropped(), 0);
+}
+
+/// The metrics of a test of a reader: each sample goes to the series of its key, a node to
+/// the NodeMetrics and each other object to the PodMetrics. A series that the next answer
+/// has no sample of is old.
+#[test]
+fn the_samples_of_a_test_give_each_series_its_value_and_count_one_answer_of_each_list() {
+    let ams = ClusterId::new("ams");
+    let settings = MetricsSettings::default();
+    let mut metrics = Metrics::waiting(ams.clone(), PERIOD, at(0));
+    let sample = |at, cpu| Sample { at, cover: Cover::ONE, usage: Amount { cpu, memory: 2 } };
+    let (pod, node) = (SeriesKey::Pod(ObjectKey::new("shop", "web")), SeriesKey::Node("node-a".into()));
+    let load = NodeLoad { requests: Amount { cpu: 5, memory: 6 }, pods: 1 };
+    let loads = [(Arc::from("node-a"), load)].into();
+    metrics.take_samples(&[(pod.clone(), sample(START, 3)), (node.clone(), sample(START, 4))], loads, at(15), &settings);
+    let value = |key: &SeriesKey| metrics.latest(&ams, key).map(|latest| (latest.sample.usage.cpu, latest.current));
+    assert_eq!((value(&pod), value(&node)), (Some((3, true)), Some((4, true))));
+    assert_eq!((metrics.pods.items, metrics.nodes.items, metrics.node_load(&ams, "node-a")), (1, 1, Some(load)));
+    assert_eq!((&metrics.pods.state, metrics.pods.answered, metrics.next), (&PollState::Ok, Some(at(15)), Some(at(30))));
+
+    metrics.take_samples(&[(node.clone(), sample(START + 15, 7))], BTreeMap::new(), at(30), &settings);
+    let value = |key: &SeriesKey| metrics.latest(&ams, key).map(|latest| (latest.sample.usage.cpu, latest.current));
+    assert_eq!((value(&pod), value(&node)), (Some((3, false)), Some((7, true))));
+    assert_eq!(metrics.series(&ams, &node).map(|series| series.samples().count()), Some(2));
 }

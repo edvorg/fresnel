@@ -27,7 +27,7 @@ mod world;
 use std::time::Duration;
 
 pub use history::SeriesKey;
-pub use resources::{Amount, Limits, PodResources, of_pod};
+pub use resources::{Amount, Limits, PodResources, is_done, of_pod};
 pub use sampler::{Sampler, SamplerParts};
 pub use series::{Cover, Sample, Series};
 pub use state::{PollState, PollStatus};

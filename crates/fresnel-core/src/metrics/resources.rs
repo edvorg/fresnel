@@ -70,8 +70,9 @@ pub fn of_pod(pod: &Pod) -> PodResources {
 }
 
 /// True for a pod in the phase `Succeeded` or `Failed`. Such a pod holds no resource of its
-/// node, so the requests of a node do not count it (the rule of `kubectl describe node`).
-pub(crate) fn is_done(pod: &Pod) -> bool {
+/// node, so the requests of a node do not count it (the rule of `kubectl describe node`),
+/// and the requests of a workload in a view do not either.
+pub fn is_done(pod: &Pod) -> bool {
     let phase = pod.status.as_ref().and_then(|status| status.phase.as_deref());
     matches!(phase, Some("Succeeded" | "Failed"))
 }

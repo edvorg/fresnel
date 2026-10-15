@@ -150,6 +150,28 @@ impl Metrics {
         self.loads = Arc::new(world.loads);
         self.next = Some(now + self.period);
     }
+
+    /// Takes one answer of each list with these samples of the sums and the requests on
+    /// each node, as a poll gives them. A test of a reader builds the metrics of each state
+    /// with it, with no server. A series with no sample in the answer has an old value.
+    pub fn take_samples(
+        &mut self,
+        samples: &[(SeriesKey, Sample)],
+        loads: BTreeMap<Arc<str>, NodeLoad>,
+        now: SystemTime,
+        settings: &MetricsSettings,
+    ) {
+        let of_nodes = |key: &SeriesKey| matches!(key, SeriesKey::Node(_) | SeriesKey::Cluster);
+        let nodes = samples.iter().filter(|(key, _)| of_nodes(key)).count();
+        self.nodes.answer(nodes, now);
+        self.pods.answer(samples.len() - nodes, now);
+        for (key, sample) in samples {
+            let answer = if of_nodes(key) { self.nodes.answers } else { self.pods.answers };
+            self.history.record(key.clone(), *sample, answer, &settings.tiers());
+        }
+        self.loads = Arc::new(loads);
+        self.next = Some(now + self.period);
+    }
 }
 
 /// The period of the setting, or the median window of the last answer when it is longer:
