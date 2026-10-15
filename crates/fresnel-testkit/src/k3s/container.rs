@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use tokio::time::{Instant, sleep};
 
-use super::docker::{docker, docker_blocking, docker_with_errors};
+use super::docker::{docker, docker_blocking, docker_with_errors, docker_with_secret};
 use super::network::Network;
 use crate::KitError;
 
@@ -21,6 +21,8 @@ const READY_REQUEST_LIMIT: &str = "--request-timeout=5s";
 const LOG_LINES: &str = "30";
 /// The seconds that Docker waits for the end of k3s before it kills the process.
 const STOP_SECONDS: &str = "3";
+/// The variable of the token with which an agent joins the server. k3s reads it as `--token`.
+const TOKEN: &str = "K3S_TOKEN";
 
 /// A k3s container. Its drop removes it with its volumes.
 pub(super) struct Container {
@@ -33,8 +35,14 @@ impl Container {
     /// The supervisor port 6443 gets no published port, so no test can use it by mistake.
     /// The parts of k3s that no test needs are off, which makes the start faster.
     /// k3s runs its own container runtime, which needs the mode `--privileged`. `extra` has
-    /// more arguments of the k3s server.
-    pub(super) async fn run(name: &str, network: &Network, host_port: u16, extra: &[&str]) -> Result<Self, KitError> {
+    /// more arguments of the k3s server. An agent joins with `token`.
+    pub(super) async fn run(
+        name: &str,
+        network: &Network,
+        host_port: u16,
+        token: &str,
+        extra: &[&str],
+    ) -> Result<Self, KitError> {
         // Docker can create a container and then fail to start it. The drop removes it.
         let container = Self { name: name.to_owned() };
         let address = network.address.to_string();
@@ -50,7 +58,8 @@ impl Container {
             // many pods at once would see some of them fail and wait, a different set each time.
             "--kubelet-arg=registry-qps=0",
         ];
-        docker(&[&run[..], &["--publish", &publish, IMAGE], &k3s[..], extra].concat()).await?;
+        let arguments = [&run[..], &["--publish", &publish, "--env", TOKEN, IMAGE], &k3s[..], extra].concat();
+        docker_with_secret(&arguments, (TOKEN, token)).await?;
         Ok(container)
     }
 
@@ -66,10 +75,10 @@ impl Container {
         let container = Self { name: name.to_owned() };
         let (address, server) = (network.agent(number).to_string(), format!("https://{server}:6443"));
         let network = network.name();
-        let run = ["run", "--detach", "--privileged", "--name", name, "--network", network, "--ip", &address, IMAGE];
+        let run = ["run", "--detach", "--privileged", "--name", name, "--network", network, "--ip", &address];
         let node = format!("--node-name={node}");
-        let k3s = ["agent", "--server", &server, "--token", token, &node, "--kubelet-arg=registry-qps=0"];
-        docker(&[&run[..], &k3s[..], extra].concat()).await?;
+        let k3s = ["agent", "--server", &server, &node, "--kubelet-arg=registry-qps=0"];
+        docker_with_secret(&[&run[..], &["--env", TOKEN, IMAGE], &k3s[..], extra].concat(), (TOKEN, token)).await?;
         Ok(container)
     }
 

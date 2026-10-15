@@ -104,12 +104,10 @@ impl K3s {
         let api = SocketAddr::from((Ipv4Addr::LOCALHOST, free_port()?));
         let network = Network::create(&name).await?;
         let off = (!options.metrics_server).then_some("--disable=metrics-server");
+        let extra: Vec<&str> = off.into_iter().chain(options.args.iter().map(String::as_str)).collect();
         // An agent joins the cluster with the token of its server.
         let token = format!("{:016x}", fastrand::u64(..));
-        let token_arg = format!("--token={token}");
-        let joins = (!options.agents.is_empty()).then_some(token_arg.as_str());
-        let extra: Vec<&str> = off.into_iter().chain(joins).chain(options.args.iter().map(String::as_str)).collect();
-        let container = Container::run(&name, &network, api.port(), &extra).await?;
+        let container = Container::run(&name, &network, api.port(), &token, &extra).await?;
         container.wait_ready().await?;
         let mut agents = Vec::new();
         for (number, (node, args)) in (1..).zip(&options.agents) {
