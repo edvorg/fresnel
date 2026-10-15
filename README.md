@@ -6,12 +6,12 @@ that looks current.
 
 ## Status
 
-Milestones M0 to M2 are complete; the work is in M3 (workloads) and M4 (Secrets and ConfigMaps).
+Milestones M0 to M4 are complete; the work is in M6 (metrics), M7 (other kinds) and M9 (logs).
 The repository has CI, the test kit, `fresnel-net`, `fresnel-core` (kubeconfig, gateway, app
 core, journal, state and settings files, 41 kinds, watch loop, stores, indexes, manifest, quick
-search, command table, keys of Secrets and ConfigMaps, operations as jobs, permissions), `doctor`,
-`watch` and the window: a live table of each kind, the panel with the workload views and their
-actions and the keys of a Secret or a ConfigMap, the New Secret dialog, the Operations tab.
+search, command table, keys of Secrets and ConfigMaps, operations as jobs, permissions, metrics),
+`doctor`, `watch` and the window: a live table of each kind, the panel with the workload views,
+their actions and the keys of a Secret or a ConfigMap, the New Secret dialog, the Operations tab.
 
 ## The app
 

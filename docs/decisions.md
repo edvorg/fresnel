@@ -1225,3 +1225,16 @@ gets the local port 8000 more, because a lower port needs root on the Mac.
 The panel of a CronJob shows the state of each of its Jobs. The Jobs are a kind of tier A, so
 their store runs already; `ShowKinds` with both kinds gives the view their snapshot, and no
 request goes. A job that the user starts opens the Operations tab, so each click has an answer.
+
+## Own types and readers for the metrics API
+
+`k8s-openapi` has no types of `metrics.k8s.io`. `k8s-metrics` 0.28 fails a whole list when one
+container has no memory value, and `kube_quantity` 0.9 reads `5E` and `1Ei` wrong. So the core
+has own types that accept a missing field, and own readers of a quantity and of a Go duration,
+each with unit tests. An item that does not fit is a count with its reason, not a failed list.
+
+## The history of the metrics stays in memory, with a limit for each cluster
+
+The sampler keeps one hour of samples and 24 hours of minutes in memory. A limit for each
+cluster, not one for all, keeps a large cluster from pushing the history of a small one out.
+A history from before the start of the app needs Prometheus, a later option of the plan.
