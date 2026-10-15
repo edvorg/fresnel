@@ -13,7 +13,12 @@ use crate::store::{ObjectKey, Written};
 pub(in crate::ops) const RETRY: Duration = Duration::from_secs(5);
 /// The start of the cause of the server for a budget that blocks: the name of the budget
 /// follows it.
-const BUDGET: &str = "The disruption budget ";
+pub(super) const BUDGET: &str = "The disruption budget ";
+/// The longest name of an object. A longer word after [`BUDGET`] is no name of a budget.
+pub(super) const NAME_BYTES: usize = 253;
+/// The most bytes of the text of a refusal that a pod keeps: the board copies each pod at
+/// each change, and the server can send 1 MiB.
+pub(super) const REASON_BYTES: usize = 2000;
 
 /// What a drain shows while it runs.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -56,7 +61,8 @@ pub enum PodState {
         /// The count of refusals.
         attempts: u32,
     },
-    /// The server took the eviction, and the pod ends.
+    /// The server took the eviction, and the pod ends. A drain that stops then leaves the
+    /// pod in this state: it goes by itself.
     Terminating,
     /// The pod is gone.
     Gone,
@@ -66,16 +72,12 @@ pub enum PodState {
     Failed(CoreError),
     /// The eviction went out, and no answer came back: the store of the pods shows if it goes.
     Unknown(CoreError),
-    /// The drain ended before the pod was gone: a cancel, its time limit, or a pod that blocks.
+    /// The drain ended before the server took an eviction of the pod: a cancel, its time
+    /// limit, or a pod that blocks.
     Stopped,
 }
 
 impl PodState {
-    /// True for a state that does not change any more.
-    pub fn is_final(&self) -> bool {
-        matches!(self, Self::Gone | Self::Kept | Self::Failed(_) | Self::Unknown(_) | Self::Stopped)
-    }
-
     /// The first state of a pod with this verdict.
     pub(in crate::ops) fn first(verdict: &Verdict) -> Self {
         match verdict {
@@ -98,31 +100,52 @@ pub(in crate::ops) enum Next {
     End(PodState),
 }
 
-/// What the answer to an eviction means, as in kubectl. `terminating`: the pod has a delete
-/// mark in the store now. `attempts`: the count of refusals before this one.
+/// What the pod store shows of the pod of an eviction, at its answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::ops) enum InStore {
+    /// The pod, with the UID of the list.
+    Running,
+    /// The pod, with a delete mark: it goes by itself.
+    Ending,
+    /// No such pod: it is gone, or the store has no complete list yet.
+    Unseen,
+}
+
+/// What the answer to an eviction means, as in kubectl. `pod`: what the store shows of the
+/// pod now. `attempts`: the count of refusals before this one.
 ///
 /// - 404: the pod is gone. 409: the precondition of its UID failed, so a new pod has its
-///   name, and the pod of the list is gone (kubectl would evict the new pod).
+///   name, and the pod of the list is gone (kubectl would evict the new pod). The store tells
+///   it: a conflict for a pod that it still shows is a refusal for now.
 /// - 429: a budget blocks the eviction for now. 403 with the cause `NamespaceTerminating`:
-///   the namespace goes away, and the server takes no eviction there; a pod with a delete
-///   mark goes by itself, and the loop waits for it.
-pub(in crate::ops) fn after(answer: Result<(), WriteError>, terminating: bool, attempts: u32) -> Next {
+///   the namespace goes away, and the server takes no eviction there for now.
+pub(in crate::ops) fn after(answer: Result<(), WriteError>, pod: InStore, attempts: u32) -> Next {
     let Err(failure) = answer else {
         return Next::Wait;
     };
     let error = &failure.error;
+    let again = |budget: Option<&str>, reason: &str| {
+        let budget = budget.filter(|name| name.len() <= NAME_BYTES).map(str::to_owned);
+        let reason = reason.get(..reason.floor_char_boundary(REASON_BYTES)).unwrap_or_default().to_owned();
+        Next::Again(PodState::Blocked { budget, reason, attempts: attempts + 1 })
+    };
+    // A conflict or a namespace that goes away refuses the eviction for now. A pod with a
+    // delete mark then goes by itself, and the loop waits for it.
+    let for_now = match error.status() {
+        Some(409) => true,
+        Some(403) => error.cause("NamespaceTerminating").is_some(),
+        _ => false,
+    };
     match error.status() {
-        Some(404 | 409) => Next::Gone,
+        Some(404) => Next::Gone,
+        Some(409) if pod == InStore::Unseen => Next::Gone,
         Some(429) => {
             let cause = error.cause("DisruptionBudget");
             let budget = cause.and_then(|cause| cause.strip_prefix(BUDGET)?.split_whitespace().next());
-            let reason = cause.map_or_else(|| error.to_string(), str::to_owned);
-            Next::Again(PodState::Blocked { budget: budget.map(str::to_owned), reason, attempts: attempts + 1 })
+            again(budget, cause.unwrap_or(&error.to_string()))
         }
-        Some(403) if error.cause("NamespaceTerminating").is_some() => match terminating {
-            true => Next::Wait,
-            false => Next::Again(PodState::Blocked { budget: None, reason: error.to_string(), attempts: attempts + 1 }),
-        },
+        _ if for_now && pod == InStore::Ending => Next::Wait,
+        _ if for_now => again(None, &error.to_string()),
         _ if failure.fate == Fate::Unknown => Next::End(PodState::Unknown(failure.error)),
         _ => Next::End(PodState::Failed(failure.error)),
     }

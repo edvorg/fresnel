@@ -9,7 +9,7 @@ use k8s_openapi::api::core::v1::Pod;
 use serde_json::Value as Json;
 use tokio::time::sleep;
 
-use super::super::super::drain::{Next, PodState, RETRY, after};
+use super::super::super::drain::{InStore, Next, PodState, RETRY, after};
 use super::super::super::{Target, delete};
 use super::super::Cancel;
 use super::super::long::{Seen, look, not_followed};
@@ -52,11 +52,12 @@ async fn run(seat: &mut Seat) -> PodState {
             Err(error) => return PodState::Failed(error),
         };
         let answer = seat.gateway.send::<Json>(request).await.map(drop);
-        let terminating = match look(&seat.pods.read(), &seat.target) {
-            Seen::Object(pod) => pod.metadata.deletion_timestamp.is_some(),
-            Seen::Gone | Seen::NotYet | Seen::Blocked(_) => false,
+        let pod = match look(&seat.pods.read(), &seat.target) {
+            Seen::Object(pod) if pod.metadata.deletion_timestamp.is_some() => InStore::Ending,
+            Seen::Object(_) => InStore::Running,
+            Seen::Gone | Seen::NotYet | Seen::Blocked(_) => InStore::Unseen,
         };
-        match after(answer, terminating, attempts) {
+        match after(answer, pod, attempts) {
             Next::Wait => break,
             Next::Gone => return PodState::Gone,
             Next::End(state) => return state,
@@ -78,8 +79,9 @@ async fn run(seat: &mut Seat) -> PodState {
             Seen::Blocked(state) => return PodState::Failed(not_followed(Kind::Pod, &state)),
             Seen::Object(_) | Seen::NotYet => {}
         }
+        // The server took the eviction: after the stop of the drain, the pod still ends.
         if let Either::Right(_) = select(pin!(seat.pods.changed()), pin!(seat.stop.until_set())).await {
-            return PodState::Stopped;
+            return PodState::Terminating;
         }
     }
 }

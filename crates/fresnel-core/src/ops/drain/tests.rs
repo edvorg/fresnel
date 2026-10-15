@@ -1,6 +1,7 @@
 use k8s_openapi::api::core::v1::Pod;
 use serde_json::{Value as Json, json};
 
+use super::report::{BUDGET, NAME_BYTES, REASON_BYTES};
 use super::*;
 use crate::cluster::{Fate, WriteError};
 use crate::error::CoreError;
@@ -101,21 +102,42 @@ fn refused(status: u16, causes: &[(&str, &str)]) -> Result<(), WriteError> {
 
 #[test]
 fn an_answer_to_an_eviction_gives_the_next_step_of_kubectl_and_a_budget_by_its_name() {
-    assert_eq!(after(Ok(()), false, 0), Next::Wait);
-    assert_eq!(after(refused(404, &[]), false, 0), Next::Gone);
-    assert_eq!(after(refused(409, &[]), false, 0), Next::Gone, "a new pod has the name");
+    use InStore::{Ending, Running, Unseen};
+    assert_eq!(after(Ok(()), Running, 0), Next::Wait);
+    assert_eq!(after(refused(404, &[]), Running, 0), Next::Gone);
+    assert_eq!(after(refused(409, &[]), Unseen, 0), Next::Gone, "a new pod has the name");
+    let conflict = PodState::Blocked { budget: None, reason: "refused (HTTP 409)".to_owned(), attempts: 1 };
+    assert_eq!(after(refused(409, &[]), Running, 0), Next::Again(conflict), "the store shows the pod");
+    assert_eq!(after(refused(409, &[]), Ending, 0), Next::Wait);
 
     let budget = "The disruption budget web-budget needs 1 healthy pods and has 1 currently";
     let blocked = PodState::Blocked { budget: Some("web-budget".to_owned()), reason: budget.to_owned(), attempts: 3 };
-    assert_eq!(after(refused(429, &[("DisruptionBudget", budget)]), false, 2), Next::Again(blocked));
+    assert_eq!(after(refused(429, &[("DisruptionBudget", budget)]), Running, 2), Next::Again(blocked));
     let unnamed = PodState::Blocked { budget: None, reason: "refused (HTTP 429)".to_owned(), attempts: 1 };
-    assert_eq!(after(refused(429, &[]), false, 0), Next::Again(unnamed));
+    assert_eq!(after(refused(429, &[]), Running, 0), Next::Again(unnamed));
 
     let ending = [("NamespaceTerminating", "namespace shop is being terminated")];
-    assert_eq!(after(refused(403, &ending), true, 0), Next::Wait, "a pod with a delete mark goes by itself");
-    assert!(matches!(after(refused(403, &ending), false, 0), Next::Again(PodState::Blocked { budget: None, .. })));
-    assert!(
-        matches!(after(refused(403, &[]), false, 0), Next::End(PodState::Failed(error)) if error.status() == Some(403))
-    );
-    assert!(matches!(after(refused(500, &[]), false, 0), Next::End(PodState::Unknown(_))), "two budgets: HTTP 500");
+    assert_eq!(after(refused(403, &ending), Ending, 0), Next::Wait, "a pod with a delete mark goes by itself");
+    assert!(matches!(after(refused(403, &ending), Running, 0), Next::Again(PodState::Blocked { budget: None, .. })));
+    for pod in [Running, Ending] {
+        let forbidden = after(refused(403, &[]), pod, 0);
+        assert!(matches!(forbidden, Next::End(PodState::Failed(error)) if error.status() == Some(403)), "{pod:?}");
+    }
+    assert!(matches!(after(refused(500, &[]), Running, 0), Next::End(PodState::Unknown(_))), "two budgets: HTTP 500");
+}
+
+/// A server can send a cause of 1 MiB: a pod keeps a short text, cut at a full character,
+/// and no name that is longer than the name of an object.
+#[test]
+fn a_long_cause_of_a_refusal_gives_a_short_reason_and_no_budget() {
+    let cause = format!("{BUDGET}{}é{} needs 1", "x".repeat(REASON_BYTES - BUDGET.len() - 1), "x".repeat(1 << 20));
+    let Next::Again(PodState::Blocked { budget, reason, .. }) =
+        after(refused(429, &[("DisruptionBudget", &cause)]), InStore::Running, 0)
+    else {
+        panic!("a refusal for now");
+    };
+    assert_eq!((budget, reason.len()), (None, REASON_BYTES - 1), "the 2 bytes of é cross the limit");
+    let name = "b".repeat(NAME_BYTES);
+    let next = after(refused(429, &[("DisruptionBudget", &format!("{BUDGET}{name} needs 1"))]), InStore::Running, 0);
+    assert!(matches!(next, Next::Again(PodState::Blocked { budget: Some(budget), .. }) if budget == name));
 }

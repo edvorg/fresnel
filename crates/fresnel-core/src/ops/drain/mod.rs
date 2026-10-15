@@ -15,7 +15,7 @@ use std::time::Duration;
 use k8s_openapi::api::core::v1::Pod;
 
 pub use report::{Drain, DrainPod, PodState};
-pub(super) use report::{Next, RETRY, after};
+pub(super) use report::{InStore, Next, RETRY, after};
 
 use crate::store::ObjectKey;
 
