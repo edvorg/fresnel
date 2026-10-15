@@ -4,8 +4,8 @@
 //! The fake core of the view tests builds the metrics by hand. This test proves the way from
 //! metrics-server to a view: the CPU and memory of a pod with the request and the limit of
 //! its spec, the sum of a Deployment against the requests and limits of its pods, a node
-//! against its allocatable part, the charts of the Metrics tab, and the sampler in the
-//! Connections view.
+//! against the requests of its pods and its allocatable part, a line of the history of the
+//! sampler in a chart of the Metrics tab, and the sampler in the Connections view.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
@@ -86,6 +86,43 @@ fn hints(window: &Window, text: &str) -> Vec<String> {
     window.query_all_by_label_contains(text).filter_map(|node| node.accesskit_node().value()).collect()
 }
 
+/// The lines of the tooltip of a chart with the pointer at this part of its width: the
+/// texts that the frame did not have before.
+fn tooltip(window: &mut Window, chart: &str, part: f32) -> Vec<String> {
+    let texts = |window: &Window| -> Vec<String> {
+        window.query_all_by_role(Role::Label).filter_map(|node| node.accesskit_node().value()).collect()
+    };
+    window.remove_cursor();
+    window.run();
+    let before = texts(window);
+    window.ctx.all_styles_mut(|style| style.interaction.tooltip_delay = 0.0);
+    let rect = window.get_by_label(chart).rect();
+    window.hover_at(egui::pos2(rect.left() + rect.width() * part, rect.center().y));
+    for _ in 0..4 {
+        window.step();
+    }
+    window.run();
+    texts(window).into_iter().filter(|text| !before.contains(text)).collect()
+}
+
+/// The tooltip of the CPU chart at the first place, from now back, where the line of the
+/// container has a value: the samples of the sampler are in the line. Its first samples
+/// can be few, so the pointer moves over the range of 5 minutes in steps of 3 s.
+fn tooltip_with_a_value(window: &mut Window, container: &str) -> Vec<String> {
+    window.get_by_role_and_label(Role::Button, "5 min").click();
+    window.run();
+    let mut seen = Vec::new();
+    for step in 1..100u8 {
+        let lines = tooltip(window, "CPU chart", 1.0 - f32::from(step) / 100.0);
+        let valued = lines.iter().any(|line| line.starts_with(&format!("{container}: ")) && line.ends_with('m'));
+        if valued {
+            return lines;
+        }
+        seen = lines;
+    }
+    panic!("no value of {container} in the CPU chart; the last tooltip: {seen:?}");
+}
+
 #[test]
 #[ignore = "needs k3s in Docker"]
 fn the_metrics_of_metrics_server_show_in_the_tables_the_charts_and_the_connections_view() {
@@ -120,12 +157,28 @@ fn the_metrics_of_metrics_server_show_in_the_tables_the_charts_and_the_connectio
     until(window, "the panel of the pod", |window| shows(window, "Metrics"));
     window.get_by_role_and_label(Role::Button, "Metrics").click();
     until(window, "the charts", |window| shows(window, "CPU chart") && shows(window, "Memory chart"));
-    assert!(shows(window, "From metrics-server, a sample each 15 s."));
+    // The period is the window of metrics-server when it is longer than 15 s.
+    let source = hints(window, "From metrics-server, a sample each ");
+    eprintln!("k3s metrics: {source:?}");
+    assert_eq!(source.len(), 1, "the source of the values");
+    let container = runtime.block_on(k3s.kubectl(&[
+        "get",
+        "deployment/web",
+        "-n",
+        SHOP,
+        "-o",
+        "jsonpath={.spec.template.spec.containers[0].name}",
+    ]));
+    let lines = tooltip_with_a_value(window, container.expect("the container").trim());
+    let marks = ["request: 50m", "limit: 200m"].map(str::to_owned);
+    assert!(marks.iter().all(|mark| lines.contains(mark)), "the request and the limit of the spec: {lines:?}");
 
-    // The node: its usage against its allocatable part.
+    // The node: its usage against the requests of its pods and its allocatable part.
     let node = runtime.block_on(k3s.kubectl(&["get", "nodes", "-o", "jsonpath={.items[0].metadata.name}"]));
     page(window, "Nodes", node.expect("the node").trim());
     until(window, "the CPU of the node", |window| !hints(window, "\nallocatable ").is_empty());
+    let requests = hints(window, "% of allocatable)\nallocatable ");
+    assert!(requests.iter().any(|hint| hint.contains("\nrequests of its pods ")), "the node: {requests:?}");
 
     // The sampler: both lists answer.
     window.get_by_role_and_label(Role::RadioButton, "Connections").click();
