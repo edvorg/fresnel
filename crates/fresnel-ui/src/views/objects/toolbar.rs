@@ -45,9 +45,10 @@ pub(super) fn show<M: ObjectModel>(
     Frame::new().inner_margin(Margin::symmetric(12, 0)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.set_height(BAR_HEIGHT);
-            // The id of a widget counts the widgets before it. A note before the filters that
-            // comes and goes, as "updating…" for a slow worker, thus gave them new ids: the
-            // field lost the focus and the next keys, and an open menu closed. These are fixed.
+            // The filters come first, with a fixed id. The id of a widget counts the widgets
+            // before it, and a note before the filters that came and went, as "updating…" for
+            // a slow worker, gave them new ids: the field lost the focus and the next keys,
+            // and an open menu closed.
             let id = Id::new(("filters of the bar", nouns.title));
             ui.scope_builder(UiBuilder::new().id(id).layout(Layout::right_to_left(Align::Center)), |ui| {
                 let field = TextEdit::singleline(&mut filter.text).hint_text("Filter").desired_width(200.0);
