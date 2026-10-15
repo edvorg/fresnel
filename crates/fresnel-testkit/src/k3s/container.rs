@@ -54,6 +54,32 @@ impl Container {
         Ok(container)
     }
 
+    /// Starts a k3s agent: one more node of the cluster whose server has the address
+    /// `server` on the network and this token. The agent publishes no port.
+    pub(super) async fn agent(
+        name: &str,
+        network: &Network,
+        (number, node): (u8, &str),
+        (server, token): (Ipv4Addr, &str),
+        extra: &[&str],
+    ) -> Result<Self, KitError> {
+        let container = Self { name: name.to_owned() };
+        let (address, server) = (network.agent(number).to_string(), format!("https://{server}:6443"));
+        let network = network.name();
+        let run = ["run", "--detach", "--privileged", "--name", name, "--network", network, "--ip", &address, IMAGE];
+        let node = format!("--node-name={node}");
+        let k3s = ["agent", "--server", &server, "--token", token, &node, "--kubelet-arg=registry-qps=0"];
+        docker(&[&run[..], &k3s[..], extra].concat()).await?;
+        Ok(container)
+    }
+
+    /// Waits until the node of an agent is in the cluster and ready for pods.
+    pub(super) async fn wait_for_node(&self, node: &str) -> Result<(), KitError> {
+        let node = format!("node/{node}");
+        self.wait_for("the node of an agent is not ready", &["wait", "--for=condition=Ready", &node, "--timeout=5s"])
+            .await
+    }
+
     /// Runs a program in the container and gives its output.
     pub(super) async fn exec(&self, program: &[&str]) -> Result<String, KitError> {
         docker(&[&["exec", &self.name], program].concat()).await

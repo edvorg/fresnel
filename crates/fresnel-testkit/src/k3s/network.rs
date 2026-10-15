@@ -17,11 +17,21 @@ const SUBNET_IN_USE: &str = "overlaps";
 /// A Docker network. Its drop removes it.
 pub(super) struct Network {
     name: String,
-    /// The address for the one container of the network.
+    /// The address for the server container of the network. An agent gets a later one.
     pub(super) address: Ipv4Addr,
 }
 
 impl Network {
+    pub(super) fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The address of the agent with this number, from 1: after the one of the server.
+    pub(super) fn agent(&self, number: u8) -> Ipv4Addr {
+        let [a, b, c, d] = self.address.octets();
+        Ipv4Addr::new(a, b, c, d.saturating_add(number))
+    }
+
     /// Tries each subnet one time, from a random start, so that two tests seldom collide.
     pub(super) async fn create(name: &str) -> Result<Self, KitError> {
         let first = fastrand::u8(..);

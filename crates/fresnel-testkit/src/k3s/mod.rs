@@ -34,6 +34,8 @@ const START_ATTEMPTS: u32 = 3;
 pub struct K3sOptions {
     metrics_server: bool,
     args: Vec<String>,
+    /// The node name and the more arguments of each agent.
+    agents: Vec<(String, Vec<String>)>,
 }
 
 impl K3sOptions {
@@ -50,12 +52,21 @@ impl K3sOptions {
         self.args.push(format!("--node-name={name}"));
         self
     }
+
+    /// One more node: a k3s agent in a container of its own, with this node name and these
+    /// more arguments of the agent, for example a taint. A drain needs a node besides the
+    /// one of the server, where the pods of the cluster run.
+    pub fn agent(mut self, name: &str, args: &[&str]) -> Self {
+        self.agents.push((name.to_owned(), args.iter().map(|arg| (*arg).to_owned()).collect()));
+        self
+    }
 }
 
-/// A running k3s cluster. The drop removes the container, its network and its files.
+/// A running k3s cluster. The drop removes the containers, the network and the files.
 ///
-/// The fields drop in this sequence. The network can go only after its container.
+/// The fields drop in this sequence. The network can go only after its containers.
 pub struct K3s {
+    _agents: Vec<Container>,
     container: Container,
     _network: Network,
     files: Files,
@@ -93,13 +104,26 @@ impl K3s {
         let api = SocketAddr::from((Ipv4Addr::LOCALHOST, free_port()?));
         let network = Network::create(&name).await?;
         let off = (!options.metrics_server).then_some("--disable=metrics-server");
-        let extra: Vec<&str> = off.into_iter().chain(options.args.iter().map(String::as_str)).collect();
+        // An agent joins the cluster with the token of its server.
+        let token = format!("{:016x}", fastrand::u64(..));
+        let token_arg = format!("--token={token}");
+        let joins = (!options.agents.is_empty()).then_some(token_arg.as_str());
+        let extra: Vec<&str> = off.into_iter().chain(joins).chain(options.args.iter().map(String::as_str)).collect();
         let container = Container::run(&name, &network, api.port(), &extra).await?;
         container.wait_ready().await?;
+        let mut agents = Vec::new();
+        for (number, (node, args)) in (1..).zip(&options.agents) {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            let server = (network.address, token.as_str());
+            agents.push(Container::agent(&format!("{name}-{node}"), &network, (number, node), server, &args).await?);
+        }
+        for (node, _) in &options.agents {
+            container.wait_for_node(node).await?;
+        }
         let k3s_kubeconfig = container.exec(&["cat", K3S_KUBECONFIG]).await?;
         let files = Files::create(&name)?;
         kubeconfig::write(&files.kubeconfig(api), &kubeconfig::with_server(&k3s_kubeconfig, api)?)?;
-        Ok(Self { container, _network: network, files, api, k3s_kubeconfig })
+        Ok(Self { _agents: agents, container, _network: network, files, api, k3s_kubeconfig })
     }
 
     /// The name of the container.
