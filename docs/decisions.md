@@ -1625,3 +1625,10 @@ The fake plugin and the fake login shell of the tests are shell scripts, and Win
 shell for them. Their tests, and the tests of a FIFO, of mode bits and of the macOS bundle,
 have `cfg(unix)`. The job object has its own tests with `cmd.exe` and `ping.exe`, and each other
 test runs on Windows in CI.
+
+## A start error on Windows shows in a dialog
+
+A release build for Windows has no console, so the text on stderr of an error before the window,
+such as "fresnel runs already", shows nowhere, and a second start ends with no sign. The program
+shows that text in a message box of the system. Finder starts no second process of an app that
+runs, so macOS needs no dialog. The first window does not come to the front yet.

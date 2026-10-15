@@ -30,15 +30,23 @@ pub fn run() -> ExitCode {
     let boot = match boot::Boot::start(ProcessEnv::from_process()) {
         Ok(boot) => Arc::new(boot),
         Err(error) => {
-            eprintln!("fresnel: {error}");
+            tell_start_error(&error.to_string());
             return ExitCode::FAILURE;
         }
     };
     let window = window::run(&boot);
     if let Err(error) = &window {
-        boot.journal().error("app", format!("the window did not open: {error}"));
-        eprintln!("fresnel: the window did not open: {error}");
+        let text = format!("the window did not open: {error}");
+        boot.journal().error("app", &text);
+        tell_start_error(&text);
     }
     boot.quit();
     if window.is_ok() { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+}
+
+/// Tells why the program stops at its start: on stderr, and in a dialog of the system where
+/// no console shows it (`platform`).
+fn tell_start_error(text: &str) {
+    eprintln!("fresnel: {text}");
+    platform::show_start_error(text);
 }

@@ -21,9 +21,9 @@ objc2.workspace = true
 objc2-foundation.workspace = true
 objc2-user-notifications.workspace = true
 
-# The lock of the process.
+# The lock of the process, and the dialog of a start error.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 egui_kittest.workspace = true

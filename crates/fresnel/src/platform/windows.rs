@@ -11,6 +11,7 @@ use fresnel_core::net::env::ProcessEnv;
 use windows_sys::Win32::Foundation::ERROR_LOCK_VIOLATION;
 use windows_sys::Win32::Storage::FileSystem::{LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx};
 use windows_sys::Win32::System::IO::OVERLAPPED;
+use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
 
 /// The variables that [`folders`] and the folder of downloads read.
 pub(crate) const FOLDER_VARIABLES: &str = "USERPROFILE, APPDATA or LOCALAPPDATA";
@@ -43,6 +44,16 @@ pub(crate) fn try_lock(file: &File) -> Result<(), TryLockError> {
     } else {
         Err(TryLockError::Error(error))
     }
+}
+
+/// Shows why the program stops at its start in a dialog. A release build has no console
+/// (`main.rs`), so the text on stderr shows nowhere, and a second start would end with no sign.
+pub(crate) fn show_start_error(text: &str) {
+    let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let (text, title) = (wide(text), wide("Fresnel"));
+    // SAFETY: each text ends with a zero and lives to the end of the call; the dialog has no
+    // owner window. The answer is the button that closed it, and the program ends in each case.
+    unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONERROR) };
 }
 
 /// Windows has no App Nap: the timers of a hidden window keep their times.
