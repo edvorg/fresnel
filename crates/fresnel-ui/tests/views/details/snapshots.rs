@@ -52,7 +52,7 @@ fn the_panels_of_the_cluster_kinds() {
     let node = nodes()[0].metadata.name.clone().expect("a name");
     let window = panel_of(vec![live("ams-prod", &nodes())], "Nodes", &node);
     save_clean(&mut tall(window, "CAPACITY"), "m7-node");
-    let window = panel_of(vec![namespaces()], "Namespaces", "scene");
+    let window = panel_of(vec![namespaces("ams-prod")], "Namespaces", "scene");
     save_clean(&mut tall(window, "RESOURCE QUOTAS"), "m7-namespace");
     let window = panel_of(vec![live("ams-prod", &events())], "Events", "crash.18de28919fa8e1d0");
     save_clean(&mut tall(window, "DETAILS"), "m7-event");

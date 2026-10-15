@@ -54,10 +54,10 @@ fn in_scene<K: Serialize + DeserializeOwned>(object: &K) -> Arc<K> {
 /// The cluster of the Namespaces, with the quotas and the limit ranges of the namespace
 /// `scene`, and the stores that are always on: the pods, the Deployments, the Services in a
 /// pause, and the Events of a store at its limit.
-pub(super) fn namespaces() -> ClusterRow {
+pub(super) fn namespaces(cluster: &str) -> ClusterRow {
     let quotas: Vec<Arc<ResourceQuota>> = of_kinds::<ResourceQuota>().iter().map(|quota| in_scene(&**quota)).collect();
     let ranges: Vec<Arc<LimitRange>> = of_kinds::<LimitRange>().iter().map(|range| in_scene(&**range)).collect();
-    let row = and(and(live("ams-prod", &scene::<Namespace>()), &quotas), &ranges);
+    let row = and(and(live(cluster, &scene::<Namespace>()), &quotas), &ranges);
     let mut data = row.data.clone().expect("data");
     let pause = StoreState::Backoff { failures: 2, reason: no_answer(), until: now() + 2 * SECOND };
     let services = in_state(&store(StoreState::Live, &scene::<Service>()), pause);
@@ -73,7 +73,7 @@ pub(super) fn namespaces() -> ClusterRow {
 
 #[test]
 fn a_namespace_shows_its_quotas_limit_ranges_and_the_counts_of_its_objects() {
-    let mut window = opened::<Namespace>(vec![namespaces()], "scene");
+    let mut window = opened::<Namespace>(vec![namespaces("ams-prod")], "scene");
     let wanted = BTreeSet::from([Kind::Namespace, Kind::ResourceQuota, Kind::LimitRange]);
     assert!(window.state().sent.contains(&Command::ShowKinds(wanted)));
     let texts =
@@ -88,8 +88,20 @@ fn a_namespace_shows_its_quotas_limit_ranges_and_the_counts_of_its_objects() {
     follow(&mut window, "ResourceQuota quota");
     until(&mut window, "the panel of the quota", |window| in_panel(window, "USE"));
 
-    let window = opened::<Namespace>(vec![namespaces()], "scene-ending");
+    let window = opened::<Namespace>(vec![namespaces("ams-prod")], "scene-ending");
     assert_eq!(missing(&window, &["Terminating", "Waits for", "kubernetes"]), Vec::<String>::new());
+}
+
+/// Weakness 2 of plan section 6: a namespace of one name in two clusters. The panel of the
+/// cluster with no quota shows none, and no quota or count of the other cluster.
+#[test]
+fn a_namespace_of_one_name_in_two_clusters_shows_the_quotas_and_counts_of_its_own_cluster() {
+    let bare = live("ams-prod", &scene::<Namespace>());
+    let bare = and(and(bare, &Vec::<Arc<ResourceQuota>>::new()), &Vec::<Arc<LimitRange>>::new());
+    let window = opened::<Namespace>(vec![bare, namespaces("fra-prod")], "scene");
+    assert!(in_panel(&window, "ams-prod") && !in_panel(&window, "fra-prod"), "the panel of the first cluster");
+    assert_eq!(times_in_panel(&window, "None."), 2, "no quota and no limit range");
+    assert!(!in_panel(&window, "ResourceQuota quota") && !in_panel(&window, "Deployments"), "of the other cluster");
 }
 
 #[test]
