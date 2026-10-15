@@ -22,6 +22,7 @@ pub mod app;
 pub mod cluster;
 pub mod commands;
 pub mod config;
+mod downloads;
 mod error;
 #[cfg(test)]
 mod fixture;
