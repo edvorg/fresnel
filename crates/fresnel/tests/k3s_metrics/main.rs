@@ -12,15 +12,16 @@
 #[path = "../common/window.rs"]
 mod window;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui;
 use egui::accesskit::Role;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use fresnel_core::metrics::PollStatus;
 use fresnel_testkit::{Home, K3s, K3sOptions};
 use tokio::runtime::{Builder, Runtime};
 
-use window::{Window, core, shows, stop_with_no_ended_task, until, until_within, window};
+use window::{Window, core, shows, stop_with_no_ended_task, until, window};
 
 /// The namespace of the scene.
 const SHOP: &str = "shop";
@@ -29,6 +30,8 @@ const IMAGE: &str = "rancher/mirrored-pause:3.6";
 /// The longest wait for the first values: metrics-server gives them one or two scrapes of
 /// 15 s after its start, and its image can need a pull.
 const FIRST_VALUES: Duration = Duration::from_secs(300);
+/// The words of the CPU of a pod of the scene with a value.
+const REQUEST: &str = "\nrequest 50m (";
 
 /// The objects of the scene, made with kubectl as a user makes them. The Deployment gets its
 /// resources before its first pod, so no pod of an older ReplicaSet ends during the test.
@@ -86,6 +89,49 @@ fn hints(window: &Window, text: &str) -> Vec<String> {
     window.query_all_by_label_contains(text).filter_map(|node| node.accesskit_node().value()).collect()
 }
 
+/// Waits for the CPU of both pods of the scene, and gives the time of the wait. A wait in
+/// vain tells why: the state of the sampler and what kubectl sees of metrics-server. The first
+/// run on Linux in CI waited in vain, with the journal as its only words.
+fn first_values(window: &mut Window, k3s: &K3s, runtime: &Runtime) -> Duration {
+    let started = Instant::now();
+    while hints(window, REQUEST).len() < 2 {
+        assert!(started.elapsed() < FIRST_VALUES, "no CPU of both pods: {}", diagnosis(window, k3s, runtime));
+        window.run();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    started.elapsed()
+}
+
+/// The state of the sampler of each cluster, and the answers of kubectl about metrics-server.
+fn diagnosis(window: &Window, k3s: &K3s, runtime: &Runtime) -> String {
+    let view = window.state().core.view();
+    let mut text: Vec<String> = view
+        .clusters
+        .iter()
+        .filter_map(|row| {
+            let metrics = &row.data.as_ref()?.metrics;
+            let state = |status: &PollStatus| format!("{} ({} items)", status.state, status.items);
+            Some(format!(
+                "{}: PodMetrics {}, NodeMetrics {}",
+                row.id.as_str(),
+                state(&metrics.pods),
+                state(&metrics.nodes)
+            ))
+        })
+        .collect();
+    let commands: [&[&str]; 4] = [
+        &["get", "apiservice", "v1beta1.metrics.k8s.io"],
+        &["get", "pods", "-A", "-o", "wide"],
+        &["top", "pods", "-n", SHOP],
+        &["logs", "-n", "kube-system", "deployment/metrics-server", "--tail=30"],
+    ];
+    for command in commands {
+        let answer = runtime.block_on(k3s.kubectl(command)).unwrap_or_else(|error| error.to_string());
+        text.push(format!("kubectl {}:\n{answer}", command.join(" ")));
+    }
+    text.join("\n")
+}
+
 /// The lines of the tooltip of a chart with the pointer at this part of its width: the
 /// texts that the frame did not have before.
 fn tooltip(window: &mut Window, chart: &str, part: f32) -> Vec<String> {
@@ -136,10 +182,9 @@ fn the_metrics_of_metrics_server_show_in_the_tables_the_charts_and_the_connectio
 
     // Each pod: its usage against the request and the limit of its spec, with the age.
     page(window, "Pods", "web-");
-    let request = "\nrequest 50m (";
-    let waited = until_within(window, "the CPU of both pods", FIRST_VALUES, |window| hints(window, request).len() == 2);
+    let waited = first_values(window, k3s, runtime);
     eprintln!("k3s metrics: the first values showed after {waited:.1?}");
-    let cpu = hints(window, request);
+    let cpu = hints(window, REQUEST);
     assert!(cpu.iter().all(|hint| hint.starts_with("CPU ") && hint.contains("\nlimit 200m (")), "{cpu:?}");
     assert!(cpu.iter().all(|hint| hint.contains(" s ago")), "the age of each sample: {cpu:?}");
     assert_eq!(hints(window, "\nrequest 32Mi (").len(), 2, "the memory of both pods");
@@ -152,7 +197,7 @@ fn the_metrics_of_metrics_server_show_in_the_tables_the_charts_and_the_connectio
 
     // The charts of a pod, from the history of the sampler.
     page(window, "Pods", &pods[0]);
-    until(window, "the row of the pod", |window| hints(window, request).len() == 1);
+    until(window, "the row of the pod", |window| hints(window, REQUEST).len() == 1);
     window.query_all_by_label(&pods[0]).next().expect("the row").click();
     until(window, "the panel of the pod", |window| shows(window, "Metrics"));
     window.get_by_role_and_label(Role::Button, "Metrics").click();
