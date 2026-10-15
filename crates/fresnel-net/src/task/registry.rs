@@ -39,8 +39,14 @@ impl Registry {
         });
     }
 
-    pub(super) fn run_ended(&self, id: TaskId, state: TaskState) {
-        self.change(id, |status| status.enter(state));
+    /// Records the end of a run. False for a task whose handle dropped: its owner stopped it.
+    pub(super) fn run_ended(&self, id: TaskId, state: TaskState) -> bool {
+        let mut tasks = self.lock();
+        let Some(status) = tasks.get_mut(&id) else {
+            return false;
+        };
+        status.enter(state);
+        true
     }
 
     /// Records that the supervisor of the task is gone. An end that is already recorded stays.

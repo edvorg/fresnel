@@ -66,6 +66,10 @@ impl Supervisor {
 
     /// Records and reports the end of one run. Gives the pause before the next run, or
     /// `None` after the final end of a task that runs one time.
+    ///
+    /// A task whose handle dropped reports no end. On a runtime with worker threads, a run can
+    /// end on an other thread after the drop and before the abort reaches it, often with an
+    /// error that the stop caused: a log view that closed dropped the channel of its sources.
     pub(super) fn after_run(&self, end: End, run_time: Duration, early_ends: &mut u32) -> Option<Duration> {
         let Restart::Always(backoff) = self.restart else {
             self.end(end);
@@ -73,15 +77,17 @@ impl Supervisor {
         };
         *early_ends = if run_time >= backoff.reset_after { 1 } else { early_ends.saturating_add(1) };
         let (early_ends, pause) = (*early_ends, backoff.pause(*early_ends, fastrand::u32(..)));
-        self.shared.registry.run_ended(self.id, TaskState::Backoff { last: end.clone(), early_ends, pause });
-        self.report(end, Some(pause));
+        if self.shared.registry.run_ended(self.id, TaskState::Backoff { last: end.clone(), early_ends, pause }) {
+            self.report(end, Some(pause));
+        }
         Some(pause)
     }
 
-    /// Records the final state of the task, then reports it.
+    /// Records the final state of the task, then reports it, if the task has its handle.
     pub(super) fn end(&self, end: End) {
-        self.shared.registry.run_ended(self.id, TaskState::Ended(end.clone()));
-        self.report(end, None);
+        if self.shared.registry.run_ended(self.id, TaskState::Ended(end.clone())) {
+            self.report(end, None);
+        }
     }
 
     fn report(&self, end: End, restart_in: Option<Duration>) {

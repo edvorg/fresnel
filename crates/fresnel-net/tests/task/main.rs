@@ -15,6 +15,7 @@ use std::convert::Infallible;
 use std::fmt::Display;
 use std::future::{Ready, pending};
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use fresnel_net::task::{Backoff, End, Restart, TaskHandle, TaskName, TaskReport, TaskState, TaskStatus, Tasks};
@@ -171,6 +172,35 @@ async fn a_dropped_handle_stops_the_task_and_removes_its_state() {
     assert_eq!(tasks.snapshot().len(), 1);
 
     drop(handle);
+    assert_eq!(in_time(runs.recv()).await, None, "the body and its run are gone");
+    assert!(tasks.snapshot().is_empty());
+    assert!(reports.try_recv().is_err(), "a stop by the owner is not a fault");
+}
+
+/// On a runtime with worker threads, the owner can drop the handle while a run ends on an
+/// other thread, before the abort reaches the supervisor: a log view that closed dropped the
+/// channel of its sources, and the last send of a source failed. That end is no fault either.
+/// Here the run drops the handle itself and then fails, on the one thread of the test.
+#[tokio::test(start_paused = true)]
+async fn a_run_that_ends_after_the_drop_of_its_handle_gives_no_report() {
+    let (tasks, mut reports) = tasks_with_reports();
+    let (run_sender, mut runs) = unbounded_channel();
+    let owner: Arc<Mutex<Option<TaskHandle>>> = Arc::default();
+    let body = {
+        let owner = Arc::clone(&owner);
+        move || {
+            let (owner, runs) = (Arc::clone(&owner), run_sender.clone());
+            async move {
+                drop(owner.lock().expect("the handle").take());
+                runs.send(1).expect("the test holds the receiver");
+                Err::<(), _>("the log view of the source is gone")
+            }
+        }
+    };
+    let handle = tasks.start(TaskName::new("log stream"), Restart::Always(BACKOFF), body);
+    *owner.lock().expect("the handle") = Some(handle);
+
+    assert_eq!(in_time(runs.recv()).await, Some(1));
     assert_eq!(in_time(runs.recv()).await, None, "the body and its run are gone");
     assert!(tasks.snapshot().is_empty());
     assert!(reports.try_recv().is_err(), "a stop by the owner is not a fault");

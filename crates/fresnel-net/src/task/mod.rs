@@ -106,8 +106,9 @@ impl Tasks {
         // The thread is not joined: it ends by itself after the stop.
         if let Err(error) = started {
             let end = End::Failed(format!("the system gave no thread: {error}"));
-            self.shared.registry.run_ended(id, TaskState::Ended(end.clone()));
-            self.shared.report(TaskReport { id, task: name, end, restart_in: None });
+            if self.shared.registry.run_ended(id, TaskState::Ended(end.clone())) {
+                self.shared.report(TaskReport { id, task: name, end, restart_in: None });
+            }
         }
         TaskHandle { id, runner: Runner::Thread(stop), shared: Arc::clone(&self.shared) }
     }
