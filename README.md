@@ -4,6 +4,19 @@ fresnel is a native Kubernetes desktop client in Rust with egui. It shows many c
 window. Its first aim is stability: no stalled connection, no hidden error, and no old data
 that looks current.
 
+## Screenshots
+
+<table>
+<tr><td width="50%"><a href="docs/screenshots/pods-three-clusters.png"><img src="docs/screenshots/pods-three-clusters.png" alt="The Pods page"></a><br>The pods of three clusters. prod-us has no connection: its rows are old, and a note tells why.</td>
+<td width="50%"><a href="docs/screenshots/deployment-metrics.png"><img src="docs/screenshots/deployment-metrics.png" alt="The Metrics tab of a Deployment"></a><br>The CPU and memory of a Deployment and of each of its pods, with the request and the limit.</td></tr>
+<tr><td width="50%"><a href="docs/screenshots/deployment-logs.png"><img src="docs/screenshots/deployment-logs.png" alt="The logs of a Deployment"></a><br>The logs of the pods of a Deployment, each pod in its color, with a search.</td>
+<td width="50%"><a href="docs/screenshots/quick-search.png"><img src="docs/screenshots/quick-search.png" alt="The quick search"></a><br>Cmd+K: the quick search finds objects of each kind in each cluster.</td></tr>
+<tr><td width="50%"><a href="docs/screenshots/rollback.png"><img src="docs/screenshots/rollback.png" alt="The rollback dialog"></a><br>The revisions of a Deployment and the dialog of a rollback.</td>
+<td width="50%"><a href="docs/screenshots/secret-save.png"><img src="docs/screenshots/secret-save.png" alt="The save dialog of a Secret"></a><br>The keys of a Secret: a save sends only the changed key, after its diff.</td></tr>
+<tr><td width="50%"><a href="docs/screenshots/node-drain.png"><img src="docs/screenshots/node-drain.png" alt="A node drain in the Operations tab"></a><br>A node drain as a job of the Operations tab, with the state of each pod.</td>
+<td width="50%"><a href="docs/screenshots/cluster-overview-light.png"><img src="docs/screenshots/cluster-overview-light.png" alt="The cluster overview"></a><br>The cluster overview in the light theme: nodes, pods, usage and warnings.</td></tr>
+</table>
+
 ## Status
 
 Milestones M0 to M4, M6, M7 and M9 are complete; the work is in M8 (settings, keys, notices).
@@ -48,6 +61,7 @@ cargo test --workspace -- --ignored   # cluster tests, with k3s in Docker
 cargo test --release --package fresnel-ui --test views -- frame_time search::time
 cargo xtask check-sizes               # size limits of documents and source files
 cargo xtask check-borders             # no kube in fresnel-net, no egui in fresnel-core
+cargo xtask screenshots               # the pictures above, from made-up data with no cluster
 ```
 
 ## The commands of fresnel-cli

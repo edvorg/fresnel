@@ -1511,3 +1511,10 @@ the window is minimized or has no focus. The program shows notices only from its
 An alias of the settings replaces the name of a cluster in the top bar and the status bar, where
 room is short. The tables, the panel, the dialogs and the journal keep the name of the context: it
 is the identity of the cluster, and a dialog of a change must name the target as kubectl does.
+
+## The pictures of the README come from the view tests
+
+`cargo xtask screenshots` draws eight pictures with the harness of the view tests, on made-up
+clusters with one fixed time, so a run needs no cluster and two runs give the same bytes. oxipng
+compresses them with no loss: at scale 1.5 each one has less than 450 KB. Their grid gives the
+README 94 lines, so its limit is 99: 5 lines are for a later change of the release pipeline.

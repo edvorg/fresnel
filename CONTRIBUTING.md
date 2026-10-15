@@ -6,8 +6,7 @@ Read [docs/architecture.md](docs/architecture.md) first: the design rules and th
 
 ```sh
 cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo xtask check-sizes && cargo xtask check-borders
+cargo test --workspace && cargo xtask check-sizes && cargo xtask check-borders
 ```
 
 CI runs these commands on macOS and Linux, with the time tests in a release build (job `time`).
@@ -119,6 +118,7 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 - A race test of a table holds the worker at a gate and changes the data, the filter or the
   sort in that time (`widgets/table/tests/`). A time limit of a view is for a release build.
   The PNG files of the views are for a look by a person: no test compares pixels.
+- A change of a view in a picture of the README needs a new run of `cargo xtask screenshots`.
 - A test of a program starts it as a child process with `env -i`, the `PATH` of Finder and a
   home folder of the test (`fresnel_testkit::Home`). No test reads the home folder of the user.
 - No test opens the window of `fresnel`: it runs `Boot`, or `frame::draw` in a harness. A
@@ -144,7 +144,7 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 
 ## Documents and commits
 
-- `README.md` has 80 lines or fewer, `docs/architecture.md` 200 and this file 150. Each
+- `README.md` has 99 lines or fewer, `docs/architecture.md` 200 and this file 150. Each
   decision of `docs/decisions.md` has one paragraph of 80 words or fewer, changed with it.
 - Commit in small steps. The message says what changed and why, in plain words. For now,
   changes go directly to `master`. Push only when the five checks pass.
