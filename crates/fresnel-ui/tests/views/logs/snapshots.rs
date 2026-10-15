@@ -1,6 +1,6 @@
 //! PNG files of the log views, for a look by a person: a workload view with the colors of
-//! its program, a marker, a search and a selection, the same in the light theme, and the
-//! window of a long line.
+//! its program, a marker, a search and a selection, the same in the light theme, the
+//! window of a long line, and the log buttons of a container that restarted.
 
 use std::sync::Arc;
 
@@ -105,4 +105,11 @@ fn the_log_views_in_pictures() {
     window.query_all_by_label_contains("Show the full line").next().expect("the button").click();
     window.run();
     save_clean(&mut window, "logs-full-line");
+
+    // The container of a pod that restarted has the logs of its instance before the restart.
+    let mut window = window_with(view(vec![live("ams-prod", &pods())]), egui::Theme::Dark, SCALE);
+    super::open_pod(&mut window, "crash");
+    window.get_by_label("Previous logs of crash").scroll_to_me();
+    window.run();
+    save_clean(&mut window, "logs-previous-button");
 }

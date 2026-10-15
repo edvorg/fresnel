@@ -165,7 +165,9 @@ fn logs(ui: &mut Ui, name: &str, status: Option<&ContainerStatus>) -> Option<Pic
         if previous && !restarted {
             continue;
         }
-        let button = ui.add(Button::new(RichText::new(text).size(SMALL)).small());
+        // The block has the fill of a button, so the button has a line around it.
+        let border = egui::Stroke::new(1.0, crate::theme::palette(ui).border);
+        let button = ui.add(Button::new(RichText::new(text).size(SMALL)).small().stroke(border));
         widgets::name(&button, &format!("{text} of {name}"));
         if button.clicked() {
             picked = Some(Pick::Logs(LogAsk { container: Some(name.into()), previous }));
