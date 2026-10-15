@@ -119,7 +119,8 @@ impl Jobs {
     fn running(&self, order: &Order) -> Option<u64> {
         self.entries.iter().find_map(|entry| {
             let job = lock(&entry.slot);
-            (!job.report.state.is_final() && job.order == *order).then_some(job.number)
+            let same = job.order.target == order.target && job.order.operation.same_work(&order.operation);
+            (!job.report.state.is_final() && same).then_some(job.number)
         })
     }
 

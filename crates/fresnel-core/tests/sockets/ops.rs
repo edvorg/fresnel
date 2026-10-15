@@ -32,7 +32,8 @@ fn order(cluster: &str, operation: Operation) -> Order {
 
 fn parts(bed: &Bed) -> Parts {
     let gateway = bed.link.gateway.clone();
-    Parts { gateway, deployments: None, stateful_sets: None, daemon_sets: None, jobs: None, cancel: Cancel::pair().1 }
+    let cancel = Cancel::pair().1;
+    Parts { gateway, deployments: None, stateful_sets: None, daemon_sets: None, jobs: None, pods: None, cancel }
 }
 
 async fn run(bed: &Bed, order: &Order) -> Report {

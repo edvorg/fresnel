@@ -6,7 +6,9 @@
 //!
 //! - `long`: the steps that wait for a store: the rollout status and "run again".
 //! - `revisions`: the history and the rollback, which read the workload and its revisions.
+//! - `drain`: the drain of a node, with a task for each of its pods.
 
+mod drain;
 mod long;
 mod revisions;
 
@@ -15,13 +17,14 @@ use std::sync::Arc;
 use http::Request;
 use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, StatefulSet};
 use k8s_openapi::api::batch::v1::Job;
+use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use k8s_openapi::jiff::Timestamp;
 use serde_json::Value as Json;
 use tokio::sync::watch;
 
 use super::state::{JobState, Outcome, Report, Step, StepState};
-use super::{Operation, Order, Target, delete, job, request, workload};
+use super::{Operation, Order, Target, delete, job, node, request, workload};
 use crate::cluster::Gateway;
 use crate::error::CoreError;
 use crate::kinds::Kind;
@@ -74,6 +77,8 @@ pub struct Parts {
     pub daemon_sets: Option<Reader<Snapshot<DaemonSet>>>,
     /// The Jobs.
     pub jobs: Option<Reader<Snapshot<Job>>>,
+    /// The Pods, whose end a drain waits for.
+    pub pods: Option<Reader<Snapshot<Pod>>>,
     /// The cancel of the job.
     pub cancel: Cancel,
 }
@@ -162,7 +167,7 @@ async fn steps<P: Progress>(order: &Order, parts: &Parts, job: &mut Steps<'_, P>
         Operation::Resume => write(parts, job, "resume", workload::suspend(target, false)).await,
         Operation::Delete(propagation) => remove(parts, job, "delete", delete::delete(target, *propagation)).await,
         Operation::ForceDelete => remove(parts, job, "delete with no grace period", delete::force_delete(target)).await,
-        Operation::Evict => remove(parts, job, "evict", delete::evict(target)).await,
+        Operation::Evict => remove(parts, job, "evict", delete::evict(target, None)).await,
         Operation::Trigger(name) => {
             let cron_job = read(parts, job, "read the CronJob", request::get(target)).await?;
             let manifest = job::of_cron_job(&cron_job, name).map_err(JobState::Failed)?;
@@ -174,6 +179,9 @@ async fn steps<P: Progress>(order: &Order, parts: &Parts, job: &mut Steps<'_, P>
         Operation::RunAgain => long::run_again(target, parts, job).await,
         Operation::History => revisions::history(target, parts, job).await,
         Operation::Rollback(to) => revisions::rollback(target, parts, job, *to).await,
+        Operation::Cordon => write(parts, job, "cordon the node", node::cordon(target, true)).await,
+        Operation::Uncordon => write(parts, job, "uncordon the node", node::cordon(target, false)).await,
+        Operation::Drain(options) => drain::drain(target, options, parts, job).await,
     }
 }
 

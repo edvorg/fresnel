@@ -19,7 +19,7 @@ use crate::published::Reader;
 use crate::store::{Snapshot, StoreState};
 
 /// What a snapshot holds of the object of a target.
-enum Seen<'a, K> {
+pub(super) enum Seen<'a, K> {
     /// The object, with the UID of the target.
     Object(&'a K),
     /// The store had its complete list, and the object of the target is not in it.
@@ -32,7 +32,7 @@ enum Seen<'a, K> {
     Blocked(StoreState),
 }
 
-fn look<'a, K: Object>(snapshot: &'a Snapshot<K>, target: &Target) -> Seen<'a, K> {
+pub(super) fn look<'a, K: Object>(snapshot: &'a Snapshot<K>, target: &Target) -> Seen<'a, K> {
     let same = |object: &K| target.uid.is_empty() || object.meta().uid.as_deref() == Some(&*target.uid);
     if matches!(snapshot.state, StoreState::Stopped | StoreState::Forbidden { .. } | StoreState::NotSupported { .. }) {
         return Seen::Blocked(snapshot.state.clone());
@@ -219,14 +219,18 @@ fn api_version(kind: Kind) -> String {
 
 /// The end of a wait on a store that follows no object (`Seen::Blocked`).
 fn blocked(kind: Kind, state: &StoreState) -> JobState {
-    let name = kind.info().name;
-    let text = match state {
-        StoreState::Stopped => format!("the store of the kind {name} stopped: the cluster is not connected now"),
-        other => format!("the store of the kind {name} follows no object: {other}"),
-    };
-    JobState::Failed(CoreError::invalid(text))
+    JobState::Failed(not_followed(kind, state))
 }
 
-fn no_store(kind: Kind) -> JobState {
+/// Why a wait on a store that follows no object ends.
+pub(super) fn not_followed(kind: Kind, state: &StoreState) -> CoreError {
+    let name = kind.info().name;
+    CoreError::invalid(match state {
+        StoreState::Stopped => format!("the store of the kind {name} stopped: the cluster is not connected now"),
+        other => format!("the store of the kind {name} follows no object: {other}"),
+    })
+}
+
+pub(super) fn no_store(kind: Kind) -> JobState {
     JobState::NotSent(CoreError::invalid(format!("the cluster has no store of the kind {}", kind.info().name)))
 }

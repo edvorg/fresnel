@@ -35,6 +35,13 @@ pub fn needs(action: Action, kind: Kind, key: &ObjectKey) -> Vec<Attributes> {
             vec![on("get", Kind::Job, "", this), on("create", Kind::Job, "", none), on("delete", Kind::Job, "", this)]
         }
         Action::Trigger => vec![on("get", Kind::CronJob, "", this), on("create", Kind::Job, "", none)],
+        // A drain reads and evicts the pods of each namespace: the key of a node has none.
+        Action::Drain => vec![
+            on("patch", kind, "", this),
+            on("list", Kind::Pod, "", none),
+            on("get", Kind::DaemonSet, "", none),
+            on("create", Kind::Pod, "eviction", none),
+        ],
         Action::EditKeys | Action::AddKey | Action::RemoveKey => {
             vec![on("get", kind, "", this), on("patch", kind, "", this)]
         }
@@ -46,7 +53,6 @@ pub fn needs(action: Action, kind: Kind, key: &ObjectKey) -> Vec<Attributes> {
         | Action::Attach
         | Action::DebugContainer
         | Action::Forward
-        | Action::Drain
         | Action::NodeShell => Vec::new(),
     }
 }
@@ -81,6 +87,10 @@ mod tests {
         assert_eq!(texts(Action::RunAgain, Kind::Job, &web).len(), 3);
         let node = ObjectKey::new("", "pool-a1");
         assert_eq!(texts(Action::Delete, Kind::Node, &node), ["delete nodes pool-a1 in the cluster"]);
+        let drain =
+            ["patch nodes pool-a1 in the cluster", "list pods in the cluster", "get daemonsets (apps) in the cluster"];
+        assert_eq!(texts(Action::Drain, Kind::Node, &node)[..3], drain);
+        assert_eq!(texts(Action::Drain, Kind::Node, &node)[3], "create pods/eviction in the cluster");
         assert!(needs(Action::RolloutStatus, Kind::Deployment, &web).is_empty(), "it reads the store");
         assert!(needs(Action::CopyName, Kind::Pod, &web).is_empty());
     }

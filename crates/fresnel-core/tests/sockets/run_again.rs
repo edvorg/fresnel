@@ -78,6 +78,7 @@ async fn run_again(bed: &Bed, jobs: &Jobs, cancel: Cancel, at_wait: impl FnOnce(
         stateful_sets: None,
         daemon_sets: None,
         jobs: Some(jobs.publisher.reader()),
+        pods: None,
         cancel,
     };
     let (sender, mut reports) = mpsc::unbounded_channel();

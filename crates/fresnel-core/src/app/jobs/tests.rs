@@ -5,6 +5,7 @@ use tokio::runtime::Handle;
 use super::*;
 use crate::cluster::ClusterId;
 use crate::kinds::Kind;
+use crate::ops::drain::DrainOptions;
 use crate::ops::{Operation, Target};
 use crate::store::ObjectKey;
 
@@ -85,6 +86,18 @@ async fn the_same_order_while_its_job_runs_ends_as_not_sent_and_an_other_order_g
         states(&jobs),
         [(1, JobState::Pending), (2, JobState::NotSent(same)), (3, JobState::NotSent(other.clone()))]
     );
+
+    // A second drain of a node with other options would race the first one for its pods.
+    let drain = |force| {
+        let node = Target { kind: Kind::Node, key: ObjectKey::new("", "pool-a1"), ..order(Operation::Restart).target };
+        Order::new(node, Operation::Drain(DrainOptions { force, ..DrainOptions::default() })).expect("an order")
+    };
+    let running = Arc::new(JobView { number: 4, order: drain(false), report: Report::default() });
+    jobs.entries.push_back(Entry { slot: Arc::new(Mutex::new(running)), cancel: Cancel::pair().0, _task: None });
+    jobs.number = 4;
+    jobs.start(&tasks, drain(true), None, Cancel::pair().0, ends.clone());
+    let same = CoreError::invalid("job 4 runs the same operation on the object");
+    assert_eq!(states(&jobs)[4], (5, JobState::NotSent(same)));
 
     // A job that ended does not hold its order.
     let mut done = Jobs::default();

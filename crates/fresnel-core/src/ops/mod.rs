@@ -6,7 +6,8 @@
 //! procedure runs it through the gateway of that cluster as a job with steps.
 //!
 //! - `request`: the paths, the patches and the field manager. `workload`: scale, restart,
-//!   suspend and resume. `delete`: delete, force delete and evict.
+//!   suspend and resume. `delete`: delete, force delete and evict. `node`: cordon and the
+//!   pods on a node. `drain`: the options and the verdicts of a drain.
 //! - `rollout`: the rollout status of kubectl. `history`: the revisions of a workload.
 //!   `rollback`: the patch that goes back to a revision.
 //! - `job`: run a Job again, and the Job of a CronJob that the user triggers.
@@ -16,9 +17,11 @@
 
 pub mod access;
 mod delete;
+pub mod drain;
 mod history;
 mod job;
 pub mod kubectl;
+mod node;
 mod procedure;
 mod request;
 mod rollback;
@@ -28,6 +31,7 @@ mod workload;
 
 use std::sync::Arc;
 
+use drain::DrainOptions;
 pub use history::Revision;
 pub use job::trigger_name;
 pub use procedure::{Cancel, Parts, Progress, run};
@@ -92,6 +96,12 @@ pub enum Operation {
     Resume,
     /// Creates a Job with this name from a CronJob now.
     Trigger(String),
+    /// Closes a node for new pods.
+    Cordon,
+    /// Opens a node for new pods again.
+    Uncordon,
+    /// Cordons a node and evicts its pods with these options, as `kubectl drain`.
+    Drain(DrainOptions),
 }
 
 impl Operation {
@@ -110,12 +120,21 @@ impl Operation {
             Self::Suspend => Action::Suspend,
             Self::Resume => Action::Resume,
             Self::Trigger(_) => Action::Trigger,
+            Self::Cordon => Action::Cordon,
+            Self::Uncordon => Action::Uncordon,
+            Self::Drain(_) => Action::Drain,
         }
     }
 
     /// False for an operation that only reads: a stop of its job changes nothing.
     pub fn writes(&self) -> bool {
         !matches!(self, Self::RolloutStatus | Self::History)
+    }
+
+    /// True when a job of `other` on the same object does the same work: a second drain of
+    /// a node with other options would race the first one for its pods.
+    pub fn same_work(&self, other: &Self) -> bool {
+        self == other || matches!((self, other), (Self::Drain(_), Self::Drain(_)))
     }
 
     /// True when objects of the kind have the operation: the kind lists its action. A
@@ -134,6 +153,7 @@ impl Operation {
             Self::Delete(Propagation::Foreground) => "Delete in the foreground".to_owned(),
             Self::Delete(Propagation::Orphan) => "Delete and keep the dependents".to_owned(),
             Self::Trigger(name) => format!("Trigger now as {name}"),
+            Self::Drain(options) if *options != DrainOptions::default() => format!("Drain {}", options.flags()),
             other => other.action().label().to_owned(),
         }
     }
@@ -182,6 +202,13 @@ mod tests {
         assert!(Operation::Delete(Propagation::Background).fits(Kind::Namespace), "each kind has delete");
         assert!(!Operation::Evict.fits(Kind::Deployment));
         assert!(Operation::Suspend.fits(Kind::Job) && Operation::Suspend.fits(Kind::CronJob));
+        let drain = Operation::Drain(drain::DrainOptions { force: true, ..Default::default() });
+        assert!(drain.fits(Kind::Node) && !drain.fits(Kind::Pod) && Operation::Cordon.fits(Kind::Node));
+        assert_eq!(
+            (drain.label(), Operation::Drain(Default::default()).label()),
+            ("Drain --force".to_owned(), "Drain".to_owned())
+        );
+        assert!(drain.same_work(&Operation::Drain(Default::default())) && !drain.same_work(&Operation::Cordon));
 
         let rows = [target(Kind::Deployment, "web"), target(Kind::StatefulSet, "db")];
         let orders = Order::bulk(rows.clone(), &Operation::Restart).expect("both restart");

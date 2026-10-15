@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use super::drain::Drain;
 use super::history::Revision;
 use super::rollout::Rollout;
 use crate::cluster::{Fate, WriteError};
@@ -107,4 +108,17 @@ pub enum Outcome {
     /// The manifest of "run again" after the delete of the old Job, as JSON text: the user
     /// can copy it when its create fails.
     Manifest(Arc<str>),
+    /// The cordon and each pod of a drain.
+    Drain(Drain),
+}
+
+impl Outcome {
+    /// The result of a write of the job, for the mark "change pending" of its object.
+    pub fn written(&self) -> Option<&Written> {
+        match self {
+            Self::Written(written) => written.as_ref(),
+            Self::Drain(drain) => drain.written.as_ref(),
+            Self::None | Self::Revisions(_) | Self::Rollout(_) | Self::Manifest(_) => None,
+        }
+    }
 }

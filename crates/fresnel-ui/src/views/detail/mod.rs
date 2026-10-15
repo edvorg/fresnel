@@ -34,7 +34,7 @@ use egui::{Align, Button, Frame, Label, Layout, Margin, RichText, ScrollArea, Ui
 use fresnel_core::app::{ClusterRow, CoreView, ManifestRequest};
 use fresnel_core::keys::{self, KeyKind};
 use fresnel_core::kinds::{Action, Describe, Object};
-use fresnel_core::ops::{Outcome, Target};
+use fresnel_core::ops::Target;
 use fresnel_core::store::Snapshot;
 
 use self::conditions::Condition;
@@ -357,10 +357,6 @@ fn pending<K: Describe>(view: &CoreView, id: &ObjectId, store: &Snapshot<K>) -> 
     view.jobs.jobs.iter().any(|job| {
         let target = &job.order.target;
         let same = target.cluster == id.cluster && target.kind == K::ID && target.key == id.key;
-        let written = match &job.report.outcome {
-            Outcome::Written(Some(written)) => Some(written),
-            _ => None,
-        };
-        same && written.is_some_and(|written| store.is_pending(written))
+        same && job.report.outcome.written().is_some_and(|written| store.is_pending(written))
     })
 }

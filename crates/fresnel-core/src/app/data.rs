@@ -225,6 +225,7 @@ impl Connected {
             stateful_sets: stores.full(),
             daemon_sets: stores.full(),
             jobs: stores.full(),
+            pods: Some(self.pods.clone()),
             cancel,
         };
         (parts, self.access.handle())

@@ -104,6 +104,7 @@ impl Cluster {
             stateful_sets: stores.full(),
             daemon_sets: stores.full(),
             jobs: stores.full(),
+            pods: stores.full(),
             cancel,
         }
     }

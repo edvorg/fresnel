@@ -83,7 +83,7 @@ pub(super) fn show(ui: &mut Ui, scene: &mut Scene<'_>, job: &JobView) {
 fn outcome(ui: &mut Ui, job: &JobView) {
     let palette = theme::palette(ui);
     match &job.report.outcome {
-        Outcome::None | Outcome::Written(_) => {}
+        Outcome::None | Outcome::Written(_) | Outcome::Drain(_) => {}
         Outcome::Revisions(revisions) => {
             let numbers: Vec<String> = revisions.iter().map(|revision| revision.number.to_string()).collect();
             let text = format!("Revisions {}. The panel of the object lists them with a rollback.", numbers.join(", "));

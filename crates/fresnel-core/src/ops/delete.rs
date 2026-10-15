@@ -26,15 +26,20 @@ pub(super) fn force_delete(target: &Target) -> Result<Request<Vec<u8>>, CoreErro
 
 /// The eviction of a pod: a `policy/v1` Eviction for the subresource `eviction`. kube puts
 /// the delete options of its helper `Api::evict` under a key that the server ignores, so
-/// the body comes from here. The name in the body must be the name in the path.
-pub(super) fn evict(target: &Target) -> Result<Request<Vec<u8>>, CoreError> {
+/// the body comes from here. The name in the body must be the name in the path. `grace`
+/// is the grace period of a drain; with none, the pod gets its own one, as with kubectl.
+pub(super) fn evict(target: &Target, grace: Option<u32>) -> Result<Request<Vec<u8>>, CoreError> {
     let uid = uid(target)?;
     let (namespace, name) = (&*target.key.namespace, &*target.key.name);
+    let mut options = json!({"preconditions": {"uid": uid}});
+    if let Some(grace) = grace {
+        options["gracePeriodSeconds"] = grace.into();
+    }
     let body = json!({
         "apiVersion": "policy/v1",
         "kind": "Eviction",
         "metadata": {"name": name, "namespace": namespace},
-        "deleteOptions": {"preconditions": {"uid": uid}},
+        "deleteOptions": options,
     });
     let collection = collection(target.kind, namespace)?;
     let created = collection.create_subresource("eviction", name, &Default::default(), request::to_bytes(&body)?);
@@ -100,7 +105,7 @@ mod tests {
 
     #[test]
     fn an_eviction_is_a_policy_v1_object_with_the_name_of_the_path() {
-        let (method, url, content, body) = parts(&evict(&target(Kind::Pod, "shop", "web-1")).expect("a request"));
+        let (method, url, content, body) = parts(&evict(&target(Kind::Pod, "shop", "web-1"), None).expect("a request"));
         assert_eq!((method.as_str(), url.as_str()), ("POST", "/api/v1/namespaces/shop/pods/web-1/eviction?"));
         assert_eq!(content, "application/json");
         let expected = json!({
@@ -110,6 +115,8 @@ mod tests {
             "deleteOptions": {"preconditions": {"uid": "uid-1"}},
         });
         assert_eq!(body, expected);
+        let drained = parts(&evict(&target(Kind::Pod, "shop", "web-1"), Some(0)).expect("a request")).3;
+        assert_eq!(drained["deleteOptions"], json!({"gracePeriodSeconds": 0, "preconditions": {"uid": "uid-1"}}));
     }
 
     #[test]
@@ -118,7 +125,7 @@ mod tests {
         nameless.uid = "".into();
         let error = force_delete(&nameless).expect_err("no UID");
         assert_eq!(error.to_string(), "web-1 has no UID, so a delete could reach an other object");
-        assert!(evict(&nameless).is_err() && delete(&nameless, Propagation::Background).is_err());
+        assert!(evict(&nameless, None).is_err() && delete(&nameless, Propagation::Background).is_err());
         assert!(is_gone(&json!({"kind": "Status", "status": "Success"})));
         assert!(!is_gone(&json!({"kind": "Pod", "metadata": {"deletionTimestamp": "2026-10-12T20:00:00Z"}})));
     }

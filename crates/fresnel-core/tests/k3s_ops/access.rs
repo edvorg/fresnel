@@ -79,6 +79,7 @@ pub(crate) async fn a_forbidden_action_is_denied_with_its_reason_and_its_request
         stateful_sets: None,
         daemon_sets: None,
         jobs: None,
+        pods: None,
         cancel: Cancel::pair().1,
     };
     let report = run_parts(&order, parts).await;
