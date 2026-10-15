@@ -135,7 +135,8 @@ mod tests {
     use super::*;
 
     fn plugin(spec: PluginSpec) -> ExecPlugin {
-        let vars: ProcessEnv = [("PATH", "/usr/bin:/bin")].into_iter().collect();
+        let path = std::env::join_paths(["/usr/bin", "/bin"]).expect("two folders");
+        let vars: ProcessEnv = [("PATH", path)].into_iter().collect();
         ExecPlugin::new(spec, vars, WallClock::system())
     }
 

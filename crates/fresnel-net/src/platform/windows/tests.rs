@@ -36,12 +36,13 @@ fn a_variable_has_one_value_for_each_case_of_its_name() {
     assert_eq!(env(&[("HOME", r"C:\msys")]).home(), None, "HOME is not the home folder on Windows");
 }
 
+/// A first folder goes before each other one; a last folder that `PATH` has keeps its place.
 #[test]
 fn a_folder_of_path_with_a_quote_does_not_go_into_path() {
     let mut vars = env(&[("PATH", r"C:\Windows;C:\Tools")]);
     let folders = |names: &[&str]| names.iter().map(PathBuf::from).collect::<Vec<_>>();
-    vars.extend_path(&folders(&[r"C:\First", r"C:\Tools"]), &folders(&[r"C:\Last", "C:\\bad\"name"]));
-    assert_eq!(vars.get("PATH"), Some(OsStr::new(r"C:\First;C:\Windows;C:\Tools;C:\Last")));
+    vars.extend_path(&folders(&[r"C:\First", r"C:\Tools"]), &folders(&[r"C:\Windows", r"C:\Last", "C:\\bad\"name"]));
+    assert_eq!(vars.get("PATH"), Some(OsStr::new(r"C:\First;C:\Tools;C:\Windows;C:\Last")));
 }
 
 /// `doctl` names `doctl.exe`, as kubectl finds it; a name with an extension is tried as it is

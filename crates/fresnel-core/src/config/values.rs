@@ -122,7 +122,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::table::TABLE;
+    use crate::config::table::{FIXED_FOLDERS, TABLE};
 
     #[test]
     fn a_setting_of_the_file_wins_and_each_other_one_has_the_default_of_the_table() {
@@ -130,7 +130,7 @@ mod tests {
         assert_eq!(config.number(Setting::MetricsPeriod), 15);
         assert_eq!(config.duration(Setting::HedgeMin), Duration::from_millis(150));
         assert_eq!((config.text(Setting::Theme), config.theme()), ("system", Theme::System));
-        assert_eq!(config.list(Setting::FixedFolders), ["/opt/homebrew/bin", "/usr/local/bin"]);
+        assert_eq!(config.list(Setting::FixedFolders), FIXED_FOLDERS, "of the system: none on Windows");
         assert!(config.flag(Setting::NotifyFailed) && !config.flag(Setting::ReadOnly));
         assert!(TABLE.iter().all(|spec| config.set(spec.id).is_none()));
 
