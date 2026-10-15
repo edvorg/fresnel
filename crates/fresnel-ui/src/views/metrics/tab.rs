@@ -91,19 +91,23 @@ impl MetricsTab {
         let (group, range) =
             (Id::new(("metrics", &cx.id.cluster, &cx.id.key)), seconds(start) as f64..=seconds(now) as f64);
         for (number, (resource, lines)) in Resource::BOTH.into_iter().zip(&built.lines).enumerate() {
-            heading(ui, palette, &resource.title().to_uppercase());
+            let (more, text) = (&lines.more, |value: f64| resource.text_of(value));
+            let (lines, marks) = (&lines.lines, &lines.marks);
+            let binary = resource == Resource::Memory;
+            let chart = Chart { title: resource.title(), lines, marks, text: &text, reach, binary };
+            ui.horizontal(|ui| {
+                heading(ui, palette, &resource.title().to_uppercase());
+                ui.add_space(8.0);
+                chart::legend(ui, palette, (group, number), &chart);
+            });
             // The words of the cell of a table, with the reason of an old value first.
             let cell = cells::cell(usage.as_ref(), resource, problem, cx.clock);
             let text = cell.hint.as_deref().unwrap_or(&cell.text).replace('\n', "  ·  ");
             let old = matches!(cell.lead, Lead::Old(_));
             ui.label(RichText::new(text).color(if old { palette.warn } else { palette.text }));
-            if let Some(more) = &lines.more {
+            if let Some(more) = more {
                 ui.label(RichText::new(more).color(palette.text_muted));
             }
-            let text = |value: f64| resource.text_of(value);
-            let (lines, marks) = (&lines.lines, &lines.marks);
-            let binary = resource == Resource::Memory;
-            let chart = Chart { title: resource.title(), lines, marks, text: &text, reach, binary };
             chart::show(ui, palette, cx.clock, (group, number), &range, &chart);
             ui.add_space(10.0);
         }

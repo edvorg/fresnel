@@ -94,6 +94,30 @@ fn a_workload_has_the_line_of_its_pods_and_of_each_pod_with_the_request_and_the_
     assert!(lines.contains(&"request: 200m".to_owned()) && lines.contains(&"limit: 1".to_owned()), "{lines:?}");
 }
 
+/// The names of the lines and marks of the tooltip of the CPU chart near now.
+pub(super) fn names(window: &mut Window) -> Vec<String> {
+    let lines = tooltip(window, "CPU chart", 0.98);
+    lines.iter().skip(1).map(|line| line.split(':').next().unwrap_or_default().to_owned()).collect()
+}
+
+#[test]
+fn the_legend_names_each_pod_by_the_end_of_its_name_and_a_click_hides_its_line_and_shows_it_again() {
+    let mut window = wide(vec![of_kind("ams", &scene::<Deployment>(), scene_metrics("ams", 1))]);
+    metrics_tab(&mut window, "Deployments", "web");
+    for name in ["all pods", "75md7", "p2twl"] {
+        let entries = window.query_all_by_role_and_label(Role::Button, name).count();
+        assert_eq!(entries, 2, "{name} in the legend of each chart");
+    }
+    let click = |window: &mut Window| {
+        window.query_all_by_role_and_label(Role::Button, "75md7").next().expect("the legend of CPU").click();
+        window.run();
+    };
+    click(&mut window);
+    assert_eq!(names(&mut window), ["all pods", "web-6888b778b6-p2twl", "request", "limit"]);
+    click(&mut window);
+    assert_eq!(names(&mut window), ["all pods", "web-6888b778b6-75md7", "web-6888b778b6-p2twl", "request", "limit"]);
+}
+
 #[test]
 fn a_node_has_its_usage_with_the_requests_of_its_pods_its_allocatable_part_and_its_capacity() {
     let mut window = wide(vec![of_kind("ams", &nodes(), scene_metrics("ams", 1))]);

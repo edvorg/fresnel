@@ -6,17 +6,19 @@
 //! lines for a request and a limit. The charts of one stack share their time axis and their
 //! cursor. The points of a line are built one time for each new sample, not for each frame.
 //!
-//! - `time`: the marks of the time axis.
+//! - `time`: the marks of the time axis. `value`: the marks of a decimal value axis.
+//! - `legend`: the names of the lines beside the heading of a chart; a click hides one.
 
+mod legend;
 mod time;
+mod value;
 
+use std::collections::BTreeSet;
 use std::ops::{Range, RangeInclusive};
 use std::time::{Duration, SystemTime};
 
 use egui::{Color32, Id, RichText, Ui};
-use egui_plot::{
-    GridMark, HLine, Legend, LineStyle, Plot, PlotPoint, PlotPoints, log_grid_spacer, uniform_grid_spacer,
-};
+use egui_plot::{GridMark, HLine, LineStyle, Plot, PlotPoint, PlotPoints, log_grid_spacer, uniform_grid_spacer};
 
 use crate::format::Clock;
 use crate::theme::Palette;
@@ -60,8 +62,8 @@ impl Line {
         Self { legend: name.clone(), name, color, points: all, runs }
     }
 
-    /// The line with a shorter name in the legend. The legend is on the right end of the
-    /// chart, over the newest samples; the tooltip keeps the full name.
+    /// The line with a shorter name in the legend, so the names of many lines fit beside
+    /// the heading of the chart; the tooltip keeps the full name.
     pub(crate) fn with_legend(self, legend: &str) -> Self {
         Self { legend: legend.to_owned(), ..self }
     }
@@ -100,6 +102,12 @@ pub(crate) struct Chart<'a> {
     pub(crate) binary: bool,
 }
 
+/// Draws the legend of one chart of a stack where the caller puts it, as beside the heading
+/// of the chart: there it takes no line of its own. Call it before `show` in each frame.
+pub(crate) fn legend(ui: &mut Ui, palette: &Palette, (group, number): (Id, usize), chart: &Chart<'_>) {
+    legend::show(ui, palette, group.with(number), (chart.lines, chart.marks));
+}
+
 /// Draws one chart over the times of `range`, in seconds since 1970. The charts of one
 /// `group` share their time axis and their cursor; the range moves with the clock, so a
 /// chart has no zoom and no drag. `number` tells the charts of a group apart.
@@ -112,10 +120,13 @@ pub(crate) fn show(
     chart: &Chart<'_>,
 ) {
     let id = group.with(number);
+    let hidden = legend::hidden(ui, id);
     let label = |mark: GridMark, _: &RangeInclusive<f64>| {
         let time = time_of(mark.value);
         if mark.step_size < 60.0 { clock.time_of_day(time) } else { clock.hour_minute(time) }
     };
+    let values =
+        if chart.binary { log_grid_spacer(2) } else { uniform_grid_spacer(|input| value::steps(input.base_step_size)) };
     let plot = Plot::new(id)
         .height(150.0)
         .link_axis(group, [true, false])
@@ -127,19 +138,16 @@ pub(crate) fn show(
         .allow_double_click_reset(false)
         .include_y(0.0)
         .y_axis_min_width(VALUE_AXIS)
-        .y_grid_spacer(log_grid_spacer(if chart.binary { 2 } else { 10 }))
+        .y_grid_spacer(values)
         .x_grid_spacer(uniform_grid_spacer(|input| time::steps(input.base_step_size)))
         .x_axis_formatter(label)
-        .y_axis_formatter(|mark, _| (chart.text)(mark.value))
-        .legend(Legend::default().follow_insertion_order(true));
+        .y_axis_formatter(|mark, _| (chart.text)(mark.value));
     let response = plot.show(ui, |plot| {
         plot.set_plot_bounds_x(range.clone());
-        for (number, line) in chart.lines.iter().enumerate() {
-            // The parts of a line share its identity, so the legend hides and shows them together.
-            let id = id.with(number);
+        for line in chart.lines.iter().filter(|line| !hidden.contains(&line.name)) {
             for run in &line.runs {
                 let points = PlotPoints::Borrowed(line.points.get(run.clone()).unwrap_or_default());
-                plot.line(egui_plot::Line::new(line.legend.as_str(), points).color(line.color).width(1.5).id(id));
+                plot.line(egui_plot::Line::new(line.legend.as_str(), points).color(line.color).width(1.5));
             }
         }
         for mark in chart.marks {
@@ -149,15 +157,15 @@ pub(crate) fn show(
     widgets::name(&response.response, &format!("{} chart", chart.title));
     if let Some(pointer) = response.response.hover_pos() {
         let x = response.transform.value_from_position(pointer).x;
-        response.response.on_hover_ui_at_pointer(|ui| tooltip(ui, palette, clock, chart, x));
+        response.response.on_hover_ui_at_pointer(|ui| tooltip(ui, palette, clock, chart, (x, &hidden)));
     }
 }
 
-/// The value of each line and each mark at the time of the pointer: `egui_plot` gives the
-/// value of the nearest line only.
-fn tooltip(ui: &mut Ui, palette: &Palette, clock: &Clock, chart: &Chart<'_>, x: f64) {
+/// The value of each shown line and each mark at the time of the pointer: `egui_plot` gives
+/// the value of the nearest line only. A line that the user hid has no value there.
+fn tooltip(ui: &mut Ui, palette: &Palette, clock: &Clock, chart: &Chart<'_>, (x, hidden): (f64, &BTreeSet<String>)) {
     ui.label(RichText::new(format!("{} at {}", chart.title, clock.time_of_day(time_of(x)))).strong());
-    for line in chart.lines {
+    for line in chart.lines.iter().filter(|line| !hidden.contains(&line.name)) {
         let value = line.at(x, chart.reach).map_or_else(|| "no sample".to_owned(), |value| (chart.text)(value));
         ui.horizontal(|ui| {
             dot(ui, line.color);

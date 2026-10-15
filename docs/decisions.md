@@ -1560,3 +1560,10 @@ clusters with one fixed time, so a run needs no cluster and two runs give the sa
 picture leaves out the margin of the harness: the window has none, and each pixel is opaque.
 oxipng compresses them with no loss: at scale 1.5 each one has less than 450 KB. The pictures
 give the README 96 lines, its new limit.
+
+## The legend of a chart is beside its heading
+
+The legend of `egui_plot` lies over the plot: with a line for each pod, it hid the newest
+samples, and the lines ran through its names. The legend is now a row beside the heading of the
+chart, with the end of the name of each pod and a dash for the request and the limit. A click on
+a name still hides its line, and the tooltip then leaves the line out.

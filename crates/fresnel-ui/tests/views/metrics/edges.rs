@@ -16,11 +16,11 @@ use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Pod;
 use serde_json::{Value, json};
 
-use super::tab::{metrics_tab, tooltip};
+use super::tab::{metrics_tab, names, tooltip};
 use super::tables::{hints, wide};
 use super::{PERIOD, of_kind, of_pods, poll_time, scene_metrics, scene_pods};
 use crate::data::{changed, held, live, scene};
-use crate::fake::{Window, shows, until, view};
+use crate::fake::{shows, until, view};
 
 /// The pod with many containers, and their count: a chart has 11 lines at most.
 const MANY: &str = "half-done";
@@ -50,12 +50,6 @@ fn three_polls(values: &[(SeriesKey, u64)]) -> Metrics {
         metrics.take_samples(&samples, BTreeMap::new(), poll_time(poll), &MetricsSettings::default());
     }
     metrics
-}
-
-/// The names of the lines and marks of the tooltip of the CPU chart near now.
-fn names(window: &mut Window) -> Vec<String> {
-    let lines = tooltip(window, "CPU chart", 0.98);
-    lines.iter().skip(1).map(|line| line.split(':').next().unwrap_or_default().to_owned()).collect()
 }
 
 /// A pod with 15 containers, of which `cN` uses (N + 1) * 10 millicores: the line of the pod
