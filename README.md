@@ -11,7 +11,7 @@ The repository has CI, the test kit, `fresnel-net`, `fresnel-core` (kubeconfig, 
 core, journal, state and settings files, 41 kinds, watch loop, stores, indexes, manifest, quick
 search, command table, keys, operations as jobs, permissions, metrics, logs), `doctor`, `watch`
 and the window: a live table and a panel with the sections of each kind in scope, workload
-actions, a node drain, the keys of Secrets and ConfigMaps, the Operations tab, CPU, memory, logs.
+actions, a node drain, Secret and ConfigMap keys, the Operations tab, metrics, logs, overviews.
 
 ## The app
 

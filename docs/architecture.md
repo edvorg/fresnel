@@ -4,10 +4,9 @@
 
 ## Terms
 
-**Cluster**: one kubeconfig context. **Channel**: one long-lived HTTP/2 connection to a
-cluster. **Watch**: one stream of changes for one kind in one cluster. **Store**: the copy in
-memory of all objects of one kind in one cluster. **Snapshot**: a view of a store that a reader
-holds; it does not change. **Task**: one background activity with a visible state.
+**Cluster**: one kubeconfig context. **Channel**: one HTTP/2 connection to a cluster. **Watch**:
+one stream of changes of one kind in one cluster. **Store**: the objects of one kind of a cluster
+in memory. **Snapshot**: a fixed view of a store. **Task**: a background job with a visible state.
 
 ## Design rules (they have priority over features)
 
@@ -106,7 +105,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   **Permissions**: rules or a review, dropped by HTTP 403. **Write result**: `Snapshot::is_pending`.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. After its start, one
   task reads the settings file, the login shell environment and the kubeconfig files, connects
-  each selected cluster and runs each command. A cluster has stores, indexes, a sampler and a task.
+  each selected cluster and runs each command. A cluster has stores, indexes, a sampler and tasks.
 - **Files**: `state.json` keeps the selection and the table layouts. The core reads `config.toml`
   and never writes it; its first 20 problems go to the journal. **Journal**: 10,000 entries.
 
@@ -156,7 +155,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 ## Window
 
-`fresnel_ui::Shell` draws a frame from a `CoreView`: top bar, sidebar, the page of one kind, the
+`fresnel_ui::Shell` draws a frame from a `CoreView`: top bar, sidebar, a page of the sidebar, the
 dock (Operations, Journal, Connections, a tab for each log view) and status bar.
 
 - **Table**: `widgets/table.rs` wraps `egui_table`. A kind gives a `Model`: columns, rows,
@@ -179,6 +178,7 @@ dock (Operations, Journal, Connections, a tab for each log view) and status bar.
   edits a `Draft` behind the gate of "Edit keys": a hidden value until "Show", add, remove, the
   diff in a dialog before a save, a choice for each conflict. The New Secret dialog is `new-secret`.
 - **Metrics** (`views/metrics`): CPU and Memory columns with bars, a tab with `egui_plot` charts.
+  **Overviews** (`views/overview`): a worker counts; `cluster/version.rs` reads each server version.
 - **Logs** (`views/logs`): the tab of a view (`ShowLogs`), its options, the state of each source,
   a search and a filter on a worker; the pane has its own rows, scroll and selection (`pane`).
 

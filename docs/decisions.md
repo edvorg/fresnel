@@ -1408,3 +1408,24 @@ grows while a frame stays short.
 A log needs rows, and the tab has a bar of two rows and the state of each source. The dock with a
 log tab is a second panel with its own default height of 380 points, which keeps the height that
 the user gives it. The other tabs keep the dock of 170 points.
+
+## The overviews count on a worker thread, in the namespace filter of the tables
+
+A count reads each object of a kind: four clusters with 10,000 pods each would hold a frame. The
+page gives the snapshots of each cluster to a worker and draws its last counts; the state of each
+store comes from the frame, so a count of a store that is not live has its mark. The counts follow
+the namespace filter, so a link to a table with the problems filter shows the rows of its count.
+
+## The version of a cluster is the version of its API server
+
+The Cluster overview shows `gitVersion` of `GET /version`, as `kubectl version` gives the server,
+not the version of each kubelet. A task reads it after the connect and each 10 minutes, so an
+upgrade shows. A failed read keeps the version of before with its reason, and a read follows 15 s
+later. The answer needs only `gitVersion`, so a proxy that drops the other fields changes nothing.
+
+## The CPU of a cluster counts against the allocatable part of its nodes
+
+The overview shows the sum of the NodeMetrics of a cluster against the sum of the allocatable part
+of its nodes, with the requests on them at the last poll as the mark of the bar, as the row of a
+node does. A node with no allocatable value leaves the sum out: a sum of some nodes would give a
+false part. A node with no sample shows in the words: "sum of 2 of 3 nodes".
