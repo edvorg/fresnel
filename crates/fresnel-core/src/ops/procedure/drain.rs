@@ -262,7 +262,7 @@ fn held(pods: &[DrainPod]) -> String {
 /// makes it unknown, a pod that failed makes it fail.
 fn outcome_of(pods: &[DrainPod]) -> Result<(), JobState> {
     let failed = |pod: &DrainPod| -> Option<JobState> {
-        let what = |error: &CoreError| CoreError::invalid(format!("{}/{}: {error}", pod.key.namespace, pod.key.name));
+        let what = |error: &CoreError| error.clone().about(&format!("{}/{}", pod.key.namespace, pod.key.name));
         match &pod.state {
             PodState::Unknown(error) => Some(JobState::Unknown(what(error))),
             PodState::Failed(error) => Some(JobState::Failed(what(error))),
@@ -286,12 +286,13 @@ mod tests {
 
     #[test]
     fn the_end_of_the_pods_gives_the_state_of_the_drain_and_a_block_stops_each_pod_that_waited() {
-        let error = CoreError::invalid("refused");
+        let error = CoreError::answered(403, "refused");
         assert_eq!(outcome_of(&[pod("a", PodState::Gone), pod("b", PodState::Kept)]), Ok(()));
         let failed = outcome_of(&[pod("a", PodState::Gone), pod("b", PodState::Failed(error.clone()))]);
-        assert_eq!(failed, Err(JobState::Failed(CoreError::invalid("shop/b: refused"))));
+        assert_eq!(failed, Err(JobState::Failed(CoreError::answered(403, "shop/b: refused"))), "the rules drop at 403");
         let pods = [pod("a", PodState::Failed(error.clone())), pod("b", PodState::Unknown(error))];
-        assert_eq!(outcome_of(&pods), Err(JobState::Unknown(CoreError::invalid("shop/b: refused"))), "unknown first");
+        let unknown = JobState::Unknown(CoreError::answered(403, "shop/b: refused"));
+        assert_eq!(outcome_of(&pods), Err(unknown), "unknown first");
 
         let states: Vec<PodState> = stopped(&[pod("a", PodState::Waiting), pod("b", PodState::Kept)])
             .iter()

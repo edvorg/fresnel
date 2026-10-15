@@ -40,6 +40,12 @@ impl CoreError {
         Self { causes: Some(causes).filter(|causes| !causes.is_empty()).map(Into::into), ..self }
     }
 
+    /// The same error with a text before its own, for example the object that it is about.
+    /// The class, the status and the causes stay, so a reader still finds HTTP 403.
+    pub(crate) fn about(self, what: &str) -> Self {
+        Self { text: format!("{what}: {}", self.text).into(), ..self }
+    }
+
     /// The message of the first cause with this reason, for example `DisruptionBudget`.
     pub(crate) fn cause(&self, reason: &str) -> Option<&str> {
         let causes = self.causes.as_deref().unwrap_or_default();

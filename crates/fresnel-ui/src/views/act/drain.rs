@@ -51,7 +51,7 @@ impl DrainDialog {
 
     /// The options of the input, or why the input gives none.
     fn options(&self) -> Result<DrainOptions, String> {
-        let seconds = |text: &str| text.trim().parse::<u32>().ok().filter(|_| !text.trim().is_empty());
+        let seconds = |text: &str| text.parse::<u32>().ok();
         let grace = match self.grace.trim() {
             "" => None,
             text => Some(seconds(text).ok_or("The grace period is a count of seconds, or empty.")?),
@@ -81,11 +81,11 @@ impl DrainDialog {
         let options = self.options();
         let pods = pods(scene.view, &self.subject, &options.clone().unwrap_or(self.options));
         ui.add_space(6.0);
-        let blocks = match &pods {
-            Ok(pods) => list(ui, pods),
+        let (blocks, unlisted) = match &pods {
+            Ok(pods) => (list(ui, pods), None),
             Err(reason) => {
                 warning(ui, palette, reason);
-                0
+                (0, Some(reason.clone()))
             }
         };
         let gate = match look(&target) {
@@ -101,6 +101,7 @@ impl DrainDialog {
         let reason = match (&gate, &options) {
             (Gate::Closed(reason), _) => Some(reason.clone()),
             (_, Err(reason)) => Some(reason.clone()),
+            _ if unlisted.is_some() => unlisted,
             _ if blocks > 0 => Some(format!(
                 "{} the drain: turn on the option that its line names.",
                 if blocks == 1 { "1 pod blocks".to_owned() } else { format!("{blocks} pods block") }
