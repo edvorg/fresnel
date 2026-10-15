@@ -126,6 +126,11 @@ fn narrow_column(window: &mut Window, title: &str, by: f32) {
 fn a_node_drain_in_the_operations_tab() {
     let mut window = window(egui::Theme::Dark);
     open_page(&mut window, "Nodes");
+    // The titles of the columns show with the first rows of the worker thread, which on the
+    // Windows runner came after the first frames of the page.
+    until(&mut window, "the titles of the Nodes", |window| {
+        window.query_by_role_and_label(Role::Button, "Roles").is_some()
+    });
     drag(&mut window, "Name", -NAME_NARROWING);
     drag(&mut window, "Status", STATUS_WIDENING);
     narrow_column(&mut window, "Roles", ROLES_NARROWING);
