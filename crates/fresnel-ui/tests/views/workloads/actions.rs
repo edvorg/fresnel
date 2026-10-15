@@ -291,8 +291,10 @@ fn a_key_a_menu_and_the_quick_search_open_the_same_dialog() {
     window.get_by_label("Search text").type_text("Restart");
     until(&mut window, "the command", |window| window.query_by_label("Command Restart").is_some());
     window.key_press(Key::Enter);
-    window.run();
-    assert!(lists(&window, &["Deployment", "web"]), "the quick search acts on the object of the panel");
+    // An Enter before the hits of the text waits for them, and a busy runner gives them later.
+    until(&mut window, "the dialog: the quick search acts on the object of the panel", |window| {
+        lists(window, &["Deployment", "web"])
+    });
 }
 
 /// "Copy kubectl command" lists the commands of the object; each one names its context. The
