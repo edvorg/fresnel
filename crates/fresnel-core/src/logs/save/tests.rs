@@ -282,3 +282,28 @@ async fn a_stop_of_the_saves_while_a_save_writes_removes_its_file() {
     timeout(LIMIT, gone).await.expect("in time: the file goes");
     drop(stream);
 }
+
+/// Fast input: a series of clicks on Save. Each save of a full log holds a stream, so a save
+/// past the limit of the saves that write fails at once, and the list keeps its limit.
+#[tokio::test]
+async fn a_save_past_the_limit_of_the_saves_that_write_fails_at_once() {
+    let mut bed = Bed::new();
+    let mut streams = Vec::new();
+    for _ in 0..WRITING {
+        bed.save(SavePart::Full, false, &view());
+        streams.push(bed.call().await.open());
+    }
+    bed.save(SavePart::Buffer, false, &view());
+    let refused = bed.ended(5).await;
+    let reason = "4 saves of this cluster write now: wait for the end of one, or cancel one";
+    assert!(matches!(&refused.state, SaveState::Failed(error) if error.to_string() == reason), "{refused:?}");
+    for _ in 0..29 {
+        bed.save(SavePart::Buffer, false, &view());
+    }
+    assert_eq!(bed.saves.views().len(), KEPT, "the oldest saves that ended left the list");
+    bed.saves.cancel(1);
+    assert_eq!(bed.ended(1).await.state, SaveState::Cancelled);
+    bed.save(SavePart::Buffer, false, &view());
+    assert!(matches!(bed.ended(35).await.state, SaveState::Done { .. }), "a place is free again");
+    drop(streams);
+}

@@ -30,6 +30,9 @@ use write::{Content, Job};
 /// The most saves of one cluster in the list. The oldest save that ended leaves it first; a
 /// save that writes stays.
 const KEPT: usize = 16;
+/// The most saves of one cluster that write at the same time. Each one holds a stream of the
+/// server, and the list keeps each one that writes: a fast series of clicks has its limit.
+const WRITING: usize = 4;
 
 /// A save that the user asks for.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,8 +136,15 @@ impl Saves {
         self.start_with(save, view, gateway.clone());
     }
 
-    /// The same with an other opener of streams: a test gives a script.
+    /// The same with an other opener of streams: a test gives a script. A save past the
+    /// limit of the saves that write fails at once.
     pub(in crate::logs) fn start_with<O: Opener>(&mut self, save: LogSave, view: &LogView, opener: O) {
+        let writing = self.saves.iter().filter(|running| !running.publisher.read().state.is_final()).count();
+        if writing >= WRITING {
+            let text = format!("{WRITING} saves of this cluster write now: wait for the end of one, or cancel one");
+            self.refuse(save, CoreError::invalid(text));
+            return;
+        }
         self.last += 1;
         let content = match save.part {
             SavePart::Buffer => Content::Buffer { lines: view.lines.clone(), sources: Arc::clone(&view.sources) },
@@ -156,7 +166,7 @@ impl Saves {
         self.push(Running { publisher, cancel, _task: Some(task) });
     }
 
-    /// Lists a save that cannot start, with the reason: the view is not open in the cluster.
+    /// Lists a save that cannot start, with the reason: its view is not open, or the limit.
     pub(crate) fn refuse(&mut self, save: LogSave, reason: CoreError) {
         self.last += 1;
         let view = SaveView { number: self.last, save, file: None, state: SaveState::Failed(reason) };
