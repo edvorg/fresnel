@@ -125,6 +125,25 @@ fn the_tab_lists_each_job_with_its_state_and_the_count_of_the_jobs_that_left() {
     assert!(shows(&window, "Restart") && shows(&window, "Deployment scene/broken"));
 }
 
+/// The Cluster column fits a name as wide as its old fixed column, so two contexts whose
+/// names differ only at their end stay apart. The page shows an other cluster, so only the
+/// job list names these two.
+#[test]
+fn the_cluster_column_shows_two_contexts_with_one_start_whole() {
+    let deployments = scene::<Deployment>();
+    let (east, west) = ("production-us-east", "production-us-west");
+    let scale = |number: u64, cluster: &str| {
+        job(number, target(cluster, &deployments, "web"), Operation::Scale(2), JobState::Done, &[])
+    };
+    let mut core = view(vec![allowed("ams-prod", &deployments)]);
+    core.jobs = jobs(vec![scale(1, east), scale(2, west)], 0);
+    let mut window = window(core);
+    open_tab(&mut window, "Operations");
+    for cluster in [east, west] {
+        assert!(whole(&window, cluster), "the cluster {cluster}");
+    }
+}
+
 /// The newest job shows first: a rollout that runs, with its step, its last state and a
 /// cancel. The cancel is a command of the core.
 #[test]
