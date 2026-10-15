@@ -1,4 +1,9 @@
 //! The throttle of the server: HTTP 429 with `Retry-After` (plan section 8.11).
+//!
+//! The API server sets the header on each throttle (priority and fairness, the limit of
+//! requests in flight). An HTTP 429 with no header refuses the one request: an eviction that
+//! a PodDisruptionBudget blocks. It is no throttle: the other requests of the cluster go on,
+//! and the caller gets the answer at once, so a drain can show the budget.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -15,7 +20,7 @@ use crate::error::{ErrorClass, NetError};
 /// The settings of the throttle.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThrottleSettings {
-    /// The wait after an HTTP 429 with no usable `Retry-After` header.
+    /// The wait after an HTTP 429 with a `Retry-After` header that is not a number.
     pub default_wait: Duration,
     /// The longest wait that the app obeys. A larger `Retry-After` counts as this value.
     pub longest_wait: Duration,
@@ -67,14 +72,14 @@ impl Throttle {
         Ok(())
     }
 
-    /// Reads the head of an answer. For HTTP 429 it records the wait that the server asks
-    /// for and gives `true`: the request can go out again after the gate.
+    /// Reads the head of an answer. For HTTP 429 with `Retry-After` it records the wait that
+    /// the server asks for and gives `true`: the request can go out again after the gate.
     pub(crate) fn note(&self, status: StatusCode, headers: &HeaderMap) -> bool {
-        if status != StatusCode::TOO_MANY_REQUESTS {
+        let header = headers.get(RETRY_AFTER);
+        let Some(header) = header.filter(|_| status == StatusCode::TOO_MANY_REQUESTS) else {
             return false;
-        }
-        let asked =
-            headers.get(RETRY_AFTER).and_then(|value| value.to_str().ok()).and_then(|text| text.trim().parse().ok());
+        };
+        let asked = header.to_str().ok().and_then(|text| text.trim().parse().ok());
         let wait = asked.map_or(self.settings.default_wait, Duration::from_secs).min(self.settings.longest_wait);
         let until = (Instant::now() + wait, self.clock.now() + wait);
         {
@@ -152,12 +157,18 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_bad_header_gives_the_default_wait_and_a_long_wait_has_a_limit() {
-        for (headers, wait) in
-            [(HeaderMap::new(), 1), (retry_after("soon"), 1), (retry_after("86400"), 30), (retry_after(" 3 "), 3)]
-        {
+        for (headers, wait) in [(retry_after("soon"), 1), (retry_after("86400"), 30), (retry_after(" 3 "), 3)] {
             let throttle = throttle();
             throttle.note(StatusCode::TOO_MANY_REQUESTS, &headers);
             assert_eq!(throttle.status().until, Some(epoch() + wait * SECOND), "{headers:?}");
         }
+    }
+
+    /// The answer of the server to an eviction that a PodDisruptionBudget blocks.
+    #[tokio::test(start_paused = true)]
+    async fn an_http_429_with_no_header_refuses_one_request_and_throttles_nothing() {
+        let throttle = throttle();
+        assert!(!throttle.note(StatusCode::TOO_MANY_REQUESTS, &HeaderMap::new()));
+        assert_eq!(throttle.status(), ThrottleStatus { until: None, answers: 0 });
     }
 }
