@@ -196,5 +196,5 @@ TLS, HTTP/2, HTTP/1.1, watch streams, the HTTP 101 upgrade and faults; `Home` is
 - **Program tests** start `fresnel-cli` and `fresnel` (no window) as from Finder, in a test home.
 - **Cluster tests** use k3s in Docker, mostly through the fault proxy (`#[ignore]`). After a fault,
   a store test asserts a recovery time and "store equal to the API". The tests of the indexes,
-  the kinds, the keys and the operations (on two clusters) compare each result with kubectl.
+  the kinds, the keys, the operations and the commands of the core compare results with kubectl.
 - CI runs each check on macOS and Linux for each push, and the cluster tests on Linux.
