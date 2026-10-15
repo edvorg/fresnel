@@ -103,3 +103,28 @@ fn a_copy_of_each_line_of_a_large_view_runs_on_a_worker_thread() {
         window.query_by_label_contains("Copied 20,000 lines").is_some()
     });
 }
+
+/// Extreme sizes: a hundred lines of 16 KiB each are a copy of 1.6 MB. The frame of the key
+/// gives them to the worker thread, as a copy of many short lines.
+#[test]
+fn a_copy_of_some_long_lines_runs_on_a_worker_thread() {
+    let (mut window, request) = opened(WEB);
+    let long = |number: usize| line(100.0 - number as f64, 0, &format!("{number:03} {}", "x".repeat(16 * 1024)));
+    show(
+        &mut window,
+        vec![log_view(&request, vec![source(WEB, "web", SourceState::Streaming)], (0..100).map(long).collect())],
+    );
+    until_row(&mut window, "099 xxx");
+    super::first_row(&window).click();
+    window.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    window.run();
+    window.event(Event::Copy);
+    window.step();
+    assert_eq!(copied(&window).map(|text| text.len()), None, "the frame of the key builds no text");
+    let text = until_copied(&mut window);
+    assert_eq!(
+        (text.lines().count(), text.len()),
+        (100, 100 * (31 + 4 + 16 * 1024) + 99),
+        "a time, a number and a line end"
+    );
+}

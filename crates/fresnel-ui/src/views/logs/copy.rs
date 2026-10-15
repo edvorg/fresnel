@@ -1,6 +1,7 @@
 //! The copy of a selection to the clipboard (plan section 12.7). A small selection becomes
-//! its text in the frame; a large one on a worker thread, so that a copy of 200,000 lines
-//! does not hold a frame. The clipboard gets the text in the frame after the worker.
+//! its text in the frame; a large one on a worker thread, so that a copy of 200,000 lines or
+//! of some long lines does not hold a frame. The clipboard gets the text in the frame after
+//! the worker.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -14,8 +15,10 @@ use crate::format;
 use crate::widgets::tone::Tone;
 use crate::widgets::worker::{Cancel, RequestId, Wake, Worker};
 
-/// The most lines that a frame copies itself: some hundred kilobytes at most.
+/// The most lines and bytes that a frame copies itself. A line can have 64 KiB, so a count of
+/// lines alone could give a frame a copy of 128 MiB.
 const IN_FRAME: usize = 2_000;
+const IN_FRAME_BYTES: usize = 256 * 1024;
 /// The most bytes of one copy. A larger part of a log is a file: "Save".
 const LIMIT: usize = 32 * 1024 * 1024;
 
@@ -53,9 +56,11 @@ impl Copier {
     ) -> Option<(Tone, String)> {
         let shown = Shown { lines: &job.lines, kept: job.kept.as_deref() };
         let (start, end) = job.selection.ordered();
-        let count = shown.index_from(end.line.saturating_add(1)).saturating_sub(shown.index_from(start.line));
+        let first = shown.index_from(start.line);
+        let count = shown.index_from(end.line.saturating_add(1)).saturating_sub(first);
+        let bytes = || (first..first + count).filter_map(|index| shown.line(index)).map(|(_, line)| line.text.len());
         self.asked += 1;
-        if count <= IN_FRAME {
+        if count <= IN_FRAME && bytes().sum::<usize>() <= IN_FRAME_BYTES {
             self.waiting = None;
             return Some(done(ctx, select::text(shown, job.selection, &job.columns, LIMIT)));
         }
