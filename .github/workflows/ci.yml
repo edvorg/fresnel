@@ -14,14 +14,17 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
+  # Windows runs the same checks: the unit tests, the socket tests and the UI tests. A test
+  # of the fake plugin or the login shell, shell scripts, is for unix. The first build on
+  # Windows needs more time.
   check:
     name: check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.os == 'windows-2025' && 60 || 30 }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-26, ubuntu-24.04]
+        os: [macos-26, ubuntu-24.04, windows-2025]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain of rust-toolchain.toml
@@ -36,6 +39,7 @@ jobs:
           # No older cache: its build folder would stay in each later one and fill the disk.
           key: check-${{ matrix.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml') }}
       # The UI tests draw with wgpu. A Linux runner has no GPU, so Mesa gives a software one.
+      # Windows has one in Direct3D 12 (WARP).
       - name: Software GPU
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers
