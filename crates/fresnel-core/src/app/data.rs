@@ -47,7 +47,8 @@ pub struct ClusterData {
     /// and its count of objects.
     pub stores: Arc<[StoreStatus]>,
     /// The snapshot of each store that is always on, in the sequence of the kinds, for the
-    /// quick search: the full objects of a kind of tier A, the metadata of one of tier B.
+    /// quick search and the counts of a namespace: the full objects of a kind of tier A, the
+    /// metadata of one of tier B.
     pub sources: Arc<[Source]>,
     /// The full objects of the kinds that the views show (`Command::ShowKinds`).
     pub objects: Objects,

@@ -33,6 +33,9 @@ impl Searched for Meta {
 trait Searchable: Send + Sync {
     fn as_any(&self) -> &dyn Any;
 
+    /// The count of objects in one namespace.
+    fn count_in(&self, namespace: &str) -> usize;
+
     /// Gives each object that matches, with its score. False when `cancel` stopped the walk.
     fn find<'s>(
         &'s self,
@@ -45,6 +48,10 @@ trait Searchable: Send + Sync {
 impl<T: Searched> Searchable for Held<Snapshot<T>> {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn count_in(&self, namespace: &str) -> usize {
+        self.items.count_in(namespace)
     }
 
     fn find<'s>(
@@ -94,6 +101,12 @@ impl Source {
     /// The full objects of a kind, with their type. `None` for a store of the metadata.
     pub fn snapshot<K: Describe>(&self) -> Option<&Held<Snapshot<K>>> {
         self.objects.as_any().downcast_ref()
+    }
+
+    /// The count of objects of the store in one namespace: a view of a namespace counts
+    /// its objects of each kind, with no type of their objects.
+    pub fn count_in(&self, namespace: &str) -> usize {
+        self.objects.count_in(namespace)
     }
 
     pub(super) fn find<'s>(

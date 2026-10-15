@@ -108,6 +108,13 @@ impl<T> Items<T> {
         self.map.get(key).map(|entry| &entry.0)
     }
 
+    /// The count of objects in one namespace. The map holds the objects of a namespace in
+    /// one run, so the count reads no object of an other namespace.
+    pub fn count_in(&self, namespace: &str) -> usize {
+        let first = ObjectKey::new(namespace, "");
+        self.map.range(first..).take_while(|(key, _)| &*key.namespace == namespace).count()
+    }
+
     /// Each object with its identity, in the sequence of the identities.
     pub fn iter(&self) -> impl Iterator<Item = (&ObjectKey, &Arc<T>)> {
         self.map.iter().map(|(key, entry)| (key, &entry.0))
@@ -190,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn a_list_of_objects_gives_the_entries_of_a_store_and_an_object_with_no_name_is_none() {
+    fn a_list_of_objects_gives_the_entries_of_a_store_and_an_object_with_no_name_is_none_and_each_namespace_counts() {
         let named = |namespace: &str, name: &str| {
             let mut meta = Meta::default();
             meta.metadata.namespace = Some(namespace.to_owned());
@@ -203,5 +210,7 @@ mod tests {
                 .collect();
         let keys: Vec<String> = items.iter().map(|(key, _)| format!("{}/{}", key.namespace, key.name)).collect();
         assert_eq!(keys, ["lab/web", "shop/api", "shop/web"]);
+        let counts = ["", "lab", "sho", "shop", "shop2"].map(|namespace| items.count_in(namespace));
+        assert_eq!(counts, [0, 1, 0, 2, 0], "a namespace counts its own objects only");
     }
 }
