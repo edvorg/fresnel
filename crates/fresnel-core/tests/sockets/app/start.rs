@@ -1,5 +1,6 @@
 //! The start of the core and its stop.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use fresnel_core::app::{CoreSettings, Health, Startup};
@@ -43,7 +44,11 @@ async fn the_core_does_nothing_before_its_start_and_then_connects_with_the_envir
 
     // The core changes nothing in a cluster: each request is a read.
     let requests = server.requests();
-    assert!(requests.iter().any(|seen| seen.uri.path() == "/version"), "the light request of a channel");
+    // The read of the server version is a GET of the same path on the request channel, so
+    // a light request shows as a second connection with that path.
+    let light = requests.iter().filter(|seen| seen.uri.path() == "/version").map(|seen| seen.connection);
+    let light: BTreeSet<u64> = light.collect();
+    assert!(light.len() >= 2, "the light request of a channel and the read of the version: {light:?}");
     assert!(requests.iter().all(|seen| seen.method == Method::GET), "{requests:?}");
     assert_eq!(other.counters().connections, 0, "a cluster that is not selected gets no connection");
 
