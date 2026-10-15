@@ -122,7 +122,8 @@ impl PodNames {
         for pod in pods {
             same = first.bytes().zip(pod.bytes()).take(same).take_while(|(a, b)| a == b).count();
         }
-        let dash = first.get(..same).and_then(|start| start.rfind('-'));
+        // The bytes can differ inside one character: the start ends before that character.
+        let dash = first.get(..first.floor_char_boundary(same)).and_then(|start| start.rfind('-'));
         Self { shared: dash.and_then(|dash| first.get(..=dash)).unwrap_or_default().to_owned() }
     }
 
@@ -295,6 +296,7 @@ mod tests {
             "a number alone reads as a value"
         );
         assert_eq!(shorts(&["web", "api"]), ["web", "api"]);
+        assert_eq!(shorts(&["über-é-1a", "über-è-2b"]), ["é-1a", "è-2b"], "names that differ inside a character");
         let names = PodNames::of(set);
         assert_eq!((names.short("all pods"), PodNames::of([]).short("web")), ("all pods", "web"), "an other name");
     }
