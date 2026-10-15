@@ -142,6 +142,31 @@ impl ClusterIndexes {
     }
 }
 
+/// The owner index of a test on its four stores, with its task.
+#[cfg(test)]
+pub(crate) struct TestOwners(Running<Owners>);
+
+#[cfg(test)]
+impl TestOwners {
+    pub(crate) fn start(
+        tasks: &Tasks,
+        bin: Bin,
+        replica_sets: Reader<Snapshot<k8s_openapi::api::apps::v1::ReplicaSet>>,
+        jobs: Reader<Snapshot<k8s_openapi::api::batch::v1::Job>>,
+        pods: Reader<Snapshot<k8s_openapi::api::core::v1::Pod>>,
+        slices: Reader<Snapshot<k8s_openapi::api::discovery::v1::EndpointSlice>>,
+    ) -> Self {
+        let (cluster, parts) = (ClusterId::new("test"), IndexParts { bin, restart: Backoff::default() });
+        let starter = Starter { tasks, cluster: &cluster, parts, notice: Notice::new() };
+        let indexer = move || OwnerIndexer::new(replica_sets.clone(), jobs.clone(), pods.clone(), slices.clone());
+        Self(starter.start("owner index", indexer))
+    }
+
+    pub(crate) fn reader(&self) -> Reader<Index<Owners>> {
+        self.0.publisher.reader()
+    }
+}
+
 impl std::fmt::Debug for ClusterIndexes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClusterIndexes").field("events", &self.events.is_some()).finish_non_exhaustive()
