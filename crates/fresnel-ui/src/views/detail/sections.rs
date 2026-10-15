@@ -23,7 +23,7 @@ use crate::theme::Palette;
 use crate::views::act::Ask;
 use crate::views::objects::Link;
 use crate::views::pod_spec::Place;
-use crate::views::{access, config, network, pods, workloads};
+use crate::views::{access, cluster, config, network, pods, workloads};
 use crate::widgets::table::model::ObjectId;
 
 /// What a section of a kind reads besides its object.
@@ -132,6 +132,9 @@ pub(super) fn details<K: Describe>(ui: &mut Ui, cx: &Context<'_>, object: &K) ->
         Kind::ClusterRoleBinding => {
             of(object).and_then(|binding| access::bindings::cluster_role_binding(ui, cx, binding))
         }
+        Kind::Node => of(object).and_then(|node| cluster::node::details(ui, cx, node)),
+        Kind::Namespace => of(object).and_then(|namespace| cluster::namespace::details(ui, cx, namespace)),
+        Kind::Event => of(object).and_then(|event| cluster::event::details(ui, cx, event)),
         _ => None,
     };
     link.map(Pick::Open)
@@ -152,6 +155,8 @@ pub(super) fn parts<K: Describe>(ui: &mut Ui, cx: &Context<'_>, object: &K) -> O
         Kind::CronJob => of::<CronJob, K>(object).and_then(|job| workloads::cron_job::parts(ui, cx, job)),
         Kind::Service => network::service::parts(ui, cx).map(Pick::Open),
         Kind::ServiceAccount => access::account::parts(ui, cx).map(Pick::Open),
+        Kind::Node => cluster::node::parts(ui, cx).map(Pick::Open),
+        Kind::Namespace => cluster::namespace::parts(ui, cx).map(Pick::Open),
         _ => None,
     }
 }
@@ -162,6 +167,7 @@ pub(crate) fn also_shown(kind: Kind) -> &'static [Kind] {
     match kind {
         // The last runs of a CronJob show the state of each of its Jobs.
         Kind::CronJob => &[Kind::Job],
+        Kind::Namespace => &[Kind::ResourceQuota, Kind::LimitRange],
         Kind::ServiceAccount => &[Kind::RoleBinding, Kind::ClusterRoleBinding],
         _ => &[],
     }

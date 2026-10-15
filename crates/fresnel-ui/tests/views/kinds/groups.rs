@@ -11,9 +11,9 @@ use fresnel_core::kinds::{Describe, Kind};
 use fresnel_core::store::StoreState;
 use k8s_openapi::api::apps::v1::{Deployment, ReplicaSet};
 
-use super::in_panel;
 use super::scene::{config_maps, deployments, live, nodes, revisions, service_accounts, services, with};
 use super::weakness::{count_of, page};
+use super::{in_panel, times_in_panel};
 use crate::data::{changed_object, empty_store, held, pods, scene, store};
 use crate::fake::{SECOND, Window, absent, now, shows, until, view};
 use crate::pods::column;
@@ -48,9 +48,10 @@ fn a_node_shows_its_conditions_with_no_namespace_and_a_link_of_a_pod_on_it_opens
     assert_eq!(column(&window, "Status"), ["Ready"]);
     assert_eq!(window.state().sent, [Command::ShowKinds(BTreeSet::from([Kind::Node]))]);
     open(&mut window, &name);
-    let texts = ["Node", "Healthy", "METADATA", "CONDITIONS", "MemoryPressure", "Ready", "USED BY", "db-0", "EVENTS"];
+    let texts = ["Node", "Healthy", "METADATA", "CONDITIONS", "MemoryPressure", "Ready", "PODS", "db-0", "EVENTS"];
     assert_eq!(absent(&window, &texts), Vec::<&str>::new());
-    assert!(!in_panel(&window, "Namespace"), "a node has no namespace");
+    let namespaces = times_in_panel(&window, "Namespace");
+    assert_eq!(namespaces, 1, "a node has no namespace: the one in the panel is the column of its pods");
 
     // The link opens the Pods with the panel of the pod, and the core holds no Nodes for it.
     follow(&mut window, "db-0");

@@ -8,13 +8,14 @@
 //!
 //! - `deployment`, `stateful_set`, `daemon_set`, `replica_set` (with the ReplicationController),
 //!   `job`, `cron_job`: one file for each kind.
-//! - `pods`: the pods of a workload. `revisions`: the revisions with a rollback.
+//! - `pods`: the pods of a workload, and the table of pods of a Node. `revisions`: the
+//!   revisions with a rollback.
 
 pub(crate) mod cron_job;
 pub(crate) mod daemon_set;
 pub(crate) mod deployment;
 pub(crate) mod job;
-mod pods;
+pub(crate) mod pods;
 pub(crate) mod replica_set;
 mod revisions;
 pub(crate) mod stateful_set;

@@ -23,8 +23,13 @@ use crate::fake::Window;
 
 /// True when the detail panel shows this text: a node right of the left edge of its tabs.
 pub(crate) fn in_panel(window: &Window, text: &str) -> bool {
+    times_in_panel(window, text) > 0
+}
+
+/// The count of the nodes of the detail panel with this text.
+pub(crate) fn times_in_panel(window: &Window, text: &str) -> usize {
     let Some(panel) = window.query_by_label("Overview").map(|tab| tab.rect().left() - 2.0) else {
-        return false;
+        return 0;
     };
-    window.query_all_by_label(text).any(|node| node.rect().left() >= panel)
+    window.query_all_by_label(text).filter(|node| node.rect().left() >= panel).count()
 }
