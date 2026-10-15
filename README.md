@@ -29,7 +29,7 @@ table and a panel for each kind, actions, keys, the Operations tab, metrics, log
 
 ## The app
 
-Each push to `master` makes a GitHub release: `gh release download -R edvorg/fresnel`.
+A green CI run of `master` makes a release: `gh release download -R edvorg/fresnel`.
 - macOS: the signature is ad hoc. Run `xattr -dr com.apple.quarantine Fresnel.app` before the first
   start, or start it once and then use Open Anyway in System Settings, Privacy & Security.
 - Windows: unzip, start `fresnel.exe`; at the first start SmartScreen asks: More info, Run anyway.

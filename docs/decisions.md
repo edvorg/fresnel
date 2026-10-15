@@ -1633,13 +1633,13 @@ such as "fresnel runs already", shows nowhere, and a second start ends with no s
 shows that text in a message box of the system. Finder starts no second process of an app that
 runs, so macOS needs no dialog. The first window does not come to the front yet.
 
-## Each push to master makes a release
+## Each commit of master that passes CI makes a release
 
-The workflow `release` builds the app for macOS on Apple silicon and the program for Windows x64
-of each push to `master`, checks each zip file, and makes the latest release, with the commits
-since the release before. The 20 newest releases stay. A newer push cancels the builds of an older
-run; the job that publishes has its own group, so a release that has begun ends. The release
-does not wait for CI.
+When `ci` of a push to `master` passes, the workflow `release` builds the app for macOS arm64 and
+the program for Windows x64 of that commit, so a commit with a failed test never becomes the
+latest release. It checks each zip file and makes the release, with the commits since the one
+before; the 20 newest stay. A newer run cancels older builds; the job that publishes has its own
+group, so a release that has begun ends.
 
 ## The version of a release has the run number of its workflow
 
