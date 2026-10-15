@@ -100,6 +100,7 @@ impl fmt::Debug for ClusterData {
             .field("events", &self.events.as_ref().map(|index| &index.state))
             .field("objects", &self.objects)
             .field("logs", &self.logs.len())
+            .field("metrics", &format_args!("pods {}, nodes {}", self.metrics.pods.state, self.metrics.nodes.state))
             .finish_non_exhaustive()
     }
 }
