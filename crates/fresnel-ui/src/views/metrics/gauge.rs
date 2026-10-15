@@ -80,9 +80,13 @@ impl Resource {
     }
 
     /// The text of a value of the axis of a chart. A value below zero, from the margin of
-    /// the axis, is zero.
+    /// the axis, is zero, and zero is "0" for each resource: "0m" next to "1" read as two
+    /// units.
     pub(crate) fn text_of(self, value: f64) -> String {
-        self.text((value.max(0.0) * self.unit()) as u64)
+        match (value.max(0.0) * self.unit()) as u64 {
+            0 => "0".to_owned(),
+            amount => self.text(amount),
+        }
     }
 
     fn unit(self) -> f64 {
@@ -242,7 +246,8 @@ mod tests {
     fn a_chart_shows_millicores_and_mib() {
         assert_eq!((Resource::Cpu.value(250_000_000), Resource::Memory.value(64 * MI)), (250.0, 64.0));
         assert_eq!((Resource::Cpu.text_of(1500.0), Resource::Memory.text_of(64.0)), ("1.5".into(), "64Mi".into()));
-        assert_eq!(Resource::Cpu.text_of(-20.0), "0m", "the margin below zero");
+        assert_eq!(Resource::Cpu.text_of(-20.0), "0", "the margin below zero");
+        assert_eq!((Resource::Cpu.text_of(0.0), Resource::Memory.text_of(0.0)), ("0".into(), "0".into()));
     }
 
     #[test]
