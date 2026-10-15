@@ -9,22 +9,19 @@
 
 #[path = "../common/mod.rs"]
 mod common;
+#[path = "../common/window.rs"]
+mod window;
 
 use std::time::{Duration, Instant};
 
 use eframe::egui;
-use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
-use fresnel_core::app::{Core, CoreParts, CoreSettings};
-use fresnel_core::journal::{Journal, TASK_SOURCE};
-use fresnel_core::net::WallClock;
 use fresnel_testkit::{FakeApiServer, FaultProxy, Home, ProxyMode};
-use fresnel_ui::{Clock, Shell};
 use serde_json::Value;
 use tokio::runtime::{Builder, Runtime};
 
-/// The longest wait for a frame that must come.
-const LIMIT: Duration = Duration::from_secs(60);
+use window::{LIMIT, Window, core, shows, stop_with_no_ended_task, until, window};
+
 /// The path of the Pod list and of the Pod watch.
 const PODS: &str = "/api/v1/pods";
 
@@ -74,46 +71,6 @@ fn home(ams: &Cluster, fra: &Cluster) -> Home {
     home
 }
 
-/// What a frame draws: the shell of the app on the core of the app.
-struct App {
-    core: Core,
-    shell: Option<Shell>,
-}
-
-type Window = Harness<'static, App>;
-
-fn window(core: Core) -> Window {
-    let frame = |ui: &mut egui::Ui, app: &mut App| {
-        let core = &app.core;
-        let shell = app.shell.get_or_insert_with(|| Shell::new(ui.ctx(), Clock::system(), &core.tasks()));
-        fresnel::frame::draw(shell, core, ui);
-    };
-    let builder = Harness::builder().with_size([1280.0, 800.0]).with_step_dt(1.0 / 60.0).with_max_steps(64);
-    let window = builder.build_ui_state(frame, App { core, shell: None });
-    // The core starts after the first frame, as in the window of the app.
-    let ctx = window.ctx.clone();
-    window.state().core.start(move || ctx.request_repaint());
-    window
-}
-
-/// Draws frames until the window meets the condition. Gives the time of the wait.
-fn until(window: &mut Window, what: &str, met: impl Fn(&Window) -> bool) -> Duration {
-    let started = Instant::now();
-    loop {
-        window.run();
-        if met(window) {
-            return started.elapsed();
-        }
-        let journal = || window.state().core.view().journal;
-        assert!(started.elapsed() < LIMIT, "in time: {what}: {:#?}", journal().entries);
-        std::thread::sleep(Duration::from_millis(5));
-    }
-}
-
-fn shows(window: &Window, text: &str) -> bool {
-    window.query_all_by_label(text).next().is_some()
-}
-
 /// The count of rows on the screen whose name ends with this text.
 fn rows(window: &Window, suffix: &str) -> usize {
     let labels = window.query_all_by_role(egui::accesskit::Role::Label);
@@ -139,16 +96,8 @@ fn bed() -> Bed {
     let runtime: Runtime = Builder::new_multi_thread().worker_threads(4).enable_all().build().expect("a runtime");
     let (ams, fra) = runtime.block_on(async { (cluster("-ams").await, cluster("-fra").await) });
     let home = home(&ams, &fra);
-    let core = Core::new(CoreParts {
-        runtime: runtime.handle().clone(),
-        base_env: home.finder_env(),
-        journal: Journal::new(1000, WallClock::system()),
-        state_file: home.path("state/state.json"),
-        config_file: home.path("state/config.toml"),
-        detectors: Vec::new(),
-        settings: CoreSettings::default(),
-    });
-    let mut window = window(core);
+    let core = core(&runtime, &home);
+    let mut window = window(core, egui::vec2(1280.0, 800.0));
 
     // The first start selects the cluster of `kubectl`. Its pods show with no command.
     until(&mut window, "the pods of ams", |window| shows(window, "25 pods"));
@@ -169,16 +118,6 @@ fn delete_a_pod_of_fra(window: &mut Window, fra: &Cluster) {
     let event = serde_json::json!({"type": "DELETED", "object": pods["items"][0]}).to_string();
     assert!(fra.server.send_event(PODS, &event) > 0, "the watch of the pods is open");
     until(window, "one pod less", |window| shows(window, "49 pods"));
-}
-
-/// Stops the core. No task of the app ended in the test: each fault was a state.
-fn stop_with_no_ended_task(window: &Window) {
-    let core = &window.state().core;
-    let journal = core.view().journal;
-    let ended: Vec<&str> =
-        journal.entries.iter().filter(|entry| entry.source == TASK_SOURCE).map(|entry| entry.text.as_str()).collect();
-    assert_eq!(ended, Vec::<&str>::new(), "no task of the app ended");
-    core.stop();
 }
 
 /// Weaknesses 1, 7 and 8 of plan section 6, and the acceptance of milestone M1: the rows
