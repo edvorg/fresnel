@@ -14,8 +14,11 @@
 //! - `ingest`: from bytes to lines. `merge`: the sequence of many sources. `ring`: the
 //!   lines of a view with their limits. `line`: one line with its styles.
 
+mod container;
 mod ingest;
 mod line;
+mod merge;
+mod request;
 mod ring;
 
 use std::time::Duration;
@@ -23,6 +26,7 @@ use std::time::Duration;
 use fresnel_net::task::Backoff;
 
 pub use line::{Color, LineKind, LogLine, Span, Style};
+pub use request::{Containers, LogOptions, LogRequest, Since};
 pub use ring::{Lines, RingLimits};
 
 /// The settings of the log views.
