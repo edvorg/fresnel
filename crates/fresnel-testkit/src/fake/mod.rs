@@ -4,7 +4,8 @@
 //! code. It is not a Kubernetes server: it knows no kinds and keeps no objects.
 //!
 //! - `GET /version` gives a version.
-//! - A request with `watch=true` gives a stream. The test sends each event line.
+//! - A request with `watch=true`, or a log with `follow=true`, gives a stream. The test
+//!   sends each line.
 //! - An HTTP/1.1 request with the header `Upgrade` gets HTTP 101, and then each byte back.
 //! - Each other request gets the body that the test set for its path, or an empty list.
 //!

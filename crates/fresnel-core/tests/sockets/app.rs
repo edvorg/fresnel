@@ -9,6 +9,7 @@
 //! - `data`: the objects of the selected clusters in the view. `keys`: the key view.
 //!   `key_faults`: the key view with fast input, a fault at the worst moment and bad data.
 //! - `orders`: the jobs of the operations and the permissions of each cluster.
+//! - `logs`: the log views.
 //! - `network`: a network that goes away and comes back.
 //! - `selection`: the selection of one run is the selection of the next run.
 //! - `faults`: a login shell that hangs, and a panic of the task of the core.
@@ -20,6 +21,7 @@ mod data;
 mod faults;
 mod key_faults;
 mod keys;
+mod logs;
 mod network;
 mod orders;
 mod search;

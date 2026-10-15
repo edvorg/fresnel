@@ -34,9 +34,10 @@ impl SeenRequest {
         self.headers.get(AUTHORIZATION)?.to_str().ok()?.strip_prefix("Bearer ")
     }
 
-    /// True for a watch request: its answer is a stream of events.
+    /// True for a watch request or a log that follows: its answer is a stream of the lines
+    /// that the test sends.
     pub fn is_watch(&self) -> bool {
         let query = self.uri.query().unwrap_or_default();
-        query.split('&').any(|pair| pair == "watch=true" || pair == "watch=1")
+        query.split('&').any(|pair| matches!(pair, "watch=true" | "watch=1" | "follow=true"))
     }
 }
