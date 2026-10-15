@@ -4,7 +4,7 @@
 //! - `fixed`: the groups of the settings table, with the bounds of each number.
 //! - `clusters`: the options of each cluster and the cluster groups.
 
-mod clusters;
+pub(super) mod clusters;
 pub(super) mod fixed;
 
 use std::collections::BTreeMap;
@@ -24,6 +24,14 @@ const MAX_PROBLEMS: usize = 20;
 /// Reads the settings of a text. A key that does not fit is a problem, and the other keys
 /// stay in use.
 pub fn parse(text: &str) -> Loaded {
+    let mut loaded = parse_all(text);
+    loaded.problems = limited(loaded.problems);
+    loaded
+}
+
+/// The same with each problem: a save compares the problems of the old and the new text,
+/// and the line of the count of the others would change with each one.
+pub(super) fn parse_all(text: &str) -> Loaded {
     let table = match DeTable::parse(text) {
         Ok(table) => table,
         Err(error) => {
@@ -53,7 +61,7 @@ pub fn parse(text: &str) -> Loaded {
         Some(Some(found)) => {
             let text = format!("the file has the version {found}, and this app reads the version {VERSION} only");
             reader.problem(0..0, text);
-            return Loaded { config: Config::default(), problems: limited(reader.problems), used: false };
+            return Loaded { config: Config::default(), problems: reader.problems, used: false };
         }
         None => reader.problem(0..0, format!("the file has no `version`; the app reads it as version {VERSION}")),
     }
@@ -66,7 +74,7 @@ pub fn parse(text: &str) -> Loaded {
     reader.problems.sort_by_key(|problem| (problem.line, problem.column));
     config.keys = keys;
     config.values = values;
-    Loaded { config, problems: limited(reader.problems), used: true }
+    Loaded { config, problems: reader.problems, used: true }
 }
 
 /// The first [`MAX_PROBLEMS`] problems, and the count of the others at the place of the

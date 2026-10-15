@@ -136,3 +136,19 @@ fn a_file_that_does_not_parse_shows_its_place_and_the_view_saves_nothing() {
         1
     );
 }
+
+/// The view refuses each text that the reader of the file would drop, so the file gets the
+/// value that the user sees: a namespace of the settings is a name of Kubernetes.
+#[test]
+fn a_text_that_is_no_name_of_a_namespace_keeps_save_off() {
+    let mut window = window(read("version = 1\n"));
+    open_page(&mut window, "Settings");
+    retype(&mut window, "Default namespace of ams-prod", "Shop");
+    assert!(shows(&window, "`Shop` is no name of a namespace: small letters, digits and -"));
+    assert!(save_is_off(&window));
+    crate::keys::typed(&mut window, "Favorite namespaces of ams-prod", "shop\nkube_system");
+    assert!(shows(&window, "`kube_system` is no name of a namespace: small letters, digits and -"));
+    retype(&mut window, "Default namespace of ams-prod", "shop");
+    crate::keys::typed(&mut window, "Favorite namespaces of ams-prod", "shop\nkube-system");
+    assert!(shows(&window, "2 changes to save.") && !save_is_off(&window));
+}

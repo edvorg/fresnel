@@ -28,6 +28,7 @@ use std::path::PathBuf;
 
 pub use clusters::{ALIAS_LIMIT, ClusterGroup, ClusterOptions, ConfirmRule, OPTION_KEYS, Rgb};
 pub use edit::{Edit, EditValue};
+pub use read::clusters::is_namespace;
 pub use read::fixed::{amount, is_time_zone};
 pub use read::parse;
 pub use values::{Theme, Value};

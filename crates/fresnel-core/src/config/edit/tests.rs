@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::parse;
 use crate::config::table::Setting;
 use crate::config::values::Value;
 
@@ -83,5 +84,48 @@ fn a_write_replaces_the_file_in_one_step_and_a_refused_write_leaves_it() {
     let refused = write(&path, &[number(&["network", "list_page_size"], 200)]);
     assert!(refused.is_err());
     assert_eq!(fs::read_to_string(&path).expect("the file"), "version = 1\n[network\n", "the file stays");
+    fs::remove_dir_all(&folder).expect("the test folder");
+}
+
+/// A change gives the file what the app uses: a value that the reader would refuse, clamp
+/// or move is refused before the write. A problem that the old text has stays and lets a
+/// save go, also when the journal shows only the first problems of the file.
+#[test]
+fn a_value_that_the_reader_would_not_use_as_it_is_is_refused_and_an_old_problem_stays() {
+    let text = "version = 1\nzoom = 2\n";
+    let refused = |edits: &[Edit]| apply(text, edits).expect_err("a refused change");
+    let zero = refused(&[number(&["network", "keepalive_secs"], 0)]);
+    assert!(zero.starts_with("the change has a problem at line 5, column 18: `network.keepalive_secs` = 0"), "{zero}");
+    assert!(zero.ends_with("; the app writes no value that it does not use"), "{zero}");
+    assert!(refused(&[number(&["table", "row_height"], 99)]).contains("is above its highest value"));
+    let text_of = |path: &[&str], text: &str| Edit::new(path, EditValue::Text(text.to_owned()));
+    let namespace = refused(&[text_of(&["clusters", "ams", "default_namespace"], "Prod")]);
+    assert!(namespace.contains("`Prod` is no name of a namespace"), "{namespace}");
+    let taken = refused(&[text_of(&["shortcuts", "back"], "Cmd+K")]);
+    assert!(taken.contains("was the default key of `quick-search`"), "{taken}");
+    let moved = [text_of(&["shortcuts", "quick-search"], ""), text_of(&["shortcuts", "back"], "Cmd+K")];
+    assert!(apply(text, &moved).is_ok(), "the key of a command whose own key goes");
+
+    let changed = apply(text, &[number(&["table", "row_height"], 30)]).expect("a change beside an old problem");
+    assert_eq!(parse(&changed).problems.len(), 1, "the unknown key stays a problem");
+    let many: String = (0..25).map(|number| format!("unknown_{number} = 1\n")).collect();
+    let many = format!("version = 1\n{many}");
+    let fewer = apply(&many, &[Edit::new(&["unknown_0"], EditValue::Remove)]).expect("one problem less");
+    assert_eq!(parse(&fewer).problems.len(), 21, "20 problems and the line of the 4 others");
+}
+
+/// A settings file can be a link into a folder of dotfiles. A save writes the file of the
+/// link, and the link stays.
+#[cfg(unix)]
+#[test]
+fn a_write_through_a_symbolic_link_changes_the_file_of_the_link_and_the_link_stays() {
+    let folder = std::env::temp_dir().join(format!("fresnel-config-link-{}", std::process::id()));
+    let (file, link) = (folder.join("dotfiles/fresnel.toml"), folder.join("config.toml"));
+    fs::create_dir_all(folder.join("dotfiles")).expect("the folders");
+    fs::write(&file, "version = 1 # mine\n").expect("the file");
+    std::os::unix::fs::symlink(&file, &link).expect("the link");
+    write(&link, &[number(&["table", "row_height"], 30)]).expect("a write");
+    assert!(fs::symlink_metadata(&link).expect("the link").file_type().is_symlink(), "the link stays");
+    assert_eq!(fs::read_to_string(&file).expect("the file"), "version = 1 # mine\n\n[table]\nrow_height = 30\n");
     fs::remove_dir_all(&folder).expect("the test folder");
 }

@@ -87,12 +87,9 @@ impl Reader<'_> {
         }
     }
 
-    /// A name of a namespace, or a problem: a name of Kubernetes has small letters, digits
-    /// and `-`, so a typing mistake shows here and not as an empty filter.
+    /// A name of a namespace, or a problem.
     fn namespace(&mut self, path: &str, text: &str, value: &Spanned<DeValue<'_>>) -> Option<String> {
-        let fits = !text.is_empty()
-            && text.len() <= NAMESPACE_LIMIT
-            && text.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+        let fits = is_namespace(text);
         if !fits {
             self.problem(value.span(), format!("`{path}`: `{text}` is no name of a namespace"));
         }
@@ -114,4 +111,12 @@ impl Reader<'_> {
         }
         groups
     }
+}
+
+/// True for a name of a namespace: a name of Kubernetes has small letters, digits and `-`,
+/// so a typing mistake shows in the settings and not as an empty filter.
+pub fn is_namespace(text: &str) -> bool {
+    !text.is_empty()
+        && text.len() <= NAMESPACE_LIMIT
+        && text.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }

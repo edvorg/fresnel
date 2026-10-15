@@ -3,7 +3,7 @@
 use egui::{ComboBox, Grid, RichText, TextEdit, Ui};
 use fresnel_core::app::CoreView;
 use fresnel_core::cluster::ClusterId;
-use fresnel_core::config::{ALIAS_LIMIT, ClusterOptions, Config, ConfirmRule, EditValue, Rgb};
+use fresnel_core::config::{ALIAS_LIMIT, ClusterOptions, Config, ConfirmRule, EditValue, Rgb, is_namespace};
 
 use super::draft::{Draft, Path, lines, path};
 use crate::theme::{Palette, SMALL};
@@ -57,16 +57,27 @@ fn texts(ui: &mut Ui, palette: &Palette, draft: &mut Draft, id: &ClusterId, own:
         let name = format!("Default namespace of {id}");
         draft.field(ui, palette, (&key("default_namespace"), &name, false), &namespace, |text| match text.trim() {
             "" => Ok(EditValue::Remove),
-            namespace => Ok(EditValue::Text(namespace.to_owned())),
+            namespace if is_namespace(namespace) => Ok(EditValue::Text(namespace.to_owned())),
+            namespace => Err(no_namespace(namespace)),
         });
     });
     let favorites = own.favorite_namespaces.join("\n");
     row(ui, "Favorite namespaces", |ui| {
         let name = format!("Favorite namespaces of {id}");
         draft.field(ui, palette, (&key("favorite_namespaces"), &name, true), &favorites, |text| {
-            Ok(EditValue::List(lines(text)))
+            let names = lines(text);
+            match names.iter().find(|name| !is_namespace(name)) {
+                Some(name) => Err(no_namespace(name)),
+                None => Ok(EditValue::List(names)),
+            }
         });
     });
+}
+
+/// The reason for a text that is no name of a namespace, which the reader of the file
+/// would drop.
+fn no_namespace(text: &str) -> String {
+    format!("`{text}` is no name of a namespace: small letters, digits and -")
 }
 
 fn choices(ui: &mut Ui, config: &Config, draft: &mut Draft, id: &ClusterId, own: &ClusterOptions) {

@@ -7,11 +7,12 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use toml_edit::{Array, DocumentMut, Item, Table, TableLike, Value as TomlValue};
 
-use super::{Loaded, VERSION, parse};
+use super::read::parse_all;
+use super::{Loaded, VERSION};
 
 /// The new value of one key.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,9 +40,12 @@ impl Edit {
 }
 
 /// The text with the changes. Fails with the reason when the text has a problem that keeps
-/// the app from its settings, or when the new text would have one.
+/// the app from its settings, or when the new text has a problem that the old one has not:
+/// the reader would refuse, clamp or move a value of the change, so the file would not say
+/// what the app uses.
 pub fn apply(text: &str, edits: &[Edit]) -> Result<String, String> {
-    refusal(&parse(text), "the file")?;
+    let before = parse_all(text);
+    refusal(&before, "the file")?;
     let mut document: DocumentMut = text.parse().map_err(|error| format!("the file does not parse: {error}"))?;
     if !document.contains_key("version") {
         document.insert("version", Item::Value(TomlValue::from(VERSION)));
@@ -50,8 +54,14 @@ pub fn apply(text: &str, edits: &[Edit]) -> Result<String, String> {
         change(document.as_table_mut(), edit)?;
     }
     let changed = document.to_string();
-    refusal(&parse(&changed), "the change")?;
-    Ok(changed)
+    let after = parse_all(&changed);
+    refusal(&after, "the change")?;
+    match after.problems.iter().find(|new| before.problems.iter().all(|old| old.text != new.text)) {
+        Some(problem) => {
+            Err(format!("the change has a problem at {problem}; the app writes no value that it does not use"))
+        }
+        None => Ok(changed),
+    }
 }
 
 /// Why a write must not go on, for a text that the app does not use.
@@ -114,6 +124,7 @@ fn change(root: &mut Table, edit: &Edit) -> Result<(), String> {
 /// Writes the changes to the file. A new text goes to a second file first, which then takes
 /// the name of the file: a stop in the middle of the write leaves the old file whole.
 pub fn write(path: &Path, edits: &[Edit]) -> Result<(), String> {
+    let path = &target(path)?;
     let text = match super::read_text(path) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
@@ -126,6 +137,16 @@ pub fn write(path: &Path, edits: &[Edit]) -> Result<(), String> {
     let next = path.with_extension("toml.new");
     fs::write(&next, changed).map_err(|error| format!("cannot write {}: {error}", next.display()))?;
     fs::rename(&next, path).map_err(|error| format!("cannot replace the file: {error}"))
+}
+
+/// The file that a save replaces: the file of a symbolic link, so that a link into a folder
+/// of dotfiles stays a link. A file that is absent is the path itself.
+fn target(path: &Path) -> Result<PathBuf, String> {
+    match fs::canonicalize(path) {
+        Ok(target) => Ok(target),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(path.to_owned()),
+        Err(error) => Err(format!("cannot find the file of {}: {error}", path.display())),
+    }
 }
 
 #[cfg(test)]
