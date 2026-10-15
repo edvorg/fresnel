@@ -8,12 +8,12 @@
 
 use egui::containers::menu::{MenuButton, MenuConfig};
 use egui::{Button, PopupCloseBehavior, RichText, Ui};
-use fresnel_core::commands::{self, CommandId, Confirm, Keys};
+use fresnel_core::commands::{self, CommandId, Keys};
 use fresnel_core::kinds::{Action, Kind};
 
 use crate::shell::keys;
 use crate::theme::SMALL;
-use crate::views::act::Gate;
+use crate::views::act::{Gate, asks_first_on};
 use crate::widgets;
 
 /// True for an action that this version runs.
@@ -21,6 +21,7 @@ pub(crate) fn can_run(action: Action) -> bool {
     matches!(
         action,
         Action::ViewManifest
+            | Action::Download
             | Action::CopyName
             | Action::CopyCommand
             | Action::EditKeys
@@ -55,12 +56,13 @@ pub(crate) fn works_on_gone(action: Action) -> bool {
     matches!(action, Action::ViewManifest | Action::CopyName | Action::CopyCommand)
 }
 
-/// True for an action with a button of its own in the header: an operation of a job. A copy
-/// and the manifest are in the menu and in the tabs, the keys in the key view.
+/// True for an action with a button of its own in the header: an operation of a job. A copy,
+/// the manifest and its download are in the menu and in the tabs, the keys in the key view.
 fn on_header(action: Action) -> bool {
     let elsewhere = matches!(
         action,
         Action::ViewManifest
+            | Action::Download
             | Action::CopyName
             | Action::CopyCommand
             | Action::ForceDelete
@@ -71,13 +73,10 @@ fn on_header(action: Action) -> bool {
     can_run(action) && !elsewhere
 }
 
-/// The words of an entry: an action that changes the cluster ends with `…`, because it asks
-/// before it acts.
-pub(crate) fn label(action: Action) -> String {
-    match commands::entry(CommandId::Object(action)).map(|entry| entry.confirm) {
-        Some(Confirm::Always) => format!("{}…", action.label()),
-        Some(Confirm::Never) | None => action.label().to_owned(),
-    }
+/// The words of an entry on an object of `kind`: an action that asks before it acts ends
+/// with `…`.
+pub(crate) fn label(action: Action, kind: Kind) -> String {
+    if asks_first_on(action, kind) { format!("{}…", action.label()) } else { action.label().to_owned() }
 }
 
 /// The actions of a kind, in the sequence of the command table.
@@ -96,7 +95,7 @@ pub(crate) fn bar(ui: &mut Ui, kind: Kind, keys: &Keys, mut gate: impl FnMut(Act
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
         for action in of_kind(kind).filter(|action| on_header(*action)) {
             let gate = gate(action);
-            let button = Button::new(RichText::new(label(action)).size(SMALL));
+            let button = Button::new(RichText::new(label(action, kind)).size(SMALL));
             let mut response = ui.add_enabled(!gate.is_closed(), button);
             if let Some(hint) = gate.hint() {
                 response = response.on_hover_text(&hint).on_disabled_hover_text(hint);
@@ -120,14 +119,14 @@ pub(crate) fn entries(ui: &mut Ui, kind: Kind, keys: &Keys, mut gate: impl FnMut
     let mut chosen = None;
     for action in of_kind(kind) {
         let gate = gate(action);
-        let mut button = Button::new(label(action));
+        let mut button = Button::new(label(action, kind));
         let key = keys::text(ui.ctx(), keys, CommandId::Object(action));
         if let Some(key) = &key {
             button = button.shortcut_text(key.as_str());
         }
         let mut response = ui.add_enabled(!gate.is_closed(), button);
         // A screen reader reads the words of the entry as its name, and its key as its value.
-        widgets::name(&response, &label(action));
+        widgets::name(&response, &label(action, kind));
         if let Some(key) = &key {
             response.ctx.accesskit_node_builder(response.id, |node| node.set_value(key.as_str()));
         }
@@ -144,6 +143,8 @@ pub(crate) fn entries(ui: &mut Ui, kind: Kind, keys: &Keys, mut gate: impl FnMut
 
 #[cfg(test)]
 mod tests {
+    use fresnel_core::commands::Confirm;
+
     use super::*;
 
     /// The key map is complete: each command that the app runs has a key, an action of a

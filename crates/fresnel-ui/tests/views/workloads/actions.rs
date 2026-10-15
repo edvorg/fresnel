@@ -14,7 +14,7 @@ use fresnel_core::kinds::Action;
 use fresnel_core::ops::{JobState, Operation, Order, Outcome, Propagation, Revision};
 use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet};
 use k8s_openapi::api::batch::v1::{CronJob, Job};
-use k8s_openapi::api::core::v1::{Pod, ReplicationController};
+use k8s_openapi::api::core::v1::{Pod, ReplicationController, Secret};
 use serde_json::Value;
 
 use super::scene::{allowed, job, jobs, open, opened, runs, target};
@@ -314,4 +314,32 @@ fn the_kubectl_commands_of_a_deployment_have_its_port_forward_and_no_logs() {
     assert!(window.query_by_label_contains(" logs ").is_none(), "no kubectl logs");
     click(&mut window, "Copy port-forward 80");
     assert!(shows(&window, &format!("Copied: {}", lines[1])));
+}
+
+/// Plan section 10: a download is a job that saves the manifest as a file. The file of a
+/// Secret has its values, so its download asks first and tells it.
+#[test]
+fn a_download_runs_as_a_job_and_the_download_of_a_secret_asks_first() {
+    let deployments = scene::<Deployment>();
+    let mut window = opened::<Deployment>(vec![allowed("ams-prod", &deployments)], "web");
+    click(&mut window, "More");
+    window.get_by_label("Download").click();
+    window.run();
+    let web = target("ams-prod", &deployments, "web");
+    assert_eq!(runs(&window), [Order::new(web, Operation::Download).expect("an order")]);
+    let note = "Started: Download of Deployment scene/web in ams-prod. The Operations tab shows the job.";
+    assert!(shows(&window, note));
+
+    let secrets = of_kinds::<Secret>();
+    let mut window = opened::<Secret>(vec![allowed("ams-prod", &secrets)], "web-secret");
+    click(&mut window, "More");
+    window.get_by_label("Download…").click();
+    window.run();
+    assert!(lists(&window, &["ams-prod", "kinds", "Secret", "web-secret"]));
+    let warning = "The file in Downloads has the value of each key of the Secret, as base64: each program of your user can read it.";
+    assert!(shows(&window, warning));
+    assert_eq!(runs(&window), [], "nothing before the confirm");
+    click(&mut window, "Confirm Download");
+    let secret = target("ams-prod", &secrets, "web-secret");
+    assert_eq!(runs(&window), [Order::new(secret, Operation::Download).expect("an order")]);
 }

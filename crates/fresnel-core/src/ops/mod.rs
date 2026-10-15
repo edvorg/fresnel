@@ -102,6 +102,8 @@ pub enum Operation {
     Uncordon,
     /// Cordons a node and evicts its pods with these options, as `kubectl drain`.
     Drain(DrainOptions),
+    /// Saves the manifest of the object as a new YAML file in the folder of downloads.
+    Download,
 }
 
 impl Operation {
@@ -123,12 +125,13 @@ impl Operation {
             Self::Cordon => Action::Cordon,
             Self::Uncordon => Action::Uncordon,
             Self::Drain(_) => Action::Drain,
+            Self::Download => Action::Download,
         }
     }
 
     /// False for an operation that only reads: a stop of its job changes nothing.
     pub fn writes(&self) -> bool {
-        !matches!(self, Self::RolloutStatus | Self::History)
+        !matches!(self, Self::RolloutStatus | Self::History | Self::Download)
     }
 
     /// True when a job of `other` on the same object does the same work: a second drain of

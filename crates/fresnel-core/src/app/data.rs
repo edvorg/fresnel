@@ -7,6 +7,7 @@
 use std::any::Any;
 use std::collections::BTreeSet;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use fresnel_net::WallClock;
@@ -244,7 +245,7 @@ impl Connected {
 
     /// What a job on an object of the cluster gets: the gateway, the stores that its steps
     /// follow, its cancel and the permissions.
-    pub(super) fn job_parts(&self, cancel: Cancel) -> ClusterParts {
+    pub(super) fn job_parts(&self, cancel: Cancel, downloads: PathBuf) -> ClusterParts {
         let stores = &self.stores;
         let parts = Parts {
             gateway: self.gateway.clone(),
@@ -253,6 +254,7 @@ impl Connected {
             daemon_sets: stores.full(),
             jobs: stores.full(),
             pods: Some(self.pods.clone()),
+            downloads,
             cancel,
         };
         (parts, self.access.handle())

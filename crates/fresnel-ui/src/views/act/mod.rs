@@ -24,7 +24,7 @@ use std::sync::Arc;
 use fresnel_core::app::CoreView;
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::commands::{self as table, CommandId, Confirm};
-use fresnel_core::kinds::{Action, Describe};
+use fresnel_core::kinds::{Action, Describe, Kind};
 use fresnel_core::ops::access::Decision;
 use fresnel_core::ops::{Operation, Propagation, Target};
 
@@ -175,8 +175,14 @@ fn blocked(action: Action, facts: &Facts) -> Option<String> {
 }
 
 /// True for an action that asks before it acts, by its entry in the command table.
-pub(crate) fn asks_first(action: Action) -> bool {
+fn asks_first(action: Action) -> bool {
     table::entry(CommandId::Object(action)).is_none_or(|entry| entry.confirm == Confirm::Always)
+}
+
+/// True for an action that asks before it acts on an object of `kind`: by the command table,
+/// and the download of a Secret, whose file has the value of each key (plan section 10).
+pub(crate) fn asks_first_on(action: Action, kind: Kind) -> bool {
+    asks_first(action) || (action == Action::Download && kind == Kind::Secret)
 }
 
 /// The operation of an action that needs no input: the read actions, and the default of
@@ -195,6 +201,7 @@ pub(crate) fn operation(action: Action) -> Option<Operation> {
         Action::Resume => Operation::Resume,
         Action::Cordon => Operation::Cordon,
         Action::Uncordon => Operation::Uncordon,
+        Action::Download => Operation::Download,
         _ => return None,
     })
 }
@@ -233,6 +240,7 @@ mod tests {
     fn the_command_table_tells_which_action_asks_first() {
         assert!(asks_first(Action::Scale) && asks_first(Action::Delete) && asks_first(Action::Trigger));
         assert!(!asks_first(Action::RolloutStatus) && !asks_first(Action::RevisionHistory));
+        assert!(asks_first_on(Action::Download, Kind::Secret) && !asks_first_on(Action::Download, Kind::ConfigMap));
         let subject = Subject {
             target: Target {
                 cluster: ClusterId::new("ams-prod"),

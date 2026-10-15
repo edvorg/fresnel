@@ -1403,6 +1403,13 @@ writes each save into `~/Downloads` as a new file with the cluster, the object, 
 time in its name, and never over a file that exists. The tab shows the path, the size and a
 cancel, which removes the part that was written.
 
+## A download is a job that writes a new file, and a Secret asks first
+
+The Download action of plan section 10 reads the manifest from the server, as the Manifest tab
+does, with no `managedFields`, and writes it as a new YAML file in the folder of downloads with no
+dialog, as a log save does. It is a job, so the Operations tab shows its file or its error. The
+file of a Secret has the value of each key in base64, so that download asks first and tells it.
+
 ## A save that does not end removes its file
 
 A part of a log would look like a full one. A cancel, a failed write, a panic and a stop of the
