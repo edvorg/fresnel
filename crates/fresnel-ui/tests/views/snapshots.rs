@@ -3,7 +3,8 @@
 //!
 //! The files go to the folder of `FRESNEL_SNAPSHOT_DIR`, or to the test folder of the
 //! build. A test checks only that a frame has the size and is not blank: a comparison of
-//! each pixel would fail for each change of a font or of a GPU driver.
+//! each pixel would fail for each change of a font or of a GPU driver. Each system has an
+//! adapter for them, also with no GPU (`tests/harness.rs`), so none skips.
 
 use std::collections::HashSet;
 use std::path::PathBuf;

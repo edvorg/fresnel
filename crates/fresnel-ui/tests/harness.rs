@@ -1,7 +1,8 @@
 //! Proves that this machine can run the UI tests: one frame with no window, drawn by the GPU code.
 //!
 //! When this test fails, each other UI test fails too. On Linux, the package
-//! `mesa-vulkan-drivers` gives the software GPU that the test needs.
+//! `mesa-vulkan-drivers` gives the software GPU that the test needs. Windows has one in each
+//! install, WARP of Direct3D 12, so no picture test skips there for want of an adapter.
 
 use std::collections::HashSet;
 
