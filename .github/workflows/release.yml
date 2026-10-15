@@ -34,14 +34,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain of rust-toolchain.toml
         run: rustup toolchain install
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # The cache as in the workflow ci: the dependencies, saved by master only.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: release-macos-26-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml') }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          cache-bin: "false"
       # The bundle with an ad hoc signature, which `install` checks after it signs.
       - name: Fresnel.app
         run: cargo xtask install --to dist
@@ -82,14 +79,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain of rust-toolchain.toml
         run: rustup toolchain install
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # The cache as in the job `macos`.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: release-windows-2025-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml') }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+          cache-bin: "false"
       # The program with its icon and its version in its resources.
       - name: fresnel.exe
         run: cargo xtask windows --to dist

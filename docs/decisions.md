@@ -1693,3 +1693,11 @@ The gutter of a log view is as wide as its widest name, and for the pods of an o
 an end of 5. Before, the first pod of a new ReplicaSet grew the gutter from 6 to 17 columns,
 which moved the text under a user who read an earlier line. A Pod view, of containers, has
 no minimum.
+
+## CI keeps the build of the dependencies, and only master saves it
+
+Each job caches its build of the dependencies with `Swatinem/rust-cache`. A new `Cargo.lock`
+restores the newest entry of the job, and before a save the action removes the workspace crates
+and those that left the lock, so an entry stays small. Before, each new lock missed, and a job
+that its time limit ended saved nothing, so the next run missed too. A branch restores the
+entries of master and saves none: the repository has 10 GB of cache.
