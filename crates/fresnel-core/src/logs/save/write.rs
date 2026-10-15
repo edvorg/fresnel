@@ -223,8 +223,9 @@ impl Sink {
     }
 }
 
-/// The state of a save for the view. A run that ends with no final state, after a panic,
-/// tells it at its drop.
+/// The state of a save for the view. A run that ends with no final state removes its file
+/// and tells it at its drop: after a panic, or at a stop of its cluster or of the app, which
+/// ends the task between two steps. A part of a log would look like a full one.
 struct Report {
     publisher: Publisher<SaveView>,
     view: SaveView,
@@ -249,13 +250,20 @@ impl Report {
 }
 
 impl Drop for Report {
+    /// The remove runs on the thread of the drop, which cannot wait for a thread for blocking
+    /// calls: it is one call, and only after a fault.
     fn drop(&mut self) {
-        if !self.ended {
-            let error =
-                CoreError::invalid("the save stopped with an internal error of the app; the file can be incomplete");
-            self.view.state = SaveState::Failed(error);
-            self.publisher.publish(self.view.clone());
+        if self.ended {
+            return;
         }
+        let removed = self.view.file.as_ref().map_or(Ok(()), std::fs::remove_file);
+        let file = match removed {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => format!("the incomplete file stays: {error}"),
+            Ok(()) | Err(_) => "its file is gone".to_owned(),
+        };
+        let error = CoreError::invalid(format!("the save stopped before its end; {file}"));
+        self.view.state = SaveState::Failed(error);
+        self.publisher.publish(self.view.clone());
     }
 }
 

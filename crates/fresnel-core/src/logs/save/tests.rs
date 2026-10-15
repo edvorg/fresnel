@@ -257,3 +257,28 @@ async fn a_save_of_an_object_with_the_longest_names_makes_its_file() {
     assert!(matches!(ended.state, SaveState::Done { .. }), "{:?}", ended.state);
     assert_eq!(bed.folder.files().len(), 1);
 }
+
+/// A fault at the worst moment: the cluster stops, and its saves drop, while a save writes.
+/// The task ends between two steps, and the part of the log does not stay as a file.
+#[tokio::test]
+async fn a_stop_of_the_saves_while_a_save_writes_removes_its_file() {
+    let mut bed = Bed::new();
+    bed.save(SavePart::Full, false, &view());
+    let stream = bed.call().await.open();
+    stream.send(data(&[(1.0, "one")])).expect("the save reads");
+    let made = async {
+        while bed.folder.files().is_empty() {
+            bed.changes.next().await;
+        }
+    };
+    timeout(LIMIT, made).await.expect("in time: the file");
+    let parts = bed.saves.parts.clone();
+    drop(std::mem::replace(&mut bed.saves, Saves::new(parts)));
+    let gone = async {
+        while !bed.folder.files().is_empty() {
+            bed.changes.next().await;
+        }
+    };
+    timeout(LIMIT, gone).await.expect("in time: the file goes");
+    drop(stream);
+}
