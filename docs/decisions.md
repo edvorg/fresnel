@@ -1525,3 +1525,23 @@ the window is minimized or has no focus. The program shows notices only from its
 An alias of the settings replaces the name of a cluster in the top bar and the status bar, where
 room is short. The tables, the panel, the dialogs and the journal keep the name of the context: it
 is the identity of the cluster, and a dialog of a change must name the target as kubectl does.
+## The soak compares each store with a list on a path of its own
+
+A store and a list are seldom equal while the cluster changes, so the soak tests "at least as
+new": each listed object is in the store in its version or a later one, each other object of the
+store came after the list, and an absent one is gone in a second list. The lists go on a
+connection with no fault proxy. A store that shows "live" and is behind for more than 20 s fails it.
+
+## The soak counts the heap with its allocator
+
+The memory of the soak is the count of the bytes that the allocator of `fresnel-cli` holds, not
+the resident size: a growth shows at once and the same in each run. The base of the growth is the
+heap at the end of the warm-up, because the first lists, the history of the metrics and the ring
+of the log view grow at the start.
+
+## The harness of the soak is a program of the test kit
+
+`xtask` uses no other crate of the workspace, so its build stays small. `cargo xtask soak` builds
+`fresnel-cli` and `fresnel-soak`, a program of the test kit with k3s, the fault proxy, the changes
+and the faults, and runs it. The core runs in a child process of the harness, so the heap and the
+connections that the soak records are those of the core alone.

@@ -41,9 +41,9 @@ xtask
 - `fresnel-ui`: the egui widgets and views. It uses the types of `k8s-openapi`, never of kube.
 - `fresnel`: the desktop program. The folders, the lock of the process, the log file, the panic
   hook, the runtime and the core, which starts after the window opens; the quit stops its tasks.
-- `fresnel-cli`: the command line program for tests and fault diagnosis: `doctor` and `watch`.
-- `fresnel-testkit`: test tools on `fresnel-net`; a `fresnel-net` test that uses it is in `tests/`.
-- `xtask`: the size check and the macOS bundle. It uses no other crate of the workspace.
+- `fresnel-cli`: the command line program for tests and fault diagnosis: `doctor`, `watch`, `soak`.
+- `fresnel-testkit`: test tools on `fresnel-net`, and the soak harness `fresnel-soak`, a program.
+- `xtask`: the checks, the macOS bundle and the soak. It uses no other crate of the workspace.
 
 ## Borders in the code
 
@@ -55,10 +55,9 @@ xtask
 
 ## Background tasks
 
-- `fresnel_net::task::Tasks::start` starts each task, `start_thread` a worker thread, with a
-  name, a restart rule and a body for one run. `Restart::Always` runs it again after each end,
-  with a pause that grows; `Restart::Never` is a job. The task stops when its handle drops.
-- A task is running, in backoff or ended (`Tasks::snapshot`). Each end of a run is a report.
+`fresnel_net::task::Tasks::start` starts each task, `start_thread` a worker thread, with a name, a
+restart rule and a body for one run; the task stops when its handle drops. A task is running, in
+backoff or ended (`Tasks::snapshot`), and each end of a run is a report.
 
 ## Network layer
 
@@ -79,10 +78,9 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Hedged connect**: one more attempt after 1.5 connect times; the first one wins. **Upgrade
   client**: exec, attach and port forward, on warm connections with a test.
 - **Credential**: one task runs the plugin. After a second HTTP 401, a request proves the token.
-- **Signal**: a wake, a network change and "retry now" raise the signal of a cluster. It ends
-  each retry delay (the wait of a connect one time in 10 s at most), and each channel tests its
-  connection in 3 s. **Outage**: after a minute with no connect, a cluster gets one attempt
-  each 5 s, in turns. `Cluster::status` gives a copy of each state, `Cluster::changes` a change.
+- **Signal**: a wake, a network change and "retry now" end each retry delay of a cluster, and
+  each channel tests its connection in 3 s. **Outage**: after a minute with no connect, a cluster
+  gets one attempt each 5 s. `Cluster::status` gives a copy of each state, `changes` a change.
 
 ## Clusters
 
@@ -101,7 +99,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Operations** (`ops`): a function builds each request of plan section 10, with a unit test
   of its URL and body. An `Order` is a job in its own task, with steps and a state, not two at
   once. A write goes out one time; an unknown result gets a read of the object. A cancel or a
-  store that follows nothing ends a wait. A drain has a task for each pod (`ops/drain`).
+  store that follows nothing ends a wait. A drain has a task for each pod (`ops/drain`); a
+  download writes the manifest to a new file of the folder of downloads (`downloads.rs`).
   **Permissions**: rules or a review, dropped by HTTP 403. **Write result**: `Snapshot::is_pending`.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. One task reads the
   settings, the login shell and the kubeconfig files, connects each selected cluster and runs each
@@ -120,9 +119,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   time, then follows a watch with bookmarks, which the server ends after 60 to 90 s; the next one
   starts after the last version, and HTTP 410 gives a list. A failure gives a pause up to 3 s,
   which the signal ends. No request goes while the channel is not live: it counts the loss.
-- **States**: waiting (for a channel, a credential, a list slot or its watch), list in
-  progress, live, attempt, pause, throttled, forbidden, not supported, internal error (a
-  panic of the task, with a report and a restart) and stopped. The objects stay in each one.
+- **States**: waiting (for a channel, a credential, a list slot or its watch), list in progress,
+  live, attempt, pause, throttled, forbidden, not supported, internal error and stopped.
 - **Snapshot**: published each 30 ms at most; its generation grows only when an object changes.
   No `managedFields`, no value of a Secret, a limit of Events. `Publisher` copies one pointer.
 - **On demand**: `ClusterStores::demand` gives a view the full objects of any kind. The store of
@@ -132,8 +130,9 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   index (the pods that use an object) and the Event index of each object. Each answer is current,
   old (a store is not live), not loaded (no complete list) or not followed (the task stopped).
 - **Metrics**: one `metrics::Sampler` for each cluster reads PodMetrics and NodeMetrics each 15 s
-  (one read each, no retry); each list is a poll store with a state. A series of a container, pod,
-  workload, node, namespace or cluster keeps 1 h of samples and 24 h of minutes in a memory limit.
+  (one read each, no retry; each 5 minutes with no metrics API, and the APIService after a 503);
+  each list is a poll store with a state. A series of a container, pod, workload, node, namespace
+  or cluster keeps 1 h of samples and 24 h of minutes in a memory limit.
 - **Quick search**: `search::run` reads the snapshot of each store of each selected cluster and
   sends no request: the full objects of tier A and of a shown kind, else the metadata of tier B.
   A fuzzy match on the name, a text match on the other fields; cluster and kind are filters.
@@ -197,4 +196,5 @@ freezes, delays, resets or silences connections; `K3s` is k3s in Docker, with ag
 - **Cluster tests** use k3s in Docker, mostly through the fault proxy (`#[ignore]`). After a fault,
   a store test asserts a recovery time and "store equal to the API". The tests of the indexes,
   the kinds, the keys, the operations, the core commands, the metrics and the logs match kubectl.
+- **Soak**: `fresnel-cli soak` checks each store of the core against the API; `fresnel-soak` adds k3s.
 - CI runs each check on macOS and Linux for each push, and the cluster tests on Linux.
