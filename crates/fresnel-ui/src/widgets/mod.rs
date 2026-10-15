@@ -8,6 +8,8 @@ pub(crate) mod worker;
 
 use egui::{Color32, Sense, Ui};
 
+use crate::theme::Palette;
+
 /// A filled circle that aligns with the text: the mark of a state.
 pub(crate) fn dot(ui: &mut Ui, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(7.0, 7.0), Sense::hover());
@@ -20,12 +22,17 @@ pub(crate) fn name(response: &egui::Response, name: &str) {
     response.ctx.accesskit_node_builder(response.id, |node| node.set_label(name));
 }
 
-/// A small bar that a part fills: the use of a limit. A part of 1 or more fills the bar,
-/// and a part that is not a number fills nothing.
-pub(crate) fn bar(ui: &mut Ui, part: f64, fill: Color32, empty: Color32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(60.0, 6.0), Sense::hover());
-    ui.painter().rect_filled(rect, 3.0, empty);
-    let part = if part.is_nan() { 0.0 } else { part.clamp(0.0, 1.0) };
-    let width = rect.width() * part as f32;
-    ui.painter().rect_filled(egui::Rect::from_min_size(rect.min, egui::vec2(width, rect.height())), 3.0, fill);
+/// A bar that a part fills: the use of a limit. `mark` is a line across it, for example the
+/// request of a pod on the bar of its limit. A part of 1 or more fills the bar, and a part
+/// that is not a number fills nothing. The words of the values are the work of the caller.
+pub(crate) fn bar(ui: &mut Ui, palette: &Palette, size: egui::Vec2, (part, mark): (f32, Option<f32>), fill: Color32) {
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let (painter, radius) = (ui.painter(), size.y / 2.0);
+    painter.rect_filled(rect, radius, palette.bg_raised);
+    let clamped = |part: f32| if part.is_nan() { 0.0 } else { part.clamp(0.0, 1.0) };
+    painter.rect_filled(rect.with_max_x(rect.left() + rect.width() * clamped(part)), radius, fill);
+    if let Some(mark) = mark {
+        let x = rect.left() + rect.width() * clamped(mark);
+        painter.vline(x, rect.y_range().expand(2.0), (1.5, palette.text_muted));
+    }
 }

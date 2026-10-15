@@ -11,15 +11,15 @@
 use egui::{RichText, Ui};
 use fresnel_core::app::ClusterData;
 use fresnel_core::kinds::{Describe, Kind};
-use fresnel_core::store::{Snapshot, StoreStatus};
+use fresnel_core::store::Snapshot;
 use k8s_openapi::api::core::v1::{LimitRange, Namespace, ResourceQuota};
 
-use crate::format::{self, Clock};
+use crate::format;
 use crate::views::config::quota::{limits, usage};
 use crate::views::detail::fields::{ITEM_LIMIT, heading, more, note};
 use crate::views::detail::lines::{details_heading, line, none, table};
 use crate::views::detail::sections::Context;
-use crate::views::objects::{Link, old_since, old_text};
+use crate::views::objects::{Link, count_mark, old_since};
 
 pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, namespace: &Namespace) -> Option<Link> {
     details_heading(ui, cx);
@@ -105,7 +105,7 @@ fn counts(ui: &mut Ui, cx: &Context<'_>, data: &ClusterData) {
         .iter()
         .filter(|source| source.status.kind.info().namespaced)
         .filter_map(|source| {
-            let (count, mark) = (source.count_in(name), mark(&source.status, cx.clock));
+            let (count, mark) = (source.count_in(name), count_mark(&source.status, cx.clock));
             (count > 0 || mark.is_some()).then_some((source.status.kind, count, mark))
         })
         .collect();
@@ -117,18 +117,4 @@ fn counts(ui: &mut Ui, cx: &Context<'_>, data: &ClusterData) {
         ui.label(format::thousands(*count as u64));
         ui.label(RichText::new(mark.as_deref().unwrap_or_default()).color(cx.palette.warn));
     });
-}
-
-/// The mark of a count of a store that is not live, or that keeps only the newest objects
-/// of its kind (the Events, design rule 12): its count is then too small.
-fn mark(status: &StoreStatus, clock: &Clock) -> Option<String> {
-    let state = match (status.listed, status.state.is_live()) {
-        (false, _) => Some(format!("not loaded: the store {}", status.state)),
-        (true, false) => Some(old_text(status.last_contact, clock)),
-        (true, true) => None,
-    };
-    let dropped = format::thousands(status.dropped);
-    let limit = (status.dropped > 0).then(|| format!("or more: {dropped} older ones left the store at its limit"));
-    let marks: Vec<String> = state.into_iter().chain(limit).collect();
-    (!marks.is_empty()).then(|| marks.join("; "))
 }

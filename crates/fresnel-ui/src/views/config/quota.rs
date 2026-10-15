@@ -68,7 +68,7 @@ pub(crate) fn usage(ui: &mut Ui, cx: &Context<'_>, quota: &ResourceQuota) {
                     _ => cx.palette.ok,
                 };
                 ui.horizontal(|ui| {
-                    bar(ui, part, fill, cx.palette.bg_raised);
+                    bar(ui, cx.palette, egui::vec2(60.0, 6.0), (part as f32, None), fill);
                     ui.label(RichText::new(format!("{:.0}%", part * 100.0)).color(cx.palette.text_muted));
                 });
             }

@@ -17,7 +17,7 @@ mod toolbar;
 
 pub(crate) use filter::{NamespaceSet, Namespaces, ObjectFilter};
 pub(crate) use model::{ClusterMark, Nouns, ObjectModel, RowScene, Stores, uid};
-pub(crate) use notes::{old_since, old_text};
+pub(crate) use notes::{count_mark, old_since, old_text};
 pub(crate) use page::ObjectPage;
 
 use std::sync::Arc;

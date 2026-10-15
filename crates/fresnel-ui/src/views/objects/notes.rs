@@ -10,7 +10,7 @@ use std::time::SystemTime;
 use egui::{Label, RichText, ScrollArea, Ui};
 use fresnel_core::app::ClusterRow;
 use fresnel_core::cluster::{ClusterId, LinkState};
-use fresnel_core::store::{Snapshot, StoreState, Wait};
+use fresnel_core::store::{Snapshot, StoreState, StoreStatus, Wait};
 
 use super::Nouns;
 use super::filter::ObjectFilter;
@@ -38,6 +38,21 @@ pub(crate) fn old_text(last_contact: Option<SystemTime>, clock: &Clock) -> Strin
         Some(time) => format!("old since {}", clock.time_of_day(time)),
         None => "old: the server gave no answer yet".to_owned(),
     }
+}
+
+/// The mark of a count of a store that is not live, or that keeps only the newest objects
+/// of its kind (the Events, design rule 12): its count is then too small. `None` for a
+/// count that is current.
+pub(crate) fn count_mark(status: &StoreStatus, clock: &Clock) -> Option<String> {
+    let state = match (status.listed, status.state.is_live()) {
+        (false, _) => Some(format!("not loaded: the store {}", status.state)),
+        (true, false) => Some(old_text(status.last_contact, clock)),
+        (true, true) => None,
+    };
+    let dropped = format::thousands(status.dropped);
+    let limit = (status.dropped > 0).then(|| format!("or more: {dropped} older ones left the store at its limit"));
+    let marks: Vec<String> = state.into_iter().chain(limit).collect();
+    (!marks.is_empty()).then(|| marks.join("; "))
 }
 
 /// Why the table has no row. Only a store with a complete list knows that a cluster has no
