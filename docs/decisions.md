@@ -1239,6 +1239,25 @@ The sampler keeps one hour of samples and 24 hours of minutes in memory. A limit
 cluster, not one for all, keeps a large cluster from pushing the history of a small one out.
 A history from before the start of the app needs Prometheus, a later option of the plan.
 
+## The CPU and memory columns come after the age
+
+The columns of the Pods fit next to the sidebar in a window of 1,328 points; the two columns with
+a bar take 230 more. After the age, each other column keeps its place, and the column choice can
+hide them. A table sorts by the values of one poll, so its rows hold them: each poll of a cluster
+gives the table new rows, as a change of a store does.
+
+## A chart shows a fixed range up to now, with no zoom
+
+The range moves with the clock in each frame, so a zoom or a drag would hold for one frame only;
+the choice of 5 minutes to 24 hours is the zoom. The charts of a panel share their time axis and
+their cursor, and their value axes have one width, so their times line up.
+
+## A line has a gap after 2.5 expected distances
+
+A poll each 15 s can get the same scrape of metrics-server again, and the next poll then misses
+one sample: a distance of two periods is no fault. A line stops where two samples are more than
+2.5 distances of their tier apart: the period in the fine tier, one step in the coarse tier.
+
 ## A log stream asks for the times and reads raw bytes
 
 Each stream asks for `timestamps=true`: the merge of many pods sorts by the time, and a new

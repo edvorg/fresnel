@@ -139,7 +139,7 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
   An exact pin (`=`) has a comment that gives its reason.
 - `fresnel-net` does not depend on kube, and `fresnel-core` not on egui, also not through some
   other crate: `cargo xtask check-borders` and `cargo test` check it. `fresnel-ui` uses no
-  type of kube, and only `widgets/table.rs` uses `egui_table`.
+  type of kube. Only `widgets/table.rs` uses `egui_table`, only `widgets/chart.rs` `egui_plot`.
 - A crate above `fresnel-core` names the connection layer `fresnel_core::net`, not `fresnel-net`.
 
 ## Documents and commits

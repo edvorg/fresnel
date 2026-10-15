@@ -42,7 +42,8 @@ xtask
   search, the command table, the operations, the metrics, the logs, the settings and the journal.
   No egui. The crates above it reach the connection layer as `fresnel_core::net`.
 - `fresnel-ui`: the egui widgets and views. It uses the types of `k8s-openapi`, never of kube.
-- `fresnel`: the desktop program. The window, the runtime, the log file and the quit sequence.
+- `fresnel`: the desktop program. The folders, the lock of the process, the log file, the panic
+  hook, the runtime and the core, which starts after the window opens; the quit stops its tasks.
 - `fresnel-cli`: the command line program for tests and fault diagnosis: `doctor` and `watch`.
 - `fresnel-testkit`: test tools on `fresnel-net`; a `fresnel-net` test that uses it is in `tests/`.
 - `xtask`: the size check and the macOS bundle. It uses no other crate of the workspace.
@@ -51,7 +52,7 @@ xtask
 
 - Only `cluster/gateway.rs` of `fresnel-core` holds kube clients. Each of its functions applies
   its time limit and the rule for writes. Only four modules use `imbl`.
-- One module wraps each outside UI crate: now `egui_table` in `widgets/table.rs` only.
+- One module wraps each outside UI crate: `widgets/table.rs` and `widgets/chart.rs`.
 - Each library crate has one error type with a class: auth, forbidden, conflict, timeout,
   network, server, invalid. An item is private to its crate unless `lib.rs` lists it.
 
@@ -179,8 +180,7 @@ dock (Operations, Journal, Connections) and status bar. `ShowKinds` names the ki
 - **Keys** (`views/keys`): the panel of a Secret or a ConfigMap names its object (`ShowKeys`) and
   edits a `Draft` behind the gate of "Edit keys": a hidden value until "Show", add, remove, the
   diff in a dialog before a save, a choice for each conflict. The New Secret dialog is `new-secret`.
-- **Program**: the folders, the lock of the process, the log file, the panic hook, the runtime
-  and the core, which starts after the window is open. The quit stops each task of the core.
+- **Metrics** (`views/metrics`): CPU and Memory columns with bars, a tab with `egui_plot` charts.
 
 ## Tests
 
@@ -192,7 +192,7 @@ TLS, HTTP/2, HTTP/1.1, watch and log streams, the HTTP 101 upgrade and faults; `
   memory, the watch loop on a script, the indexes, health values and columns on two k3s scenes.
 - **Socket tests** use the fake API server and the fault proxy on 127.0.0.1, with no Docker.
 - **UI tests**: `egui_kittest` with no window, on a fake core; a table test holds its worker at a
-  gate. The program tests `live` and `k3s_views` draw the real core. Time limits: release build.
+  gate. The program tests `live` and `k3s_*` draw the real core. Time limits: release build.
 - **Program tests** start `fresnel-cli` and `fresnel` (no window) as from Finder, in a test home.
 - **Cluster tests** use k3s in Docker, mostly through the fault proxy (`#[ignore]`). After a fault,
   a store test asserts a recovery time and "store equal to the API". The tests of the indexes,
