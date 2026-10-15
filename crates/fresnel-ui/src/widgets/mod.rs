@@ -47,3 +47,32 @@ pub(crate) fn bar(ui: &mut Ui, palette: &Palette, size: egui::Vec2, (part, mark)
         painter.vline(x, rect.y_range().expand(2.0), (1.5, palette.text_muted));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+
+    use super::*;
+
+    /// The characters that a galley shows.
+    fn shown(galley: &Galley) -> String {
+        galley.rows.iter().flat_map(|row| row.glyphs.iter().map(|glyph| glyph.chr)).collect()
+    }
+
+    #[test]
+    fn a_text_wider_than_its_room_ends_with_a_mark_and_a_shorter_one_stays_whole() {
+        let galleys = RefCell::new(Vec::new());
+        let mut harness = egui_kittest::Harness::new_ui(|ui| {
+            let line = |text: &str| one_line(ui, text, FontId::proportional(13.0), Color32::WHITE, 80.0);
+            *galleys.borrow_mut() = vec![line("checkout-api-7d9c5b8f6-gn8jp"), line("gn8jp")];
+        });
+        harness.run();
+        drop(harness);
+        let galleys = galleys.into_inner();
+        let [long, short] = galleys.as_slice() else { panic!("two galleys") };
+        assert!(long.elided && long.size().x <= 80.0, "{:?}", long.size());
+        let text = shown(long);
+        assert!(text.starts_with("checkout") && text.ends_with('…'), "{text}");
+        assert!(!short.elided && shown(short) == "gn8jp");
+    }
+}

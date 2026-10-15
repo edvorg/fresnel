@@ -12,6 +12,7 @@ use super::{search, searchable, until_hit, with_sources};
 use crate::data::{cluster, in_state, pods, store};
 use crate::fake::{Window, error, now, open_page, row, shows, until, view, window};
 use crate::kinds::in_panel;
+use crate::workloads::scene::hover;
 
 fn is_open(window: &Window) -> bool {
     window.query_by_label("Search text").is_some()
@@ -117,6 +118,22 @@ fn the_arrows_move_the_cursor_and_enter_opens_its_hit() {
     window.run();
     assert!(!is_open(&window));
     until(&mut window, "the panel of the second hit", |window| in_panel(window, "init-crash"));
+}
+
+/// A row with a cut text shows its words at the pointer: here the name of a cluster that is
+/// wider than its column. A row with whole texts shows nothing more.
+#[test]
+fn a_hit_with_a_cut_text_shows_its_words_at_the_pointer() {
+    let long = "a-context-whose-name-is-much-wider-than-its-column";
+    let mut window = window(view(vec![searchable(long, StoreState::Live), searchable("ams-prod", StoreState::Live)]));
+    search(&mut window, "web");
+    let (cut, whole) = (format!("Secret kinds/web-secret of {long}"), "Secret kinds/web-secret of ams-prod");
+    until_hit(&mut window, &cut);
+    let count = |window: &Window, label: &str| window.query_all_by_label(label).count();
+    hover(&mut window, Role::Button, whole);
+    assert_eq!(count(&window, whole), 1, "no words at the pointer");
+    hover(&mut window, Role::Button, &cut);
+    assert_eq!(count(&window, &cut), 2, "the row and its words at the pointer");
 }
 
 /// A selected cluster with no stores is a note: the search did not read it.

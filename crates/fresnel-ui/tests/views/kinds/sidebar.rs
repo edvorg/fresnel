@@ -16,6 +16,7 @@ use super::scene::{deployments, live, with};
 use crate::data::{of_kinds, store};
 use crate::fake::{Window, error, now, off, open_page, row, shows, until, view, window};
 use crate::pods::scenes::{forbidden, no_answer};
+use crate::workloads::scene::hover;
 
 /// The facts of the stores of a cluster with these counts of objects, each store live.
 fn with_counts(row: ClusterRow, counts: &[(Kind, usize)]) -> ClusterRow {
@@ -71,6 +72,21 @@ fn the_sidebar_has_each_kind_in_its_group_with_the_count_of_the_selected_cluster
     // A kind of tier C has a count only while a page holds its store.
     assert_eq!(count(&window, "Leases"), Some(format!("{}, not current", leases.len())), "{some}");
     assert_eq!(count(&window, "Endpoints"), None);
+}
+
+/// A title that is wider than the sidebar ends with "…" and shows in full at the pointer.
+#[test]
+fn a_cut_title_shows_in_full_at_the_pointer() {
+    let mut window = window(view(vec![live("ams-prod", &deployments())]));
+    let longest = Kind::ALL.iter().map(|kind| kind.info().title).max_by_key(|title| title.len()).expect("a kind");
+    let count = |window: &Window, title: &str| window.query_all_by_label(title).count();
+    for (title, more) in [("Deployments", 0), (longest, 1)] {
+        let before = count(&window, title);
+        window.get_by_role_and_label(Role::RadioButton, title).scroll_to_me();
+        window.run();
+        hover(&mut window, Role::RadioButton, title);
+        assert_eq!(count(&window, title), before + more, "{title}");
+    }
 }
 
 /// Design rules 4 and 5: a count of a store that is not live can be old, and a forbidden
