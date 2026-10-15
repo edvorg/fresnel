@@ -136,8 +136,10 @@ fn a_click_on_each_kind_in_each_frame_leaves_the_last_page_with_its_rows() {
         let wanted = match kind {
             Kind::Pod => BTreeSet::new(),
             // The panel of a kind can read other kinds: the state of each Job of a CronJob,
-            // the quotas and the limit ranges of a Namespace, the bindings of a ServiceAccount.
+            // the quotas and the limit ranges of a Namespace, the bindings of a ServiceAccount,
+            // the DaemonSets of the pods of a Node for its drain.
             Kind::CronJob => BTreeSet::from([Kind::CronJob, Kind::Job]),
+            Kind::Node => BTreeSet::from([Kind::Node, Kind::DaemonSet]),
             Kind::Namespace => BTreeSet::from([Kind::Namespace, Kind::ResourceQuota, Kind::LimitRange]),
             Kind::ServiceAccount => BTreeSet::from([Kind::ServiceAccount, Kind::RoleBinding, Kind::ClusterRoleBinding]),
             kind => BTreeSet::from([kind]),

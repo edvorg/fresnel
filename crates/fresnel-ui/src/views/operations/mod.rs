@@ -5,8 +5,9 @@
 //! A long task such as a rollout status is a job with steps too, so this one tab shows it.
 //! The list draws only the rows on the screen: the core keeps 500 jobs.
 //!
-//! - `job`: the chosen job.
+//! - `job`: the chosen job. `drain`: the pods of the drain of a node.
 
+pub(crate) mod drain;
 mod job;
 
 pub(crate) use job::TEXT_LIMIT;

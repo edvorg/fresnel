@@ -1,13 +1,13 @@
 //! What an action needs to know of its object besides its identity: the count of pods, a
-//! suspend, a pause, a Job that runs, the strategy, and the containers and ports for the
-//! `kubectl` commands. The view reads them from the object of its store when the user asks.
+//! suspend, a pause, a Job that runs, the strategy, a cordon, and the containers and ports
+//! for the `kubectl` commands. The view reads them from the object of its store when the user asks.
 
 use std::any::Any;
 
 use fresnel_core::kinds::Describe;
 use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet};
 use k8s_openapi::api::batch::v1::{CronJob, Job};
-use k8s_openapi::api::core::v1::{Container, Pod, PodSpec, ReplicationController, Service};
+use k8s_openapi::api::core::v1::{Container, Node, Pod, PodSpec, ReplicationController, Service};
 
 /// The facts of one object.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -27,6 +27,8 @@ pub(crate) struct Facts {
     pub(crate) on_delete: bool,
     /// The concurrency policy of a CronJob.
     pub(crate) concurrency: Option<String>,
+    /// A node that takes no new pod. `None` for an other kind.
+    pub(crate) cordoned: Option<bool>,
     /// The containers, for the commands of logs and exec.
     pub(crate) containers: Vec<String>,
     /// The ports of the containers or of a Service, for the commands of a port forward.
@@ -86,6 +88,10 @@ pub(crate) fn of<K: Describe>(object: &K) -> Facts {
         let concurrency = Some(spec.and_then(|spec| spec.concurrency_policy.clone()).unwrap_or("Allow".to_owned()));
         // kubectl has no logs and no port forward of a CronJob: its Jobs come and go.
         return Facts { suspended, concurrency, ..Facts::default() };
+    }
+    if let Some(node) = any.downcast_ref::<Node>() {
+        let cordoned = node.spec.as_ref().and_then(|spec| spec.unschedulable) == Some(true);
+        return Facts { cordoned: Some(cordoned), ..Facts::default() };
     }
     if let Some(service) = any.downcast_ref::<Service>() {
         let ports = service.spec.as_ref().and_then(|spec| spec.ports.as_ref());

@@ -171,6 +171,8 @@ pub(crate) fn also_shown(kind: Kind) -> &'static [Kind] {
         Kind::CronJob => &[Kind::Job],
         Kind::Namespace => &[Kind::ResourceQuota, Kind::LimitRange],
         Kind::ServiceAccount => &[Kind::RoleBinding, Kind::ClusterRoleBinding],
+        // The drain dialog finds the DaemonSet of each pod: a pod of one that is gone blocks.
+        Kind::Node => &[Kind::DaemonSet],
         _ => &[],
     }
 }

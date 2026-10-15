@@ -8,11 +8,13 @@
 //!
 //! - `facts`: what an action reads of its object. `permits`: the permissions of the user.
 //!   `Found`: the object of an action in its store in a frame.
-//! - `dialog`: the dialog of an action: `confirm` before a change, `commands` for kubectl.
+//! - `dialog`: the dialog of an action: `confirm` before a change, `drain` with the pods of a
+//!   node, `commands` for kubectl.
 
 mod commands;
 mod confirm;
 mod dialog;
+mod drain;
 pub(crate) mod facts;
 mod permits;
 
@@ -26,6 +28,7 @@ use fresnel_core::ops::{Operation, Propagation, Target};
 pub(crate) use commands::Commands;
 pub(crate) use confirm::Confirm as ConfirmDialog;
 pub(crate) use dialog::{Close, Dialog};
+pub(crate) use drain::DrainDialog;
 pub(crate) use facts::Facts;
 pub(crate) use permits::Permits;
 
@@ -147,6 +150,8 @@ fn blocked(action: Action, facts: &Facts) -> Option<String> {
         Action::Rollback if facts.paused => Some("you cannot rollback a paused deployment".to_owned()),
         Action::Suspend if facts.suspended == Some(true) => Some("It is suspended already.".to_owned()),
         Action::Resume if facts.suspended == Some(false) => Some("It is not suspended.".to_owned()),
+        Action::Cordon if facts.cordoned == Some(true) => Some("The node is cordoned already.".to_owned()),
+        Action::Uncordon if facts.cordoned == Some(false) => Some("The node is not cordoned.".to_owned()),
         _ => None,
     }
 }
@@ -170,6 +175,8 @@ pub(crate) fn operation(action: Action) -> Option<Operation> {
         Action::RunAgain => Operation::RunAgain,
         Action::Suspend => Operation::Suspend,
         Action::Resume => Operation::Resume,
+        Action::Cordon => Operation::Cordon,
+        Action::Uncordon => Operation::Uncordon,
         _ => return None,
     })
 }
@@ -192,6 +199,11 @@ mod tests {
         );
         assert_eq!(gate(Action::Resume), Gate::Closed("It is not suspended.".to_owned()));
         assert_eq!(gate(Action::Suspend), Gate::Open);
+        let node = |cordoned| Facts { cordoned: Some(cordoned), ..Facts::default() };
+        let gate = |action, cordoned| Gate::of(action, &node(cordoned), || Decision::Allowed);
+        assert_eq!(gate(Action::Cordon, true), Gate::Closed("The node is cordoned already.".to_owned()));
+        assert_eq!(gate(Action::Uncordon, false), Gate::Closed("The node is not cordoned.".to_owned()));
+        assert_eq!((gate(Action::Cordon, false), gate(Action::Drain, true)), (Gate::Open, Gate::Open));
         let denied = Gate::of(Action::Delete, &facts, || Decision::Denied("no rule lets you delete pods".to_owned()));
         assert_eq!(denied, Gate::Closed("Forbidden: no rule lets you delete pods.".to_owned()));
         let unknown = Gate::of(Action::Delete, &facts, || Decision::Unknown("the rules are not read yet".to_owned()));

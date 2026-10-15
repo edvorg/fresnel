@@ -3,11 +3,13 @@
 //! links to the objects that an object names.
 //!
 //! - `network`, `config`, `access`, `cluster`: the views of the kinds of each group.
+//! - `drain`: cordon, uncordon and the drain of a node, with its dialog and its job.
 //! - `snapshots`: PNG files of a panel of each group.
 
 mod access;
 mod cluster;
 mod config;
+mod drain;
 mod network;
 mod snapshots;
 

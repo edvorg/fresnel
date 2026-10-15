@@ -4,7 +4,7 @@
 use egui::{Id, Modal, RichText, Ui};
 use fresnel_core::ops::{Order, Target};
 
-use super::{Commands, ConfirmDialog, Found};
+use super::{Commands, ConfirmDialog, DrainDialog, Found};
 use crate::shell::Scene;
 use crate::theme::Palette;
 
@@ -15,6 +15,8 @@ const WIDTH: f32 = 620.0;
 pub(crate) enum Dialog {
     /// Asks before a change: the targets, the input of the action and its warnings.
     Confirm(ConfirmDialog),
+    /// Asks before a drain: its options and each pod of the node with its verdict.
+    Drain(DrainDialog),
     /// The `kubectl` commands of an object, each one with a copy button.
     Commands(Commands),
 }
@@ -44,6 +46,7 @@ impl Dialog {
             ui.set_width(WIDTH);
             match self {
                 Self::Confirm(confirm) => confirm.show(ui, scene, look),
+                Self::Drain(drain) => drain.show(ui, scene, look),
                 Self::Commands(commands) => commands.show(ui),
             }
         });

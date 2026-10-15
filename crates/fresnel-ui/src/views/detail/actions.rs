@@ -37,6 +37,9 @@ pub(crate) fn can_run(action: Action) -> bool {
             | Action::Suspend
             | Action::Resume
             | Action::Trigger
+            | Action::Cordon
+            | Action::Uncordon
+            | Action::Drain
     )
 }
 

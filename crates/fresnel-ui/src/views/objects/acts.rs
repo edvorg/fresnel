@@ -13,7 +13,8 @@ use super::follow::Follower;
 use super::uid;
 use crate::shell::Scene;
 use crate::views::act::{
-    Ask, Close, Commands, ConfirmDialog, Dialog, Found, Gate, Permits, Subject, asks_first, facts, operation, over_room,
+    Ask, Close, Commands, ConfirmDialog, Dialog, DrainDialog, Found, Gate, Permits, Subject, asks_first, facts,
+    operation, over_room,
 };
 use crate::views::detail::DetailPanel;
 use crate::views::detail::actions::{later, of_kind};
@@ -75,6 +76,10 @@ impl Acts {
         }
         if let Gate::Closed(reason) = panel.gate(action, scene) {
             return Some((Tone::Warn, format!("{} did not run: {reason}", action.label())));
+        }
+        if action == Action::Drain {
+            self.dialog = Some(Dialog::Drain(DrainDialog::new(subject)));
+            return None;
         }
         if asks_first(action) {
             self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(action, vec![subject], ask.revision)));

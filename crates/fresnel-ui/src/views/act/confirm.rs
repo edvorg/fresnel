@@ -253,6 +253,8 @@ impl Confirm {
                 }
             }
             (Action::Evict, _) => texts.push("The eviction obeys each PodDisruptionBudget: a budget can refuse it.".to_owned()),
+            (Action::Cordon, _) => texts.push("The scheduler puts no new pod on the node. Its pods go on to run.".to_owned()),
+            (Action::Uncordon, _) => texts.push("The scheduler can put new pods on the node again.".to_owned()),
             (Action::RunAgain, _) => {
                 texts.push("The Job goes away with its pods, and a new Job with the same manifest starts.".to_owned());
                 if any(|subject| subject.facts.running) {

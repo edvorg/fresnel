@@ -46,7 +46,8 @@ fn a_node_shows_its_conditions_with_no_namespace_and_a_link_of_a_pod_on_it_opens
     let name = nodes[0].metadata.name.clone().expect("a name");
     let mut window = page::<k8s_openapi::api::core::v1::Node>(vec![live("ams-prod", &nodes)], 1);
     assert_eq!(column(&window, "Status"), ["Ready"]);
-    assert_eq!(window.state().sent, [Command::ShowKinds(BTreeSet::from([Kind::Node]))]);
+    let shown = BTreeSet::from([Kind::Node, Kind::DaemonSet]);
+    assert_eq!(window.state().sent, [Command::ShowKinds(shown)], "the drain dialog reads the DaemonSets");
     open(&mut window, &name);
     let texts = ["Node", "Healthy", "METADATA", "CONDITIONS", "MemoryPressure", "Ready", "PODS", "db-0", "EVENTS"];
     assert_eq!(absent(&window, &texts), Vec::<&str>::new());
