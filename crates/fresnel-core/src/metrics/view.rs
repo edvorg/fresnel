@@ -115,11 +115,15 @@ impl Metrics {
         (self.cluster == *cluster).then_some(self)
     }
 
+    /// True when both lists of the last poll told that the cluster has no `metrics.k8s.io`.
+    pub fn is_absent(&self) -> bool {
+        self.pods.state.is_absent() && self.nodes.state.is_absent()
+    }
+
     /// The time from a poll to the next one: the period, or a longer pause for a cluster
     /// with no `metrics.k8s.io`.
     pub fn pause(&self) -> Duration {
-        let absent = self.pods.state.is_absent() && self.nodes.state.is_absent();
-        if absent { ABSENT_PAUSE.max(self.period) } else { self.period }
+        if self.is_absent() { ABSENT_PAUSE.max(self.period) } else { self.period }
     }
 
     /// The same metrics in a new state of both poll stores: a fault or the stop of the task.

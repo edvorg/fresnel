@@ -152,14 +152,16 @@ async fn follow<S: Lists>(run: &Run<S>) -> Infallible {
         let poll = Poll { pods: pods.map(wire::pods), nodes: nodes.map(wire::nodes), service };
         metrics.take(poll, world, run.clock.now(), &run.settings);
         run.publisher.publish(metrics.clone());
-        let pause = metrics.pause();
-        if pause == metrics.period {
-            sleep_until(start + pause).await;
-        } else {
+        // Only the long pause of a cluster with no metrics API ends at a raise: the polls of
+        // a cluster with metrics keep their period.
+        let next = start + metrics.pause();
+        if metrics.is_absent() {
             tokio::select! {
-                () = sleep_until(start + pause) => {}
+                () = sleep_until(next) => {}
                 _ = signal.raised() => {}
             }
+        } else {
+            sleep_until(next).await;
         }
     }
 }
