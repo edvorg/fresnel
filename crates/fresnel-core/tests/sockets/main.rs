@@ -10,6 +10,7 @@
 //!   a second fault during a recovery, a fault at the worst moment, a slow server and bad data.
 //!   `demand`: the stores on demand.
 //! - `indexes`: the indexes of a cluster on its stores.
+//! - `metrics`: the reads of the metrics sampler and the state of each refusal.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
@@ -21,6 +22,7 @@ mod demand;
 mod gateway;
 mod indexes;
 mod manifest;
+mod metrics;
 mod ops;
 mod registry;
 mod run_again;
