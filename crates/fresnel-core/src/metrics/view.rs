@@ -23,7 +23,8 @@ const LONGEST_PERIOD: Duration = Duration::from_secs(60);
 pub struct Latest {
     /// The last sample.
     pub sample: Sample,
-    /// True when the last poll of its list got the list, and the list had the object. A
+    /// True when the last poll of its list got the list, and the list had the object at
+    /// the time of this sample or a little before it (a second replica of the server). A
     /// value that is not current shows as old (plan section 12.4).
     pub current: bool,
 }

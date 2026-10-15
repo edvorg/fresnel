@@ -55,6 +55,11 @@ const SAMPLE_BYTES: usize = size_of::<Sample>();
 /// The part that one series costs besides its samples: the series, its key, the node of the
 /// map and the names of the key. An estimate: the limit is a setting, not a measure.
 const SERIES_BYTES: usize = size_of::<Series>() + size_of::<SeriesKey>() + 96;
+/// The most that a sample of the last answer can be older than the last sample of its
+/// series and still be of now, in seconds: the same sample again, or the one of a second
+/// replica of the server, which scrapes on its own within the longest period of 60 s
+/// (research 11 section 4.2).
+const REPLICA_LAG: u32 = 60;
 /// The time of the samples that one step of the memory limit drops from one rank.
 const LIMIT_STEP: u32 = 60;
 
@@ -101,12 +106,17 @@ impl History {
     }
 
     /// Adds the sample of a series of the answer `answer`. A sample that is not later than
-    /// the last one of its series only marks the series as seen in that answer.
+    /// the last one of its series adds nothing, and marks the series as seen in that answer
+    /// only when it is at most [`REPLICA_LAG`] older. A sample much older than the last one
+    /// tells that the last one is not of now, for example of a clock that was ahead: the
+    /// value of the series is then old (plan section 12.4).
     pub(crate) fn record(&mut self, key: SeriesKey, sample: Sample, answer: u64, tiers: &Tiers) {
         let series = self.series.entry(key).or_default();
         let before = series.len();
-        series.seen = answer;
         series.push(sample, tiers);
+        if series.latest().is_some_and(|latest| latest.at.saturating_sub(sample.at) <= REPLICA_LAG) {
+            series.seen = answer;
+        }
         self.samples = self.samples - before + series.len();
     }
 

@@ -114,7 +114,8 @@ pub struct Series {
     coarse: Vector<Sample>,
     step: Option<Step>,
     latest: Option<Sample>,
-    /// The number of the last answer of the server with a value of this series.
+    /// The number of the last answer of the server with a value of this series that is not
+    /// much older than `latest` (see `History::record`).
     pub(crate) seen: u64,
     /// The time of the system when the object of the series left its store.
     pub(crate) gone: Option<SystemTime>,

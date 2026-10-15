@@ -85,6 +85,25 @@ fn a_value_is_current_while_its_list_works_and_has_the_object_and_stays_old_afte
     assert_eq!(metrics.next, Some(at(60)));
 }
 
+/// Bad data of a cluster: one sample of a clock that is one day ahead. No later answer has
+/// a later time, so the series keeps that sample, and its value shows as old. A sample of a
+/// second replica of the server, a little older than the last one, keeps it current.
+#[test]
+fn a_value_that_no_later_answer_replaces_shows_as_old() {
+    let ams = ClusterId::new("ams");
+    let settings = MetricsSettings::default();
+    let mut metrics = Metrics::waiting(ams.clone(), PERIOD, at(0));
+    let mut answer = |at_cluster: u32, now| {
+        let nodes = read(vec![node("node-a", at_cluster, None, 1)]);
+        metrics.take(read(vec![]), nodes, world(&["node-a"]), at(now), &settings);
+        let latest = metrics.latest(&ams, &SeriesKey::Node("node-a".into()));
+        latest.map(|latest| (latest.sample.at - START, latest.current))
+    };
+    assert_eq!(answer(START + 86_400, 15), Some((86_400, true)));
+    assert_eq!(answer(START + 15, 30), Some((86_400, false)), "the sample of the last answer is one day older");
+    assert_eq!(answer(START + 86_400 - 10, 45), Some((86_400, true)), "a second replica");
+}
+
 #[test]
 fn a_longer_window_of_the_server_sets_the_period_up_to_one_minute() {
     let ams = ClusterId::new("ams");
