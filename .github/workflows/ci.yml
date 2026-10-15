@@ -50,8 +50,9 @@ jobs:
       # One build for the unit tests and the UI tests. A build for one package has other
       # features of the shared crates, and a second copy of them does not fit on the disk.
       # The time tests run in the job `time`: a time limit holds in a release build only.
+      # Each test program runs: a failure of one does not hide the results of the others.
       - name: Unit tests and UI tests
-        run: cargo test --workspace --locked -- --skip frame_time --skip search::time
+        run: cargo test --workspace --locked --no-fail-fast -- --skip frame_time --skip search::time
       - name: Size limits
         run: cargo xtask check-sizes
 
