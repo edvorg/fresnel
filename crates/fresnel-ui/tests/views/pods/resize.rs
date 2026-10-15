@@ -12,8 +12,9 @@ use egui_kittest::kittest::Queryable as _;
 use crate::data::{live, pod, pods};
 use crate::fake::{Window, open_page, shows, until, view, window};
 
-pub(crate) const TITLES: [&str; 9] =
-    ["Name", "Namespace", "Cluster", "Ready", "Status", "Restarts", "Last restart", "Node", "Age"];
+/// The titles of the columns of the Pod table, in their sequence.
+pub(crate) const TITLES: [&str; 11] =
+    ["Name", "Namespace", "Cluster", "Ready", "Status", "Restarts", "Last restart", "Node", "Age", "CPU", "Memory"];
 /// The widths that a column can have.
 const WIDTHS: Rangef = Rangef { min: 48.0, max: 2000.0 };
 /// The most distance between the edge and the pointer, and the most change of a width
@@ -128,13 +129,16 @@ pub(crate) fn drag(window: &mut Window, title: &'static str, by: f32) {
 }
 
 /// Drags the edge of each column whose edge shows, in this sequence of titles, by `by`
-/// points and back.
+/// points and back. An edge that the drag would move out of the table, or under the first
+/// column, which does not scroll to the side, stays.
 fn drag_each(window: &mut Window, titles: impl Iterator<Item = &'static str>, by: f32, right: f32) {
     for title in titles {
-        let Some(span) = span_of(&spans(window), title) else {
+        let now = spans(window);
+        let Some(span) = span_of(&now, title) else {
             continue;
         };
-        if span.max + by.abs() > right {
+        let first = span_of(&now, TITLES[0]).map_or(0.0, |first| first.max);
+        if span.max + by.abs() > right || (title != TITLES[0] && span.max - by.abs() < first) {
             continue;
         }
         drag(window, title, by);

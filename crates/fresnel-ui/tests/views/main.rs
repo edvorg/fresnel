@@ -9,6 +9,7 @@
 //! - `keys`: the keys of Secrets and ConfigMaps, and the dialog of a new Secret.
 //! - `search`: the quick search. `navigation`: Back, Forward, keys, menus and filters.
 //! - `workloads`: the views, actions, dialogs and jobs of the workloads (M3).
+//! - `metrics`: the CPU and memory columns, the Metrics tab and the sampler (M6).
 //! - `details`: the views of the kinds of the Cluster, Config, Network and Access control
 //!   groups (M7).
 //! - `frame_time`: the time of a frame with 10,000 pods. Its limit holds in a release build.
@@ -24,6 +25,7 @@ mod frame_time;
 mod journal;
 mod keys;
 mod kinds;
+mod metrics;
 mod navigation;
 mod pods;
 mod search;
