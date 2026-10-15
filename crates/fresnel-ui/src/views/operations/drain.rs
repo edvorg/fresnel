@@ -13,7 +13,8 @@ use crate::theme::{self, ROW_HEIGHT};
 use crate::widgets::mini_table::{self, Column, Text};
 use crate::widgets::tone::Tone;
 
-const COLUMNS: &[Column] = &[Column::fill("Pod"), Column::fill("Verdict"), Column::fill("State")];
+/// The state has the widest column: the name of a budget that holds a pod comes first in it.
+const COLUMNS: &[Column] = &[Column::fill("Pod"), Column::fixed("Verdict", 110.0), Column::fill("State")];
 /// The height of the list of the pods before it scrolls.
 const LIST_HEIGHT: f32 = 260.0;
 
@@ -60,7 +61,7 @@ pub(crate) fn verdict(verdict: &Verdict) -> Text {
     }
 }
 
-/// The state of a pod as a cell: a budget that holds the pod shows by its name. A text of
+/// The state of a pod as a cell: a budget that holds the pod shows by its name first. A text of
 /// the server can have 1 MiB, and a cell lays out each character in each frame.
 fn state(state: &PodState) -> Text {
     let text = |text: &str| short(text, TEXT_LIMIT).into_owned();
@@ -69,7 +70,7 @@ fn state(state: &PodState) -> Text {
         PodState::Evicting => Text::new("evicting").state(Tone::Info),
         PodState::Blocked { budget: Some(budget), reason, attempts } => {
             let reason = text(reason);
-            Text::new(format!("held by the PodDisruptionBudget {budget} ({attempts}×): {reason}")).state(Tone::Warn)
+            Text::new(format!("budget {budget} holds it ({attempts}×): {reason}")).state(Tone::Warn)
         }
         PodState::Blocked { budget: None, reason, attempts } => {
             Text::new(format!("refused for now ({attempts}×): {}", text(reason))).state(Tone::Warn)

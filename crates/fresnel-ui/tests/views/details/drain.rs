@@ -24,16 +24,16 @@ use crate::kinds::scene::{live, nodes};
 use crate::workloads::scene::{job, jobs, opened, runs, target};
 
 /// The node of the scene: each pod of the scene runs on it.
-fn node() -> String {
+pub(super) fn node() -> String {
     nodes()[0].metadata.name.clone().expect("a name")
 }
 
 /// The cluster of the Nodes, with the DaemonSets that the drain dialog reads.
-fn with_nodes(nodes: &[Arc<Node>]) -> fresnel_core::app::ClusterRow {
+pub(super) fn with_nodes(nodes: &[Arc<Node>]) -> fresnel_core::app::ClusterRow {
     and(live("ams-prod", nodes), &scene::<DaemonSet>())
 }
 
-fn click(window: &mut Window, label: &str) {
+pub(super) fn click(window: &mut Window, label: &str) {
     window.get_by_role_and_label(Role::Button, label).scroll_to_me();
     window.run();
     window.get_by_role_and_label(Role::Button, label).click();
@@ -118,7 +118,7 @@ fn the_drain_dialog_gives_each_pod_its_verdict_for_the_options_and_sends_them() 
 }
 
 /// A drain that runs and one that the user cancelled, on the Operations tab.
-fn drain_job(number: u64, state: JobState) -> Arc<fresnel_core::app::JobView> {
+pub(super) fn drain_job(number: u64, state: JobState) -> Arc<fresnel_core::app::JobView> {
     let node: Target = target("ams-prod", &nodes(), &node());
     let pod = |name: &str, verdict, state| DrainPod { key: ObjectKey::new("shop", name), verdict, state };
     let budget = "The disruption budget guarded needs 1 healthy pods and has 1 currently";
@@ -147,7 +147,7 @@ fn the_operations_tab_shows_each_pod_of_a_drain_and_a_budget_by_its_name_and_a_c
     open_tab(&mut window, "Operations");
     assert!(shows(&window, "Job 1: Drain --ignore-daemonsets --force"));
     assert!(shows(&window, "4 pods: 1 gone, 1 held"));
-    let held = "held by the PodDisruptionBudget guarded (3×): The disruption budget guarded needs 1 healthy pods";
+    let held = "budget guarded holds it (3×): The disruption budget guarded needs 1 healthy pods";
     assert!(shows_part(&window, held), "the budget by its name");
     for text in ["shop/guarded-1", "kept on the node", "gone", "terminating", "keep: a pod of a DaemonSet"] {
         assert!(shows(&window, text), "{text}");
