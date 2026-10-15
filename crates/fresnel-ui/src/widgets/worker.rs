@@ -24,6 +24,10 @@ use std::time::{Duration, Instant};
 
 use fresnel_core::net::task::{Backoff, Restart, Stop, TaskHandle, TaskName, TaskState, Tasks};
 
+/// A view tells that it waits for its worker only after this time. A result for 10,000
+/// objects takes some milliseconds, and a note for each new snapshot would flicker.
+pub(crate) const SLOW: Duration = Duration::from_millis(250);
+
 /// The identity of a request: the state of the table that it was made for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RequestId {

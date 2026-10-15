@@ -19,7 +19,7 @@ mod workloads;
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use egui::{Frame, Label, RichText, ScrollArea, Ui};
 use fresnel_core::kinds::{Kind, Sidebar};
@@ -30,7 +30,7 @@ use crate::shell::Scene;
 use crate::theme::{self, PAD, Palette};
 use crate::views::detail::related::links_only;
 use crate::views::objects::Link;
-use crate::widgets::worker::{Cancel, Done, RequestId, Wake, Worker};
+use crate::widgets::worker::{Cancel, Done, RequestId, SLOW, Wake, Worker};
 
 /// The age of a sample and of an Event changes with no change of a store, so the page asks
 /// for a repaint each time this period ends.
@@ -107,6 +107,8 @@ pub(crate) struct OverviewPage {
     id: RequestId,
     /// The counts on the screen, with the identity of their request.
     counted: Option<Done<Vec<Counted>>>,
+    /// The moment from which the counts on the screen are not the counts of the last request.
+    behind_since: Option<Instant>,
 }
 
 impl OverviewPage {
@@ -115,21 +117,14 @@ impl OverviewPage {
         let compute =
             |request: &Request, cancel: &Cancel<'_>| count::count(&request.inputs, &request.namespaces, cancel);
         let worker = Worker::start(tasks, TaskName::new("overview counts"), wake, compute);
-        Self { worker, asked: None, id: RequestId::default(), counted: None }
+        Self { worker, asked: None, id: RequestId::default(), counted: None, behind_since: None }
     }
 
     /// Draws the overview. Gives the target of a link that the user clicked.
     pub(crate) fn show(&mut self, ui: &mut Ui, scene: &Scene<'_>, overview: Overview) -> Option<Jump> {
         let palette = theme::palette(ui);
         self.request(scene);
-        if let Some(done) = self.worker.take() {
-            // Counts of an other filter, or of the time before a rest, do not fit the page.
-            let fits = done.id.query == self.id.query;
-            let old = if fits { self.counted.replace(done).map(|old| old.output) } else { Some(done.output) };
-            if let Some(old) = old {
-                self.worker.discard(old);
-            }
-        }
+        self.take_counts();
         let counted = self.counted.as_ref().map_or(&[][..], |done| done.output.as_slice());
         let jump = ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             Frame::new().inner_margin(PAD * 2.0).show(ui, |ui| {
@@ -142,8 +137,36 @@ impl OverviewPage {
                 }
             })
         });
-        ui.ctx().request_repaint_after(AGE_REPAINT);
+        // The frame at the end of `SLOW` tells that the counts take long.
+        let slow = self.behind_since.and_then(|since| SLOW.checked_sub(since.elapsed()));
+        ui.ctx().request_repaint_after(slow.map_or(AGE_REPAINT, |slow| slow.min(AGE_REPAINT)));
         jump.inner.inner
+    }
+
+    /// Takes the newest counts of the worker. Counts of an other filter, or of the time
+    /// before a rest, do not fit the page; counts of this filter for older snapshots do.
+    fn take_counts(&mut self) {
+        if let Some(done) = self.worker.take() {
+            let fits = done.id.query == self.id.query;
+            let old = if fits { self.counted.replace(done).map(|old| old.output) } else { Some(done.output) };
+            if let Some(old) = old {
+                self.worker.discard(old);
+            }
+        }
+        let behind = self.counted.as_ref().is_none_or(|done| done.id != self.id);
+        self.behind_since = behind.then(|| self.behind_since.unwrap_or_else(Instant::now));
+    }
+
+    /// True when the title tells that new counts are on their way: at once while the page
+    /// has no counts of its namespace filter, and after `SLOW` for new snapshots. A busy
+    /// cluster gives new snapshots each few frames, and a note at each one would flicker.
+    fn counting(&self) -> bool {
+        match &self.counted {
+            Some(done) if done.id.query == self.id.query => {
+                self.behind_since.is_some_and(|since| since.elapsed() >= SLOW)
+            }
+            Some(_) | None => true,
+        }
     }
 
     /// Asks for counts of the snapshots of this frame when they changed. A new namespace
@@ -178,14 +201,13 @@ impl OverviewPage {
     fn title(&self, ui: &mut Ui, palette: &Palette, scene: &Scene<'_>, overview: Overview) {
         ui.horizontal(|ui| {
             ui.label(RichText::new(overview.title()).size(15.0).strong());
-            let behind = self.counted.as_ref().is_none_or(|done| done.id != self.id);
             // A worker that ended has a state of its own, so old counts never look current.
-            match self.worker.failure().filter(|_| behind) {
+            match self.worker.failure().filter(|_| self.behind_since.is_some()) {
                 Some(failure) => {
                     let text = format!("The counts are not current: the worker thread {failure}");
                     ui.add(Label::new(RichText::new(text).color(palette.error)).truncate());
                 }
-                None if behind => {
+                None if self.counting() => {
                     ui.label(RichText::new("counting…").color(palette.text_faint));
                 }
                 None => {}
@@ -200,15 +222,15 @@ impl OverviewPage {
     }
 
     /// Gives up the counts and the snapshots, for a page that is not painted. The next
-    /// request has a new query, so no count of before fits it: a count in progress at the
-    /// rest gives its result to the request after it.
+    /// request has a new query, so no count of before fits it: the page drops the result of
+    /// a count that was in progress at the rest.
     pub(crate) fn rest(&mut self) {
         if self.asked.is_some() || self.counted.is_some() {
             self.worker.clear();
             if let Some(old) = self.counted.take() {
                 self.worker.discard(old.output);
             }
-            self.asked = None;
+            (self.asked, self.behind_since) = (None, None);
             self.id.query += 1;
         }
     }

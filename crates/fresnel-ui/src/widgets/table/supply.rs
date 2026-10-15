@@ -12,11 +12,7 @@ use fresnel_core::net::task::{TaskName, Tasks};
 
 use super::model::{Model, Sort};
 use super::rows::{Request, Rows, sorted_rows};
-use crate::widgets::worker::{Cancel, Done, RequestId, Wake, Worker};
-
-/// The table tells that it waits for new rows only after this time. The rows of 10,000
-/// objects need some milliseconds, and a note for each of them would flicker.
-pub(super) const SLOW: Duration = Duration::from_millis(250);
+use crate::widgets::worker::{Cancel, Done, RequestId, SLOW, Wake, Worker};
 
 /// How the rows on the screen stand to the last request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
