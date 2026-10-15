@@ -2,7 +2,6 @@
 //! Deployments, and the app core with the contexts `a`, `b` and `viewer` (`b` as that user).
 //! The core starts as from Finder and reads the kubeconfig of a home folder of the test.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,12 +14,12 @@ use fresnel_core::ops::{JobState, Order, Outcome, Target};
 use fresnel_core::published::Held;
 use fresnel_core::store::{ObjectKey, Snapshot, Written};
 use fresnel_testkit::{Home, K3s};
-use serde_json::{Value as Json, json};
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 
 use crate::common::{TestTasks, connect, registry, until_live};
+use crate::contexts::kubeconfig;
 use crate::scene::{self, APP};
 
 /// The longest wait for a state of the core or of a cluster.
@@ -190,22 +189,6 @@ pub(crate) fn written(job: &JobView) -> &Written {
         Outcome::Written(Some(written)) => written,
         other => panic!("the answer of a write: {other:?}"),
     }
-}
-
-/// One kubeconfig with a context for each file: its cluster and its user, under the name
-/// of the context. Each file of a cluster names its context `default`.
-fn kubeconfig(contexts: &[(&str, PathBuf)]) -> String {
-    let (mut clusters, mut users, mut named) = (Vec::new(), Vec::new(), Vec::new());
-    for (name, file) in contexts {
-        let text = std::fs::read_to_string(file).expect("the kubeconfig of a cluster");
-        let config: Json = serde_saphyr::from_str(&text).expect("YAML");
-        clusters.push(json!({"name": name, "cluster": config["clusters"][0]["cluster"]}));
-        users.push(json!({"name": name, "user": config["users"][0]["user"]}));
-        named.push(json!({"name": name, "context": {"cluster": name, "user": name}}));
-    }
-    let config = json!({"apiVersion": "v1", "kind": "Config", "current-context": "a",
-        "clusters": clusters, "users": users, "contexts": named});
-    serde_saphyr::to_string(&config).expect("YAML")
 }
 
 /// One entry of the journal as one text.

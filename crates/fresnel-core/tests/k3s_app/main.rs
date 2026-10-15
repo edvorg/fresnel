@@ -17,6 +17,8 @@ mod bed;
 #[path = "../common/mod.rs"]
 #[expect(dead_code, reason = "each wait of this test reads the view of the core, not one signal")]
 mod common;
+#[path = "../common/contexts.rs"]
+mod contexts;
 mod jobs;
 mod keys;
 mod scene;
