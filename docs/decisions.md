@@ -1238,3 +1238,73 @@ each with unit tests. An item that does not fit is a count with its reason, not 
 The sampler keeps one hour of samples and 24 hours of minutes in memory. A limit for each
 cluster, not one for all, keeps a large cluster from pushing the history of a small one out.
 A history from before the start of the app needs Prometheus, a later option of the plan.
+
+## A log stream asks for the times and reads raw bytes
+
+Each stream asks for `timestamps=true`: the merge of many pods sorts by the time, and a new
+stream starts from it. The view hides the time when the user wants. The stream gives bytes,
+which become lines of 64 KiB at most, because a program can write with no line end; a reader of
+lines would end the stream at the first byte that is not UTF-8.
+
+## Escape codes become styles at ingest, with vte
+
+The parser of `vte`, which the terminal of M10 needs too, gives each SGR code as a style. The
+text of a line keeps no escape sequence, so a search reads plain text and a color code in a word
+does not hide it. A style holds into the next line of the same source, as in a terminal. A
+synchronized update would hold its bytes, so it ends with its line.
+
+## A new stream starts at the full second of its latest line
+
+kube rounds `sinceTime` to the nearest second, and the kubelet drops each older line: the time of
+the latest line could lose half a second. The new stream thus sends the lines of that second
+again. The view drops a line while its time is one of that second, as often as the view has it;
+the first other line ends the drop. Each gap gets one marker line. On k3s, a reset of each
+connection lost no line.
+
+## The pod tells what the end of a stream means
+
+A stream ends when its container ends and when its connection closes. The source reads the pod in
+its store: the instance that the kubelet serves by its own rule, and the restart policy. A new
+instance gets a marker and a stream, an instance that still runs a new stream after a pause, and
+a container with no log a wait with its reason and no request. A container that does not start
+again ends its source.
+
+## A stream with only a text of the kubelet is a refusal
+
+On k3s, the status of a pod in a loop of crashes names for some seconds an instance that the
+runtime removed. The kubelet then answers with HTTP 200 and "unable to retrieve container logs",
+with no time. A stream with only lines with no time is thus a refusal: the source waits for a
+change of the pod with that text as its reason. A line with no time between real lines is a
+marker.
+
+## The lines of many pods merge by their times with a hold of 250 ms
+
+A line goes into the view when each open source has a line, or after it waited 250 ms. A slow
+source holds the view for that time at most. A line that comes after a later line went in goes
+to the end with the mark "late": the ring never takes a line into its middle, so each number of a
+line stays for the scroll position, a selection and a search hit.
+
+## The ring of a view is a vector of imbl
+
+A view gets the lines of a moment as a copy of a pointer, and a push changes few nodes, so the
+core publishes the view each 30 ms and the UI holds no lock. The ring keeps 200,000 lines and
+128 MiB, and it counts the lines that left. On k3s, 1,000,000 lines of eight pods added 27 MB to
+the heap at most.
+
+## A view has 50 streams, and its default container is the one that restarts
+
+kubectl follows 5 pods of a selector; a workload of the app can have more, and each stream is one
+stream of the log channel. A container over the limit is a count in the view, and a stream that
+ends frees its place. Without a choice of the user, the view reads the container that restarts
+most in its pods, else the one of kubectl.
+
+## The log sessions belong to their connected cluster
+
+`ShowLogs` names each view that the UI shows. The cluster of each view runs its session, keeps it
+while the view stays, and stops it with the view or with its connections. The same request keeps
+its lines; a change of the options is a new request with a new session.
+
+## The test of a million lines counts the heap with eight pods
+
+The test binary counts each allocation. The kubelet rotates a log above 10 MiB, and a stream that
+follows can stop at a rotation, so eight pods write 125,000 lines each, some 6 MB each.
