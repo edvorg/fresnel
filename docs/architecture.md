@@ -88,8 +88,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 `fresnel-core` makes a connected cluster from a kubeconfig context. Its name is the `ClusterId`.
 
-- **Kubeconfig**: `kubeconfig::load` reads each file of `KUBECONFIG` of the login shell and then
-  `~/.kube/config`. The first file wins a name. A context that the app cannot use stays.
+- **Kubeconfig**: `kubeconfig::load` reads each file of `KUBECONFIG` of the login shell, then
+  `~/.kube/config` and the files of the settings. The first file wins a name.
 - **Registry**: one entry for each context. **Gateway**: get, list page, watch stream, log stream,
   send and upgrade. A failed write tells its fate, and each read has a size limit.
 - **Manifest**: `manifest::fetch` gives the YAML of one object, by default with no `managedFields`.
@@ -103,11 +103,11 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   once. A write goes out one time; an unknown result gets a read of the object. A cancel or a
   store that follows nothing ends a wait. A drain has a task for each pod (`ops/drain`).
   **Permissions**: rules or a review, dropped by HTTP 403. **Write result**: `Snapshot::is_pending`.
-- **App core**: `app::Core` owns the registry, the tasks and the journal. After its start, one
-  task reads the settings file, the login shell environment and the kubeconfig files, connects
-  each selected cluster and runs each command. A cluster has stores, indexes, a sampler and tasks.
-- **Files**: `state.json` keeps the selection and the table layouts. The core reads `config.toml`
-  and never writes it; its first 20 problems go to the journal. **Journal**: 10,000 entries.
+- **App core**: `app::Core` owns the registry, the tasks and the journal. One task reads the
+  settings, the login shell and the kubeconfig files, connects each selected cluster and runs each
+  command; one gives the notices of a failed job and of a lost cluster to `set_notifier`.
+- **Files**: `state.json` keeps the selection and the table layouts; `config.toml` the settings of
+  `config::table`, with bounds. A look reads both again after a change. **Journal**: 10,000 entries.
 
 ## Stores, indexes, search and commands
 
@@ -147,11 +147,10 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
    connections; of each connected cluster the Pods, the indexes, the snapshots, the full objects
    of the kinds of `ShowKinds`, the key view, the permissions, the metrics, the server version,
    the logs and saves; the settings, the last manifest read and Secret create, jobs and journal.
-2. **Commands.** A view returns a `Command`, and the task of the core runs it.
-3. **Workers.** A view computes its rows on a worker thread: see "Window".
-4. **Repaint.** A new snapshot, index, poll or log view asks for a repaint. One notifier limits
+2. **Commands.** A view returns a `Command`, and the task of the core runs it. **Workers**: below.
+3. **Repaint.** A new snapshot, index, poll or log view asks for a repaint. One notifier limits
    them to 60 in one second. The core does not know egui: the window gives it the wake.
-5. **Memory.** A thread frees each old snapshot and the rows. A view on a hidden page has none.
+4. **Memory.** A thread frees each old snapshot and the rows. A view on a hidden page has none.
 
 ## Window
 
@@ -170,10 +169,9 @@ dock (Operations, Journal, Connections, a tab for each log view) and status bar.
   links, Events and the Manifest. An object that left its store shows as deleted.
 - **Actions** (`views/act`): the panel, the menus, a key and the quick search ask for an action
   of the command table. A gate closes it with the reason: a later milestone, the state of the
-  object, the rules. A change asks in a dialog (`drain` lists the pods): an order for each object.
-- **Quick search**: a dialog with the last text selected; the cursor holds a row by identity, and
-  Enter waits for the hits of the text. A hit opens its object, with a note while its store lists,
-  or "Show it" when a filter hides its row. The top bar has one namespace filter for each page.
+  object, the rules, a read-only cluster. A change asks in a dialog: an order for each object.
+- **Quick search**: a dialog; its cursor holds a row by identity. A hit opens its object, with a
+  note while its store lists, or "Show it" when a filter hides its row. One namespace filter.
 - **Keys** (`views/keys`): the panel of a Secret or a ConfigMap names its object (`ShowKeys`) and
   edits a `Draft` behind the gate of "Edit keys": a hidden value until "Show", add, remove, the
   diff in a dialog before a save, a choice for each conflict. The New Secret dialog is `new-secret`.
@@ -181,6 +179,8 @@ dock (Operations, Journal, Connections, a tab for each log view) and status bar.
   **Overviews** (`views/overview`): a worker counts; `cluster/version.rs` reads each server version.
 - **Logs** (`views/logs`): the tab of a view (`ShowLogs`), its options, the state of each source,
   a search and a filter on a worker; the pane has its own rows, scroll and selection (`pane`).
+- **Settings** (`views/settings`): a control for each entry of `config::table`, cluster and key; a
+  draft goes to `EditSettings`. `shell/focus` moves the keys between four areas; `?` lists them.
 
 ## Tests
 
@@ -192,7 +192,7 @@ freezes, delays, resets or silences connections; `K3s` is k3s in Docker, with ag
   memory, the watch loop on a script, the indexes, health values and columns on two k3s scenes.
 - **Socket tests** use the fake API server and the fault proxy on 127.0.0.1, with no Docker.
 - **UI tests**: `egui_kittest` with no window, on a fake core; a table test holds its worker at a
-  gate. The program tests `live` and `k3s_*` draw the real core. Time limits: release build.
+  gate. The program tests `live`, `settings` and `k3s_*` draw the real core. Time: release build.
 - **Program tests** start `fresnel-cli` and `fresnel` (no window) as from Finder, in a test home.
 - **Cluster tests** use k3s in Docker, mostly through the fault proxy (`#[ignore]`). After a fault,
   a store test asserts a recovery time and "store equal to the API". The tests of the indexes,

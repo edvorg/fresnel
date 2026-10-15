@@ -58,7 +58,8 @@ pub struct CoreParts {
     /// The state file: the core reads the selection and the table layouts of the last run
     /// from it, and writes each change of them to it.
     pub state_file: PathBuf,
-    /// The settings file of the user. The core reads it at its start and never writes it.
+    /// The settings file of the user. The core reads it at its start and after each change,
+    /// and writes it only for a save of the settings view.
     pub config_file: PathBuf,
     /// The folder of the files that the user saves, such as a log. The first save makes it.
     pub downloads: PathBuf,

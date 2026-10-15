@@ -1023,12 +1023,12 @@ A key with no modifier, or with Shift only, would act while the user types into 
 shortcut needs Cmd, Ctrl or Alt; a function key is the one exception. A shortcut with more
 modifiers is read first, because Cmd+K of egui also takes Cmd+Shift+K.
 
-## The settings file comes first, and the app never writes it
+## The settings file comes first, and only the settings view writes it
 
 The core reads `config.toml` before the login shell, which can take seconds, so the keys of the
-user act from the first frames. The settings view of M8 edits the file; until then the app
-writes none. A parse error or a newer version leaves each setting at its default, with an error
-in the journal. An unknown key is a warning, and the other keys stay in use.
+user act from the first frames. Only a save of the settings view writes the file. A parse error or
+a newer version at the start leaves each setting at its default, with an error in the journal. An
+unknown key is a warning, and the other keys stay in use.
 
 ## One namespace filter for each view
 
@@ -1436,3 +1436,78 @@ The overview shows the sum of the NodeMetrics of a cluster against the sum of th
 of its nodes, with the requests on them at the last poll as the mark of the bar, as the row of a
 node does. A node with no allocatable value leaves the sum out: a sum of some nodes would give a
 false part. A node with no sample shows in the words: "sum of 2 of 3 nodes".
+
+## One table gives each setting its key, default and bounds
+
+`config::table` lists each setting of the fixed groups with its group, key, label, default and
+bounds, as the command table lists the commands. The reader of the file, the step that gives the
+values to the core and the settings view read it, so a setting has one name and one range. A test
+holds each default equal to the default of the code.
+
+## A number outside its bounds takes the nearest bound, and a period of 0 is refused
+
+A value outside the bounds of its setting takes the nearest bound, with a note at its line and
+column in the journal. A period or a time limit of 0 is refused, and the default stays: a period
+of 0 would run its loop with no pause, and a limit of 0 would fail each request. The settings view
+refuses each such number before a save, so the file has the number that the user sees.
+
+## The connection settings act at the next start
+
+The network, credential plugin, metrics, log and Events settings act at the next start of the
+app. The core builds the connections, stores, sampler and log views of a cluster with them, and a
+change under a running connection would need a second path in each of them. The journal tells
+when a change of the file waits for a start. The other settings act at once.
+
+## A look at the files each 2 s, with no file system events
+
+The core takes the size and the time of change of the settings file and of each kubeconfig file
+each 2 s. An editor that saves a new file under the old name, a symbolic link and a folder that
+comes later each need a case of their own with the events of macOS; a look has none. The stamps
+come before each read, so a change during a read gives one more read.
+
+## A settings file that does not parse keeps the settings of the last read
+
+After a change, a file that does not parse or has an other version leaves the settings of the last
+good read in use, with an error at its place. A mistake in an editor must not make a read-only
+cluster writable or remove the keys of the user. At the start, such a file gives the defaults.
+
+## The settings view writes a change with toml_edit, and never over a file it cannot read
+
+A save sets or removes the keys of the changes and keeps each other byte: comments, blank lines
+and the sequence of the keys, also the comment after a changed value. The core refuses a save to
+a file with a parse error or an other version, and a change that its reader would refuse. A new
+text goes to a second file, which takes the name of the file in one step.
+
+## A read-only cluster is closed in the view and refused in the core
+
+Each action with a confirm of the command table, a key save and a new Secret are changes. The gate
+of a view closes them with the reason, and the core refuses such a command too: a job ends as not
+sent with the reason, and the server gets no request. A read, such as the rollout status, runs.
+The confirm rule `type-name` keeps the button off until the name of the cluster is typed.
+
+## Each command that runs has a key, and a change needs Option or Shift
+
+The command table gives each command that the app runs a default key; an action of a later
+milestone gets one with its milestone. A change of a cluster uses Option or Shift, so Cmd+C,
+Cmd+Backspace and the other keys of a text field start no dialog. `?` opens the list of the keys,
+and a key that a text field takes as text acts only when no text field has the focus.
+
+## The areas take the focus of egui
+
+Cmd+1 to Cmd+4 and F6 put the focus of egui on the open entry of the sidebar, the table, the
+selected tab of the panel or of the dock. egui then moves the focus with the arrows and acts on
+Space and Enter, and each focused button has the active look. The app needs no focus model of its
+own; the table keeps its own keys for its rows.
+
+## The core decides a notice, and the window tells when it is hidden
+
+A task of the core looks each second at the jobs and the selected clusters. A failed job gives one
+notice; macOS shows no banner over the window of the focus, so this needs no check of the window.
+A lost cluster gives one notice for each loss when it stays lost for the time of the settings while
+the window is minimized or has no focus. The program shows notices only from its bundle.
+
+## The alias of a cluster shows in the bars, and the tables keep the context
+
+An alias of the settings replaces the name of a cluster in the top bar and the status bar, where
+room is short. The tables, the panel, the dialogs and the journal keep the name of the context: it
+is the identity of the cluster, and a dialog of a change must name the target as kubectl does.

@@ -6,12 +6,12 @@ that looks current.
 
 ## Status
 
-Milestones M0 to M4 are complete; the work is in M6 (metrics), M7 (other kinds) and M9 (logs).
+Milestones M0 to M4, M6, M7 and M9 are complete; the work is in M8 (settings, keys, notices).
 The repository has CI, the test kit, `fresnel-net`, `fresnel-core` (kubeconfig, gateway, app
 core, journal, state and settings files, 41 kinds, watch loop, stores, indexes, manifest, quick
-search, command table, keys, operations as jobs, permissions, metrics, logs), `doctor`, `watch`
-and the window: a live table and a panel with the sections of each kind in scope, workload
-actions, a node drain, Secret and ConfigMap keys, the Operations tab, metrics, logs, overviews.
+search, command table, keys, operations as jobs, permissions, metrics, logs, notices), `doctor`,
+`watch` and the window: a live table and a panel with the sections of each kind in scope, actions,
+a node drain, Secret and ConfigMap keys, the Operations tab, metrics, logs, overviews, settings.
 
 ## The app
 
@@ -20,18 +20,18 @@ cargo xtask install                   # builds Fresnel.app and puts it into /App
 cargo xtask install --to <folder>     # the same into some other folder
 ```
 
-The earlier bundle stays as `Fresnel.app.prev`. At its first start, the app selects the
-current context of the kubeconfig files. The top bar has a switch for each cluster. The app
-keeps the selection and the widths and columns of each table in `state.json`.
+The earlier bundle stays as `Fresnel.app.prev`. At its first start, the app selects the current
+context of the kubeconfig files. It keeps the selection and the table layouts in `state.json`.
 
 - A table shows each selected cluster. A row with an open ring is from a cluster that is
   not live: its values are old, and a note above the table gives the reason.
-- Cmd+K opens the quick search of each kind of each selected cluster, Cmd+Shift+N a new Secret,
-  Cmd+Shift+L the logs of the panel. Cmd+[ and Cmd+] go back and forward. A right click lists the
-  actions of a row; a change asks.
+- Cmd+K opens the quick search, ? lists each key, Cmd+1 to Cmd+4 and F6 move the focus between
+  the sidebar, the table, the panel and the dock. Cmd+[ and Cmd+] go back and forward. A right
+  click lists the actions of a row; a change asks, and a read-only cluster refuses it.
 - Settings folder: `~/Library/Application Support/fresnel`. A debug build uses `fresnel-debug`.
-  Its `config.toml` has `version = 1` and `[shortcuts]`: `back = "Alt+Left"`, `filter = ""`
-  (`commands::TABLE` has each name). The journal tells each problem with its line and column.
+  Cmd+, opens the settings view, which edits `config.toml` and keeps its comments. The app reads
+  it again after each change; the journal tells each problem with its line and column.
+- A failed operation, and a cluster that stays lost while the window is hidden, give a notification.
 - Log folder: `~/Library/Logs/fresnel` (`fresnel.log`, panic reports). Saved logs: `~/Downloads`.
 - Only one process runs. `cargo run --package fresnel` starts a debug build next to the app.
 

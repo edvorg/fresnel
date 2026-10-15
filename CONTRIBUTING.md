@@ -102,8 +102,8 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
   its reason. A list with no row says "none" only after a complete list of each store.
 - A command has one entry in `commands::TABLE` (identifier, label, a default key only when the
   app runs it, confirm rule). Keys, menus and the quick search read it. `views/act` gates actions.
-- A setting is a key of `config.toml`, read in `config/read.rs`. An unknown key or a value that
-  does not fit is a problem with its line and column, and the other keys stay in use.
+- A setting is an entry of `config::table`: its key, default and bounds. The reader, `apply` and
+  the settings view read it. A value that does not fit is a problem with its line and column.
 
 ## Tests
 
