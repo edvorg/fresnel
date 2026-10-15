@@ -41,7 +41,7 @@ use std::time::Duration;
 use fresnel_net::NetSettings;
 use fresnel_net::detect::{Detector, Monitor};
 use fresnel_net::env::{EnvSettings, ProcessEnv};
-use fresnel_net::task::{Backoff, Reporter, Restart, TaskHandle, TaskName, TaskReport, Tasks};
+use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
@@ -218,7 +218,7 @@ impl Core {
     pub fn new(parts: CoreParts) -> Self {
         let CoreParts { runtime, base_env, journal, state_file, config_file, downloads, detectors, settings } = parts;
         let repaint = Repaint::new();
-        let tasks = Tasks::new(runtime.clone(), reporter(journal.clone(), repaint.clone()));
+        let tasks = Tasks::new(runtime.clone(), repaint::reporter(journal.clone(), repaint.clone()));
         let state = State {
             phase: Phase::Idle,
             startup: Startup::Waiting,
@@ -318,8 +318,7 @@ impl Core {
             (state.startup, state.shell_problem.clone(), selected, tables, config, reads, data, clusters)
         };
         let row = |cluster: crate::cluster::ClusterView| {
-            let selected = selected.contains(&cluster.id);
-            let data = data.remove(&cluster.id);
+            let (selected, data) = (selected.contains(&cluster.id), data.remove(&cluster.id));
             ClusterRow::new(cluster, selected, data)
         };
         CoreView {
@@ -388,15 +387,6 @@ impl Drop for Core {
 impl std::fmt::Debug for Core {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Core").field("startup", &self.inner.state().startup).finish_non_exhaustive()
-    }
-}
-
-/// The journal takes the report of each task run that ended (design rule 1), and the UI
-/// gets a repaint for the new entry.
-fn reporter(journal: Journal, repaint: Repaint) -> impl Reporter {
-    move |report: TaskReport| {
-        journal.report(report);
-        repaint.request();
     }
 }
 

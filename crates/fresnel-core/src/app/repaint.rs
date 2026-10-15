@@ -7,9 +7,20 @@
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use fresnel_net::task::{Reporter, TaskReport};
 use tokio::sync::Notify;
 
 use crate::error::CoreError;
+use crate::journal::Journal;
+
+/// The journal takes the report of each task run that ended (design rule 1), and the UI
+/// gets a repaint for the new entry.
+pub(super) fn reporter(journal: Journal, repaint: Repaint) -> impl Reporter {
+    move |report: TaskReport| {
+        journal.report(report);
+        repaint.request();
+    }
+}
 
 /// Wakes the UI. The window gives a function that asks egui for a repaint.
 pub(super) type Wake = Arc<dyn Fn() + Send + Sync>;
