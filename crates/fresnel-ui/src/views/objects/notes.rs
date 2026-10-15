@@ -1,9 +1,10 @@
 //! The note of each selected cluster above the table of a kind: the state of the store of
-//! the kind with the reason, and how old its rows are (design rules 4 and 5).
+//! the kind with the reason, how old its rows are (design rules 4 and 5), and the count of
+//! objects that left a store at its limit (design rule 12: only the Events have one).
 //!
-//! A cluster whose store is live has no note. Each other cluster has a line of its own,
-//! so two clusters that fail show two reasons (weakness 3 of plan section 6), and a list
-//! with no row never stands for an error.
+//! A cluster whose store is live and complete has no note. Each other cluster has a line of
+//! its own, so two clusters that fail show two reasons (weakness 3 of plan section 6), and a
+//! list with no row never stands for an error.
 
 use std::time::SystemTime;
 
@@ -84,12 +85,18 @@ pub(super) struct Facts<'a> {
     last_contact: Option<SystemTime>,
     listed: bool,
     empty: bool,
+    dropped: u64,
 }
 
 impl<'a> Facts<'a> {
     pub(super) fn of<T>(snapshot: &'a Snapshot<T>) -> Self {
         let (state, last_contact, listed) = (&snapshot.state, snapshot.last_contact, snapshot.listed);
-        Self { state, last_contact, listed, empty: snapshot.items.is_empty() }
+        Self { state, last_contact, listed, empty: snapshot.items.is_empty(), dropped: snapshot.dropped }
+    }
+
+    /// True when the rows of the store are old: the note then has the mark of the rows.
+    fn old_rows(&self) -> bool {
+        !self.empty && !self.state.is_live()
     }
 }
 
@@ -106,9 +113,11 @@ fn note(row: &ClusterRow, facts: Option<Facts<'_>>, nouns: &Nouns, clock: &Clock
         let text = format!("{}: the store of the full objects starts. No {} is loaded.", nouns.title, nouns.one);
         return Some((Tone::Info, text));
     };
+    let dropped = (store.dropped > 0)
+        .then(|| format!("{} older {} left the store at its limit.", format::thousands(store.dropped), nouns.many));
     let state = store.state.to_string();
     let (tone, state) = match store.state {
-        StoreState::Live => return None,
+        StoreState::Live => return dropped.map(|dropped| (Tone::Info, format!("{}: {dropped}", nouns.title))),
         // The store waits for the cluster, so the note has the tone and the reason of
         // the cluster.
         StoreState::Waiting(Wait::Channel | Wait::Credential) => {
@@ -131,7 +140,8 @@ fn note(row: &ClusterRow, facts: Option<Facts<'_>>, nouns: &Nouns, clock: &Clock
         Some(_) => "Its first list is not complete.".to_owned(),
         None => format!("No {} is loaded.", nouns.one),
     };
-    Some((tone, format!("{}: {state}. {rows}", nouns.title)))
+    let dropped = dropped.map_or_else(String::new, |dropped| format!(" {dropped}"));
+    Some((tone, format!("{}: {state}. {rows}{dropped}", nouns.title)))
 }
 
 /// Draws the note of each selected cluster that has one. `facts` gives the store of the
@@ -147,8 +157,8 @@ pub(super) fn show<'a>(
     let notes: Vec<(&ClusterRow, Tone, String, bool)> = selected
         .filter_map(|row| {
             let facts = facts(&row.id);
-            let has_rows = facts.as_ref().is_some_and(|facts| !facts.empty);
-            note(row, facts, nouns, scene.clock).map(|(tone, text)| (row, tone, text, has_rows))
+            let old_rows = facts.as_ref().is_some_and(Facts::old_rows);
+            note(row, facts, nouns, scene.clock).map(|(tone, text)| (row, tone, text, old_rows))
         })
         .collect();
     if notes.is_empty() {
@@ -156,15 +166,15 @@ pub(super) fn show<'a>(
     }
     let list = ScrollArea::vertical().id_salt("notes").max_height(LINES * ROW_HEIGHT).auto_shrink([false, true]);
     list.show(ui, |ui| {
-        for (row, tone, text, has_rows) in &notes {
+        for (row, tone, text, old_rows) in &notes {
             ui.horizontal(|ui| {
                 ui.set_height(ROW_HEIGHT - 2.0);
                 ui.add_space(12.0);
                 ui.spacing_mut().item_spacing.x = 6.0;
                 dot(ui, scene.colors.color(&row.id, palette));
                 ui.label(RichText::new(row.id.as_str()).strong());
-                // The mark of the rows of this cluster, so that a person knows it again.
-                if *has_rows {
+                // The mark of the old rows of this cluster, so that a person knows it again.
+                if *old_rows {
                     ring(ui, palette);
                 }
                 ui.add(Label::new(RichText::new(text).color(tone.color(palette))).truncate());
