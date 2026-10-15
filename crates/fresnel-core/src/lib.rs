@@ -8,6 +8,7 @@
 //! - [`manifest`]: the YAML of one object, read from the server. [`search`]: the quick
 //!   search in the stores. [`keys`]: the keys and values of a Secret or a ConfigMap.
 //! - [`ops`]: the operations on objects, as jobs, and the permissions of the user.
+//! - [`metrics`]: the sampler of each cluster and the history of its CPU and memory.
 //! - [`published`]: the one type that publishes a state to its readers.
 //! - [`journal`]: the list of events, warnings and errors.
 //! - [`config`]: the settings file of the user. [`state_file`]: what the app keeps from one
@@ -29,6 +30,7 @@ pub mod keys;
 pub mod kinds;
 pub mod kubeconfig;
 pub mod manifest;
+pub mod metrics;
 pub mod ops;
 pub mod published;
 pub mod search;
