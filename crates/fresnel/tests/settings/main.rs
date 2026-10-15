@@ -151,7 +151,9 @@ fn a_failed_operation_and_a_cluster_that_stays_lost_while_the_window_is_hidden_g
     let lost = titles().pop().expect("a title");
     assert!(lost.starts_with("gone is lost for "), "{lost}");
     let body = notices.lock().expect("the notices").last().map(|notice| notice.body.clone()).unwrap_or_default();
-    assert!(body.contains("Connection refused"), "the reason: {body}");
+    // The text of the system for a refused connect: "Connection refused" on macOS.
+    let refused = std::net::TcpStream::connect("127.0.0.1:1").expect_err("no listener on port 1").to_string();
+    assert!(body.contains(&refused), "the reason: {body}");
     set_hidden(&mut window, false);
     stop_with_no_ended_task(&window);
 }
