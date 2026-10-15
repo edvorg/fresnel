@@ -35,5 +35,6 @@ mod pods;
 mod search;
 mod settings;
 mod shell;
+mod showcase;
 mod snapshots;
 mod workloads;

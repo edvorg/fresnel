@@ -1,0 +1,179 @@
+//! The clusters of the showcase as the core gives them to the views: the stores of each
+//! kind, the indexes, the metrics, the permissions, the connections and the journal.
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use fresnel_core::CoreError;
+use fresnel_core::app::{AccessView, ClusterData, ClusterRow, CoreView, Objects, RulesState};
+use fresnel_core::cluster::{ServerVersion, VersionState};
+use fresnel_core::index::{Index, IndexState, Owners, References};
+use fresnel_core::journal::{Entry, JournalView, Level};
+use fresnel_core::kinds::{Describe, Kind, Meta, Tier};
+use fresnel_core::kubeconfig::AuthKind;
+use fresnel_core::metrics::{Metrics, PollState};
+use fresnel_core::net::{ChannelState, ChannelStatus, ClusterStatus, ErrorClass};
+use fresnel_core::ops::access::Rules;
+use fresnel_core::search::Source;
+use fresnel_core::store::{Snapshot, StoreState, Wait};
+use k8s_openapi::api::core::v1::Event;
+use k8s_openapi::api::discovery::v1::EndpointSlice;
+use serde_json::json;
+
+use super::stores::Stores;
+use super::usage;
+use super::world::{NAMESPACES, PROD_EU, PROD_US, STAGING, Site};
+use crate::data::{event_index, held, store};
+use crate::fake::{SECOND, channel, connected, live_status, now, status, valid, view};
+
+/// The seconds since prod-us lost its connection: its stores have no data since then.
+const LOST: u32 = 48;
+
+/// The snapshot of a store of a cluster: live, or waiting for a connection.
+fn snapshot<T: fresnel_core::kinds::Object>(site: &Site, objects: &[Arc<T>]) -> Snapshot<T> {
+    let state = if site.live { StoreState::Live } else { StoreState::Waiting(Wait::Channel) };
+    store(state, objects)
+}
+
+/// The rules of a user who can do each verb on each resource of each namespace.
+fn access() -> Arc<AccessView> {
+    let rules = NAMESPACES.map(|namespace| {
+        let review = serde_json::from_value(json!({
+            "spec": {"namespace": namespace},
+            "status": {"resourceRules": [{"verbs": ["*"], "apiGroups": ["*"], "resources": ["*"]}],
+                "nonResourceRules": [], "incomplete": false},
+        }))
+        .expect("a review");
+        (Arc::from(namespace), RulesState::Read(Arc::new(Rules::of(namespace, review).expect("rules"))))
+    });
+    Arc::new(AccessView { rules: BTreeMap::from(rules), checks: BTreeMap::new() })
+}
+
+/// The stores that the core holds of a cluster: for each kind a source of the quick search
+/// and of the counts of the sidebar, and the full objects for the views.
+#[derive(Default)]
+struct Holder {
+    objects: Objects,
+    sources: Vec<Source>,
+}
+
+impl Holder {
+    /// A store of a kind of tier B has the metadata only; a view gets its full objects.
+    fn hold<K: Describe>(&mut self, site: &Site, items: &[Arc<K>]) {
+        let full = held(snapshot(site, items));
+        self.sources.push(match K::TIER {
+            Tier::B => {
+                let metadata: Vec<Arc<Meta>> =
+                    items.iter().map(|item| Arc::new(Meta { metadata: item.metadata().clone() })).collect();
+                Source::metadata(K::ID, held(snapshot(site, &metadata)))
+            }
+            Tier::A | Tier::C => Source::full(full.clone()),
+        });
+        self.objects = std::mem::take(&mut self.objects).with(full);
+    }
+}
+
+/// The metrics of a cluster. The polls of a cluster that lost its connection end before
+/// the loss, and its two lists fail since then.
+fn metrics(site: &Site, stores: &Stores) -> Metrics {
+    let last = if site.live { now() } else { now() - (LOST + 7) * SECOND };
+    let mut metrics = usage::metrics(site.name, &stores.pods, last);
+    if !site.live {
+        let error = CoreError::new(ErrorClass::Network, "no connection to the cluster");
+        for poll in [&mut metrics.pods, &mut metrics.nodes] {
+            (poll.state, poll.since) = (PollState::Error(error.clone()), now() - (LOST - 8) * SECOND);
+        }
+    }
+    metrics
+}
+
+/// The data of a cluster: each store, the indexes, the metrics and the version.
+fn data(site: &Site, stores: &Stores) -> ClusterData {
+    let pods = held(snapshot(site, &stores.pods.iter().map(|(pod, _)| Arc::clone(pod)).collect::<Vec<_>>()));
+    let (replica_sets, jobs) = (snapshot(site, &stores.replica_sets), snapshot(site, &stores.jobs));
+    let slices = snapshot::<EndpointSlice>(site, &[]);
+    let owners = Index::<Owners>::of_snapshots(&replica_sets, &jobs, &pods, &slices, IndexState::Following);
+    let mut holder = Holder { sources: vec![Source::full(pods.clone())], ..Holder::default() };
+    holder.hold(site, &stores.deployments);
+    holder.hold(site, &stores.replica_sets);
+    holder.hold(site, &stores.stateful_sets);
+    holder.hold(site, &stores.daemon_sets);
+    holder.hold(site, &stores.jobs);
+    holder.hold(site, &stores.cron_jobs);
+    holder.hold(site, &stores.services);
+    holder.hold(site, &stores.nodes);
+    holder.hold(site, &stores.namespaces);
+    holder.hold(site, &stores.events);
+    holder.hold(site, &stores.config_maps);
+    holder.hold(site, &stores.secrets);
+    // The store of each other kind of tier A or B has no object, as in a cluster with none.
+    for kind in Kind::ALL.iter().copied().filter(|kind| kind.info().tier != Tier::C) {
+        if !holder.sources.iter().any(|source| source.status.kind == kind) {
+            holder.sources.push(Source::metadata(kind, held(snapshot::<Meta>(site, &[]))));
+        }
+    }
+    let version =
+        ServerVersion { version: Some(site.version.into()), state: VersionState::Read(now() - 3600 * SECOND) };
+    ClusterData {
+        events: Some(event_index(snapshot::<Event>(site, &stores.events), IndexState::Following)),
+        owners: held(owners),
+        references: held(Index::<References>::of_pods(&pods, IndexState::Following)),
+        stores: holder.sources.iter().map(|source| source.status.clone()).collect(),
+        pods,
+        sources: holder.sources.into(),
+        objects: holder.objects,
+        keys: None,
+        access: access(),
+        metrics: held(metrics(site, stores)),
+        version: held(version),
+        logs: Arc::from([]),
+        saves: Arc::from([]),
+    }
+}
+
+/// The connections of a cluster that lost them: each channel tries again after a pause.
+fn lost() -> ClusterStatus {
+    let lost = |failures, pause: u32| ChannelStatus {
+        since: now() - SECOND,
+        last_frame_age: Some(LOST * SECOND),
+        connect_attempts: u64::from(failures),
+        last_error: Some("connect: no answer in 3s".to_owned()),
+        ..channel(ChannelState::Backoff { failures, pause: pause * SECOND })
+    };
+    status([lost(6, 4), lost(6, 7), lost(5, 9)], Some(valid()))
+}
+
+/// The row of a cluster with its data.
+fn cluster(site: &Site) -> ClusterRow {
+    let row = connected(site.name, if site.live { live_status() } else { lost() });
+    let auth = Some(AuthKind::Plugin("kubelogin".to_owned()));
+    ClusterRow { auth, data: Some(data(site, &Stores::of(site))), ..row }
+}
+
+/// The journal of the session: the start 41 minutes ago, and the loss of prod-us.
+fn journal() -> Arc<JournalView> {
+    let live = "live: a request got an answer on each channel";
+    let lost = "a connection was lost (watches: the server sent no ping answer in 5s); it connects again";
+    let retry = "no connection (watches: connect: no answer in 3s); the channel tries again";
+    let entries: [(u32, Level, &str, &str); 6] = [
+        (2460, Level::Info, "app", "read 3 contexts from 1 kubeconfig file"),
+        (2459, Level::Info, "prod-eu", live),
+        (2459, Level::Info, "staging", live),
+        (2458, Level::Info, "prod-us", live),
+        (LOST, Level::Warning, "prod-us", lost),
+        (LOST - 8, Level::Warning, "prod-us", retry),
+    ];
+    let entry = |(number, (seconds, level, source, text)): (u64, &(u32, Level, &str, &str))| {
+        let time = now() - *seconds * SECOND;
+        Arc::new(Entry { number, time, level: *level, source: (*source).to_owned(), text: (*text).to_owned() })
+    };
+    let entries: Vec<Arc<Entry>> = (0..).zip(&entries).map(entry).collect();
+    Arc::new(JournalView { total: entries.len() as u64, warnings: 2, errors: 0, entries })
+}
+
+/// The view of the core with the three clusters and the journal.
+pub(super) fn world() -> CoreView {
+    let mut core = view(vec![cluster(&PROD_EU), cluster(&PROD_US), cluster(&STAGING)]);
+    core.journal = journal();
+    core
+}
