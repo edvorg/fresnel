@@ -29,8 +29,7 @@ pub(crate) fn folders(env: &ProcessEnv, name: &str) -> Option<(PathBuf, PathBuf)
 /// its bytes through an other handle, so a lock of the whole file would hide the process id
 /// from the second process. The system frees the lock when the process ends.
 pub(crate) fn try_lock(file: &File) -> Result<(), TryLockError> {
-    // SAFETY: the record has integers and a handle, for each of which zero is valid.
-    let mut place: OVERLAPPED = unsafe { std::mem::zeroed() };
+    let mut place = OVERLAPPED::default();
     (place.Anonymous.Anonymous.OffsetHigh, place.Anonymous.Anonymous.Offset) = LOCKED_BYTE;
     let flags = LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY;
     // SAFETY: the handle of the file is open, and `place` lives to the end of the call. The
