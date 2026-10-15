@@ -6,11 +6,10 @@ Read [docs/architecture.md](docs/architecture.md) first: the design rules and th
 
 ```sh
 cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo xtask check-sizes && cargo xtask check-borders
+cargo test --workspace && cargo xtask check-sizes && cargo xtask check-borders
 ```
 
-CI runs these commands on macOS and Linux, with the time tests in a release build (job `time`).
+CI runs them on macOS, Linux and Windows, and the time tests in a release build (job `time`).
 
 ## Code
 
@@ -26,6 +25,7 @@ CI runs these commands on macOS and Linux, with the time tests in a release buil
   no handle to the core. Work that can block runs in the task of the core, never in a frame.
 - A widget gets the color of a cluster with the identity of the cluster, not with a position.
 - Do not take a lock in the head of `if let` or `match` (a lint refuses it): copy the value first.
+- A difference of macOS and Windows goes into the `platform` module of its crate (a variant each).
 
 ## Background tasks
 
@@ -119,14 +119,14 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
   The PNG files of the views are for a look by a person: no test compares pixels.
 - A test of a program starts it as a child process with `env -i`, the `PATH` of Finder and a
   home folder of the test (`fresnel_testkit::Home`). No test reads the home folder of the user.
+- A test of the fake plugin or of the login shell, shell scripts, has `#[cfg(unix)]`.
 - `cargo xtask soak --hours <N>` runs the core on k3s with changes and random faults, and
   `fresnel-cli soak` checks each store against the API and writes a report of each minute.
 - No test opens the window of `fresnel`: it runs `Boot`, or `frame::draw` in a harness. A
   test of `xtask` works in the test folder of the build, never in `/Applications`.
 - A test file that needs `expect` starts with an `#![allow(clippy::expect_used, reason = "…")]`.
-- A cluster test has `#[ignore = "needs k3s in Docker"]`, and `cargo test --workspace --
-  --ignored` runs it. A store test asserts a recovery time and, after each fault,
-  `assert_equal_to_the_api` (`tests/k3s_stores/api.rs`).
+- A cluster test has `#[ignore = "needs k3s in Docker"]`, and `cargo test --workspace -- --ignored`
+  runs it. A store test asserts a recovery time and, after each fault, `assert_equal_to_the_api`.
 - `fresnel_testkit::K3s` publishes only the kube-apiserver port of `rancher/k3s:v1.33.5-k3s1`.
   Its drop removes the container: `docker ps --all --filter name=fresnel-test-` shows the rest.
 - No test uses a real cluster or the kubeconfig of the user. No object of a real cluster goes

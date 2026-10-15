@@ -1552,3 +1552,68 @@ of the log view grow at the start.
 `fresnel-cli` and `fresnel-soak`, a program of the test kit with k3s, the fault proxy, the changes
 and the faults, and runs it. The core runs in a child process of the harness, so the heap and the
 connections that the soak records are those of the core alone.
+
+## Each difference of the systems is in a platform module
+
+`fresnel-net`, `fresnel-testkit` and `fresnel` each have a `platform` module with a variant for
+macOS or unix and one for Windows, with the same names. One place shows what differs, and a
+build for one system checks that its variant has each name that the code uses. A test that needs
+one system says so with a `cfg`.
+
+## Windows runs no login shell
+
+On macOS a program from Finder has a short `PATH`, and the login shell gives the rest. On
+Windows, Explorer gives each program the variables of the user and of the system from the
+registry, so the environment of the process is complete. The app uses it as it is
+(`EnvSource::Process`), and the list of fixed folders after `PATH` is empty there.
+
+## A child on Windows starts suspended in a job object
+
+Windows has no process group. A job object holds the child and each process that it starts, one
+call ends them all, and the close of its last handle ends them too, also at a crash. The child
+starts suspended, so it starts nothing before it is in the job. After a normal exit the job no
+longer ends its processes, so a helper of the plugin stays, as on unix.
+
+## A bare plugin name on Windows tries the extensions of PATHEXT
+
+kubectl finds the plugin with the search of Go: a name with an extension as it is, then the name
+with each extension of `PATHEXT`. The app does the same, so `command: doctl` of a kubeconfig finds
+`doctl.exe`. A variable name has no case on Windows, so `Path` and `PATH` are one variable.
+
+## The folders on Windows come from APPDATA and LOCALAPPDATA
+
+The settings are in `%APPDATA%\fresnel`, which moves with a roaming profile, and the logs in
+`%LOCALAPPDATA%\fresnel\logs`. The app reads the variables of its environment and not the API of
+the known folders, which the `directories` crate uses: a test then gives its own folders, as it
+gives `HOME` on macOS. The home folder is `USERPROFILE`, with `.kube\config` and `Downloads`.
+
+## The lock on Windows holds one byte after the end of its file
+
+A lock of Windows stops each read of its bytes through an other handle. A lock of the whole
+file, as on macOS, would hide the process id from the second process, so its message would not
+name the process that runs. The lock holds the byte at 2 to the power 62 of the file.
+
+## Windows shows no notification yet
+
+A toast of Windows needs an app identity that a shortcut in the Start menu registers, and no
+install makes one yet. The journal has each notice on each system, and on Windows it tells at
+the start that no notification comes. The activity against App Nap does nothing on Windows.
+
+## The network change detector of Windows reads the routes only
+
+The interfaces of Windows come from a call with a buffer of linked records, for each look. The
+source addresses of the default routes change with a new network, a cable or a VPN, and the
+keepalive ping finds each connection that a change broke, so the detector of Windows reads
+only the routes.
+
+## A checkout has LF line ends on each system
+
+Git for Windows changes LF to CRLF by default. The tests compare texts and fixtures byte for
+byte, so `.gitattributes` keeps LF in each checkout.
+
+## The tests of the shell scripts run on unix
+
+The fake plugin and the fake login shell of the tests are shell scripts, and Windows has no
+shell for them. Their tests, and the tests of a FIFO, of mode bits and of the macOS bundle,
+have `cfg(unix)`. The job object has its own tests with `cmd.exe` and `ping.exe`, and each other
+test runs on Windows in CI.

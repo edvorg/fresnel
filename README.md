@@ -14,8 +14,9 @@ table and a panel for each kind, actions, keys, the Operations tab, metrics, log
 ## The app
 
 ```sh
-cargo xtask install                   # builds Fresnel.app and puts it into /Applications
+cargo xtask install                   # macOS: builds Fresnel.app and puts it into /Applications
 cargo xtask install --to <folder>     # the same into some other folder
+cargo build --release --package fresnel   # Windows x64 (MSVC): target\release\fresnel.exe
 ```
 
 The earlier bundle stays as `Fresnel.app.prev`. At its first start, the app selects the current
@@ -32,11 +33,13 @@ context of the kubeconfig files. It keeps the selection and the table layouts in
 - A failed operation, and a cluster that stays lost while the window is hidden, give a notification.
 - Log folder: `~/Library/Logs/fresnel` (`fresnel.log`, panic reports). Saved logs and manifests:
   `~/Downloads`. Only one process runs; `cargo run --package fresnel` starts a debug build too.
+- On Windows, Cmd is Ctrl, the folders are `%APPDATA%\fresnel` and `%LOCALAPPDATA%\fresnel\logs`,
+  the kubeconfig is `%USERPROFILE%\.kube\config`, and the journal has each notice.
 
 ## Build and test
 
 Install [rustup](https://rustup.rs). The file `rust-toolchain.toml` selects the compiler. On
-Linux, the UI tests need the package `mesa-vulkan-drivers`.
+Linux, the UI tests need the package `mesa-vulkan-drivers`. Windows runs no test of a shell script.
 
 ```sh
 cargo test --workspace                # unit tests and UI tests, with no cluster
@@ -66,13 +69,11 @@ cargo run --package fresnel-cli -- watch --context <name>    # the stores of one
   "live" and is behind for more than 20 s, a store or a log view that does not recover, or a heap
   that grows fails it. `cargo xtask soak` adds k3s, faults and a report into `target/release/soak/`.
 
-## Layout
+## Layout and documents
 
 `crates/` has `fresnel-net` (connections, credential plugin, task start), `fresnel-core` (the
 domain), `fresnel-ui` (the views), the programs `fresnel` and `fresnel-cli`, and `fresnel-testkit`
 (fault proxy, k3s in Docker, fake API server, soak harness). `xtask` has the repository tasks.
-
-## Documents
 
 - [docs/architecture.md](docs/architecture.md): the design rules, the crates and their borders.
 - [docs/decisions.md](docs/decisions.md): each decision with its reason.

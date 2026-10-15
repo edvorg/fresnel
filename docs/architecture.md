@@ -31,13 +31,11 @@ An arrow is a permitted dependency, and there is no other one. A test can use `f
 fresnel (program) ------> fresnel-ui ------> fresnel-core ------> fresnel-net
 fresnel-cli (program) ---------------------> fresnel-core
 fresnel-testkit ------------------------------------------------> fresnel-net
-xtask
 ```
 
 - `fresnel-net` (no kube): connections, the credential plugin, the time limits, the task start.
-- `fresnel-core`: the domain. Clusters, the watch loop, stores, indexes, the kinds, the quick
-  search, the command table, the operations, the metrics, the logs, the settings and the journal.
-  No egui. The crates above it reach the connection layer as `fresnel_core::net`.
+- `fresnel-core`: the domain: clusters, the watch loop, stores, indexes, kinds, search, commands,
+  operations, metrics, logs, settings, journal. No egui; the crates above name `fresnel_core::net`.
 - `fresnel-ui`: the egui widgets and views. It uses the types of `k8s-openapi`, never of kube.
 - `fresnel`: the desktop program. The folders, the lock of the process, the log file, the panic
   hook, the runtime and the core, which starts after the window opens; the quit stops its tasks.
@@ -52,6 +50,8 @@ xtask
 - One module wraps each outside UI crate: `widgets/table.rs` and `widgets/chart.rs`.
 - Each library crate has one error type with a class: auth, forbidden, conflict, timeout,
   network, server, invalid. An item is private to its crate unless `lib.rs` lists it.
+- The `platform` module of a crate holds each difference of macOS and Windows: the environment,
+  the process tree of a child, the folders, the lock, App Nap and the notifications.
 
 ## Background tasks
 
@@ -86,8 +86,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 `fresnel-core` makes a connected cluster from a kubeconfig context. Its name is the `ClusterId`.
 
-- **Kubeconfig**: `kubeconfig::load` reads each file of `KUBECONFIG` of the login shell, then
-  `~/.kube/config` and the files of the settings. The first file wins a name.
+- **Kubeconfig**: `kubeconfig::load` reads each file of `KUBECONFIG`, then `.kube/config` of the
+  home folder and the files of the settings. The first file wins a name.
 - **Registry**: one entry for each context. **Gateway**: get, list page, watch stream, log stream,
   send and upgrade. A failed write tells its fate, and each read has a size limit.
 - **Manifest**: `manifest::fetch` gives the YAML of one object, by default with no `managedFields`.
@@ -103,7 +103,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   download writes the manifest to a new file of the folder of downloads (`downloads.rs`).
   **Permissions**: rules or a review, dropped by HTTP 403. **Write result**: `Snapshot::is_pending`.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. One task reads the
-  settings, the login shell and the kubeconfig files, connects each selected cluster and runs each
+  settings, the environment and the kubeconfig files, connects each selected cluster and runs each
   command; one gives the notices of a failed job and of a lost cluster to `set_notifier`.
 - **Files**: `state.json` keeps the selection and the table layouts; `config.toml` the settings of
   `config::table`, with bounds. A look reads both again after a change. **Journal**: 10,000 entries.
@@ -197,4 +197,4 @@ freezes, delays, resets or silences connections; `K3s` is k3s in Docker, with ag
   a store test asserts a recovery time and "store equal to the API". The tests of the indexes,
   the kinds, the keys, the operations, the core commands, the metrics and the logs match kubectl.
 - **Soak**: `fresnel-cli soak` checks each store of the core against the API; `fresnel-soak` adds k3s.
-- CI runs each check on macOS and Linux for each push, and the cluster tests on Linux.
+- CI runs each check on macOS, Linux and Windows at each push, and the cluster tests on Linux.
