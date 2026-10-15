@@ -1556,6 +1556,7 @@ connections that the soak records are those of the core alone.
 ## The pictures of the README come from the view tests
 
 `cargo xtask screenshots` draws eight pictures with the harness of the view tests, on made-up
-clusters with one fixed time, so a run needs no cluster and two runs give the same bytes. oxipng
-compresses them with no loss: at scale 1.5 each one has less than 450 KB. Their grid gives the
-README 93 lines, so its limit is 99: 5 lines are for a later change of the release pipeline.
+clusters with one fixed time, so a run needs no cluster and two runs give the same bytes. A
+picture leaves out the margin of the harness: the window has none, and each pixel is opaque.
+oxipng compresses them with no loss: at scale 1.5 each one has less than 450 KB. The pictures
+give the README 96 lines, its new limit.

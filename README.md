@@ -6,15 +6,18 @@ that looks current.
 
 ## Screenshots
 
+<p><a href="docs/screenshots/pods-three-clusters.png"><img src="docs/screenshots/pods-three-clusters.png" alt="The Pods page"></a><br>
+The pods of three clusters. prod-us has no connection: its rows are old, and a note tells why.</p>
+
 <table>
-<tr><td width="50%"><a href="docs/screenshots/pods-three-clusters.png"><img src="docs/screenshots/pods-three-clusters.png" alt="The Pods page"></a><br>The pods of three clusters. prod-us has no connection: its rows are old, and a note tells why.</td>
-<td width="50%"><a href="docs/screenshots/deployment-metrics.png"><img src="docs/screenshots/deployment-metrics.png" alt="The Metrics tab of a Deployment"></a><br>The CPU and memory of a Deployment and of each of its pods, with the request and the limit.</td></tr>
-<tr><td width="50%"><a href="docs/screenshots/deployment-logs.png"><img src="docs/screenshots/deployment-logs.png" alt="The logs of a Deployment"></a><br>The logs of the pods of a Deployment, each pod in its color, with a search.</td>
-<td width="50%"><a href="docs/screenshots/quick-search.png"><img src="docs/screenshots/quick-search.png" alt="The quick search"></a><br>Cmd+K: the quick search finds objects of each kind in each cluster.</td></tr>
-<tr><td width="50%"><a href="docs/screenshots/rollback.png"><img src="docs/screenshots/rollback.png" alt="The rollback dialog"></a><br>The revisions of a Deployment and the dialog of a rollback.</td>
-<td width="50%"><a href="docs/screenshots/secret-save.png"><img src="docs/screenshots/secret-save.png" alt="The save dialog of a Secret"></a><br>The keys of a Secret: a save sends only the changed key, after its diff.</td></tr>
-<tr><td width="50%"><a href="docs/screenshots/node-drain.png"><img src="docs/screenshots/node-drain.png" alt="A node drain in the Operations tab"></a><br>A node drain as a job of the Operations tab, with the state of each pod.</td>
-<td width="50%"><a href="docs/screenshots/cluster-overview-light.png"><img src="docs/screenshots/cluster-overview-light.png" alt="The cluster overview"></a><br>The cluster overview in the light theme: nodes, pods, usage and warnings.</td></tr>
+<tr><td width="50%"><a href="docs/screenshots/deployment-metrics.png"><img src="docs/screenshots/deployment-metrics.png" alt="The Metrics tab of a Deployment"></a><br>The CPU and memory of a Deployment and of each of its pods, with the request and the limit.</td>
+<td width="50%"><a href="docs/screenshots/deployment-logs.png"><img src="docs/screenshots/deployment-logs.png" alt="The logs of a Deployment"></a><br>The logs of the pods of a Deployment, each pod in its color, with a search.</td></tr>
+<tr><td width="50%"><a href="docs/screenshots/quick-search.png"><img src="docs/screenshots/quick-search.png" alt="The quick search"></a><br>Cmd+K: the quick search finds objects of each kind in each cluster.</td>
+<td width="50%"><a href="docs/screenshots/rollback.png"><img src="docs/screenshots/rollback.png" alt="The rollback dialog"></a><br>The revisions of a Deployment whose new version crashes, and the dialog of a rollback.</td></tr>
+<tr><td width="50%"><a href="docs/screenshots/secret-save.png"><img src="docs/screenshots/secret-save.png" alt="The save dialog of a Secret"></a><br>The keys of a Secret: a save sends only the changed key, after its diff.</td>
+<td width="50%"><a href="docs/screenshots/node-drain.png"><img src="docs/screenshots/node-drain.png" alt="A node drain in the Operations tab"></a><br>A node drain as a job of the Operations tab, with the state of each pod.</td></tr>
+<tr><td width="50%"><a href="docs/screenshots/cluster-overview-light.png"><img src="docs/screenshots/cluster-overview-light.png" alt="The cluster overview"></a><br>The cluster overview in the light theme, and the connections of prod-us, which try again.</td>
+<td width="50%"></td></tr>
 </table>
 
 ## Status
