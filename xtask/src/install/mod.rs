@@ -11,7 +11,6 @@ mod tool;
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub use swap::Installed;
 
@@ -51,11 +50,7 @@ fn stage_and_install(program: &Path, stage: &Path, destination: &Path) -> io::Re
 
 /// Builds the release program with the cargo that runs this task. Returns its path.
 fn build(root: &Path) -> io::Result<PathBuf> {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let status = Command::new(cargo)
-        .args(["build", "--release", "--locked", "--package", PACKAGE])
-        .current_dir(root)
-        .status()?;
+    let status = crate::cargo(root).args(["build", "--release", "--locked", "--package", PACKAGE]).status()?;
     if !status.success() {
         return Err(io::Error::other(format!("the release build failed ({status})")));
     }

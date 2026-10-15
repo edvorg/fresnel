@@ -55,17 +55,14 @@ fn minutes(text: &str) -> Result<u64, String> {
 
 /// Builds the two programs and runs the soak. Gives the exit status of the harness.
 pub fn run(root: &Path, soak: &Soak) -> Result<ExitStatus, String> {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let build =
         ["build", "--release", "--locked", "--package", "fresnel-cli", "--package", "fresnel-testkit", "--bins"];
-    let built = Command::new(cargo).args(build).current_dir(root).status();
+    let built = crate::cargo(root).args(build).status();
     let built = built.map_err(|error| format!("cannot start cargo: {error}"))?;
     if !built.success() {
         return Err(format!("the release build failed ({built})"));
     }
-    // A relative folder of the variable starts from the root, as for the build above.
-    let target = std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| PathBuf::from("target"), PathBuf::from);
-    let programs = root.join(target).join("release");
+    let programs = crate::target_folder(root).join("release");
     let report = soak.report.clone().unwrap_or_else(|| programs.join("soak").join(seconds().to_string()));
     println!("soak: the report goes to {}", report.display());
     let mut harness = Command::new(programs.join("fresnel-soak"));

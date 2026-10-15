@@ -6,7 +6,7 @@
 
 use std::io;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 /// One rule: `package` has no crate of `forbidden` among its dependencies, also not through
 /// some other crate. A dependency of its tests does not count.
@@ -76,10 +76,9 @@ impl Rule {
 /// The dependencies of a package for each platform, one crate on each line. The cargo that
 /// runs this task lists them, with no change of the lock file.
 fn tree(root: &Path, package: &str) -> io::Result<String> {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut listing = Command::new(cargo);
+    let mut listing = crate::cargo(root);
     listing.args(["tree", "--locked", "--edges", "normal,build", "--target", "all", "--prefix", "none"]);
-    let output = listing.args(["--package", package]).current_dir(root).stdin(Stdio::null()).output()?;
+    let output = listing.args(["--package", package]).stdin(Stdio::null()).output()?;
     if !output.status.success() {
         let text = String::from_utf8_lossy(&output.stderr);
         return Err(io::Error::other(format!("cargo tree failed ({}): {}", output.status, text.trim())));

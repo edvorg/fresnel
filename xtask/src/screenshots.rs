@@ -6,18 +6,20 @@
 //! too, so a change of a view cannot break a picture unseen; only this task changes the
 //! files of the repository.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::process::Command;
 
 /// The folder of the pictures, below the root of the workspace.
 pub const FOLDER: &str = "docs/screenshots";
 /// The most bytes of one picture and of all of them: a reader of the README loads each one.
-pub const FILE_LIMIT: usize = 450_000;
-pub const TOTAL_LIMIT: usize = 3_500_000;
+const FILE_LIMIT: usize = 450_000;
+const TOTAL_LIMIT: usize = 3_500_000;
 /// The filter of the tests that draw the pictures.
 const SCENES: &str = "showcase::";
+/// The document that shows the pictures.
+const README: &str = "README.md";
 
 /// One picture: its file name and its PNG file after the compression.
 pub struct Picture {
@@ -27,9 +29,10 @@ pub struct Picture {
     pub file: Vec<u8>,
 }
 
-/// Draws the pictures, compresses them and writes them into the folder of the repository,
-/// which then holds no other PNG file. Nothing changes there when a picture is above its
-/// limit. `root` is the root of the workspace.
+/// Draws the pictures, compresses them and writes them into the folder of the repository.
+/// Then each picture must have a link in the README, and each link of the README to that
+/// folder a picture: a renamed scene leaves no broken image. `root` is the root of the
+/// workspace.
 pub fn run(root: &Path) -> io::Result<Vec<Picture>> {
     let stage = crate::target_folder(root).join("screenshots");
     if stage.exists() {
@@ -42,6 +45,17 @@ pub fn run(root: &Path) -> io::Result<Vec<Picture>> {
         let file = compress(&fs::read(stage.join(&name))?)?;
         pictures.push(Picture { name, file });
     }
+    publish(&pictures, &root.join(FOLDER))?;
+    let problems = links(&fs::read_to_string(root.join(README))?, &pictures);
+    if !problems.is_empty() {
+        return Err(io::Error::other(problems.join("; ")));
+    }
+    Ok(pictures)
+}
+
+/// Writes the pictures into `folder`, which then holds no other PNG file. Nothing changes
+/// there when there is no picture or a picture is above its limit.
+pub fn publish(pictures: &[Picture], folder: &Path) -> io::Result<()> {
     if pictures.is_empty() {
         return Err(io::Error::other(format!("the tests {SCENES} made no picture")));
     }
@@ -51,28 +65,42 @@ pub fn run(root: &Path) -> io::Result<Vec<Picture>> {
     if !problems.is_empty() {
         return Err(io::Error::other(problems.join("; ")));
     }
-    let folder = root.join(FOLDER);
-    fs::create_dir_all(&folder)?;
-    for old in png_files(&folder)?.iter().filter(|old| pictures.iter().all(|picture| picture.name != **old)) {
+    fs::create_dir_all(folder)?;
+    for old in png_files(folder)?.iter().filter(|old| pictures.iter().all(|picture| picture.name != **old)) {
         fs::remove_file(folder.join(old))?;
     }
-    for picture in &pictures {
+    for picture in pictures {
         fs::write(folder.join(&picture.name), &picture.file)?;
     }
-    Ok(pictures)
+    Ok(())
 }
 
 /// Runs the tests of the scenes with the cargo that runs this task. They write their
 /// pictures into `stage`.
 fn render(root: &Path, stage: &Path) -> io::Result<()> {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut tests = Command::new(cargo);
+    let mut tests = crate::cargo(root);
     tests.args(["test", "--locked", "--package", "fresnel-ui", "--test", "views", "--", SCENES]);
-    let status = tests.env("FRESNEL_SNAPSHOT_DIR", stage).current_dir(root).status()?;
+    let status = tests.env("FRESNEL_SNAPSHOT_DIR", stage).status()?;
     if !status.success() {
         return Err(io::Error::other(format!("the tests of the pictures failed ({status})")));
     }
     Ok(())
+}
+
+/// One line for each link of the README to a file of `FOLDER` that is not a picture, and
+/// for each picture with no link.
+fn links(readme: &str, pictures: &[Picture]) -> Vec<String> {
+    let is_name = |letter: &char| letter.is_ascii_alphanumeric() || matches!(letter, '-' | '_' | '.');
+    let linked: BTreeSet<String> = readme
+        .split(&format!("{FOLDER}/"))
+        .skip(1)
+        .map(|rest| rest.chars().take_while(is_name).collect::<String>())
+        .filter(|name| name.ends_with(".png"))
+        .collect();
+    let drawn: BTreeSet<String> = pictures.iter().map(|picture| picture.name.clone()).collect();
+    let broken = linked.difference(&drawn).map(|name| format!("{README} links {FOLDER}/{name}, which no scene draws"));
+    let unlinked = drawn.difference(&linked).map(|name| format!("{README} has no link to {FOLDER}/{name}"));
+    broken.chain(unlinked).collect()
 }
 
 /// The names of the PNG files of a folder, in their sequence.
@@ -91,13 +119,13 @@ fn png_files(folder: &Path) -> io::Result<Vec<String>> {
 /// A PNG file with the same pixels in fewer bytes. Level 4 of oxipng tries each filter of
 /// the rows: the higher levels gave these pictures no smaller file and took five times as
 /// long. The compression runs in one thread, so two runs give the same bytes.
-pub fn compress(png: &[u8]) -> io::Result<Vec<u8>> {
+fn compress(png: &[u8]) -> io::Result<Vec<u8>> {
     oxipng::optimize_from_memory(png, &oxipng::Options::from_preset(4)).map_err(io::Error::other)
 }
 
 /// One line for each picture above `FILE_LIMIT`, and one when the sum is above
 /// `TOTAL_LIMIT`.
-pub fn problems(sizes: &[(&str, usize)]) -> Vec<String> {
+fn problems(sizes: &[(&str, usize)]) -> Vec<String> {
     let mut problems: Vec<String> = sizes
         .iter()
         .filter(|(_, size)| *size > FILE_LIMIT)
@@ -150,6 +178,21 @@ mod tests {
         assert!(compressed.len() < file.len(), "{} bytes, before {}", compressed.len(), file.len());
         assert!(rgba(&compressed) == pixels, "other pixels");
         assert_eq!(compress(&file).expect("a compression"), compressed);
+    }
+
+    #[test]
+    fn each_picture_needs_a_link_of_the_readme_and_each_link_a_picture() {
+        let picture = |name: &str| Picture { name: name.to_owned(), file: Vec::new() };
+        let readme = "<a href=\"docs/screenshots/pods.png\"><img src=\"docs/screenshots/pods.png\"></a>\n\
+                      ![logs](docs/screenshots/logs.png) and docs/screenshots/ with no file";
+        assert_eq!(links(readme, &[picture("pods.png"), picture("logs.png")]), Vec::<String>::new());
+        assert_eq!(
+            links(readme, &[picture("pods.png"), picture("search.png")]),
+            [
+                "README.md links docs/screenshots/logs.png, which no scene draws",
+                "README.md has no link to docs/screenshots/search.png"
+            ]
+        );
     }
 
     #[test]

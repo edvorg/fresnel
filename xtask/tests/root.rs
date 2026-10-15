@@ -31,3 +31,19 @@ fn with_no_cargo_the_workspace_is_the_one_of_the_build() {
     assert!(root.join("xtask/src/lib.rs").is_file(), "{root:?}");
     assert_eq!(xtask::workspace_root(Some("/work/fresnel/xtask".into())), Path::new("/work/fresnel/xtask/.."));
 }
+
+/// `cargo test` gives this test the variables of the package, as `cargo run` gives them
+/// to `cargo xtask`. A cargo that a task starts gets none of them, and keeps the others.
+#[test]
+fn a_cargo_of_a_task_gets_no_variable_of_the_package_of_xtask() {
+    let command = xtask::cargo(Path::new("."));
+    let removed: Vec<String> = command
+        .get_envs()
+        .filter(|(_, value)| value.is_none())
+        .map(|(name, _)| name.to_string_lossy().into_owned())
+        .collect();
+    for name in ["CARGO_MANIFEST_DIR", "CARGO_PKG_NAME", "CARGO_PKG_VERSION"] {
+        assert!(removed.iter().any(|removed| removed == name), "{name} is in {removed:?}");
+    }
+    assert!(!removed.iter().any(|removed| removed == "CARGO_TARGET_DIR" || removed == "PATH"), "{removed:?}");
+}
