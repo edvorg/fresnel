@@ -15,6 +15,11 @@ use super::stamp::NANOS;
 /// The most times of one second that a source keeps. A source with more lines in one second
 /// shows some of them two times after a new stream, and it loses none.
 const SECOND_LIMIT: usize = 100_000;
+/// A line this many seconds before the latest second tells that the clock of the node went
+/// back: the lines of stdout and stderr of a program differ by far less. The latest second
+/// then starts again at that line, because the kubelet drops each line before `sinceTime`,
+/// and a new stream from the old second would lose each line until the clock reaches it.
+const CLOCK_STEP: i64 = 60;
 
 /// The lines of the latest second of a source.
 #[derive(Default)]
@@ -30,6 +35,11 @@ impl Seen {
     pub(super) fn note(&mut self, time: i64) {
         let second = time.div_euclid(NANOS);
         match self.second {
+            Some(latest) if second < latest.saturating_sub(CLOCK_STEP) => {
+                self.second = Some(second);
+                self.times.clear();
+                self.times.push(time);
+            }
             // The next stream starts after this line, so it does not send it again.
             Some(latest) if second < latest => {}
             Some(latest) if second == latest => {
@@ -131,6 +141,17 @@ mod tests {
         assert_eq!(kept(&mut seen, &[5 * S + 3, 5 * S + 4, 5 * S + 2]), [5 * S + 4, 5 * S + 2]);
         let mut empty = Seen::default();
         assert_eq!(kept(&mut empty, &[7, 8]), [7, 8], "with no line before, each line is new");
+    }
+
+    /// The node ran one hour ahead for a line, and then its clock was right again.
+    #[test]
+    fn a_step_back_of_the_clock_of_the_node_starts_the_next_stream_at_the_line_after_the_step() {
+        assert_eq!(seen(&[65 * S, 6 * S]).start(), Some(65 * S), "a step of a minute is not a step back");
+        let mut seen = seen(&[5 * S, 3605 * S, 6 * S + 1, 7 * S + 2]);
+        assert_eq!(seen.start(), Some(7 * S), "a stream from 3605 s would get no line before that time");
+        // The server sends the line of the wrong time again, and with it each line of the
+        // second: the view shows them two times and loses none.
+        assert_eq!(kept(&mut seen, &[3605 * S, 7 * S + 2, 8 * S]), [3605 * S, 7 * S + 2, 8 * S]);
     }
 
     #[test]
