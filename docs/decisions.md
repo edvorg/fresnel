@@ -1449,7 +1449,7 @@ holds each default equal to the default of the code.
 A value outside the bounds of its setting takes the nearest bound, with a note at its line and
 column in the journal. A period or a time limit of 0 is refused, and the default stays: a period
 of 0 would run its loop with no pause, and a limit of 0 would fail each request. The settings view
-refuses each such number before a save, so the file has the number that the user sees.
+and the core refuse each such number before a save, so the file has the number that the app uses.
 
 ## The connection settings act at the next start
 
@@ -1474,16 +1474,16 @@ cluster writable or remove the keys of the user. At the start, such a file gives
 ## The settings view writes a change with toml_edit, and never over a file it cannot read
 
 A save sets or removes the keys of the changes and keeps each other byte: comments, blank lines
-and the sequence of the keys, also the comment after a changed value. The core refuses a save to
-a file with a parse error or an other version, and a change that its reader would refuse. A new
-text goes to a second file, which takes the name of the file in one step.
+and the sequence of the keys. The core refuses a save to a file with a parse error or an other
+version, and a new text with a problem that the old text has not. A new text goes to a second
+file, which takes the name of the file in one step; a symbolic link stays, and its file changes.
 
 ## A read-only cluster is closed in the view and refused in the core
 
-Each action with a confirm of the command table, a key save and a new Secret are changes. The gate
-of a view closes them with the reason, and the core refuses such a command too: a job ends as not
-sent with the reason, and the server gets no request. A read, such as the rollout status, runs.
-The confirm rule `type-name` keeps the button off until the name of the cluster is typed.
+Each action with a confirm of the command table, a key save and a new Secret are changes. A view
+closes them with the reason, and the core refuses them too: a job, a save or a create ends as not
+sent, and the server gets no request. A read, such as the rollout status, runs. The confirm rule
+`type-name` keeps the button of each of these changes off until the name of the cluster is typed.
 
 ## Each command that runs has a key, and a change needs Option or Shift
 

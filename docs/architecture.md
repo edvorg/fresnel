@@ -149,7 +149,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
    the logs and saves; the settings, the last manifest read and Secret create, jobs and journal.
 2. **Commands.** A view returns a `Command`, and the task of the core runs it. **Workers**: below.
 3. **Repaint.** A new snapshot, index, poll or log view asks for a repaint. One notifier limits
-   them to 60 in one second. The core does not know egui: the window gives it the wake.
+   them to 60 in one second, a setting. The core does not know egui: the window gives the wake.
 4. **Memory.** A thread frees each old snapshot and the rows. A view on a hidden page has none.
 
 ## Window
