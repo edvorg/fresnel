@@ -4,12 +4,13 @@
 
 use egui::accesskit::Role;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use fresnel_core::metrics::PollState;
 use k8s_openapi::api::apps::v1::Deployment;
 
 use super::tables::{hints, wide};
-use super::{RESTART, of_kind, of_pods, poll_time, scene_metrics};
+use super::{RESTART, failed, of_kind, of_pods, poll_time, scene_metrics};
 use crate::data::scene;
-use crate::fake::{Window, now, shows, until};
+use crate::fake::{SECOND, Window, error, now, shows, until};
 use crate::kinds::scene::nodes;
 use crate::workloads::scene::open;
 
@@ -108,4 +109,19 @@ fn an_object_with_no_sample_says_so() {
     let mut window = wide(vec![of_pods("ams", scene_metrics("ams", 1))]);
     metrics_tab(&mut window, "Pods", "gated");
     assert!(shows(&window, "The metrics have no sample of this object yet."));
+}
+
+/// Weakness 4 of plan section 6 in the panel: a list that fails keeps the history in the
+/// charts, and the value of now tells the reason first.
+#[test]
+fn the_charts_of_a_cluster_whose_list_fails_keep_the_history_and_the_value_tells_why_it_is_old() {
+    let unavailable = PollState::Unavailable(error("service unavailable (HTTP 503)"));
+    let metrics = failed(scene_metrics("fra", 1), unavailable, now() - 3 * SECOND);
+    let mut window = wide(vec![of_pods("fra", metrics)]);
+    metrics_tab(&mut window, "Pods", "crash");
+    let reason = "PodMetrics: metrics-server not available: service unavailable (HTTP 503) (since 07:59:57)";
+    let summaries = hints(&window, &format!("{reason}  ·  "));
+    assert_eq!(summaries.len(), 2, "the value of each resource: {summaries:?}");
+    let lines = tooltip(&mut window, "CPU chart", 0.5);
+    assert!(lines.get(1).is_some_and(|line| line.starts_with("crash: ") && line.ends_with('m')), "{lines:?}");
 }

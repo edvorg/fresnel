@@ -20,7 +20,7 @@ use crate::format;
 use crate::views::detail::fields::{heading, note};
 use crate::views::detail::sections::Context;
 use crate::widgets::chart::{self, Chart};
-use crate::widgets::table::cells::ring;
+use crate::widgets::table::model::Lead;
 
 /// The time ranges of the charts. The history in memory goes back 24 hours.
 const RANGES: [(&str, u64); 5] = [("5 min", 300), ("30 min", 1_800), ("1 h", 3_600), ("4 h", 14_400), ("24 h", 86_400)];
@@ -64,12 +64,6 @@ impl MetricsTab {
         let usage = metered.usage(&cx.id.key, object);
         let source = format!("From metrics-server, a sample each {}.", format::span(data.metrics.period));
         ui.label(RichText::new(source).color(palette.text_muted));
-        if let Some(problem) = problem {
-            ui.horizontal(|ui| {
-                ring(ui, palette);
-                ui.label(RichText::new(problem).color(palette.warn));
-            });
-        }
         if usage.is_none() {
             note(ui, palette.text_muted, "The metrics have no sample of this object yet.");
         }
@@ -89,9 +83,11 @@ impl MetricsTab {
             (Id::new(("metrics", &cx.id.cluster, &cx.id.key)), seconds(start) as f64..=seconds(now) as f64);
         for (number, (resource, lines)) in Resource::BOTH.into_iter().zip(&built.lines).enumerate() {
             heading(ui, palette, &resource.title().to_uppercase());
+            // The words of the cell of a table, with the reason of an old value first.
             let cell = cells::cell(usage.as_ref(), resource, problem, cx.clock);
             let text = cell.hint.as_deref().unwrap_or(&cell.text).replace('\n', "  ·  ");
-            ui.label(RichText::new(text).color(cell.tone.color(palette)));
+            let old = matches!(cell.lead, Lead::Old(_));
+            ui.label(RichText::new(text).color(if old { palette.warn } else { palette.text }));
             if lines.more > 0 {
                 let more = format::count(lines.more as u64, "more pod");
                 ui.label(RichText::new(format!("{more} in the line of all pods.")).color(palette.text_muted));
