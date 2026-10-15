@@ -1364,7 +1364,14 @@ after each end, as kubectl leaves it: the Operations tab says so, and the user u
 
 ## Each pod of a drain has its own task, and the pod store tells its end
 
-kubectl starts a goroutine for each pod. A task for each pod in a `JoinSet` of the job lets a pod
-that a budget holds wait with no effect on the others, and a panic fails that pod only. The wait
-for the end of an evicted pod reads the pod store, so it sends no request. The eviction keeps the
-UID of the listed pod: a new pod of its name answers HTTP 409 and counts as gone.
+As kubectl, the job has a task for each pod, in a `JoinSet`: a pod that a budget holds waits
+with no effect on the others, and a panic fails that pod only. The wait for its end reads the pod
+store. The eviction keeps the UID of the listed pod, so a new pod of its name answers HTTP 409:
+the pod is gone when the store does not show it, else the conflict is a refusal for now.
+
+## A drain evicts no pod when its list has a pod of an other node
+
+The server selects the pods of the node by a field selector. A server or a proxy that drops it
+gives each pod of the cluster, and the drain would evict them all, so the job checks the node of
+each pod first. After the cordon, no end of a drain is "not sent". A pod whose eviction the server
+took stays "terminating" after a cancel: it goes by itself.
