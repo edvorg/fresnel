@@ -1,7 +1,8 @@
 //! The log views in the core (plan section 12.7): a view runs while the UI shows it, its
 //! stream goes to the cluster of its pod only (weakness 9 of plan section 6), a view of a
 //! cluster that connects later starts then, and a stream that ends starts again from the
-//! second of its latest line with a marker and no line two times.
+//! second of its latest line with a marker and no line two times. The saves of a view go
+//! the way of the commands of the UI, whose view tests have a fake core only.
 //!
 //! The store watches of a cluster are streams of the fake server too, so the test waits for
 //! a state of the view, never for a count of open streams alone: the source is streaming
@@ -12,10 +13,12 @@ use std::time::Duration;
 use fresnel_core::app::{ClusterData, Command, CoreSettings, CoreView, Health};
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::kinds::Kind;
-use fresnel_core::logs::{LineKind, LogOptions, LogRequest, LogView, SourceState};
+use fresnel_core::logs::{
+    LineKind, LogOptions, LogRequest, LogSave, LogView, SavePart, SaveState, SaveView, SourceState,
+};
 use fresnel_core::metrics::MetricsSettings;
 use fresnel_core::store::ObjectKey;
-use fresnel_testkit::{FakeApiServer, Home, SeenRequest};
+use fresnel_testkit::{FakeApiServer, Fault, Home, SeenRequest};
 
 use super::{App, home, row, write_kubeconfig};
 use crate::common::in_time;
@@ -50,7 +53,7 @@ struct Bed {
     fra: FakeApiServer,
     /// The count of the watches of the stores of ams.
     watches: u64,
-    _home: Home,
+    home: Home,
 }
 
 impl Bed {
@@ -69,7 +72,7 @@ impl Bed {
         let shown = app.until("each store of ams", |view| live_stores(view, "ams").is_some()).await;
         let watches = live_stores(&shown, "ams").unwrap_or_default();
         in_time("each watch of ams", ams.wait_for(|counters| counters.open_watches == watches)).await;
-        Self { app, ams, fra, watches, _home: home }
+        Self { app, ams, fra, watches, home }
     }
 }
 
@@ -114,7 +117,7 @@ fn query(seen: &SeenRequest) -> &str {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_log_view_follows_its_pod_in_its_cluster_and_a_new_stream_loses_no_line() {
-    let Bed { app, ams, fra, watches, _home } = Bed::start("logs").await;
+    let Bed { app, ams, fra, watches, home: _home } = Bed::start("logs").await;
 
     app.core.send(Command::ShowLogs(vec![request("ams")]));
     app.until("the stream of ams", |view| streams(view, "ams")).await;
@@ -183,4 +186,59 @@ async fn a_view_that_the_ui_shows_and_hides_fast_leaves_one_stream() {
     let shown = bed.app.until("the line", |view| log_view(view, "ams").is_some_and(|log| log.lines.len() == 1)).await;
     assert_eq!(data(&shown, "ams").map(|data| data.logs.len()), Some(1));
     assert!(bed.fra.requests().is_empty(), "fra is not selected");
+}
+
+/// The saves of the log views of a cluster, the oldest first.
+fn saves(view: &CoreView, cluster: &str) -> Vec<SaveView> {
+    data(view, cluster).map(|data| data.saves.iter().map(|save| SaveView::clone(save)).collect()).unwrap_or_default()
+}
+
+/// The commands `SaveLog` and `CancelSave` through the core: the lines of a view in a new
+/// file of the folder of downloads, a full log whose server does not answer and its cancel,
+/// which removes the file, and a save of a view that the UI does not show.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_save_writes_the_lines_of_a_view_and_a_cancel_removes_the_file_of_a_full_log() {
+    let mut bed = Bed::start("log-saves").await;
+    bed.app.core.send(Command::ShowLogs(vec![request("ams")]));
+    bed.app.until("the stream of ams", |view| streams(view, "ams")).await;
+    bed.ams.send_event(LOG, "2026-10-12T20:00:00.100000000Z hello");
+    bed.ams.send_event(LOG, "2026-10-12T20:00:00.200000000Z world");
+    bed.app.until("two lines", |view| log_view(view, "ams").is_some_and(|log| log.lines.len() == 2)).await;
+    let downloads = bed.home.path("Downloads");
+    let files =
+        || std::fs::read_dir(&downloads).map(|entries| entries.flatten().map(|entry| entry.path()).collect::<Vec<_>>());
+
+    let save = |part, request| Command::SaveLog(LogSave { request, part, times: true });
+    bed.app.core.send(save(SavePart::Buffer, request("ams")));
+    let ended = |number: u64| {
+        move |view: &CoreView| saves(view, "ams").iter().any(|save| save.number == number && save.state.is_final())
+    };
+    let shown = bed.app.until("the end of the first save", ended(1)).await;
+    let first = saves(&shown, "ams").remove(0);
+    let text = "2026-10-12T20:00:00.100000000Z hello\n2026-10-12T20:00:00.200000000Z world\n";
+    assert_eq!(first.state, SaveState::Done { bytes: text.len() as u64, skipped: Vec::new() });
+    let file = first.file.expect("the file of the save");
+    assert_eq!(
+        (file.parent(), std::fs::read_to_string(&file).ok().as_deref()),
+        (Some(downloads.as_path()), Some(text))
+    );
+
+    // The server holds the request of the full log: the save waits, and a cancel ends it.
+    bed.ams.add_fault(Fault::no_answer().on_path(LOG));
+    bed.app.core.send(save(SavePart::Full, request("ams")));
+    in_time("the request of the full log", bed.ams.wait_for(|counters| counters.unanswered == 1)).await;
+    assert_eq!(log_requests(&bed.ams).last().map(query), Some("&container=app&timestamps=true"));
+    assert_eq!(files().map(|files| files.len()).ok(), Some(2), "the file of the full log");
+    bed.app.core.send(Command::CancelSave { cluster: ClusterId::new("ams"), number: 2 });
+    let shown = bed.app.until("the end of the second save", ended(2)).await;
+    assert_eq!(saves(&shown, "ams").get(1).map(|save| save.state.clone()), Some(SaveState::Cancelled));
+    assert_eq!(files().ok(), Some(vec![file]), "the part of the full log is gone");
+
+    // The core saves only a view that runs.
+    let hidden = LogRequest { options: LogOptions { tail: Some(5), ..LogOptions::default() }, ..request("ams") };
+    bed.app.core.send(save(SavePart::Buffer, hidden));
+    let shown = bed.app.until("the refusal", ended(3)).await;
+    let refused = saves(&shown, "ams").get(2).map(|save| save.state.clone());
+    assert!(matches!(&refused, Some(SaveState::Failed(error)) if error.to_string() == "the log view is not open"));
+    bed.app.expected_task_ends = 2;
 }
