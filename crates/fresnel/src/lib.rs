@@ -29,7 +29,7 @@ use fresnel_core::net::env::ProcessEnv;
 
 /// The version of the program. A build of `cargo xtask` gives the text of its version, with the
 /// run number of the release workflow (`0.1.0+build.7`); a plain build has the workspace version.
-pub const VERSION: &str = match option_env!("FRESNEL_VERSION") {
+pub(crate) const VERSION: &str = match option_env!("FRESNEL_VERSION") {
     Some(version) => version,
     None => env!("CARGO_PKG_VERSION"),
 };

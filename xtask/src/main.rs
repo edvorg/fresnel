@@ -23,7 +23,7 @@ commands:
   screenshots            draw the pictures of the README into docs/screenshots
 
 The variable FRESNEL_BUILD of install and windows is the build number of a release: the
-version is then 0.1.0+build.<number>.";
+version is then <version of the workspace>+build.<number>.";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
