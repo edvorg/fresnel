@@ -9,6 +9,7 @@
 //! - A child and each process that it starts: a session and a process group on unix, a job
 //!   object on Windows. [`Tree`] ends them all.
 //! - The addresses of the network interfaces.
+//! - The time that the computer slept: the monotonic clock of Windows counts a sleep.
 
 #[cfg(unix)]
 #[path = "unix/mod.rs"]
@@ -20,5 +21,5 @@ mod system;
 pub use self::system::FIXED_FOLDERS;
 pub(crate) use self::system::{
     HOME, HOME_FOLDERS, Started, Tree, environment, interface_addresses, is_bare, is_program, program_files, start,
-    variable_key,
+    time_asleep, variable_key,
 };

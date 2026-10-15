@@ -51,7 +51,7 @@ fresnel-testkit ------------------------------------------------> fresnel-net
 - Each library crate has one error type with a class: auth, forbidden, conflict, timeout,
   network, server, invalid. An item is private to its crate unless `lib.rs` lists it.
 - The `platform` module of a crate holds each difference of macOS and Windows: the environment,
-  the process tree of a child, the folders, the lock, App Nap and the notifications.
+  the process tree of a child, the time asleep, the folders, the lock, App Nap, the notifications.
 
 ## Background tasks
 

@@ -8,6 +8,9 @@ use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use windows_sys::Win32::System::WindowsProgramming::{QueryInterruptTime, QueryUnbiasedInterruptTime};
 
 pub(crate) use self::tree::{Started, Tree, start};
 use crate::env::{EnvSettings, EnvSource, ProcessEnv};
@@ -55,6 +58,25 @@ pub(crate) fn program_files(path: PathBuf, env: &ProcessEnv) -> Vec<PathBuf> {
 /// Windows has no mode bit for execution: the extension makes a file a program.
 pub(crate) fn is_program(path: &Path) -> bool {
     path.is_file()
+}
+
+/// The time that the computer slept since its start. The monotonic clock of Windows
+/// (`QueryPerformanceCounter`) counts a sleep, so the wall clock does not jump against it
+/// (`detect::ClockJump`). The interrupt time of the system counts a sleep too, and its
+/// unbiased variant does not: the difference is the time asleep.
+pub(crate) fn time_asleep() -> Duration {
+    let (mut total, mut awake) = (0_u64, 0_u64);
+    // SAFETY: each call writes one integer through its pointer, which is valid for the call.
+    // The second one fails only for a null pointer.
+    let read = unsafe {
+        QueryInterruptTime(&raw mut total);
+        QueryUnbiasedInterruptTime(&raw mut awake)
+    };
+    if read == 0 {
+        return Duration::ZERO;
+    }
+    // Units of 100 ns. The second count is a moment later, so it can be larger by that moment.
+    Duration::from_nanos(total.saturating_sub(awake).saturating_mul(100))
 }
 
 /// None. The list of the interfaces of Windows needs a call with a buffer of linked records

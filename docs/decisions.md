@@ -1599,6 +1599,14 @@ A toast of Windows needs an app identity that a shortcut in the Start menu regis
 install makes one yet. The journal has each notice on each system, and on Windows it tells at
 the start that no notification comes. The activity against App Nap does nothing on Windows.
 
+## Windows tells the time asleep for the wake detector
+
+The monotonic clock of macOS and of Linux stops during a sleep, so the wall clock jumps against
+it. The monotonic clock of Windows, `QueryPerformanceCounter`, counts a sleep, and no jump shows.
+The interrupt time of Windows counts a sleep too and its unbiased variant does not, so their
+difference is the time asleep. The detector takes the larger of the two signs, so one sleep
+counts one time on each system.
+
 ## The network change detector of Windows reads the routes only
 
 The interfaces of Windows come from a call with a buffer of linked records, for each look. The

@@ -12,6 +12,7 @@ use std::ffi::{OsStr, OsString};
 use std::net::IpAddr;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use nix::ifaddrs::getifaddrs;
 use nix::net::if_::InterfaceFlags;
@@ -45,6 +46,12 @@ pub(crate) fn program_files(path: PathBuf, _env: &ProcessEnv) -> Vec<PathBuf> {
 /// A file with a mode bit for execution.
 pub(crate) fn is_program(path: &Path) -> bool {
     path.metadata().is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+/// The time that the computer slept since its start: none here. The monotonic clock of macOS
+/// and of Linux stops during a sleep, so the wall clock jumps against it (`detect::ClockJump`).
+pub(crate) fn time_asleep() -> Duration {
+    Duration::ZERO
 }
 
 /// Each address of each interface that is up, with the name of the interface. With an
