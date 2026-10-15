@@ -1,0 +1,189 @@
+name: release
+
+# Each push to master makes a release: the app for macOS on Apple silicon and the program for
+# Windows x64 of that commit. Its version is the workspace version and the run number of this
+# workflow, as in 0.1.0+build.7, and its tag is v0.1.0-build.7.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # `cargo xtask` makes the version from it and gives it to the program, the bundle and the
+  # version resource of Windows.
+  FRESNEL_BUILD: ${{ github.run_number }}
+
+jobs:
+  # A newer push cancels the builds of an older run, which then makes no release. The job
+  # `publish` is in a group of its own, so a release that has begun always ends.
+  macos:
+    name: build (macOS arm64)
+    runs-on: macos-26
+    timeout-minutes: 30
+    concurrency:
+      group: release-macos-${{ github.ref }}
+      cancel-in-progress: true
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain of rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: release-macos-26-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml') }}
+      # The bundle with an ad hoc signature, which `install` checks after it signs.
+      - name: Fresnel.app
+        run: cargo xtask install --to dist
+      # ditto keeps the bundle as it is: a plain zip of some tools breaks its signature.
+      - name: Zip file
+        run: ditto -c -k --keepParent dist/Fresnel.app fresnel-macos-arm64.zip
+      # The checks read the content of the zip file, as a user gets it.
+      - name: Check the zip file
+        id: check
+        run: |
+          ditto -x -k fresnel-macos-arm64.zip unzipped
+          codesign --verify --deep --strict --verbose=2 unzipped/Fresnel.app
+          text=$(unzipped/Fresnel.app/Contents/MacOS/fresnel --version)
+          if ! [[ "$text" =~ ^fresnel\ ([0-9]+\.[0-9]+\.[0-9]+\+build\.$FRESNEL_BUILD)$ ]]; then
+            echo "::error::fresnel --version gives \"$text\""
+            exit 1
+          fi
+          echo "Fresnel.app: $text, with a valid ad hoc signature"
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos
+          path: fresnel-macos-arm64.zip
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  windows:
+    name: build (Windows x64)
+    runs-on: windows-2025
+    timeout-minutes: 45
+    concurrency:
+      group: release-windows-${{ github.ref }}
+      cancel-in-progress: true
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain of rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: release-windows-2025-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml') }}
+      # The program with its icon and its version in its resources.
+      - name: fresnel.exe
+        run: cargo xtask windows --to dist
+      - name: Zip file
+        shell: pwsh
+        run: Compress-Archive -Path dist/fresnel.exe -DestinationPath fresnel-windows-x64.zip
+      # The program has no console: Start-Process waits for its end and keeps its output.
+      # ExtractIconEx with the index -1 counts the icons of a file.
+      - name: Check the zip file
+        id: check
+        shell: pwsh
+        run: |
+          Expand-Archive fresnel-windows-x64.zip unzipped
+          $program = (Resolve-Path unzipped/fresnel.exe).Path
+          $run = Start-Process $program -ArgumentList '--version' -NoNewWindow -Wait -PassThru -RedirectStandardOutput version.txt
+          $text = (Get-Content version.txt -Raw).Trim()
+          if ($run.ExitCode -ne 0) { throw "fresnel.exe --version ends with $($run.ExitCode): $text" }
+          if ($text -notmatch "^fresnel (\d+\.\d+\.\d+\+build\.$env:FRESNEL_BUILD)$") { throw "fresnel.exe --version gives `"$text`"" }
+          $version = $Matches[1]
+          $info = (Get-Item $program).VersionInfo
+          if ($info.ProductVersion -ne $version -or $info.FileDescription -ne 'Fresnel') {
+            throw "the version resource has `"$($info.ProductVersion)`" and `"$($info.FileDescription)`""
+          }
+          Add-Type -Namespace Shell -Name Icons -MemberDefinition '[DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern uint ExtractIconEx(string file, int index, IntPtr[] large, IntPtr[] small, uint count);'
+          $icons = [Shell.Icons]::ExtractIconEx($program, -1, $null, $null, 0)
+          if ($icons -ne 1) { throw "fresnel.exe has $icons icons" }
+          "fresnel.exe: $text, version resource $($info.ProductVersion) of $($info.FileDescription), 1 icon"
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows
+          path: fresnel-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  publish:
+    name: release
+    needs: [macos, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: release-publish-${{ github.ref }}
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.macos.outputs.version }}
+      WINDOWS_VERSION: ${{ needs.windows.outputs.version }}
+    steps:
+      # The notes need the history and the tags of the earlier releases.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: zips
+          merge-multiple: true
+      # The commits since the tag of the release before, which is the nearest one in the history.
+      - name: Notes
+        run: |
+          if [ "$VERSION" != "$WINDOWS_VERSION" ]; then
+            echo "::error::the macOS build is $VERSION and the Windows build is $WINDOWS_VERSION"
+            exit 1
+          fi
+          echo "TAG=v${VERSION/+/-}" >> "$GITHUB_ENV"
+          previous=$(git describe --tags --abbrev=0 --match 'v*-build.*' HEAD 2>/dev/null || true)
+          if [ -n "$previous" ]; then
+            echo "Commits since $previous:" > notes.md
+            git log --format='- %s (%h)' "$previous..HEAD" > commits.txt
+          else
+            echo "The first release. Its commits:" > notes.md
+            git log --format='- %s (%h)' HEAD > commits.txt
+          fi
+          count=$(wc -l < commits.txt)
+          echo >> notes.md
+          head -n 50 commits.txt >> notes.md
+          if [ "$count" -gt 50 ]; then echo "- and $((count - 50)) earlier commits" >> notes.md; fi
+          if [ "$count" -eq 0 ]; then echo "- no new commit" >> notes.md; fi
+          cat notes.md
+      - name: Release
+        run: |
+          gh release create "$TAG" zips/fresnel-macos-arm64.zip zips/fresnel-windows-x64.zip \
+            --target "$GITHUB_SHA" --title "Fresnel $VERSION" --notes-file notes.md --latest
+      # Each zip file of the release downloads, with the bytes of the build.
+      - name: Check the download
+        run: |
+          gh release download "$TAG" --dir downloaded
+          (cd zips && sha256sum fresnel-macos-arm64.zip fresnel-windows-x64.zip) > sums.txt
+          (cd downloaded && sha256sum --check ../sums.txt)
+      # Only the releases of this workflow: a tag of an other form stays.
+      - name: Keep the 20 newest releases
+        run: |
+          gh release list --limit 200 --exclude-drafts --json tagName,createdAt --jq '
+            [.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-build\\.[0-9]+$"))]
+            | sort_by(.createdAt) | reverse | .[20:][] | .tagName' > old.txt
+          while read -r tag; do gh release delete "$tag" --cleanup-tag --yes; done < old.txt

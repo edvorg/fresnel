@@ -14,8 +14,9 @@ egui.workspace = true
 egui_plot.workspace = true
 egui_table.workspace = true
 fresnel-core.workspace = true
-# The time of day of a journal entry, in the time zone of the system.
-jiff = { workspace = true, features = ["tz-system", "tzdb-zoneinfo"] }
+# The time of day of a journal entry, in the time zone of the system. Windows has no database
+# of the time zones, so the program has a copy there (`tzdb-bundle-platform`).
+jiff = { workspace = true, features = ["tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo"] }
 k8s-openapi.workspace = true
 # The detail panel reads the parts that each kind has, such as its conditions, from the
 # JSON of the object.

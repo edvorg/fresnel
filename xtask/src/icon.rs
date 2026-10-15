@@ -1,7 +1,7 @@
 //! The icon of the app: a Fresnel lens from the front, drawn by this code.
 //!
-//! The repository holds no image file. The icon is some rings on a dark tile, so a
-//! function draws it at each size that macOS asks for, with smooth edges at each one.
+//! The repository holds no image file. The icon is some rings on a dark tile, so a function
+//! draws it at each size that macOS and Windows ask for, with smooth edges at each one.
 
 use std::io;
 use std::path::Path;
@@ -34,7 +34,7 @@ const LINE: f64 = 0.02;
 const CENTER_DOT: f64 = 0.045;
 
 /// Writes the PNG file of each size into the folder of an icon set.
-pub(super) fn write_icon_set(folder: &Path) -> io::Result<()> {
+pub(crate) fn write_icon_set(folder: &Path) -> io::Result<()> {
     for (file, size) in ICON_SET {
         std::fs::write(folder.join(file), png(size)?)?;
     }
@@ -42,7 +42,7 @@ pub(super) fn write_icon_set(folder: &Path) -> io::Result<()> {
 }
 
 /// The icon as a PNG file with a width of `size` pixels.
-pub fn png(size: u32) -> io::Result<Vec<u8>> {
+pub(crate) fn png(size: u32) -> io::Result<Vec<u8>> {
     let mut file = Vec::new();
     let mut encoder = png::Encoder::new(&mut file, size, size);
     encoder.set_color(png::ColorType::Rgba);
@@ -54,7 +54,7 @@ pub fn png(size: u32) -> io::Result<Vec<u8>> {
 }
 
 /// The pixels of the icon, 4 bytes for each pixel: red, green, blue and alpha.
-pub fn rgba(size: u32) -> Vec<u8> {
+fn rgba(size: u32) -> Vec<u8> {
     let scale = f64::from(size);
     let mut pixels = Vec::with_capacity(size as usize * size as usize * 4);
     for row in 0..size {

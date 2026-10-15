@@ -152,6 +152,7 @@ fn environment_report(environment: &Environment, base: &ProcessEnv) -> report::E
     let (source, problem) = match &environment.source {
         EnvSource::LoginShell(shell) => (format!("login shell {}", shell.display()), None),
         EnvSource::Fallback(problem) => ("process".to_owned(), Some(problem.to_string())),
+        EnvSource::Process => ("process".to_owned(), None),
     };
     report::Environment {
         source,

@@ -1553,13 +1553,123 @@ of the log view grow at the start.
 and the faults, and runs it. The core runs in a child process of the harness, so the heap and the
 connections that the soak records are those of the core alone.
 
+## Each difference of the systems is in a platform module
+
+`fresnel-net`, `fresnel-testkit` and `fresnel` each have a `platform` module with a variant for
+macOS or unix and one for Windows, with the same names. One place shows what differs, and a
+build for one system checks that its variant has each name that the code uses. A test that needs
+one system says so with a `cfg`.
+
+## Windows runs no login shell
+
+On macOS a program from Finder has a short `PATH`, and the login shell gives the rest. On
+Windows, Explorer gives each program the variables of the user and of the system from the
+registry, so the environment of the process is complete. The app uses it as it is
+(`EnvSource::Process`), and the list of fixed folders after `PATH` is empty there.
+
+## A child on Windows starts suspended in a job object
+
+Windows has no process group. A job object holds the child and each process that it starts, one
+call ends them all, and the close of its last handle ends them too, also at a crash. The child
+starts suspended, so it starts nothing before it is in the job. After a normal exit the job no
+longer ends its processes, so a helper of the plugin stays, as on unix.
+
+## A bare plugin name on Windows tries the extensions of PATHEXT
+
+kubectl finds the plugin with the search of Go: a name with an extension as it is, then the name
+with each extension of `PATHEXT`. The app does the same, so `command: doctl` of a kubeconfig finds
+`doctl.exe`. A variable name has no case on Windows, so `Path` and `PATH` are one variable.
+
+## The folders on Windows come from APPDATA and LOCALAPPDATA
+
+The settings are in `%APPDATA%\fresnel`, which moves with a roaming profile, and the logs in
+`%LOCALAPPDATA%\fresnel\logs`. The app reads the variables of its environment and not the API of
+the known folders, which the `directories` crate uses: a test then gives its own folders, as it
+gives `HOME` on macOS. The home folder is `USERPROFILE`, with `.kube\config` and `Downloads`.
+
+## The lock on Windows holds one byte after the end of its file
+
+A lock of Windows stops each read of its bytes through an other handle. A lock of the whole
+file, as on macOS, would hide the process id from the second process, so its message would not
+name the process that runs. The lock holds the byte at 2 to the power 62 of the file.
+
+## Windows shows no notification yet
+
+A toast of Windows needs an app identity that a shortcut in the Start menu registers, and no
+install makes one yet. The journal has each notice on each system, and on Windows it tells at
+the start that no notification comes. The activity against App Nap does nothing on Windows.
+
+## Windows tells the time asleep for the wake detector
+
+The monotonic clock of macOS and of Linux stops during a sleep, so the wall clock jumps against
+it. The monotonic clock of Windows, `QueryPerformanceCounter`, counts a sleep, and no jump shows.
+The interrupt time of Windows counts a sleep too and its unbiased variant does not, so their
+difference is the time asleep. The detector takes the larger of the two signs, so one sleep
+counts one time on each system.
+
+## The network change detector of Windows reads the routes only
+
+The interfaces of Windows come from a call with a buffer of linked records, for each look. The
+source addresses of the default routes change with a new network, a cable or a VPN, and the
+keepalive ping finds each connection that a change broke, so the detector of Windows reads
+only the routes.
+
+## A checkout has LF line ends on each system
+
+Git for Windows changes LF to CRLF by default. The tests compare texts and fixtures byte for
+byte, so `.gitattributes` keeps LF in each checkout.
+
+## The tests of the shell scripts run on unix
+
+The fake plugin and the fake login shell of the tests are shell scripts, and Windows has no
+shell for them. Their tests, and the tests of a FIFO, of mode bits and of the macOS bundle,
+have `cfg(unix)`. The job object has its own tests with `cmd.exe` and `ping.exe`, and each other
+test runs on Windows in CI.
+
+## A start error on Windows shows in a dialog
+
+A release build for Windows has no console, so the text on stderr of an error before the window,
+such as "fresnel runs already", shows nowhere, and a second start ends with no sign. The program
+shows that text in a message box of the system. Finder starts no second process of an app that
+runs, so macOS needs no dialog. The first window does not come to the front yet.
+
+## Each push to master makes a release
+
+The workflow `release` builds the app for macOS on Apple silicon and the program for Windows x64
+of each push to `master`, checks each zip file, and makes the latest release, with the commits
+since the release before. The 20 newest releases stay. A newer push cancels the builds of an older
+run; the job that publishes has its own group, so a release that has begun ends. The release
+does not wait for CI.
+
+## The version of a release has the run number of its workflow
+
+A release is `0.1.0+build.N`: the workspace version and the run number of the workflow, which grows
+with each run. Its tag is `v0.1.0-build.N`, as a `+` needs an escape in a URL. `cargo xtask` makes
+the version from `FRESNEL_BUILD` and gives its text to the program, which prints it at `--version`,
+to `Info.plist` and to the resource of Windows. One rule thus makes each form, and the workflow
+checks the text of each program.
+
+## The program for Windows gets its icon and version from a resource file of xtask
+
+Explorer and Task Manager show the icon, the name and the version of a program from its resources.
+`cargo xtask windows` writes the resource file, with the icon of the app as PNG images, and gives it
+to the linker of the program alone. A resource compiler, a build script or a crate for this would
+add a tool of the Windows SDK or a dependency to the build.
+
+## A release has no signature of Apple or of Microsoft
+
+A signature of Apple needs a paid developer account and a notarization of each release, and one of
+Microsoft a certificate. The bundle keeps its ad hoc signature, so macOS stops the first start after
+a download in a browser, and SmartScreen of Windows asks at the first start. The README tells the
+way past each.
+
 ## The pictures of the README come from the view tests
 
 `cargo xtask screenshots` draws eight pictures with the harness of the view tests, on made-up
 clusters with one fixed time, so a run needs no cluster and two runs give the same bytes. A
 picture leaves out the margin of the harness: the window has none, and each pixel is opaque.
 oxipng compresses them with no loss: at scale 1.5 each one has less than 450 KB. The pictures
-give the README 96 lines, its new limit.
+add 17 lines to the README, so its limit is 97.
 
 ## The legend of a chart is beside its heading
 

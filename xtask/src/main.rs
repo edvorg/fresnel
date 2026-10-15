@@ -3,7 +3,8 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use xtask::{borders, install, screenshots, sizes, soak};
+use xtask::version::Version;
+use xtask::{borders, install, screenshots, sizes, soak, windows};
 
 const USAGE: &str = "\
 usage: cargo xtask <command>
@@ -15,10 +16,14 @@ commands:
   install [--to <folder>]
                          build Fresnel.app and install it into /Applications or into
                          <folder>; the earlier bundle stays as Fresnel.app.prev
+  windows --to <folder>  build fresnel.exe with its icon and its version (on Windows)
   soak --hours <number> [--label <text>] [--report <folder>] [--seed <number>]
                          run the app core for some hours on k3s in Docker with changes
                          and random faults, and write a report of each minute
-  screenshots            draw the pictures of the README into docs/screenshots";
+  screenshots            draw the pictures of the README into docs/screenshots
+
+The variable FRESNEL_BUILD of install and windows is the build number of a release: the
+version is then 0.1.0+build.<number>.";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
@@ -28,6 +33,7 @@ fn main() -> ExitCode {
         ["check-borders"] => check_borders(),
         ["install"] => install(Path::new(install::APPLICATIONS)),
         ["install", "--to", folder] => install(Path::new(folder)),
+        ["windows", "--to", folder] => windows(Path::new(folder)),
         ["soak", options @ ..] => soak(options),
         ["screenshots"] => draw_screenshots(),
         _ => {
@@ -70,10 +76,16 @@ fn check_borders() -> ExitCode {
     }
 }
 
+/// The version of the build, from the variable `FRESNEL_BUILD`. A wrong value stops the command.
+fn version(command: &str) -> Option<Version> {
+    Version::of_environment().map_err(|problem| eprintln!("{command}: {problem}")).ok()
+}
+
 fn install(destination: &Path) -> ExitCode {
-    match install::run(&root(), destination) {
+    let Some(version) = version("install") else { return ExitCode::FAILURE };
+    match install::run(&root(), destination, &version) {
         Ok(installed) => {
-            println!("install: {} is the new version", installed.app.display());
+            println!("install: {} is the new version, {version}", installed.app.display());
             if let Some(fallback) = installed.fallback {
                 println!("install: the earlier version is {}", fallback.display());
             }
@@ -82,6 +94,20 @@ fn install(destination: &Path) -> ExitCode {
         }
         Err(error) => {
             eprintln!("install: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn windows(destination: &Path) -> ExitCode {
+    let Some(version) = version("windows") else { return ExitCode::FAILURE };
+    match windows::run(&root(), destination, &version) {
+        Ok(program) => {
+            println!("windows: {} is fresnel {version}", program.display());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("windows: {error}");
             ExitCode::FAILURE
         }
     }

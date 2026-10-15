@@ -148,7 +148,7 @@ impl Inner {
 
     /// The home folder of the user, for a path of the settings that starts with `~/`.
     pub(super) fn home(&self) -> Option<PathBuf> {
-        self.base_env.get("HOME").filter(|home| !home.is_empty()).map(PathBuf::from)
+        self.base_env.home().map(PathBuf::from)
     }
 }
 

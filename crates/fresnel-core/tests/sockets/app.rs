@@ -2,9 +2,12 @@
 //!
 //! Each test gives the core a home folder of its own with a shell profile. The login shell
 //! of the user reads that profile, so the core finds the kubeconfig and the plugin as the
-//! installed app does.
+//! installed app does. On Windows, the environment of the test has these variables, and the
+//! plugin is a batch file with one token. A test of the fake shell or of a mode of the fake
+//! plugin, shell scripts, is for unix.
 //!
 //! - `start`: the start and the stop. `commands`: the selection and "Retry now".
+//! - `explorer`: the start on Windows, with the plugin of a bare name and `PATHEXT`.
 //! - `config`: the settings file. `search`: the quick search on the stores of the core.
 //! - `data`: the objects of the selected clusters in the view. `keys`: the key view.
 //!   `key_faults`: the key view with fast input, a fault at the worst moment and bad data.
@@ -19,6 +22,9 @@
 mod commands;
 mod config;
 mod data;
+#[cfg(windows)]
+mod explorer;
+#[cfg(unix)]
 mod faults;
 mod key_faults;
 mod keys;
@@ -28,11 +34,12 @@ mod network;
 mod orders;
 mod search;
 mod selection;
+#[cfg(unix)]
 mod slow_disk;
+#[cfg(unix)]
 mod start;
 
 use std::net::SocketAddr;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -57,12 +64,23 @@ const KUBECONFIG: &str = "work/kubeconfig.yaml";
 const STATE_FILE: &str = "state/state.json";
 const CONFIG_FILE: &str = "state/config.toml";
 
-/// A home folder with the plugin of the tests of `fresnel-net` in its folder `plugins`.
+/// A home folder with the plugin of the tests in its folder `plugins`.
 fn home(label: &str) -> Home {
     let home = Home::new(label, &["kubeconfig.yaml"]).expect("a home folder");
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fresnel-net/tests/fixtures/fake-plugin");
-    home.add_program(PLUGIN, &format!("#!/bin/sh\nexec '{}'\n", fixture.display())).expect("the plugin");
+    home.add_program(PLUGIN, &plugin_script()).expect("the plugin");
     home
+}
+
+/// The fake plugin of the tests of `fresnel-net`, with its modes.
+#[cfg(unix)]
+fn plugin_script() -> String {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../fresnel-net/tests/fixtures/fake-plugin");
+    format!("#!/bin/sh\nexec '{}'\n", fixture.display())
+}
+
+#[cfg(windows)]
+fn plugin_script() -> String {
+    explorer::PLUGIN_SCRIPT.to_owned()
 }
 
 /// One context of the test kubeconfig: its name, its address, its server and if its user

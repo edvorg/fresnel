@@ -155,6 +155,7 @@ async fn a_saved_cluster_that_no_kubeconfig_file_has_stays_in_the_state_file() {
 
 /// A write of the state file that fails, as on a disk with no space: the window shows the
 /// warning, the selection works in this run, and the next change writes the selection.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_write_that_fails_is_a_warning_and_the_next_change_saves_the_selection() {
     use std::os::unix::fs::PermissionsExt as _;

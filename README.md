@@ -29,13 +29,12 @@ table and a panel for each kind, actions, keys, the Operations tab, metrics, log
 
 ## The app
 
-```sh
-cargo xtask install                   # builds Fresnel.app and puts it into /Applications
-cargo xtask install --to <folder>     # the same into some other folder
-```
+Each push to `master` makes a GitHub release: `gh release download -R edvorg/fresnel`.
+- macOS: the signature is ad hoc. Run `xattr -dr com.apple.quarantine Fresnel.app` before the first
+  start, or start it once and then use Open Anyway in System Settings, Privacy & Security.
+- Windows: unzip, start `fresnel.exe`; at the first start SmartScreen asks: More info, Run anyway.
 
-The earlier bundle stays as `Fresnel.app.prev`. At its first start, the app selects the current
-context of the kubeconfig files. It keeps the selection and the table layouts in `state.json`.
+The first start selects the current kubeconfig context, and `state.json` keeps it and the layouts.
 
 - A table shows each selected cluster. A row with an open ring is from a cluster that is
   not live: its values are old, and a note above the table gives the reason.
@@ -48,13 +47,17 @@ context of the kubeconfig files. It keeps the selection and the table layouts in
 - A failed operation, and a cluster that stays lost while the window is hidden, give a notification.
 - Log folder: `~/Library/Logs/fresnel` (`fresnel.log`, panic reports). Saved logs and manifests:
   `~/Downloads`. Only one process runs; `cargo run --package fresnel` starts a debug build too.
+- On Windows, Cmd is Ctrl, the folders are `%APPDATA%\fresnel` and `%LOCALAPPDATA%\fresnel\logs`,
+  the kubeconfig is `%USERPROFILE%\.kube\config`, and the journal has each notice.
 
 ## Build and test
 
 Install [rustup](https://rustup.rs). The file `rust-toolchain.toml` selects the compiler. On
-Linux, the UI tests need the package `mesa-vulkan-drivers`.
+Linux, the UI tests need the package `mesa-vulkan-drivers`. Windows runs no test of a shell script.
 
 ```sh
+cargo xtask install [--to <folder>]   # macOS: Fresnel.app into /Applications, the earlier as .prev
+cargo xtask windows --to <folder>     # Windows x64: fresnel.exe with its icon and its version
 cargo test --workspace                # unit tests and UI tests, with no cluster
 FRESNEL_SNAPSHOT_DIR=<folder> cargo test --package fresnel-ui   # also PNG files of the views
 cargo test --workspace -- --ignored   # cluster tests, with k3s in Docker
@@ -83,13 +86,11 @@ cargo run --package fresnel-cli -- watch --context <name>    # the stores of one
   "live" and is behind for more than 20 s, a store or a log view that does not recover, or a heap
   that grows fails it. `cargo xtask soak` adds k3s, faults and a report into `target/release/soak/`.
 
-## Layout
+## Layout and documents
 
 `crates/` has `fresnel-net` (connections, credential plugin, task start), `fresnel-core` (the
 domain), `fresnel-ui` (the views), the programs `fresnel` and `fresnel-cli`, and `fresnel-testkit`
 (fault proxy, k3s in Docker, fake API server, soak harness). `xtask` has the repository tasks.
-
-## Documents
 
 - [docs/architecture.md](docs/architecture.md): the design rules, the crates and their borders.
 - [docs/decisions.md](docs/decisions.md): each decision with its reason.

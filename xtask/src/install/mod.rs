@@ -1,31 +1,31 @@
 //! `cargo xtask install`: builds the release program, makes `Fresnel.app`, signs it and
 //! puts it into the applications folder. The earlier bundle stays as a fallback.
 //!
-//! - [`bundle`]: the content of the bundle and its signature. `icon`: the icon.
+//! - [`bundle`]: the content of the bundle and its signature.
 //! - [`swap`]: the install by rename. `tool`: a run of a tool of the system.
 
 pub mod bundle;
-pub mod icon;
 pub mod swap;
 mod tool;
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub use swap::Installed;
 
+use crate::program;
+use crate::version::Version;
+
 /// Where the app goes when the command names no folder.
 pub const APPLICATIONS: &str = "/Applications";
-const PACKAGE: &str = "fresnel";
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Runs the install into `destination`. `root` is the root of the workspace.
-pub fn run(root: &Path, destination: &Path) -> io::Result<Installed> {
+/// Runs the install of `version` into `destination`. `root` is the root of the workspace.
+pub fn run(root: &Path, destination: &Path, version: &Version) -> io::Result<Installed> {
     if !cfg!(target_os = "macos") {
         return Err(io::Error::new(io::ErrorKind::Unsupported, "the bundle is for macOS only"));
     }
-    let program = build(root)?;
-    with_stage(destination, |stage| stage_and_install(&program, stage, destination))
+    let program = program::build(root, version, None)?;
+    with_stage(destination, |stage| stage_and_install(&program, version, stage, destination))
 }
 
 /// Runs `work` with a new stage folder and removes the folder after it. The stage is in
@@ -42,17 +42,8 @@ pub fn with_stage<T>(destination: &Path, work: impl FnOnce(&Path) -> io::Result<
     Ok(done)
 }
 
-fn stage_and_install(program: &Path, stage: &Path, destination: &Path) -> io::Result<Installed> {
-    let app = bundle::assemble(program, VERSION, stage)?;
+fn stage_and_install(program: &Path, version: &Version, stage: &Path, destination: &Path) -> io::Result<Installed> {
+    let app = bundle::assemble(program, version, stage)?;
     bundle::sign(&app)?;
     swap::install(&app, destination)
-}
-
-/// Builds the release program with the cargo that runs this task. Returns its path.
-fn build(root: &Path) -> io::Result<PathBuf> {
-    let status = crate::cargo(root).args(["build", "--release", "--locked", "--package", PACKAGE]).status()?;
-    if !status.success() {
-        return Err(io::Error::other(format!("the release build failed ({status})")));
-    }
-    Ok(crate::target_folder(root).join("release").join(PACKAGE))
 }

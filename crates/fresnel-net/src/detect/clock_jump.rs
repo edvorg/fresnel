@@ -1,4 +1,5 @@
-//! The sleep detector: a jump of the wall clock against the monotonic clock.
+//! The sleep detector: a jump of the wall clock against the monotonic clock, or the time
+//! asleep that the system counts.
 
 use std::time::{Duration, SystemTime};
 
@@ -6,46 +7,64 @@ use tokio::time::Instant;
 
 use super::{Detector, Disturbance};
 use crate::clock::WallClock;
+use crate::platform;
 
 /// A smaller difference is a clock correction, not a sleep.
 const SMALLEST_JUMP: Duration = Duration::from_secs(5);
 
 /// Detects that the computer slept. The monotonic clock of macOS and of Linux stops during
 /// a sleep, and the wall clock does not. Thus the timers of the app, also the keepalive
-/// ping, start late after a wake, and this detector tells the app at once.
+/// ping, start late after a wake, and this detector tells the app at once. The monotonic
+/// clock of Windows counts a sleep, so there the system tells the time asleep.
 #[derive(Debug)]
 pub struct ClockJump {
     clock: WallClock,
+    asleep: fn() -> Duration,
     smallest_jump: Duration,
-    last: (SystemTime, Instant),
+    last: Look,
+}
+
+/// The clocks at one look.
+#[derive(Debug)]
+struct Look {
+    wall: SystemTime,
+    steady: Instant,
+    asleep: Duration,
 }
 
 impl ClockJump {
-    /// A detector on the clock of the system.
+    /// A detector on the clocks of the system.
     pub fn system() -> Self {
-        Self::new(WallClock::system(), SMALLEST_JUMP)
+        Self::new(WallClock::system(), platform::time_asleep, SMALLEST_JUMP)
     }
 
-    /// A detector on `clock`, for a jump of `smallest_jump` or more.
-    pub fn new(clock: WallClock, smallest_jump: Duration) -> Self {
-        let last = (clock.now(), Instant::now());
-        Self { clock, smallest_jump, last }
+    /// A detector on `clock` and on `asleep`, the time that the computer slept since its
+    /// start, for a jump of `smallest_jump` or more.
+    pub fn new(clock: WallClock, asleep: fn() -> Duration, smallest_jump: Duration) -> Self {
+        let last = Look { wall: clock.now(), steady: Instant::now(), asleep: asleep() };
+        Self { clock, asleep, smallest_jump, last }
     }
 }
 
 impl Detector for ClockJump {
     fn look(&mut self) -> Option<Disturbance> {
-        let now = (self.clock.now(), Instant::now());
-        let (before_wall, before_steady) = std::mem::replace(&mut self.last, now);
+        let now = Look { wall: self.clock.now(), steady: Instant::now(), asleep: (self.asleep)() };
+        let before = std::mem::replace(&mut self.last, now);
+        let now = &self.last;
         // A wall clock that moved back gives an error here, and that is not a sleep.
-        let wall = now.0.duration_since(before_wall).ok()?;
-        let jump = wall.saturating_sub(now.1.duration_since(before_steady));
+        let ahead = now
+            .wall
+            .duration_since(before.wall)
+            .map_or(Duration::ZERO, |wall| wall.saturating_sub(now.steady.duration_since(before.steady)));
+        // A system with both signs of one sleep gives it one time.
+        let jump = ahead.max(now.asleep.saturating_sub(before.asleep));
         (jump >= self.smallest_jump).then_some(Disturbance::Wake(jump))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -55,6 +74,16 @@ mod tests {
     use crate::clock::testing::epoch;
 
     const SECOND: Duration = Duration::from_secs(1);
+
+    thread_local! {
+        /// The time asleep of the system in a test: it grows when the test says so. A test
+        /// of tokio runs on one thread.
+        static ASLEEP: Cell<Duration> = const { Cell::new(Duration::ZERO) };
+    }
+
+    fn asleep() -> Duration {
+        ASLEEP.get()
+    }
 
     /// A wall clock that follows the paused time plus an offset in seconds.
     fn clock() -> (WallClock, Arc<AtomicI64>) {
@@ -70,7 +99,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_jump_of_the_wall_clock_is_a_wake_and_normal_time_is_not() {
         let (clock, offset) = clock();
-        let mut detector = ClockJump::new(clock, 5 * SECOND);
+        let mut detector = ClockJump::new(clock, asleep, 5 * SECOND);
         for _ in 0..3 {
             sleep(SECOND).await;
             assert_eq!(detector.look(), None, "the two clocks moved the same time");
@@ -86,7 +115,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_small_correction_and_a_clock_that_moves_back_are_no_wake() {
         let (clock, offset) = clock();
-        let mut detector = ClockJump::new(clock, 5 * SECOND);
+        let mut detector = ClockJump::new(clock, asleep, 5 * SECOND);
         offset.fetch_add(4, Ordering::SeqCst);
         sleep(SECOND).await;
         assert_eq!(detector.look(), None, "a jump below the smallest jump");
@@ -98,5 +127,44 @@ mod tests {
         assert_eq!(detector.look(), None);
         offset.fetch_add(5, Ordering::SeqCst);
         assert_eq!(detector.look(), Some(Disturbance::Wake(5 * SECOND)));
+    }
+
+    /// Windows: the monotonic clock counts a sleep, so the two clocks move the same time,
+    /// and the time asleep of the system tells the sleep.
+    #[tokio::test(start_paused = true)]
+    async fn the_time_asleep_of_the_system_is_a_wake_and_one_sleep_counts_one_time() {
+        let (clock, offset) = clock();
+        let mut detector = ClockJump::new(clock, asleep, 5 * SECOND);
+        sleep(600 * SECOND).await;
+        ASLEEP.set(600 * SECOND);
+        assert_eq!(detector.look(), Some(Disturbance::Wake(600 * SECOND)));
+        sleep(SECOND).await;
+        assert_eq!(detector.look(), None, "one wake gives one event");
+        // A system on which the wall clock jumps and the time asleep grows for one sleep.
+        offset.fetch_add(60, Ordering::SeqCst);
+        ASLEEP.set(660 * SECOND);
+        sleep(SECOND).await;
+        assert_eq!(detector.look(), Some(Disturbance::Wake(60 * SECOND)));
+        // The user set the clock back during a sleep: the time asleep still tells it.
+        offset.fetch_sub(1800, Ordering::SeqCst);
+        ASLEEP.set(720 * SECOND);
+        assert_eq!(detector.look(), Some(Disturbance::Wake(60 * SECOND)));
+    }
+
+    /// Windows reads its two interrupt times one after the other, so a tick between the two
+    /// reads makes the time asleep fall back. That is no wake, and the next sleep counts from
+    /// the lower value.
+    #[tokio::test(start_paused = true)]
+    async fn a_time_asleep_that_falls_back_is_no_wake() {
+        let tick = Duration::from_millis(16);
+        let (clock, _offset) = clock();
+        ASLEEP.set(600 * SECOND);
+        let mut detector = ClockJump::new(clock, asleep, 5 * SECOND);
+        sleep(SECOND).await;
+        ASLEEP.set(600 * SECOND - tick);
+        assert_eq!(detector.look(), None, "a count that falls back is no sleep");
+        sleep(SECOND).await;
+        ASLEEP.set(660 * SECOND);
+        assert_eq!(detector.look(), Some(Disturbance::Wake(60 * SECOND + tick)));
     }
 }

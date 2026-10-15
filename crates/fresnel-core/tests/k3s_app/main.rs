@@ -10,6 +10,8 @@
 //! - `keys`: the save of a key of a Secret. `access`: `Command::ReadRules` and
 //!   `Command::CheckAccess` for the admin and for the user who may not scale.
 
+// k3s in Docker: the cluster job of CI runs on Linux.
+#![cfg(unix)]
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 mod access;

@@ -211,10 +211,8 @@ struct Files {
 
 impl Files {
     fn create(name: &str) -> Result<Self, KitError> {
-        use std::os::unix::fs::DirBuilderExt;
-
         let folder = std::env::temp_dir().join(name);
-        let created = fs::DirBuilder::new().mode(0o700).create(&folder);
+        let created = crate::platform::create_private_folder(&folder);
         created.map_err(|error| KitError::because(format!("cannot create {}", folder.display()), error))?;
         Ok(Self { folder })
     }

@@ -18,7 +18,7 @@ fn source_files(folder: &Path, found: &mut Vec<PathBuf>) {
     }
 }
 
-/// The files of the crate that name `crate_name`, as paths below `src`.
+/// The files of the crate that name `crate_name`, as paths below `src` with `/` on each system.
 fn users_of(crate_name: &str) -> Vec<String> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
@@ -27,7 +27,10 @@ fn users_of(crate_name: &str) -> Vec<String> {
     let mut users: Vec<String> = files
         .iter()
         .filter(|file| std::fs::read_to_string(file).expect("a source file").contains(&format!("{crate_name}::")))
-        .map(|file| file.strip_prefix(&root).expect("a file of the crate").display().to_string())
+        .map(|file| {
+            let path = file.strip_prefix(&root).expect("a file of the crate");
+            path.iter().map(|part| part.to_string_lossy()).collect::<Vec<_>>().join("/")
+        })
         .collect();
     users.sort();
     users

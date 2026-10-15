@@ -1,15 +1,12 @@
 //! The commands of the UI: the selection and "Retry now".
 
-use std::time::Duration;
-
 use fresnel_core::app::{Command, CoreSettings, Health};
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::journal::Level;
-use fresnel_core::net::credential::CredentialState;
 use fresnel_testkit::FakeApiServer;
 
 use super::selection::until_saved;
-use super::{App, KUBECONFIG, PLUGIN, home, row, states, write_kubeconfig};
+use super::{App, KUBECONFIG, home, row, states, write_kubeconfig};
 use crate::bed::authority;
 use crate::common::in_time;
 
@@ -42,8 +39,15 @@ async fn a_selection_connects_a_cluster_and_closes_the_connections_of_one_that_l
     until_saved(&home, &["a", "b"]).await;
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn retry_now_runs_a_failed_plugin_again_at_once() {
+    use std::time::Duration;
+
+    use fresnel_core::net::credential::CredentialState;
+
+    use super::PLUGIN;
+
     let server = FakeApiServer::start().await.expect("a server");
     let home = home("retry-plugin");
     home.write("state/mode", "fail").expect("the mode of the plugin");

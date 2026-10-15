@@ -4,6 +4,8 @@
 //! slow part. The test with a credential plugin has its own cluster, so the two run at the
 //! same time.
 
+// k3s in Docker: the cluster job of CI runs on Linux.
+#![cfg(unix)]
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 use std::path::{Path, PathBuf};

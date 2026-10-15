@@ -9,6 +9,8 @@
 //!   force delete and evict. `batch`: suspend, resume, trigger and run again.
 //! - `access`: the permissions of a user with a Role, and HTTP 403 of a real request.
 
+// k3s in Docker: the cluster job of CI runs on Linux.
+#![cfg(unix)]
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 mod access;

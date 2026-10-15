@@ -14,16 +14,24 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
+  # Windows runs the same checks: the unit tests, the socket tests and the UI tests. A test
+  # of the fake plugin or the login shell, shell scripts, is for unix. The first build on
+  # Windows needs more time.
   check:
     name: check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.os == 'windows-2025' && 60 || 30 }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-26, ubuntu-24.04]
+        os: [macos-26, ubuntu-24.04, windows-2025]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The lints and the test build fill the disk of a Linux runner: the linker of the largest
+      # test program stopped with a bus error. The tools of other languages need no step here.
+      - name: Disk space
+        if: runner.os == 'Linux'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc && df -h /
       - name: Toolchain of rust-toolchain.toml
         run: rustup toolchain install
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -36,6 +44,7 @@ jobs:
           # No older cache: its build folder would stay in each later one and fill the disk.
           key: check-${{ matrix.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml') }}
       # The UI tests draw with wgpu. A Linux runner has no GPU, so Mesa gives a software one.
+      # Windows has one in Direct3D 12 (WARP).
       - name: Software GPU
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends mesa-vulkan-drivers
@@ -46,8 +55,9 @@ jobs:
       # One build for the unit tests and the UI tests. A build for one package has other
       # features of the shared crates, and a second copy of them does not fit on the disk.
       # The time tests run in the job `time`: a time limit holds in a release build only.
+      # Each test program runs: a failure of one does not hide the results of the others.
       - name: Unit tests and UI tests
-        run: cargo test --workspace --locked -- --skip frame_time --skip search::time
+        run: cargo test --workspace --locked --no-fail-fast -- --skip frame_time --skip search::time
       - name: Size limits
         run: cargo xtask check-sizes
 
@@ -99,6 +109,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The test build fills the disk as in the job `check`, and then kubelet of k3s taints its
+      # node with disk pressure: no pod starts, and the save of the cache fails.
+      - name: Disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc && df -h /
       - name: Toolchain of rust-toolchain.toml
         run: rustup toolchain install
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

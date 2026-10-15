@@ -249,6 +249,8 @@ mod tests {
         assert!(folder_as_file.starts_with("cannot read the file: "), "{folder_as_file}");
     }
 
+    /// A folder with no right to write: the mode bits of unix.
+    #[cfg(unix)]
     #[test]
     fn a_write_that_fails_is_an_error_and_keeps_the_old_file() {
         use std::os::unix::fs::PermissionsExt as _;

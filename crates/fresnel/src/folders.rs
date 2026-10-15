@@ -1,10 +1,15 @@
-//! The folders of the app on the disk (plan section 12.5).
+//! The folders of the app on the disk (plan section 12.5), from the environment of the
+//! process: the library of the home folder on macOS, the application data on Windows.
 //!
 //! A debug build has its own folders. Thus a build of a developer never reads or changes
 //! the files of the installed app, and the two can run at the same time.
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use fresnel_core::net::env::ProcessEnv;
+
+use crate::platform;
 
 /// The name of the folders of the installed app.
 const RELEASE_NAME: &str = "fresnel";
@@ -47,18 +52,12 @@ pub struct Folders {
 }
 
 impl Folders {
-    /// The folders of a build below the home folder of the user.
-    pub fn of(home: &Path, build: Build) -> Self {
-        let name = build.folder_name();
-        let downloads = home.join("Downloads");
-        if cfg!(target_os = "macos") {
-            let library = home.join("Library");
-            let (data, logs) = (library.join("Application Support").join(name), library.join("Logs").join(name));
-            Self { data, logs, downloads }
-        } else {
-            let state = home.join(".local/state").join(name);
-            Self { data: home.join(".config").join(name), logs: state.join("logs"), downloads }
-        }
+    /// The folders of a build for the user of an environment. `None` when a variable that
+    /// names them is absent (`platform::FOLDER_VARIABLES`).
+    pub fn of(env: &ProcessEnv, build: Build) -> Option<Self> {
+        let downloads = PathBuf::from(env.home()?).join("Downloads");
+        let (data, logs) = platform::folders(env, build.folder_name())?;
+        Some(Self { data, logs, downloads })
     }
 
     /// Makes the folders. A folder that exists stays as it is.
@@ -74,19 +73,32 @@ mod tests {
 
     #[test]
     fn a_debug_build_has_its_own_folders() {
-        let home = Path::new("/Users/tester");
-        let (release, debug) = (Folders::of(home, Build::Release), Folders::of(home, Build::Debug));
+        let home = std::env::temp_dir().join("tester");
+        let mut env = ProcessEnv::default();
+        env.set_home(&home);
+        env.set("APPDATA", home.join("Roaming"));
+        env.set("LOCALAPPDATA", home.join("Local"));
+        let of = |build| Folders::of(&env, build).expect("the folders");
+        let (release, debug) = (of(Build::Release), of(Build::Debug));
         if cfg!(target_os = "macos") {
             assert_eq!(release.data, home.join("Library/Application Support/fresnel"));
             assert_eq!(release.logs, home.join("Library/Logs/fresnel"));
             assert_eq!(debug.data, home.join("Library/Application Support/fresnel-debug"));
             assert_eq!(debug.logs, home.join("Library/Logs/fresnel-debug"));
         }
+        if cfg!(windows) {
+            assert_eq!(
+                (&release.data, &release.logs),
+                (&home.join(r"Roaming\fresnel"), &home.join(r"Local\fresnel\logs"))
+            );
+            assert_eq!(debug.data, home.join(r"Roaming\fresnel-debug"));
+        }
         assert_eq!((&release.downloads, &debug.downloads), (&home.join("Downloads"), &home.join("Downloads")));
         for (one, other) in [(&release.data, &debug.data), (&release.logs, &debug.logs)] {
-            assert!(one.starts_with(home) && other.starts_with(home));
+            assert!(one.starts_with(&home) && other.starts_with(&home));
             assert!(!one.starts_with(other) && !other.starts_with(one), "{one:?} and {other:?}");
         }
         assert_eq!(Build::current(), Build::Debug, "a test is a debug build");
+        assert_eq!(Folders::of(&ProcessEnv::default(), Build::Debug), None, "no variable names the folders");
     }
 }

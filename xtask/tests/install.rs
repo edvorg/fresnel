@@ -3,6 +3,8 @@
 //! No test writes to `/Applications`. The tests give the bundle this test program in
 //! place of the app, so they need no release build.
 
+// The bundle is for macOS, and a test tells a folder by its inode.
+#![cfg(unix)]
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 use std::path::{Path, PathBuf};
@@ -178,6 +180,8 @@ mod macos {
     use std::os::unix::fs::PermissionsExt as _;
     use std::process::Command;
 
+    use xtask::version::Version;
+
     use super::*;
 
     fn output(tool: &str, arguments: &[&str], path: &Path) -> (bool, String) {
@@ -190,7 +194,8 @@ mod macos {
     fn the_bundle_has_the_program_the_plist_and_the_icon_and_its_signature_fits() {
         let scratch = Scratch::new("bundle");
         let program = std::env::current_exe().expect("this test program");
-        let app = bundle::assemble(&program, "0.1.0", &scratch.folder("stage")).expect("the bundle");
+        let release = Version { release: [0, 1, 0], build: Some(57) };
+        let app = bundle::assemble(&program, &release, &scratch.folder("stage")).expect("the bundle");
         assert_eq!(names(&scratch.folder("stage")), ["Fresnel.app"], "the icon set is gone");
         assert_eq!(names(&app.join("Contents")), ["Info.plist", "MacOS", "PkgInfo", "Resources"]);
 
@@ -203,6 +208,8 @@ mod macos {
         assert!(valid, "{text}");
         let (_, version) = output("plutil", &["-extract", "CFBundleShortVersionString", "raw"], &plist);
         assert_eq!(version.trim(), "0.1.0");
+        let (_, build) = output("plutil", &["-extract", "CFBundleVersion", "raw"], &plist);
+        assert_eq!(build.trim(), "57");
 
         // An icon file starts with its type and its length.
         let icon = std::fs::read(app.join("Contents/Resources/AppIcon.icns")).expect("the icon");
@@ -217,7 +224,8 @@ mod macos {
         assert!(facts.contains("Info.plist entries=15"), "the signature covers the plist: {facts}");
 
         // The signature covers each file: a changed plist does not fit it.
-        std::fs::write(&plist, bundle::info_plist("0.1.1")).expect("a changed plist");
+        let changed = Version { build: Some(58), ..release };
+        std::fs::write(&plist, bundle::info_plist(&changed)).expect("a changed plist");
         let error = bundle::verify(&app).expect_err("the signature does not fit");
         assert!(error.to_string().starts_with("codesign failed"), "{error}");
     }
@@ -227,8 +235,9 @@ mod macos {
         let scratch = Scratch::new("signed-install");
         let applications = scratch.folder("Applications");
         let program = std::env::current_exe().expect("this test program");
-        for version in ["0.1.0", "0.1.1"] {
-            let app = bundle::assemble(&program, version, &scratch.folder("stage")).expect("the bundle");
+        for patch in [0, 1] {
+            let version = Version { release: [0, 1, patch], build: None };
+            let app = bundle::assemble(&program, &version, &scratch.folder("stage")).expect("the bundle");
             bundle::sign(&app).expect("the signature");
             swap::install(&app, &applications).expect("the install");
         }

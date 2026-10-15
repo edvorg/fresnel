@@ -1,6 +1,5 @@
 //! The kubeconfig of a test cluster, with the server address that a test needs.
 
-use std::fs;
 use std::net::SocketAddr;
 use std::path::Path;
 
@@ -36,16 +35,8 @@ pub(super) fn with_name(k3s_text: &str, name: &str) -> Result<String, KitError> 
 
 /// Writes the file for its owner only, because it holds the key of the cluster admin.
 pub(super) fn write(path: &Path, text: &str) -> Result<(), KitError> {
-    let written = write_private(path, text);
+    let written = crate::platform::write_private(path, text);
     written.map_err(|error| KitError::because(format!("cannot write {}", path.display()), error))
-}
-
-fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-
-    let mut file = fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
-    file.write_all(text.as_bytes())
 }
 
 #[cfg(test)]
@@ -76,8 +67,11 @@ mod tests {
         assert!(with_server(&K3S_TEXT.repeat(2), address).is_err());
     }
 
+    /// The mode bits of unix. On Windows, the file is in the temporary folder of the user.
+    #[cfg(unix)]
     #[test]
     fn the_file_is_readable_by_its_owner_only() {
+        use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
         let path = std::env::temp_dir().join(format!("fresnel-test-kubeconfig-{}", std::process::id()));

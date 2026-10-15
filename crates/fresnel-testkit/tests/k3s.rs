@@ -2,6 +2,8 @@
 //!
 //! The steps are in one test, because the start of a cluster is the slow part.
 
+// k3s in Docker: the cluster job of CI runs on Linux.
+#![cfg(unix)]
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 #[path = "common/client.rs"]

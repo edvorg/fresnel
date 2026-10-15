@@ -3,15 +3,15 @@
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use fresnel_net::{Cause, Cluster, ClusterSpec, RequestKind, UpgradeStatus};
-use fresnel_testkit::{FakeApiServer, Fault, FaultProxy};
+use fresnel_net::{Cause, Cluster, RequestKind, UpgradeStatus};
+use fresnel_testkit::{FakeApiServer, FaultProxy};
 use http::header::{CONNECTION, UPGRADE};
 use http::{Request, StatusCode};
 use http_body_util::BodyExt as _;
 use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
-use crate::common::{Scratch, TestTasks, finder_env, in_time, plugin, spec, trust, until, until_live};
+use crate::common::{TestTasks, in_time, spec, trust, until, until_live};
 
 const EXEC: &str = "/api/v1/namespaces/default/pods/shell/exec?command=sh&stdin=true&stdout=true";
 
@@ -111,8 +111,14 @@ async fn a_wake_drops_the_warm_set_and_new_connections_replace_it() {
 }
 
 /// The token rule is also in the path of an upgrade: exec with a refused first token.
+#[cfg(unix)]
 #[tokio::test]
 async fn an_upgrade_with_a_refused_token_goes_out_again_with_a_new_token() {
+    use fresnel_net::ClusterSpec;
+    use fresnel_testkit::Fault;
+
+    use crate::plugin::{Scratch, finder_env, plugin};
+
     let server = FakeApiServer::start().await.expect("a server");
     server.add_fault(Fault::unauthorized().for_token("exec-1"));
     let tasks = TestTasks::new();
