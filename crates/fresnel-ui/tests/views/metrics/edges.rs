@@ -1,5 +1,6 @@
-//! The Metrics tab at its edges: a pod with more containers than a chart has lines, and two
-//! pods of a workload that change places from one poll to the next.
+//! The Metrics tab at its edges: a pod with more containers than a chart has lines, two
+//! pods of a workload that change places from one poll to the next, and a resize of a pod
+//! between two polls.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -9,16 +10,17 @@ use fresnel_core::app::ClusterRow;
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::kinds::Kind;
 use fresnel_core::metrics::{Amount, Cover, Metrics, MetricsSettings, Sample, SeriesKey};
+use fresnel_core::published::Held;
 use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Pod;
 use serde_json::{Value, json};
 
 use super::tab::{metrics_tab, tooltip};
-use super::tables::wide;
-use super::{PERIOD, of_kind, poll_time, scene_pods};
+use super::tables::{hints, wide};
+use super::{PERIOD, of_kind, of_pods, poll_time, scene_metrics, scene_pods};
 use crate::data::{changed, held, live, scene};
-use crate::fake::{Window, shows, view};
+use crate::fake::{Window, shows, until, view};
 
 /// The pod with many containers, and their count: a chart has 11 lines at most.
 const MANY: &str = "half-done";
@@ -95,4 +97,26 @@ fn the_lines_keep_their_sequence_when_two_pods_change_places() {
     window.state_mut().view = view(vec![web(200, 100)]);
     window.run();
     assert_eq!(names(&mut window), before);
+}
+
+/// A resize of a pod between two polls: the fixed line of the limit follows the value of
+/// now at once, not at the next poll.
+#[test]
+fn a_resize_between_two_polls_moves_the_line_of_the_limit_with_the_value_of_now() {
+    let row = of_pods("ams", scene_metrics("ams", 1));
+    let metrics: Held<Metrics> = row.data.as_ref().expect("data").metrics.clone();
+    let mut window = wide(vec![row]);
+    metrics_tab(&mut window, "Pods", WEB[0]);
+    assert!(tooltip(&mut window, "CPU chart", 0.98).contains(&"limit: 500m".to_owned()));
+    let pods = pods_with(WEB[0], |value| {
+        value["metadata"]["resourceVersion"] = "9999".into();
+        value["spec"]["containers"][0]["resources"]["limits"]["cpu"] = "1".into();
+    });
+    let row = live("ams", &pods);
+    let mut data = row.data.clone().expect("the data of a connected cluster");
+    data.metrics = metrics;
+    window.state_mut().view = view(vec![ClusterRow { data: Some(data), ..row }]);
+    until(&mut window, "the value of now with the new limit", |window| !hints(window, "  ·  limit 1 (46%)").is_empty());
+    let lines = tooltip(&mut window, "CPU chart", 0.98);
+    assert!(lines.contains(&"limit: 1".to_owned()), "{lines:?}");
 }

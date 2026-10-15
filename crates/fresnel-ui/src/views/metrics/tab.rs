@@ -3,12 +3,14 @@
 //! choice of the time range, the value of now with its request and limit and the age of its
 //! sample, and the state of the list of the cluster when it is not ok.
 //!
-//! The tab builds its lines again only for a new poll or a new range, not for each frame.
+//! The tab builds its lines again only for a new poll, a new range or a new version of the
+//! object, not for each frame: the fixed lines then agree with the value of now, which reads
+//! the request and the limit of the object of each frame, also after a resize of a pod.
 
 use std::time::{Duration, SystemTime};
 
 use egui::{Id, RichText, Ui};
-use fresnel_core::kinds::Describe;
+use fresnel_core::kinds::{Describe, Object};
 use fresnel_core::metrics::Metrics;
 use fresnel_core::published::Held;
 
@@ -38,11 +40,20 @@ impl Default for MetricsTab {
     }
 }
 
-/// The lines of one poll and one range.
+/// The lines of one poll, one range and one version of the object.
 struct Built {
     metrics: Held<Metrics>,
     range: u64,
+    version: Option<String>,
     lines: [Lines; 2],
+}
+
+impl Built {
+    /// True when the lines are of this poll, this range and this version of the object.
+    fn fits<K: Describe>(&self, metrics: &Held<Metrics>, range: u64, object: &K) -> bool {
+        let same_poll = std::ptr::eq::<Metrics>(&*self.metrics, &**metrics);
+        same_poll && self.range == range && self.version.as_deref() == object.meta().resource_version.as_deref()
+    }
 }
 
 impl MetricsTab {
@@ -69,14 +80,12 @@ impl MetricsTab {
         }
         let now = cx.clock.now();
         let start = now.checked_sub(Duration::from_secs(self.range)).unwrap_or(SystemTime::UNIX_EPOCH);
-        let built = self
-            .built
-            .take()
-            .filter(|built| built.range == self.range && std::ptr::eq::<Metrics>(&*built.metrics, &*data.metrics));
+        let built = self.built.take().filter(|built| built.fits(&data.metrics, self.range, object));
         let built = built.unwrap_or_else(|| {
             let from = u32::try_from(seconds(start)).unwrap_or(u32::MAX);
             let lines = lines::of(&metered, cx.id, object, from, palette);
-            Built { metrics: data.metrics.clone(), range: self.range, lines }
+            let version = object.meta().resource_version.clone();
+            Built { metrics: data.metrics.clone(), range: self.range, version, lines }
         });
         let reach = GAP / 2.0 * data.metrics.period.as_secs_f64();
         let (group, range) =
