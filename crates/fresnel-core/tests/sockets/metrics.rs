@@ -42,7 +42,8 @@ impl Polls {
         let reads = |path: &str| self.bed.server.requests().iter().filter(|seen| seen.uri.path() == path).count();
         let before = (reads(PODS), reads(NODES));
         let settings = MetricsSettings { period: Duration::from_secs(3_600), ..MetricsSettings::default() };
-        let parts = SamplerParts { settings, bin: self.disposal.bin(), notice: Notice::new(), clock: WallClock::system() };
+        let parts =
+            SamplerParts { settings, bin: self.disposal.bin(), notice: Notice::new(), clock: WallClock::system() };
         let indexes = self.stores.indexes(&self.bed.tasks);
         let inputs = Inputs::of(&self.stores.stores, &indexes).expect("a store of each kind");
         let sampler = Sampler::start(&self.bed.tasks.tasks, self.bed.link.gateway.clone(), inputs, parts);
