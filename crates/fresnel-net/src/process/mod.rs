@@ -248,6 +248,13 @@ mod tests {
     const ROUNDS: usize = 40;
     /// The life of a long child. A start that waits for a long child needs this time.
     const LONG: Duration = Duration::from_secs(2);
+    /// The tests that start hundreds of children take turns: the time of a short child has no
+    /// start of an other test in it (at the same time, one needed 1.05 s on the macOS runner).
+    static MANY_CHILDREN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn turn() -> std::sync::MutexGuard<'static, ()> {
+        MANY_CHILDREN.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     fn program(script: &str) -> Program {
         let env = [("PATH", "/usr/bin:/bin")].into_iter().collect();
@@ -269,6 +276,7 @@ mod tests {
     /// of the app but its own three (module `child`).
     #[test]
     fn a_spawn_does_not_wait_for_a_child_of_some_other_thread() {
+        let _turn = turn();
         let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(THREADS).enable_all().build();
         let slowest = runtime.expect("a runtime").block_on(async {
             let limits = RunLimits { time: LONG, output_bytes: 1024 };
@@ -359,6 +367,7 @@ mod tests {
 
     /// Runs the shell with the hook many times at once and asserts that no hook stayed.
     fn no_hook_stays<F: Future<Output = ()> + Send + 'static>(one_run: fn(std::path::PathBuf) -> F) {
+        let _turn = turn();
         let folder = std::env::temp_dir().join(format!("fresnel-net-test-hook-{:08x}", fastrand::u32(..)));
         std::fs::create_dir(&folder).expect("a new folder");
         let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(THREADS).enable_all().build();
