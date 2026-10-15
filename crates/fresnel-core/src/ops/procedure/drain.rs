@@ -227,7 +227,8 @@ async fn evict_each<P: Progress>(
             () = limit, if end.is_none() => {
                 stop.send_replace(true);
                 let seconds = options.timeout.unwrap_or_default().as_secs();
-                end = Some(JobState::Failed(CoreError::invalid(format!("the drain did not end in its time limit of {seconds} s"))));
+                let text = format!("the drain did not end in its time limit of {seconds} s{}", held(&board.copy()));
+                end = Some(JobState::Failed(CoreError::invalid(text)));
             }
         }
     }
@@ -239,6 +240,22 @@ async fn evict_each<P: Progress>(
     outcome_of(&shown.pods)?;
     job.done("each pod is gone");
     Ok(())
+}
+
+/// ": the PodDisruptionBudget web holds 2 pods" for each budget that holds a pod now, so the
+/// end of a drain at its time limit tells why. The state of the pod changes at the stop.
+fn held(pods: &[DrainPod]) -> String {
+    let mut budgets = BTreeMap::new();
+    for pod in pods.iter() {
+        if let PodState::Blocked { budget: Some(budget), .. } = &pod.state {
+            *budgets.entry(budget.as_str()).or_insert(0) += 1;
+        }
+    }
+    let texts: Vec<String> = budgets
+        .into_iter()
+        .map(|(budget, count)| format!("the PodDisruptionBudget {budget} holds {}", count_pods(count)))
+        .collect();
+    if texts.is_empty() { String::new() } else { format!(": {}", texts.join(", ")) }
 }
 
 /// The state of a drain whose tasks all ended: a pod whose eviction has an unknown result
