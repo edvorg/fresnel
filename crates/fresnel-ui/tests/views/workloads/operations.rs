@@ -1,9 +1,12 @@
 //! The Operations tab (plan section 7.3): each state of a job (pending, done, failed, not
-//! sent, result not known, cancelled), its steps and its error text, a cancel while it runs,
-//! the count of the jobs that left the list, and the mark "change pending" of a write.
+//! sent, result not known, cancelled), its steps with their marks and its error text, a
+//! cancel while it runs, the count of the jobs that left the list, and the mark "change
+//! pending" of a write.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use egui::Color32;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use fresnel_core::app::Command;
 use fresnel_core::ops::{JobState, Operation, Outcome, Rollout, StepState};
@@ -150,6 +153,49 @@ fn each_job_that_ended_shows_its_state_its_error_text_and_its_steps() {
     assert!(shows(&window, "— the object exists, version 815"));
     choose(&mut window, 5);
     assert!(shows(&window, "Job 5: Rollout status") && shows(&window, "cancelled"));
+}
+
+/// The text left of the text of a step on its line: the mark of its state.
+fn mark_of(window: &Window, step: &str) -> String {
+    let text = window.get_by_label(step).rect();
+    let on_line = |rect: egui::Rect| (rect.center().y - text.center().y).abs() < 2.0 && rect.right() <= text.left();
+    let marks = window.query_all_by_role(egui::accesskit::Role::Label).filter(|node| on_line(node.rect()));
+    let mark = marks.max_by(|a, b| a.rect().right().total_cmp(&b.rect().right()));
+    mark.and_then(|node| node.value()).expect("a mark left of the step")
+}
+
+/// True when each character of the text has a glyph of its own. egui draws a character
+/// with no glyph as the square "◻", and `has_glyph` takes each glyph of the font of that
+/// square for a missing one.
+fn has_glyphs(window: &Window, text: &str) -> bool {
+    let font = egui::TextStyle::Body.resolve(&window.ctx.global_style());
+    let glyphs = |text: &str| {
+        let galley = window.ctx.fonts_mut(|fonts| fonts.layout_no_wrap(text.to_owned(), font.clone(), Color32::WHITE));
+        galley.rows.iter().flat_map(|row| row.glyphs.iter().map(|glyph| glyph.uv_rect)).collect::<Vec<_>>()
+    };
+    let square = glyphs("◻");
+    glyphs(text).iter().all(|glyph| !square.contains(glyph))
+}
+
+/// The mark of each state of a step has a glyph in the fonts of the app: "✓" had none.
+#[test]
+fn the_mark_of_each_state_of_a_step_has_a_glyph() {
+    let mut window = session();
+    let steps = [
+        (6, "follow the rollout"),
+        (4, "restart each pod"),
+        (4, "read the object, because the result of the write is not known"),
+        (5, "follow the rollout"),
+    ];
+    let mut marks = BTreeSet::new();
+    for (number, step) in steps {
+        choose(&mut window, number);
+        marks.insert(mark_of(&window, step));
+    }
+    assert_eq!(marks.len(), 4, "running, failed, done and stopped: {marks:?}");
+    let missing: Vec<&String> = marks.iter().filter(|mark| !has_glyphs(&window, mark)).collect();
+    assert!(missing.is_empty(), "no glyph for {missing:?}");
+    assert!(!has_glyphs(&window, "✓"), "the check sees a missing glyph");
 }
 
 /// "Run again" after the delete of the old Job keeps its manifest for a copy.

@@ -63,8 +63,8 @@ pub(super) fn show(ui: &mut Ui, scene: &mut Scene<'_>, job: &JobView) {
         for step in job.report.steps.iter().take(ITEM_LIMIT) {
             let (mark, tone, result) = match &step.state {
                 StepState::Running => ("…", Tone::Info, None),
-                StepState::Done(result) => ("✓", Tone::Ok, Some(result.as_str())),
-                StepState::Failed => ("✗", Tone::Error, None),
+                StepState::Done(result) => ("✔", Tone::Ok, Some(result.as_str())),
+                StepState::Failed => ("✖", Tone::Error, None),
                 StepState::Stopped => ("–", Tone::Muted, None),
             };
             ui.horizontal_wrapped(|ui| {
