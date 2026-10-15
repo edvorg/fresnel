@@ -1,18 +1,20 @@
 //! The sections of a Namespace (`research/01` section 3.4.1, `research/02` section 4.5): its
-//! phase and, while it ends, its finalizers; then each ResourceQuota with its use and each LimitRange with
-//! its limits, from the stores of their full objects that the page of the Namespaces holds
-//! (`Command::ShowKinds`); then the count of the objects of each kind in the namespace.
+//! phase and, while it ends, its finalizers; then each ResourceQuota with its use and each
+//! LimitRange with its limits, from the stores of their full objects that the page of the
+//! Namespaces holds (`Command::ShowKinds`); then the count of the objects of each kind in
+//! the namespace.
 //!
 //! The counts come from the store of each kind that is always on, with no request. A count
-//! of a store that is not live has its mark: it can be old.
+//! of a store that is not live has its mark: it can be old. So has the count of the Events,
+//! when their store reached its limit: it is too small.
 
 use egui::{RichText, Ui};
 use fresnel_core::app::ClusterData;
 use fresnel_core::kinds::{Describe, Kind};
-use fresnel_core::store::Snapshot;
+use fresnel_core::store::{Snapshot, StoreStatus};
 use k8s_openapi::api::core::v1::{LimitRange, Namespace, ResourceQuota};
 
-use crate::format;
+use crate::format::{self, Clock};
 use crate::views::config::quota::{limits, usage};
 use crate::views::detail::fields::{ITEM_LIMIT, heading, more, note};
 use crate::views::detail::lines::{details_heading, line, none, table};
@@ -95,7 +97,7 @@ fn title(ui: &mut Ui, cx: &Context<'_>, kind: Kind, name: &Option<String>) -> Op
 }
 
 /// The count of the objects of each kind with a namespace, from the store that is always
-/// on, with the mark of a store that is not live.
+/// on, with the mark of a count that can be wrong.
 fn counts(ui: &mut Ui, cx: &Context<'_>, data: &ClusterData) {
     let name = &cx.id.key.name;
     let rows: Vec<(Kind, usize, Option<String>)> = data
@@ -103,14 +105,8 @@ fn counts(ui: &mut Ui, cx: &Context<'_>, data: &ClusterData) {
         .iter()
         .filter(|source| source.status.kind.info().namespaced)
         .filter_map(|source| {
-            let status = &source.status;
-            let count = source.count_in(name);
-            let mark = match (status.listed, status.state.is_live()) {
-                (false, _) => Some(format!("not loaded: the store {}", status.state)),
-                (true, false) => Some(old_text(status.last_contact, cx.clock)),
-                (true, true) => None,
-            };
-            (count > 0 || mark.is_some()).then_some((status.kind, count, mark))
+            let (count, mark) = (source.count_in(name), mark(&source.status, cx.clock));
+            (count > 0 || mark.is_some()).then_some((source.status.kind, count, mark))
         })
         .collect();
     if rows.is_empty() && !data.sources.is_empty() {
@@ -121,4 +117,18 @@ fn counts(ui: &mut Ui, cx: &Context<'_>, data: &ClusterData) {
         ui.label(format::thousands(*count as u64));
         ui.label(RichText::new(mark.as_deref().unwrap_or_default()).color(cx.palette.warn));
     });
+}
+
+/// The mark of a count of a store that is not live, or that keeps only the newest objects
+/// of its kind (the Events, design rule 12): its count is then too small.
+fn mark(status: &StoreStatus, clock: &Clock) -> Option<String> {
+    let state = match (status.listed, status.state.is_live()) {
+        (false, _) => Some(format!("not loaded: the store {}", status.state)),
+        (true, false) => Some(old_text(status.last_contact, clock)),
+        (true, true) => None,
+    };
+    let dropped = format::thousands(status.dropped);
+    let limit = (status.dropped > 0).then(|| format!("or more: {dropped} older ones left the store at its limit"));
+    let marks: Vec<String> = state.into_iter().chain(limit).collect();
+    (!marks.is_empty()).then(|| marks.join("; "))
 }

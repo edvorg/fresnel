@@ -7,7 +7,7 @@ use std::sync::Arc;
 use fresnel_core::app::{ClusterRow, Command};
 use fresnel_core::kinds::Kind;
 use fresnel_core::search::Source;
-use fresnel_core::store::StoreState;
+use fresnel_core::store::{Snapshot, StoreState};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{Event, LimitRange, Namespace, Node, ResourceQuota, Service};
 use serde::Serialize;
@@ -52,8 +52,8 @@ fn in_scene<K: Serialize + DeserializeOwned>(object: &K) -> Arc<K> {
 }
 
 /// The cluster of the Namespaces, with the quotas and the limit ranges of the namespace
-/// `scene`, and the stores that are always on: the pods, the Deployments, and the Services
-/// in a pause.
+/// `scene`, and the stores that are always on: the pods, the Deployments, the Services in a
+/// pause, and the Events of a store at its limit.
 pub(super) fn namespaces() -> ClusterRow {
     let quotas: Vec<Arc<ResourceQuota>> = of_kinds::<ResourceQuota>().iter().map(|quota| in_scene(&**quota)).collect();
     let ranges: Vec<Arc<LimitRange>> = of_kinds::<LimitRange>().iter().map(|range| in_scene(&**range)).collect();
@@ -61,10 +61,12 @@ pub(super) fn namespaces() -> ClusterRow {
     let mut data = row.data.clone().expect("data");
     let pause = StoreState::Backoff { failures: 2, reason: no_answer(), until: now() + 2 * SECOND };
     let services = in_state(&store(StoreState::Live, &scene::<Service>()), pause);
+    let full = Snapshot { dropped: 12_000, ..store(StoreState::Live, &events()) };
     data.sources = Arc::from([
         Source::full(held(store(StoreState::Live, &pods()))),
         Source::full(held(store(StoreState::Live, &scene::<Deployment>()))),
         Source::full(held(services)),
+        Source::full(held(full)),
     ]);
     ClusterRow { data: Some(data), ..row }
 }
@@ -79,6 +81,8 @@ fn a_namespace_shows_its_quotas_limit_ranges_and_the_counts_of_its_objects() {
     let texts = [&texts[..], &["16Mi", "OBJECTS", "Pods", "23", "Deployments", "2", "Services", "6"]].concat();
     assert_eq!(missing(&window, &texts), Vec::<String>::new());
     assert!(shows_part(&window, "old since 07:59:12"), "the count of a store that is not live");
+    let limit = "or more: 12,000 older ones left the store at its limit";
+    assert!(in_panel(&window, "156") && shows_part(&window, limit), "the count of the Events is too small");
 
     assert!(!in_panel(&window, "Waits for"), "the finalizer of each namespace matters only at its end");
     follow(&mut window, "ResourceQuota quota");
