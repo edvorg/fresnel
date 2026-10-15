@@ -21,6 +21,16 @@ pub(crate) fn bytes(text: &str) -> Result<u64, &'static str> {
     scaled(text, 0)
 }
 
+/// The number of a quantity of any resource in its own unit, for the comparison of two
+/// quantities of one resource: the use of a ResourceQuota against its hard limit. A view
+/// shows the text of the server and uses the number only for the comparison.
+pub fn number(text: &str) -> Result<f64, &'static str> {
+    let Exact { digits, exponent, binary } = exact(text)?;
+    let binary = i32::try_from(binary).map_err(|_| "too large")?;
+    let value = digits as f64 * 10_f64.powi(exponent) * 2_f64.powi(binary);
+    if value.is_finite() { Ok(value) } else { Err("too large") }
+}
+
 /// A quantity as an exact number: `digits * 10^exponent * 2^binary`.
 #[derive(Debug, PartialEq, Eq)]
 struct Exact {
@@ -152,6 +162,18 @@ mod tests {
         for (text, value) in memory {
             assert_eq!(bytes(text), Ok(value), "{text}");
         }
+    }
+
+    #[test]
+    fn the_number_of_a_quantity_is_in_the_unit_of_its_resource() {
+        let near = |text: &str, wanted: f64| number(text).is_ok_and(|value| (value - wanted).abs() < 1e-9 * wanted);
+        let cases = [("6", 6.0), ("500m", 0.5), ("70m", 0.07), ("4Gi", 4_294_967_296.0), ("1e3", 1e3), ("2k", 2e3)];
+        for (text, wanted) in cases {
+            assert!(near(text, wanted), "{text}: {:?}", number(text));
+        }
+        assert_eq!(number("0"), Ok(0.0));
+        assert_eq!(number("many"), Err("no number"));
+        assert_eq!(number("1e999"), Err("too large"));
     }
 
     #[test]

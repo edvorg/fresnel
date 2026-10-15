@@ -6,14 +6,15 @@
 //! type: each poll store, each series and the requests on each node.
 //!
 //! - `sampler`: the task. `state`: the state of a poll store. `view`: what a reader holds.
-//! - `wire`: the answers of the server. `quantity` and `duration`: own readers of their texts.
+//! - `wire`: the answers of the server. `quantity` and `duration`: own readers of their texts;
+//!   the view of a ResourceQuota reads its quantities with `quantity::number` too.
 //! - `world`: what a poll reads of the stores. `rollup`: the sums of a poll.
 //! - `series`: one series in two tiers. `history`: the series of a cluster and their limits.
 //! - `resources`: the requests and the limits of a pod.
 
 mod duration;
 mod history;
-mod quantity;
+pub mod quantity;
 mod resources;
 mod rollup;
 mod sampler;

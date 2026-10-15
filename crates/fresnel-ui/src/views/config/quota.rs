@@ -4,12 +4,12 @@
 //! each quota and each limit range of the namespace.
 //!
 //! The texts of a quantity are the texts of the server. The bar compares their numbers
-//! (`fresnel_core::quantity`), and a quantity that is not a number has no bar.
+//! (`fresnel_core::metrics::quantity`), and a quantity that is not a number has no bar.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use egui::{RichText, Ui};
-use fresnel_core::quantity;
+use fresnel_core::metrics::quantity;
 use k8s_openapi::api::core::v1::{LimitRange, LimitRangeItem, ResourceQuota};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 
@@ -82,8 +82,8 @@ pub(crate) fn usage(ui: &mut Ui, cx: &Context<'_>, quota: &ResourceQuota) {
 /// The part of `hard` that `used` takes. `None` for a quantity that is not a number, and for
 /// a limit of 0, which allows nothing.
 fn part(used: &Quantity, hard: &Quantity) -> Option<f64> {
-    let hard = quantity::number(&hard.0).filter(|hard| *hard > 0.0)?;
-    Some(quantity::number(&used.0)? / hard)
+    let hard = quantity::number(&hard.0).ok().filter(|hard| *hard > 0.0)?;
+    Some(quantity::number(&used.0).ok()? / hard)
 }
 
 pub(crate) fn range_details(ui: &mut Ui, cx: &Context<'_>, range: &LimitRange) -> Option<Link> {

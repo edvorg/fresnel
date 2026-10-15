@@ -9,7 +9,6 @@
 //!   search in the stores. [`keys`]: the keys and values of a Secret or a ConfigMap.
 //! - [`ops`]: the operations on objects, as jobs, and the permissions of the user.
 //! - [`metrics`]: the sampler of each cluster and the history of its CPU and memory.
-//! - [`quantity`]: the number of a resource quantity, such as `100m` or `8Gi`.
 //! - [`published`]: the one type that publishes a state to its readers.
 //! - [`journal`]: the list of events, warnings and errors.
 //! - [`config`]: the settings file of the user. [`state_file`]: what the app keeps from one
@@ -34,7 +33,6 @@ pub mod manifest;
 pub mod metrics;
 pub mod ops;
 pub mod published;
-pub mod quantity;
 pub mod search;
 pub mod state_file;
 pub mod store;
