@@ -84,7 +84,8 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  # The same condition as the job `macos`.
+  # The same condition as the job `macos`. With no cache the build took 29 minutes in run
+  # 38772363310 (macOS: 3), so the limit leaves room for a slow runner.
   windows:
     name: build (Windows x64)
     if: >-

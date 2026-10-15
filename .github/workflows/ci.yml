@@ -24,9 +24,10 @@ env:
 jobs:
   # Windows runs the same checks: the unit tests, the socket tests and the UI tests. A test
   # of the fake plugin or the login shell, shell scripts, is for unix. Each limit holds a run
-  # with no cache with room: in run 38763183609 (no cache) macOS took 8 minutes, Windows 52,
-  # and Linux 25 for its tests alone, so its limit of 30 ended the save of the cache. A Linux
-  # minute costs least, so its limit has the most room.
+  # with no cache with room: in run 38763183609 macOS took 8 minutes, Windows 52 with 8 for
+  # the save, and Linux 25 for its tests alone, so its limit of 30 ended the save of the cache.
+  # With rust-cache and no entry (run 38772356921): macOS 8, Linux 32, Windows 37 and no save.
+  # A Linux minute costs least, so its limit has the most room.
   check:
     name: check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -110,7 +111,7 @@ jobs:
         run: cargo test --release --locked --package fresnel-ui --test views -- frame_time search::time --nocapture --test-threads 1
 
   # The tests with the attribute `#[ignore]`: k3s in Docker and the fault proxy. With no cache
-  # they took 41 minutes in run 38763183609, near the limit of 45 then.
+  # the job took 41 minutes in run 38763183609, near the limit of 45 then, and 38 in 38772356921.
   cluster:
     name: cluster tests
     runs-on: ubuntu-24.04
