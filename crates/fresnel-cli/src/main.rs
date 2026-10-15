@@ -2,7 +2,9 @@
 
 mod contexts;
 mod doctor;
+mod memory;
 mod runtime;
+mod soak;
 mod watch;
 mod words;
 
@@ -13,16 +15,22 @@ usage: fresnel-cli <command>
 
 commands:
   doctor  measure the connection to the clusters of the kubeconfig; it reads no object
-  watch   show the state and the object count of each store of the selected clusters";
+  watch   show the state and the object count of each store of the selected clusters
+  soak    run the app core on one cluster for a time and record each gap and the memory";
 
 /// The exit status for a command line that the program cannot use.
 const USAGE_ERROR: u8 = 2;
+
+/// The count of the heap: the memory that the soak records.
+#[global_allocator]
+static HEAP: memory::Counting = memory::Counting;
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     match arguments.split_first() {
         Some((command, options)) if command == "doctor" => doctor::run(options),
         Some((command, options)) if command == "watch" => watch::run(options),
+        Some((command, options)) if command == "soak" => soak::run(options),
         Some((command, _)) if command == "--version" => {
             println!("fresnel-cli {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS

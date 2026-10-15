@@ -11,10 +11,13 @@ repository.workspace = true
 fresnel-core.workspace = true
 http.workspace = true
 jiff.workspace = true
+# The requests of the lists that the soak compares with the stores.
+kube.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# `signal`: the command `watch` runs until Ctrl+C and then stops its tasks.
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time"] }
+# `signal`: the command `watch` runs until Ctrl+C and then stops its tasks. `sync`: the
+# soak shares the copy of the core between its tasks.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]
 base64.workspace = true

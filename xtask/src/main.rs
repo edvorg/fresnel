@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use xtask::{borders, install, sizes};
+use xtask::{borders, install, sizes, soak};
 
 const USAGE: &str = "\
 usage: cargo xtask <command>
@@ -14,7 +14,10 @@ commands:
                          no egui dependency
   install [--to <folder>]
                          build Fresnel.app and install it into /Applications or into
-                         <folder>; the earlier bundle stays as Fresnel.app.prev";
+                         <folder>; the earlier bundle stays as Fresnel.app.prev
+  soak --hours <number> [--label <text>] [--report <folder>] [--seed <number>]
+                         run the app core for some hours on k3s in Docker with changes
+                         and random faults, and write a report of each minute";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
@@ -24,6 +27,7 @@ fn main() -> ExitCode {
         ["check-borders"] => check_borders(),
         ["install"] => install(Path::new(install::APPLICATIONS)),
         ["install", "--to", folder] => install(Path::new(folder)),
+        ["soak", options @ ..] => soak(options),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
@@ -76,6 +80,27 @@ fn install(destination: &Path) -> ExitCode {
         }
         Err(error) => {
             eprintln!("install: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn soak(options: &[&str]) -> ExitCode {
+    let soak = match soak::parse(options) {
+        Ok(soak) => soak,
+        Err(problem) => {
+            eprintln!("{problem}\n\n{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    match soak::run(&root(), &soak) {
+        Ok(status) if status.success() => ExitCode::SUCCESS,
+        Ok(status) => {
+            eprintln!("soak: the soak failed ({status}); soak.txt of the report tells why");
+            ExitCode::FAILURE
+        }
+        Err(problem) => {
+            eprintln!("soak: {problem}");
             ExitCode::FAILURE
         }
     }

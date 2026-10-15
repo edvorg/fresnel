@@ -1410,6 +1410,7 @@ dependencies = [
  "fresnel-testkit",
  "http",
  "jiff",
+ "kube",
  "nix",
  "serde",
  "serde_json",
