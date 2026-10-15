@@ -79,7 +79,7 @@ pub(super) fn show(ui: &mut Ui, state: &mut State<'_>, request: &LogRequest, par
     });
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        asked.extend(search(ui, state.find));
+        asked.extend(search(ui, state.find, parts.view));
         let copy = ui.add_enabled(state.selected, Button::new("Copy"));
         let copy = copy.on_disabled_hover_text("Select some text first: a drag, a double click or Cmd+A.");
         if copy.clicked() {
@@ -192,8 +192,9 @@ fn of_pod(pod: &Pod) -> Vec<(Arc<str>, bool)> {
     names.map(|name| (Arc::from(name), restarted(name))).collect()
 }
 
-/// The search with its hits, and the filter.
-fn search(ui: &mut Ui, find: &mut Find) -> Vec<Asked> {
+/// The search with its hits, and the filter. The progress of the worker is in this row: a
+/// row of its own above the pane would move the rows of the pane at each key.
+fn search(ui: &mut Ui, find: &mut Find, view: Option<&LogView>) -> Vec<Asked> {
     let mut asked = Vec::new();
     let fill = theme::palette(ui).bg_raised;
     let field = TextEdit::singleline(&mut find.search).hint_text("Search").background_color(fill);
@@ -217,6 +218,9 @@ fn search(ui: &mut Ui, find: &mut Find) -> Vec<Asked> {
     let field = TextEdit::singleline(&mut find.filter).hint_text("Filter").background_color(fill);
     let field = ui.add(field.desired_width(150.0));
     widgets::name(&field, "Filter the log");
+    if let Some(progress) = view.and_then(|view| find.progress(&view.lines)) {
+        ui.label(RichText::new(progress).size(SMALL).color(theme::palette(ui).text_muted));
+    }
     asked
 }
 

@@ -99,8 +99,7 @@ impl LogTab {
             if let Some(view) = view {
                 sources::show(ui, view, scene.clock);
             }
-            let progress = view.and_then(|view| self.find.progress(&view.lines)).map(|text| (Tone::Muted, text));
-            for (tone, text) in [progress, self.copy.state(), self.note.clone()].into_iter().flatten() {
+            for (tone, text) in [self.copy.state(), self.note.clone()].into_iter().flatten() {
                 ui.label(RichText::new(text).color(tone.color(palette)));
             }
         });
