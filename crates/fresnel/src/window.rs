@@ -12,6 +12,7 @@ use fresnel_ui::{Clock, Shell};
 use crate::boot::Boot;
 use crate::frame;
 use crate::nap::NapGuard;
+use crate::notify;
 
 const TITLE: &str = "Fresnel";
 const SIZE: [f32; 2] = [1280.0, 800.0];
@@ -31,6 +32,7 @@ pub(crate) fn run(boot: &Arc<Boot>) -> Result<(), String> {
     let create = move |creation: &eframe::CreationContext<'_>| {
         let ctx = creation.egui_ctx.clone();
         let shell = Shell::new(&ctx, Clock::system(), &boot.core().tasks());
+        boot.core().set_notifier(notify::notifier());
         boot.core().start(move || ctx.request_repaint());
         Ok(Box::new(Window { shell, boot, nap: NapGuard::default() }) as Box<dyn eframe::App>)
     };

@@ -91,7 +91,11 @@ png = "0.18.1"
 
 # The macOS activity against App Nap. eframe uses these versions too.
 objc2 = "0.6.4"
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSBundle", "NSProcessInfo", "NSString"] }
+# The macOS notification of a failed operation and of a lost cluster, and the block of its
+# answer. The versions of objc2 above.
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationTrigger"] }
+block2 = { version = "0.6.2", default-features = false, features = ["std"] }
 
 # The one lint table. A crate takes it with `[lints] workspace = true`.
 # CI makes each warning an error. `clippy.toml` holds the list for `disallowed_methods`.

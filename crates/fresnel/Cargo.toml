@@ -14,10 +14,12 @@ fresnel-ui.workspace = true
 jiff.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "time"] }
 
-# The activity against App Nap.
+# The activity against App Nap, and the notifications of the system.
 [target.'cfg(target_os = "macos")'.dependencies]
+block2.workspace = true
 objc2.workspace = true
 objc2-foundation.workspace = true
+objc2-user-notifications.workspace = true
 
 [dev-dependencies]
 egui_kittest.workspace = true

@@ -16,6 +16,7 @@
 //! - `watch`: one task for each connected cluster, for the journal and the repaint.
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
 //! - `parts`: what the program gives to the core, and the settings of the core.
+//! - `notices`: the notices of the system for a failed operation and a lost cluster.
 
 mod access;
 mod command;
@@ -28,6 +29,7 @@ mod jobs;
 mod keys;
 mod logs;
 mod manifest;
+mod notices;
 mod objects;
 mod parts;
 mod repaint;
@@ -38,6 +40,7 @@ mod watch;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -55,6 +58,7 @@ pub use health::Health;
 pub use jobs::{JobView, JobsView};
 pub use keys::{KeysView, ReadState, SaveJob};
 pub use manifest::{ManifestRead, ManifestRequest, ManifestState};
+pub use notices::{Notice, Notifier};
 pub use objects::Objects;
 pub use parts::{CoreParts, CoreSettings};
 pub use view::{ClusterRow, CoreView, ShellNote, Startup};
@@ -155,6 +159,10 @@ struct Inner {
     state: Mutex<State>,
     /// Wakes the task of the core for a new command.
     command_sent: Notify,
+    /// The function that shows a notice of the system. `None` before the program gives one.
+    notifier: Mutex<Option<Notifier>>,
+    /// True while the window is hidden: a lost cluster then gives a notice.
+    hidden: AtomicBool,
 }
 
 impl Inner {
@@ -243,6 +251,8 @@ impl Core {
             disposal: OnceLock::new(),
             state: Mutex::new(state),
             command_sent: Notify::new(),
+            notifier: Mutex::new(None),
+            hidden: AtomicBool::new(false),
         };
         Self { inner: Arc::new(inner) }
     }
@@ -271,11 +281,27 @@ impl Core {
             let inner = Arc::clone(inner);
             move || run::run(Arc::clone(&inner))
         });
+        let notices = inner.tasks.start(TaskName::new("notices"), always, {
+            let (inner, memory) = (Arc::clone(inner), Arc::default());
+            move || notices::run(Arc::clone(&inner), Arc::clone(&memory))
+        });
         let mut state = inner.state();
         // A stop on some other thread can come before this line. Then the tasks stop here.
         if state.phase == Phase::Running {
-            state.running = vec![notifier, core];
+            state.running = vec![notifier, core, notices];
         }
+    }
+
+    /// Gives the function that shows a notice of the system: a failed operation, and a
+    /// cluster that stays lost while the window is hidden. The journal has each notice too.
+    pub fn set_notifier(&self, notifier: Notifier) {
+        *self.inner.notifier.lock().unwrap_or_else(PoisonError::into_inner) = Some(notifier);
+    }
+
+    /// Tells the core whether the window is hidden: minimized, or not the window of the
+    /// focus. The window tells each change.
+    pub fn set_window_hidden(&self, hidden: bool) {
+        self.inner.hidden.store(hidden, Ordering::Relaxed);
     }
 
     /// The function that starts each background task of the app. The window gives it to

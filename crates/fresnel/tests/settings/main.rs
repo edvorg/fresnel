@@ -1,6 +1,8 @@
-//! The settings view on the real core, with no window (plan section 12.5): a save writes
-//! the file with its comments, the window takes the new settings, and a change of the file
-//! in an editor reaches the window. A file that does not parse leaves the last settings.
+//! The settings view and the notices on the real core, with no window (plan sections 11.6
+//! and 12.5): a save writes the file with its comments, the window takes the new settings,
+//! and a change of the file in an editor reaches the window. A file that does not parse
+//! leaves the last settings. A failed operation and a cluster that stays lost while the
+//! window is hidden give a notice.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
@@ -9,9 +11,17 @@ mod common;
 #[path = "../common/window.rs"]
 mod window;
 
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
 use eframe::egui;
 use egui::accesskit::Role;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use fresnel_core::app::{Command, Notice};
+use fresnel_core::cluster::ClusterId;
+use fresnel_core::kinds::Kind;
+use fresnel_core::ops::{Operation, Order, Target};
+use fresnel_core::store::ObjectKey;
 use fresnel_testkit::{FakeApiServer, Home};
 use tokio::runtime::{Builder, Runtime};
 
@@ -84,5 +94,64 @@ fn a_save_of_the_settings_view_keeps_the_comments_and_the_window_follows_the_fil
     assert!(shows(&window, "The app uses no setting of the file:"));
     assert!(window.get_by_label("Save the settings").accesskit_node().is_disabled());
     assert!(chip(&window, "ams (read-only)") && window.ctx.theme() == egui::Theme::Light, "the last settings");
+    stop_with_no_ended_task(&window);
+}
+
+/// Tells the window that it lost the focus to some other app, or that it has it again.
+fn set_hidden(window: &mut Window, hidden: bool) {
+    let viewport = window.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default();
+    viewport.focused = Some(!hidden);
+    window.run();
+}
+
+#[test]
+fn a_failed_operation_and_a_cluster_that_stays_lost_while_the_window_is_hidden_give_a_notice() {
+    let runtime: Runtime = Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("a runtime");
+    let home = Home::new("notices", &["kubeconfig.yaml"]).expect("a home folder");
+    // A cluster whose server refuses each connect: it is lost from its first attempts. The
+    // fake server gives only its certificate.
+    let server = runtime.block_on(FakeApiServer::start()).expect("a server");
+    let authority = common::authority(&server);
+    let text = format!(
+        "current-context: gone\nclusters:\n- {{name: gone, cluster: {{server: 'https://127.0.0.1:1', \
+         certificate-authority-data: {authority}}}}}\ncontexts:\n- {{name: gone, context: {{cluster: gone}}}}\n"
+    );
+    home.write("work/kubeconfig.yaml", &text).expect("the kubeconfig");
+    home.write(CONFIG, "version = 1\n[notifications]\nlost_after_secs = 10\n").expect("the settings file");
+    let notices = Arc::new(Mutex::new(Vec::<Notice>::new()));
+    let core = core(&runtime, &home);
+    core.set_notifier({
+        let notices = Arc::clone(&notices);
+        Arc::new(move |notice| notices.lock().expect("the notices").push(notice))
+    });
+    let mut window = window(core, egui::vec2(1280.0, 800.0));
+    let titles = || notices.lock().expect("the notices").iter().map(|notice| notice.title.clone()).collect::<Vec<_>>();
+    until(&mut window, "the lost cluster", |window| shows(window, "gone: no connection"));
+
+    // A job of a cluster that is not connected ends as not sent: a failed operation.
+    let target = Target {
+        cluster: ClusterId::new("elsewhere"),
+        kind: Kind::Pod,
+        key: ObjectKey::new("shop", "web"),
+        uid: "u".into(),
+    };
+    let order = Order::new(target, Operation::Evict).expect("an order");
+    window.state().core.send(Command::Run(vec![order]));
+    until(&mut window, "the notice of the failed operation", |_| titles() == ["Evict failed in elsewhere"]);
+
+    // The window shows the lost cluster: after the time of the settings, no notice.
+    let shown = std::time::Instant::now();
+    while shown.elapsed() < Duration::from_secs(11) {
+        window.run();
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(titles(), ["Evict failed in elsewhere"], "no notice while the window shows the state");
+    set_hidden(&mut window, true);
+    until(&mut window, "the notice of the lost cluster", |_| titles().len() == 2);
+    let lost = titles().pop().expect("a title");
+    assert!(lost.starts_with("gone is lost for "), "{lost}");
+    let body = notices.lock().expect("the notices").last().map(|notice| notice.body.clone()).unwrap_or_default();
+    assert!(body.contains("Connection refused"), "the reason: {body}");
+    set_hidden(&mut window, false);
     stop_with_no_ended_task(&window);
 }
