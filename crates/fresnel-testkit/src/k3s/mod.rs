@@ -148,6 +148,16 @@ impl K3s {
         Ok(path)
     }
 
+    /// A kubeconfig of the cluster admin whose context, cluster and user have the name
+    /// `context` in place of `default`. A test of the app with two clusters gives each one
+    /// a kubeconfig file of its own, and the first file would win the name `default`.
+    pub fn kubeconfig_as(&self, context: &str) -> Result<PathBuf, KitError> {
+        let path = self.files.folder.join(format!("kubeconfig-{context}.yaml"));
+        let text = kubeconfig::with_server(&self.k3s_kubeconfig, self.api)?;
+        kubeconfig::write(&path, &kubeconfig::with_name(&text, context)?)?;
+        Ok(path)
+    }
+
     /// Runs `kubectl` in the container as the cluster admin and gives its output. A test
     /// uses it to change the cluster and to read the state that the app must show.
     pub async fn kubectl(&self, arguments: &[&str]) -> Result<String, KitError> {

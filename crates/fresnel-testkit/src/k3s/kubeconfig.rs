@@ -18,6 +18,22 @@ pub(super) fn with_server(k3s_text: &str, server: SocketAddr) -> Result<String, 
     Ok(k3s_text.replace(K3S_SERVER, &format!("server: https://{server}")))
 }
 
+/// The name of the context, the cluster and the user in the kubeconfig that k3s writes, at
+/// the end of a line.
+const K3S_NAME: &str = ": default\n";
+/// The places of the name: the cluster, the context with its cluster and its user, the
+/// current context, and the user.
+const NAME_PLACES: usize = 6;
+
+/// Gives the kubeconfig text with `name` as the name of its context, cluster and user.
+pub(super) fn with_name(k3s_text: &str, name: &str) -> Result<String, KitError> {
+    let places = k3s_text.matches(K3S_NAME).count();
+    if places != NAME_PLACES {
+        return Err(KitError::new(format!("the kubeconfig of k3s has the name `default` {places} times, not 6")));
+    }
+    Ok(k3s_text.replace(K3S_NAME, &format!(": {name}\n")))
+}
+
 /// Writes the file for its owner only, because it holds the key of the cluster admin.
 pub(super) fn write(path: &Path, text: &str) -> Result<(), KitError> {
     let written = write_private(path, text);
@@ -42,6 +58,15 @@ mod tests {
     fn the_server_line_gets_the_new_address_and_no_other_line_changes() {
         let text = with_server(K3S_TEXT, "127.0.0.1:50123".parse().expect("an address")).expect("a kubeconfig");
         assert_eq!(text, K3S_TEXT.replace("127.0.0.1:6443", "127.0.0.1:50123"));
+    }
+
+    #[test]
+    fn each_place_of_the_name_gets_the_new_name_and_an_other_text_is_an_error() {
+        let text = "clusters:\n- cluster:\n    server: https://127.0.0.1:6443\n  name: default\ncontexts:\n- context:\n    cluster: default\n    user: default\n  name: default\ncurrent-context: default\nusers:\n- name: default\n";
+        let named = with_name(text, "ams").expect("a kubeconfig");
+        assert_eq!(named, text.replace(": default\n", ": ams\n"));
+        assert!(!named.contains("default"), "{named}");
+        assert!(with_name(&text.replace("current-context: default\n", ""), "ams").is_err(), "a place is missing");
     }
 
     #[test]
