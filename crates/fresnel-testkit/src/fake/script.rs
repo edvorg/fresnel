@@ -30,6 +30,7 @@ pub(super) enum FaultAnswer {
     Unauthorized,
     Forbidden,
     NotFound,
+    Unavailable,
     TooManyRequests { retry_after_seconds: u64 },
 }
 
@@ -52,6 +53,12 @@ impl Fault {
     /// The request gets HTTP 404, as from a server that does not serve the kind of the path.
     pub fn not_found() -> Self {
         Self::new(FaultAnswer::NotFound)
+    }
+
+    /// The request gets HTTP 503 with the text of the aggregator of an API server: an
+    /// aggregated API whose backend does not answer, as a metrics-server that is down.
+    pub fn unavailable() -> Self {
+        Self::new(FaultAnswer::Unavailable)
     }
 
     /// The request gets HTTP 429 with the header `Retry-After` in full seconds.
