@@ -41,7 +41,7 @@ fresnel-testkit ------------------------------------------------> fresnel-net
   hook, the runtime and the core, which starts after the window opens; the quit stops its tasks.
 - `fresnel-cli`: the command line program for tests and fault diagnosis: `doctor`, `watch`, `soak`.
 - `fresnel-testkit`: test tools on `fresnel-net`, and the soak harness `fresnel-soak`, a program.
-- `xtask`: the checks, the macOS bundle and the soak. It uses no other crate of the workspace.
+- `xtask`: the checks, the soak, the macOS bundle and the Windows program. It uses no other crate.
 
 ## Borders in the code
 

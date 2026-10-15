@@ -1632,3 +1632,33 @@ A release build for Windows has no console, so the text on stderr of an error be
 such as "fresnel runs already", shows nowhere, and a second start ends with no sign. The program
 shows that text in a message box of the system. Finder starts no second process of an app that
 runs, so macOS needs no dialog. The first window does not come to the front yet.
+
+## Each push to master makes a release
+
+The workflow `release` builds the app for macOS on Apple silicon and the program for Windows x64
+of each push to `master`, checks each zip file, and makes the latest release, with the commits
+since the release before. The 20 newest releases stay. A newer push cancels the builds of an older
+run; the job that publishes has its own group, so a release that has begun ends. The release
+does not wait for CI.
+
+## The version of a release has the run number of its workflow
+
+A release is `0.1.0+build.N`: the workspace version and the run number of the workflow, which grows
+with each run. Its tag is `v0.1.0-build.N`, as a `+` needs an escape in a URL. `cargo xtask` makes
+the version from `FRESNEL_BUILD` and gives its text to the program, which prints it at `--version`,
+to `Info.plist` and to the resource of Windows. One rule thus makes each form, and the workflow
+checks the text of each program.
+
+## The program for Windows gets its icon and version from a resource file of xtask
+
+Explorer and Task Manager show the icon, the name and the version of a program from its resources.
+`cargo xtask windows` writes the resource file, with the icon of the app as PNG images, and gives it
+to the linker of the program alone. A resource compiler, a build script or a crate for this would
+add a tool of the Windows SDK or a dependency to the build.
+
+## A release has no signature of Apple or of Microsoft
+
+A signature of Apple needs a paid developer account and a notarization of each release, and one of
+Microsoft a certificate. The bundle keeps its ad hoc signature, so macOS stops the first start after
+a download in a browser, and SmartScreen of Windows asks at the first start. The README tells the
+way past each.

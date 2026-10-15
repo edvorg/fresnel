@@ -13,14 +13,12 @@ table and a panel for each kind, actions, keys, the Operations tab, metrics, log
 
 ## The app
 
-```sh
-cargo xtask install                   # macOS: builds Fresnel.app and puts it into /Applications
-cargo xtask install --to <folder>     # the same into some other folder
-cargo build --release --package fresnel   # Windows x64 (MSVC): target\release\fresnel.exe
-```
+Each push to `master` makes a GitHub release: `gh release download -R edvorg/fresnel`.
+- macOS: the signature is ad hoc. Run `xattr -dr com.apple.quarantine Fresnel.app` before the first
+  start, or start it once and then use Open Anyway in System Settings, Privacy & Security.
+- Windows: unzip, start `fresnel.exe`; at the first start SmartScreen asks: More info, Run anyway.
 
-The earlier bundle stays as `Fresnel.app.prev`. At its first start, the app selects the current
-context of the kubeconfig files. It keeps the selection and the table layouts in `state.json`.
+The first start selects the current kubeconfig context, and `state.json` keeps it and the layouts.
 
 - A table shows each selected cluster. A row with an open ring is from a cluster that is
   not live: its values are old, and a note above the table gives the reason.
@@ -42,6 +40,8 @@ Install [rustup](https://rustup.rs). The file `rust-toolchain.toml` selects the 
 Linux, the UI tests need the package `mesa-vulkan-drivers`. Windows runs no test of a shell script.
 
 ```sh
+cargo xtask install [--to <folder>]   # macOS: Fresnel.app into /Applications, the earlier as .prev
+cargo xtask windows --to <folder>     # Windows x64: fresnel.exe with its icon and its version
 cargo test --workspace                # unit tests and UI tests, with no cluster
 FRESNEL_SNAPSHOT_DIR=<folder> cargo test --package fresnel-ui   # also PNG files of the views
 cargo test --workspace -- --ignored   # cluster tests, with k3s in Docker

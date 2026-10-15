@@ -145,6 +145,6 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 
 - `README.md` has 80 lines or fewer, `docs/architecture.md` 200 and this file 150. Each
   decision of `docs/decisions.md` has one paragraph of 80 words or fewer, changed with it.
-- Commit in small steps. The message says what changed and why, in plain words. For now,
-  changes go directly to `master`. Push seldom, and only when the five checks pass. Test a change
-  of a workflow of CI on a branch `ci/<topic>`, and remove the branch after.
+- Commit in small steps. The message says what changed and why, in plain words. For now, changes
+  go directly to `master`. Each push there makes a release, so push seldom, and only when the five
+  checks pass. Test a change of a workflow on a branch `ci/<topic>`, and remove the branch after.
