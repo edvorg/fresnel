@@ -11,16 +11,20 @@ use crate::shell::Scene;
 use crate::theme::{self, Palette, ROW_HEIGHT, SMALL};
 use crate::views::detail::actions;
 use crate::views::objects::{Link, old_text};
+use crate::widgets;
 
 /// The height of the list. More rows scroll.
 const HEIGHT: f32 = 360.0;
 /// The places of the columns of a row: cluster, kind, namespace and name. The name takes
-/// the rest of the row, and the mark of an old store its right end.
+/// the rest of the row, and the mark of an old store its right end. A name of a pod has
+/// near 30 characters: with the mark, the name has the most room.
 const CLUSTER: f32 = 22.0;
-const KIND: f32 = 170.0;
-const NAMESPACE: f32 = 320.0;
-const NAME: f32 = 470.0;
+const KIND: f32 = 110.0;
+const NAMESPACE: f32 = 230.0;
+const NAME: f32 = 350.0;
 const MARK: f32 = 150.0;
+/// The room between a text and the next column.
+const GAP: f32 = 8.0;
 
 /// One row of the list.
 pub(super) enum Row {
@@ -132,13 +136,11 @@ fn draw(ui: &mut Ui, palette: &Palette, scene: &Scene<'_>, row: &Row, is_cursor:
     response
 }
 
-/// Paints a text from the place `from` of the row, cut at the place `to`.
+/// Paints a text from the place `from` of the row, cut with "…" before the place `to`.
 fn text(ui: &Ui, row: Rect, (from, to): (f32, f32), text: &str, font: &FontId, color: Color32) {
-    let galley = ui.painter().layout_no_wrap(text.to_owned(), font.clone(), color);
-    let left = row.left() + from;
-    let clip = Rect::from_x_y_ranges(left..=(row.left() + to - 8.0).max(left), row.y_range());
-    let pos = egui::pos2(left, row.center().y - galley.size().y / 2.0);
-    ui.painter().with_clip_rect(clip.intersect(ui.clip_rect())).galley(pos, galley, color);
+    let galley = widgets::one_line(ui, text, font.clone(), color, to - from - GAP);
+    let pos = egui::pos2(row.left() + from, row.center().y - galley.size().y / 2.0);
+    ui.painter().galley(pos, galley, color);
 }
 
 /// The words of a hit for a screen reader: `Secret kinds/web-secret of ams-prod`, and the

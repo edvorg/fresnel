@@ -6,9 +6,20 @@ pub(crate) mod table;
 pub(crate) mod tone;
 pub(crate) mod worker;
 
-use egui::{Color32, Sense, Ui};
+use std::sync::Arc;
+
+use egui::text::{LayoutJob, TextWrapping};
+use egui::{Color32, FontId, Galley, Sense, Ui};
 
 use crate::theme::Palette;
+
+/// A text on one line that ends with "…" where it is wider than `width`. A cut with no
+/// mark makes a part of a name look like the whole name: three pods with one name.
+pub(crate) fn one_line(ui: &Ui, text: &str, font: FontId, color: Color32, width: f32) -> Arc<Galley> {
+    let mut job = LayoutJob::simple_singleline(text.to_owned(), font, color);
+    job.wrap = TextWrapping::truncate_at_width(width.max(0.0));
+    ui.painter().layout_job(job)
+}
 
 /// A filled circle that aligns with the text: the mark of a state.
 pub(crate) fn dot(ui: &mut Ui, color: Color32) {

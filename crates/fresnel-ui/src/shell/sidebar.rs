@@ -139,11 +139,10 @@ fn entry(
     let color = if selected { palette.text } else { palette.text_muted };
     let font = TextStyle::Body.resolve(ui.style());
     let room = (rect.width() - 18.0 - count_width - 8.0).max(0.0);
-    let galley = painter.layout(title.to_owned(), font, color, f32::INFINITY);
-    let cut = galley.size().x > room;
+    let galley = crate::widgets::one_line(ui, title, font, color, room);
+    let cut = galley.elided;
     let left = rect.left_center() + egui::vec2(10.0, -galley.size().y / 2.0);
-    let clip = egui::Rect::from_min_size(rect.min, egui::vec2(10.0 + room, rect.height()));
-    ui.painter().with_clip_rect(clip.intersect(ui.clip_rect())).galley(left, galley, color);
+    ui.painter().galley(left, galley, color);
     match count.filter(|count| !count.current) {
         Some(_) => {
             response.on_hover_text(format!("{title}: the count can be old or not complete. The page tells why."))
