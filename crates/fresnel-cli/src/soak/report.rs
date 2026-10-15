@@ -191,3 +191,93 @@ fn line(text: &mut String, minute: &Minute) {
         ));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::super::check::Gap;
+    use super::super::logs::LogCounts;
+    use super::*;
+
+    const MIB_BYTES: usize = 1024 * 1024;
+
+    fn report(warm_up: u64) -> Report {
+        let options = Options {
+            context: "k3s".to_owned(),
+            kubeconfig: vec![PathBuf::from("/k")],
+            compare: Vec::new(),
+            report: PathBuf::from("/r"),
+            minutes: 60,
+            log: None,
+            memory_limit_mib: 64,
+            warm_up,
+            faults: None,
+        };
+        Report::new(&options, "2027-01-15T08:00:00Z".to_owned())
+    }
+
+    fn minute(number: u64, heap_mib: usize) -> Minute {
+        Minute {
+            minute: number,
+            time: String::new(),
+            heap_bytes: heap_mib * MIB_BYTES,
+            descriptors: None,
+            health: "Live".to_owned(),
+            open_connections: 3,
+            opened_connections: 3,
+            stores_live: 39,
+            stores_not_live: Vec::new(),
+            checks: 234,
+            lag_median_ms: 0,
+            lag_max_ms: 12,
+            gaps: Vec::new(),
+            failed_lists: Default::default(),
+            metrics: None,
+            log: Some(LogCounts { lines: 120, ..LogCounts::default() }),
+            log_sources: Vec::new(),
+            warnings: 0,
+            errors: 0,
+            faults: Vec::new(),
+        }
+    }
+
+    fn gap(without_state: bool) -> Gap {
+        let states = vec!["waits for a connection".to_owned()];
+        let reason = "ns/a is not in the store".to_owned();
+        Gap { kind: "Pod", seconds: 30.0, live_seconds: 14.0, without_state, states, reason, open: false }
+    }
+
+    #[test]
+    fn a_soak_with_visible_gaps_and_a_heap_inside_its_limit_passes() {
+        let mut report = report(2);
+        report.minutes = vec![minute(1, 200), minute(2, 10), minute(3, 70), minute(4, 40)];
+        report.minutes[2].gaps.push(gap(false));
+        report.minutes[2].faults.push("a break of the network of 30 s".to_owned());
+        report.judge();
+        let verdict = &report.verdict;
+        assert!(verdict.passed, "{:?}", verdict.reasons);
+        assert_eq!((verdict.gaps, verdict.gaps_without_state, verdict.faults), (1, 0, 1));
+        assert_eq!(verdict.heap_growth_bytes, Some(60 * 1024 * 1024), "from the end of the warm-up, not the start");
+        assert!(report.text().contains("gap of Pod: 30.0 s, live and behind 14.0 s (visible)"), "{}", report.text());
+    }
+
+    #[test]
+    fn a_gap_with_no_visible_state_a_growth_over_the_limit_and_a_lost_line_each_fail_the_soak() {
+        let mut report = report(1);
+        report.minutes = vec![minute(1, 10), minute(2, 75)];
+        report.minutes[1].gaps.push(gap(true));
+        report.minutes[1].log = Some(LogCounts { lost: 3, ..LogCounts::default() });
+        report.problems.push("task soak check Pod failed".to_owned());
+        report.judge();
+        assert!(!report.verdict.passed);
+        let reasons = [
+            "1 gaps: a store showed \"live\" and was behind for more than 20 s",
+            "the heap grew by 65.0 MiB after the warm-up; the limit is 64 MiB",
+            "3 log lines did not come",
+            "task soak check Pod failed",
+        ];
+        assert_eq!(report.verdict.reasons, reasons);
+        assert!(report.text().starts_with("soak of k3s from 2027-01-15T08:00:00Z: 2 of 60 minutes\nFAIL: 1 gaps"));
+    }
+}
