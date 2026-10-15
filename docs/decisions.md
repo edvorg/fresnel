@@ -1375,3 +1375,36 @@ The server selects the pods of the node by a field selector. A server or a proxy
 gives each pod of the cluster, and the drain would evict them all, so the job checks the node of
 each pod first. After the cordon, no end of a drain is "not sent". A pod whose eviction the server
 took stays "terminating" after a cancel: it goes by itself.
+
+## The log pane has its own rows and its own scroll position
+
+The scroll area of egui needs the height of each row and adds them in an `f32`, which is not
+exact past some 400,000 rows, and its label selection knows only the rows on the screen. The
+pane keeps a line and a row of it as its position, lays out the rows on the screen only, and has
+its own selection by line and byte. A frame with 200,000 lines took 1 ms or less.
+
+## A row of the pane is a node of the accessibility tree
+
+The pane paints its text itself, so a screen reader would read nothing there. Each row on the
+screen gets a node with the role of a list item and the text of the row, with its place: egui
+gives a place only to a widget that takes the focus. The view tests read the rows in that way.
+
+## A save of a log goes to the folder of downloads, with no dialog
+
+A dialog of the system needs one more crate and a window, which no test can drive. The core
+writes each save into `~/Downloads` as a new file with the cluster, the object, the part and the
+time in its name, and never over a file that exists. The tab shows the path, the size and a
+cancel, which removes the part that was written.
+
+## The search of a log ignores the case until the text has a capital letter
+
+One field and no switch: a text in small letters ignores the case of ASCII letters, and a text
+with a capital letter keeps it, as `less` and ripgrep do. The search and the filter read the text
+with no escape sequence on the worker thread of the tab, in parts of 20,000 lines, so the count
+grows while a frame stays short.
+
+## The dock with a log view has a height of its own
+
+A log needs rows, and the tab has a bar of two rows and the state of each source. The dock with a
+log tab is a second panel with its own default height of 380 points, which keeps the height that
+the user gives it. The other tabs keep the dock of 170 points.

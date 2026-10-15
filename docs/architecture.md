@@ -1,7 +1,6 @@
 # Architecture
 
-This page gives the structure of fresnel, [decisions.md](decisions.md) the reasons, and
-[CONTRIBUTING.md](../CONTRIBUTING.md) the rules, which the lints and `cargo xtask` check.
+[decisions.md](decisions.md) gives the reasons, [CONTRIBUTING.md](../CONTRIBUTING.md) the rules.
 
 ## Terms
 
@@ -12,8 +11,7 @@ holds; it does not change. **Task**: one background activity with a visible stat
 
 ## Design rules (they have priority over features)
 
-1. Each task has an explicit state, and the UI shows it. A task that ends or panics gets a
-   final state, a journal entry and a restart.
+1. A task has a state in the UI. An end or a panic gives a final state, an entry and a restart.
 2. Each request has a time limit. A data stream of the user has no limit on its progress.
 3. The app opens few TCP connections. Each new connection uses the hedged connect.
 4. Each view shows how fresh its data is.
@@ -99,8 +97,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Keys** (`keys`): one Secret or ConfigMap with each value, as text or as size and type. A
   `Draft` saves a merge patch of its changed keys with the version of its read, so no other key
   changes, and HTTP 409 is a conflict. The core follows the object of the open key view.
-- **Logs** (`logs`): a session for each view of `ShowLogs` in its cluster runs a source for each
-  container; a new stream starts at the second of its latest line, with a marker (`logs/mod.rs`).
+- **Logs** (`logs`): a session for each view of `ShowLogs` runs a source for each container, whose
+  new stream starts at the second of its latest line with a marker; `SaveLog` writes a new file.
 - **Operations** (`ops`): a function builds each request of plan section 10, with a unit test
   of its URL and body. An `Order` is a job in its own task, with steps and a state, not two at
   once. A write goes out one time; an unknown result gets a read of the object. A cancel or a
@@ -146,10 +144,10 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 ## Contract between the UI and the core
 
-1. **State.** `Core::view` gives a copy of each state: the clusters with their connections; of
-   each connected cluster the Pods, the indexes, the snapshot of each store, the full objects of
-   each kind that `ShowKinds` names, the key view, the permissions, the metrics and the log views;
-   the settings; the last manifest read and create of a Secret, the jobs, the journal. No lock.
+1. **State.** `Core::view` gives a copy of each state, with no lock: the clusters and their
+   connections; of each connected cluster the Pods, the indexes, the snapshots, the full objects
+   of the kinds of `ShowKinds`, the key view, the permissions, the metrics, the logs and their
+   saves; the settings, the last manifest read and create of a Secret, the jobs and the journal.
 2. **Commands.** A view returns a `Command`, and the task of the core runs it.
 3. **Workers.** A view computes its rows on a worker thread: see "Window".
 4. **Repaint.** A new snapshot, index, poll or log view asks for a repaint. One notifier limits
@@ -159,7 +157,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 ## Window
 
 `fresnel_ui::Shell` draws a frame from a `CoreView`: top bar, sidebar, the page of one kind, the
-dock (Operations, Journal, Connections) and status bar. `ShowKinds` names the kinds of the page.
+dock (Operations, Journal, Connections, a tab for each log view) and status bar.
 
 - **Table**: `widgets/table.rs` wraps `egui_table`. A kind gives a `Model`: columns, rows,
   their sequence and cells. The cursor and the selection hold objects (cluster, name, UID).
@@ -181,6 +179,8 @@ dock (Operations, Journal, Connections) and status bar. `ShowKinds` names the ki
   edits a `Draft` behind the gate of "Edit keys": a hidden value until "Show", add, remove, the
   diff in a dialog before a save, a choice for each conflict. The New Secret dialog is `new-secret`.
 - **Metrics** (`views/metrics`): CPU and Memory columns with bars, a tab with `egui_plot` charts.
+- **Logs** (`views/logs`): the tab of a view (`ShowLogs`), its options, the state of each source,
+  a search and a filter on a worker; the pane has its own rows, scroll and selection (`pane`).
 
 ## Tests
 

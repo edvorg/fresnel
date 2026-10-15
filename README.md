@@ -9,9 +9,9 @@ that looks current.
 Milestones M0 to M4 are complete; the work is in M6 (metrics), M7 (other kinds) and M9 (logs).
 The repository has CI, the test kit, `fresnel-net`, `fresnel-core` (kubeconfig, gateway, app
 core, journal, state and settings files, 41 kinds, watch loop, stores, indexes, manifest, quick
-search, command table, keys, operations as jobs, permissions, metrics, log streams), `doctor`,
-`watch` and the window: a live table and a panel with the sections of each kind in scope, workload
-actions, a node drain, the keys of Secrets and ConfigMaps, the Operations tab, CPU and memory.
+search, command table, keys, operations as jobs, permissions, metrics, logs), `doctor`, `watch`
+and the window: a live table and a panel with the sections of each kind in scope, workload
+actions, a node drain, the keys of Secrets and ConfigMaps, the Operations tab, CPU, memory, logs.
 
 ## The app
 
@@ -26,12 +26,13 @@ keeps the selection and the widths and columns of each table in `state.json`.
 
 - A table shows each selected cluster. A row with an open ring is from a cluster that is
   not live: its values are old, and a note above the table gives the reason.
-- Cmd+K opens the quick search of each kind of each selected cluster, Cmd+Shift+N a new Secret.
-  Cmd+[ and Cmd+] go back and forward. A right click lists the actions of a row; a change asks.
+- Cmd+K opens the quick search of each kind of each selected cluster, Cmd+Shift+N a new Secret,
+  Cmd+Shift+L the logs of the panel. Cmd+[ and Cmd+] go back and forward. A right click lists the
+  actions of a row; a change asks.
 - Settings folder: `~/Library/Application Support/fresnel`. A debug build uses `fresnel-debug`.
   Its `config.toml` has `version = 1` and `[shortcuts]`: `back = "Alt+Left"`, `filter = ""`
   (`commands::TABLE` has each name). The journal tells each problem with its line and column.
-- Log folder: `~/Library/Logs/fresnel`, with `fresnel.log` and a report file for each panic.
+- Log folder: `~/Library/Logs/fresnel` (`fresnel.log`, panic reports). Saved logs: `~/Downloads`.
 - Only one process runs. `cargo run --package fresnel` starts a debug build next to the app.
 
 ## Build and test
@@ -55,8 +56,7 @@ Each command runs the code of the app and changes nothing in a cluster. With no 
 command lists the contexts and connects to nothing.
 
 ```sh
-cargo run --package fresnel-cli -- doctor --context <name>   # measures one cluster
-cargo run --package fresnel-cli -- doctor --all --idle-close 150
+cargo run --package fresnel-cli -- doctor --context <name>   # one cluster; --all: each one
 cargo run --package fresnel-cli -- watch --context <name>    # the stores of one cluster
 ```
 
