@@ -4,10 +4,11 @@
 //! - `pods`: the table and the sections of the Pods. `detail`: the detail panel.
 //! - `keys`: the keys of a Secret or a ConfigMap, and the dialog of a new Secret.
 //! - `workloads`: the sections of the workloads. `pod_spec`: the containers and volumes.
-//! - `config`, `network`: the sections of the kinds of these groups.
+//! - `config`, `network`, `access`: the sections of the kinds of these groups.
 //! - `act`: the actions on objects and their dialogs. `operations`: the jobs of the core.
 //! - `connections`, `journal`: the pages of the app itself. `search`: the quick search.
 
+pub(crate) mod access;
 pub(crate) mod act;
 pub(crate) mod config;
 pub(crate) mod connections;

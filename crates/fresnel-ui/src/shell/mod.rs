@@ -38,6 +38,7 @@ use sidebar::Page;
 
 use crate::format::Clock;
 use crate::theme::{self, ClusterColors};
+use crate::views::detail::sections;
 use crate::views::journal::JournalTab;
 use crate::views::keys::new_secret::NewSecretDialog;
 use crate::views::objects::{self, Link};
@@ -235,14 +236,13 @@ impl Shell {
     }
 
     /// The command that names the kind of the open page to the core, when it changed. The
-    /// core holds the store of its full objects; the Pods need none. The Connections page
-    /// keeps the store of the page before it, which shows again at once.
+    /// core holds the store of its full objects and of the kinds that its panel reads too;
+    /// the Pods need none. The Connections page keeps the stores of the page before it,
+    /// which shows again at once.
     fn show_kinds(&mut self) -> Option<Command> {
         let wanted = match self.page {
             Page::Kind(Kind::Pod) => BTreeSet::new(),
-            // The panel of a CronJob shows the state of each of its Jobs.
-            Page::Kind(Kind::CronJob) => BTreeSet::from([Kind::CronJob, Kind::Job]),
-            Page::Kind(kind) => BTreeSet::from([kind]),
+            Page::Kind(kind) => std::iter::once(kind).chain(sections::also_shown(kind).iter().copied()).collect(),
             Page::Connections => return None,
         };
         if wanted == self.shown {

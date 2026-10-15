@@ -4,6 +4,7 @@
 //!
 //! A kind has two places: its details after the metadata, and its parts after the related
 //! objects, such as the containers, the volumes, the revisions or the Jobs of a CronJob.
+//! A section that reads the full objects of an other kind names that kind in `also_shown`.
 
 use std::any::Any;
 use std::borrow::Cow;
@@ -22,7 +23,7 @@ use crate::theme::Palette;
 use crate::views::act::Ask;
 use crate::views::objects::Link;
 use crate::views::pod_spec::Place;
-use crate::views::{config, network, pods, workloads};
+use crate::views::{access, config, network, pods, workloads};
 use crate::widgets::table::model::ObjectId;
 
 /// What a section of a kind reads besides its object.
@@ -124,6 +125,13 @@ pub(super) fn details<K: Describe>(ui: &mut Ui, cx: &Context<'_>, object: &K) ->
         Kind::ValidatingWebhookConfiguration => {
             of(object).and_then(|hooks| config::webhooks::validating(ui, cx, hooks))
         }
+        Kind::ServiceAccount => of(object).and_then(|account| access::account::details(ui, cx, account)),
+        Kind::Role => of(object).and_then(|role| access::rules::role(ui, cx, role)),
+        Kind::ClusterRole => of(object).and_then(|role| access::rules::cluster_role(ui, cx, role)),
+        Kind::RoleBinding => of(object).and_then(|binding| access::bindings::role_binding(ui, cx, binding)),
+        Kind::ClusterRoleBinding => {
+            of(object).and_then(|binding| access::bindings::cluster_role_binding(ui, cx, binding))
+        }
         _ => None,
     };
     link.map(Pick::Open)
@@ -143,7 +151,19 @@ pub(super) fn parts<K: Describe>(ui: &mut Ui, cx: &Context<'_>, object: &K) -> O
         Kind::Job => of::<Job, K>(object).and_then(|job| workloads::job::parts(ui, cx, job)),
         Kind::CronJob => of::<CronJob, K>(object).and_then(|job| workloads::cron_job::parts(ui, cx, job)),
         Kind::Service => network::service::parts(ui, cx).map(Pick::Open),
+        Kind::ServiceAccount => access::account::parts(ui, cx).map(Pick::Open),
         _ => None,
+    }
+}
+
+/// The kinds whose full objects the sections of a kind read besides the objects of the kind
+/// itself: the page of the kind names them to the core (`Command::ShowKinds`).
+pub(crate) fn also_shown(kind: Kind) -> &'static [Kind] {
+    match kind {
+        // The last runs of a CronJob show the state of each of its Jobs.
+        Kind::CronJob => &[Kind::Job],
+        Kind::ServiceAccount => &[Kind::RoleBinding, Kind::ClusterRoleBinding],
+        _ => &[],
     }
 }
 
