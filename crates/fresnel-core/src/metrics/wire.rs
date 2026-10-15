@@ -5,7 +5,7 @@
 //! other items stay. An item with no value of CPU or memory has no sample: a value that is
 //! not there is not zero.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -94,6 +94,7 @@ pub(crate) struct Read<T> {
 
 /// The PodMetrics of a list.
 pub(crate) fn pods(list: RawList) -> Read<PodSample> {
+    let mut keys = BTreeSet::new();
     read(list, |item| {
         let key = ObjectKey::new(item.metadata.namespace.as_deref().unwrap_or_default(), &named(&item.metadata)?);
         let at = at(&item)?;
@@ -108,26 +109,30 @@ pub(crate) fn pods(list: RawList) -> Read<PodSample> {
             Ok::<_, String>((Arc::from(name), usage))
         };
         let containers = item.containers.iter().map(usage).collect::<Result<_, _>>()?;
+        once(&mut keys, key.clone(), || format!("the pod {}", key.name))?;
         Ok(PodSample { key, at, window: window(&item), containers })
     })
 }
 
 /// The NodeMetrics of a list.
 pub(crate) fn nodes(list: RawList) -> Read<NodeSample> {
+    let mut names = BTreeSet::new();
     read(list, |item| {
         let name = named(&item.metadata)?;
         let usage = amount(&item.usage).map_err(|why| format!("the node {name}: {why}"))?;
-        Ok(NodeSample { at: at(&item)?, window: window(&item), usage, name: name.into() })
+        let at = at(&item)?;
+        once(&mut names, name.clone(), || format!("the node {name}"))?;
+        Ok(NodeSample { at, window: window(&item), usage, name: name.into() })
     })
 }
 
 /// Reads each item with `one`. An item that is no JSON object of the API is unread too.
-fn read<T>(list: RawList, one: impl Fn(Item) -> Result<T, String>) -> Read<T> {
+fn read<T>(list: RawList, mut one: impl FnMut(Item) -> Result<T, String>) -> Read<T> {
     let mut read = Read { items: Vec::with_capacity(list.items.len()), unread: 0, problem: None };
     for value in list.items {
         // The text of the JSON reader can hold a value of the item, so the reason has none.
         let item = serde_json::from_value(value).map_err(|_| "an item does not fit the API".to_owned());
-        match item.and_then(&one) {
+        match item.and_then(&mut one) {
             Ok(sample) => read.items.push(sample),
             Err(why) => {
                 read.unread += 1;
@@ -136,6 +141,12 @@ fn read<T>(list: RawList, one: impl Fn(Item) -> Result<T, String>) -> Read<T> {
         }
     }
     read
+}
+
+/// An error for a second item of an object in one list: the sums would count it twice. The
+/// first item stays, because no rule tells which of the two is right.
+fn once<K: Ord>(keys: &mut BTreeSet<K>, key: K, object: impl FnOnce() -> String) -> Result<(), String> {
+    if keys.insert(key) { Ok(()) } else { Err(format!("{} comes twice", object())) }
 }
 
 fn named(meta: &Meta) -> Result<String, String> {

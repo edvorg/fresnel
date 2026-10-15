@@ -58,11 +58,11 @@ fn a_list_of_nodes_gives_the_usage_of_each_node() {
 /// `k8s-metrics` fails the whole list for one of these items (research 11 section 7.2).
 #[test]
 fn an_item_that_does_not_fit_is_counted_with_its_reason_and_the_other_items_stay() {
-    let good = || pod_item("good", json!([{ "name": "app", "usage": { "cpu": "1m", "memory": "1Mi" } }]));
+    let good = |name| pod_item(name, json!([{ "name": "app", "usage": { "cpu": "1m", "memory": "1Mi" } }]));
     let no_memory = pod_item("no-memory", json!([{ "name": "app", "usage": { "cpu": "1m" } }]));
-    let mut no_time = good();
+    let mut no_time = good("no-time");
     no_time["timestamp"] = json!("yesterday");
-    let mut no_window = good();
+    let mut no_window = good("no-window");
     no_window["window"] = json!("a while");
     let cases = [
         (no_memory, "the container app of no-memory: no memory"),
@@ -81,7 +81,7 @@ fn an_item_that_does_not_fit_is_counted_with_its_reason_and_the_other_items_stay
         (json!("a text"), "an item does not fit the API"),
     ];
     for (item, problem) in cases {
-        let read = pods(list(json!([good(), item, good()])));
+        let read = pods(list(json!([good("good-1"), item, good("good-2")])));
         assert_eq!((read.items.len(), read.unread, read.problem.as_deref()), (2, 1, Some(problem)));
     }
     // A window is only a hint of the resolution: a bad one costs the sample nothing.
@@ -89,6 +89,20 @@ fn an_item_that_does_not_fit_is_counted_with_its_reason_and_the_other_items_stay
     assert_eq!((read.items.len(), read.items[0].window, read.unread), (1, None, 0));
     let two = pods(list(json!([pod_item("a", json!([])), pod_item("b", json!([]))])));
     assert_eq!((two.unread, two.problem.as_deref()), (2, Some("the pod a has no namespace or no container")));
+}
+
+/// Bad data of a server: a second item of the same object would count twice in each sum.
+#[test]
+fn a_second_item_of_the_same_object_is_unread_and_the_first_stays() {
+    let web = |cpu: &str| pod_item("web", json!([{ "name": "app", "usage": { "cpu": cpu, "memory": "1Mi" } }]));
+    let read = pods(list(json!([web("1m"), pod_item("other", json!([])), web("2m")])));
+    let first = read.items.iter().map(|pod| pod.usage().cpu).collect::<Vec<_>>();
+    assert_eq!((first, read.unread), (vec![1_000_000], 2));
+    assert_eq!(read.problem.as_deref(), Some("the pod other has no namespace or no container"), "the first reason");
+    let node = json!({ "metadata": { "name": "node-a" }, "timestamp": "2026-10-15T10:00:05Z",
+        "usage": { "cpu": "1", "memory": "1" } });
+    let read = nodes(list(json!([node.clone(), node])));
+    assert_eq!((read.items.len(), read.unread, read.problem.as_deref()), (1, 1, Some("the node node-a comes twice")));
 }
 
 #[test]
