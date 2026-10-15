@@ -267,9 +267,11 @@ impl Inner {
         // core keeps none: their tasks would hold the connections open.
         let old = match running.filter(|_| state.phase != Phase::Stopped) {
             Some(mut running) => {
-                // The views can show other kinds and an other key view since the start of the stores.
+                // The views can show other kinds, an other key view and other logs since the
+                // start of the stores.
                 running.show(&state.shown);
                 running.show_keys(self, state.keys.as_ref());
+                running.show_logs(&state.logs);
                 state.connected.insert(id.clone(), running)
             }
             None => state.connected.remove(id),

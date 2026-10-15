@@ -11,6 +11,7 @@
 //! - `data`: the stores and the indexes of each connected cluster. `objects`: the full
 //!   objects of the kinds that the views show. `manifest`: the read of one manifest.
 //! - `keys`: the object of the key view and its saves. `create`: the create of a Secret.
+//! - `logs`: the log views, one session for each in the cluster of its object.
 //! - `jobs`: the jobs of the operations. `access`: the permissions of the user.
 //! - `watch`: one task for each connected cluster, for the journal and the repaint.
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
@@ -23,6 +24,7 @@ mod data;
 mod health;
 mod jobs;
 mod keys;
+mod logs;
 mod manifest;
 mod objects;
 mod repaint;
@@ -59,6 +61,7 @@ use crate::config::Config;
 use crate::journal::Journal;
 use crate::keys::Target;
 use crate::kinds::Kind;
+use crate::logs::{LogRequest, LogSettings};
 use crate::metrics::MetricsSettings;
 use crate::published::Disposal;
 use crate::state_file::TableLayout;
@@ -84,6 +87,8 @@ pub struct CoreSettings {
     pub stores: StoreSettings,
     /// The metrics sampler of each cluster.
     pub metrics: MetricsSettings,
+    /// The log views.
+    pub logs: LogSettings,
     /// The wake detector and the network detector look each time this period ends.
     pub detect_period: Duration,
     /// The most repaints in one second that the core asks the UI for.
@@ -97,6 +102,7 @@ impl Default for CoreSettings {
             net: NetSettings::default(),
             stores: StoreSettings::default(),
             metrics: MetricsSettings::default(),
+            logs: LogSettings::default(),
             detect_period: Duration::from_secs(2),
             repaints_per_second: 60,
         }
@@ -158,6 +164,8 @@ struct State {
     manifests: Option<ManifestReader>,
     /// The object of the key view, which the core follows while the view is open.
     keys: Option<Target>,
+    /// The log views that the UI shows.
+    logs: Vec<LogRequest>,
     /// The number of the last save of the key view.
     saves: u64,
     /// The task of the creates of Secrets. It starts with the first create.
@@ -224,6 +232,7 @@ impl Core {
             shown: BTreeSet::new(),
             manifests: None,
             keys: None,
+            logs: Vec::new(),
             saves: 0,
             creates: None,
             jobs: jobs::Jobs::default(),

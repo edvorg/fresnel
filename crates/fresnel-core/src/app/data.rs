@@ -7,17 +7,17 @@
 use std::any::Any;
 use std::collections::BTreeSet;
 use std::fmt;
-use std::pin::pin;
 use std::sync::Arc;
 
 use fresnel_net::WallClock;
 use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName};
-use futures_util::future::select;
+use futures_util::future::select_all;
 use k8s_openapi::api::core::v1::Pod;
 
 use super::access::{AccessView, ClusterAccess};
 use super::jobs::ClusterParts;
 use super::keys::{ClusterKeys, KeysHolder, KeysView};
+use super::logs::ClusterLogs;
 use super::objects::{Objects, ShownKinds};
 use super::repaint::Repaint;
 use super::{Inner, watch};
@@ -26,6 +26,7 @@ use crate::error::CoreError;
 use crate::index::{ClusterIndexes, Index, IndexParts, ObjectEvents, Owners, References};
 use crate::keys::Target;
 use crate::kinds::{Describe, Kind};
+use crate::logs::{LogRequest, LogView, SessionParts};
 use crate::metrics::{Inputs, Metrics, Sampler, SamplerParts};
 use crate::ops::{Cancel, Parts};
 use crate::published::{Changes, Disposal, Held, Notice, Reader};
@@ -58,6 +59,8 @@ pub struct ClusterData {
     pub access: Arc<AccessView>,
     /// The metrics: the state of each poll store, the history and the requests on each node.
     pub metrics: Held<Metrics>,
+    /// The log views of objects of this cluster (`Command::ShowLogs`).
+    pub logs: Arc<[Held<LogView>]>,
 }
 
 impl ClusterData {
@@ -96,6 +99,7 @@ impl fmt::Debug for ClusterData {
             .field("pod_store", &self.pods.state)
             .field("events", &self.events.as_ref().map(|index| &index.state))
             .field("objects", &self.objects)
+            .field("logs", &self.logs.len())
             .finish_non_exhaustive()
     }
 }
@@ -107,6 +111,7 @@ impl fmt::Debug for ClusterData {
 /// before the stores that they read, and the state watch goes last, because it holds the
 /// connections of the cluster open.
 pub(super) struct Connected {
+    logs: ClusterLogs,
     keys: ClusterKeys,
     access: ClusterAccess,
     gateway: Gateway,
@@ -137,17 +142,31 @@ impl Connected {
         let pods = stores.full::<Pod>().ok_or_else(absent)?;
         let notice = Notice::new();
         let settings = inner.settings.metrics.clone();
-        let parts = SamplerParts { settings, bin, notice: notice.clone(), clock: WallClock::system() };
+        let parts = SamplerParts { settings, bin: bin.clone(), notice: notice.clone(), clock: WallClock::system() };
         let sampler = Sampler::start(tasks, link.gateway.clone(), Inputs::of(&stores, &indexes)?, parts);
         let always = Restart::Always(Backoff::default());
+        let logs = Notice::new();
         let data_watch = tasks.start(TaskName::scoped("data watch", id.as_str()), always, {
-            let (stores, indexes, repaint) = (stores.notice(), indexes.notice(), inner.repaint.clone());
-            move || follow([stores.changes(), indexes.changes(), notice.changes()], repaint.clone())
+            let notices = [stores.notice(), indexes.notice(), notice, logs.clone()];
+            let repaint = inner.repaint.clone();
+            move || follow(notices.iter().map(Notice::changes).collect(), repaint.clone())
         });
+        let log_parts = SessionParts {
+            tasks: tasks.clone(),
+            pods: pods.clone(),
+            owners: indexes.owners(),
+            signal: link.net.signal(),
+            clock: WallClock::system(),
+            settings: inner.settings.logs.clone(),
+            restart: inner.settings.stores.restart,
+            bin,
+            notice: logs,
+        };
         let state_watch = watch::start(tasks, id, link.net.clone(), inner.journal.clone(), inner.repaint.clone());
         let mut shown_kinds = ShownKinds::default();
         shown_kinds.set(&stores, shown);
         Ok(Self {
+            logs: ClusterLogs::new(log_parts, link.gateway.clone()),
             keys: ClusterKeys::default(),
             access: ClusterAccess::start(tasks, id, link.gateway.clone(), inner.repaint.clone()),
             gateway: link.gateway.clone(),
@@ -178,6 +197,11 @@ impl Connected {
         self.keys.show(target, |target| {
             KeysHolder::start(inner, target.clone(), gateway.clone(), stores.metadata(target.kind.kind()))
         });
+    }
+
+    /// Runs the log views of objects of this cluster, and stops the others.
+    pub(super) fn show_logs(&mut self, requests: &[LogRequest]) {
+        self.logs.show(requests);
     }
 
     /// The holder of the object of the key view, when it is the object of `target`.
@@ -219,17 +243,18 @@ impl Connected {
             keys: self.keys.view(),
             access: self.access.view(),
             metrics: self.metrics.read(),
+            logs: self.logs.views(),
         }
     }
 }
 
 /// Asks the UI for a repaint for each new snapshot of a store, each new value of an index
-/// and each poll of the metrics: the sidebar shows the count of each store, and a table the
-/// objects of its kind. The notifier of the repaints limits their rate.
-async fn follow([mut stores, mut indexes, mut metrics]: [Changes; 3], repaint: Repaint) -> Result<(), CoreError> {
+/// each poll of the metrics and each new value of a log view: the sidebar shows the count of
+/// each store, and a table the objects of its kind. The notifier limits the rate.
+async fn follow(mut notices: Vec<Changes>, repaint: Repaint) -> Result<(), CoreError> {
     loop {
         repaint.request();
-        select(pin!(stores.next()), select(pin!(indexes.next()), pin!(metrics.next()))).await;
+        select_all(notices.iter_mut().map(|changes| Box::pin(changes.next()))).await;
     }
 }
 
@@ -278,7 +303,7 @@ mod tests {
             move || repaint.clone().run(Duration::from_millis(1))
         });
         let _watch = tasks.start(TaskName::new("data watch"), always, {
-            move || follow([of_stores.changes(), of_indexes.changes(), of_metrics.changes()], repaint.clone())
+            move || follow(vec![of_stores.changes(), of_indexes.changes(), of_metrics.changes()], repaint.clone())
         });
         let wakes_after = |pause: Duration| {
             let wakes = Arc::clone(&wakes);
