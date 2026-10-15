@@ -3,7 +3,7 @@
 //! to the tables, and the marks of a cluster whose stores or sampler are not live.
 //!
 //! - `cluster`, `workloads`: the tests of each overview. `snapshots`: PNG files.
-//! - `edges`: a stream of snapshots.
+//! - `edges`: a stream of snapshots, and texts of a cluster with no limit of their length.
 //! - `frame_time`: four clusters with 10,000 pods each. Its limit holds in a release build.
 
 mod cluster;

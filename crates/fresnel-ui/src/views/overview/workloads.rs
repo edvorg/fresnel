@@ -8,8 +8,8 @@ use egui::{Grid, RichText, Ui};
 use fresnel_core::app::ClusterRow;
 use fresnel_core::kinds::{Kind, ObjectHealth, Sidebar};
 
-use super::Jump;
 use super::count::{Counted, Tally};
+use super::{Jump, LINE_LIMIT};
 use crate::format;
 use crate::shell::Scene;
 use crate::theme::{self, Palette};
@@ -96,7 +96,8 @@ fn line(
     if let Some(mark) = mark {
         ui.horizontal(|ui| {
             ring(ui, palette);
-            ui.label(RichText::new(mark).color(palette.warn));
+            // The mark can hold an error text of the server.
+            ui.label(RichText::new(format::short(&mark, LINE_LIMIT)).color(palette.warn));
         });
     }
     jump

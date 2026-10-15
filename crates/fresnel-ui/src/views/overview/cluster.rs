@@ -16,8 +16,8 @@ use fresnel_core::kinds::Kind;
 use fresnel_core::store::{ObjectKey, StoreStatus};
 use k8s_openapi::api::core::v1::Event;
 
-use super::Jump;
 use super::count::{Counted, Nodes};
+use super::{Jump, LINE_LIMIT, NAME_LIMIT};
 use crate::format::{self, Clock};
 use crate::shell::Scene;
 use crate::theme::{self, PAD, Palette};
@@ -30,8 +30,6 @@ use crate::widgets::table::cells::ring;
 use crate::widgets::tone::Tone;
 use crate::widgets::{self, dot};
 
-/// The most characters of the message of an Event in its line.
-const MESSAGE_LIMIT: usize = 160;
 /// The reason of an old value of a list that works.
 const OLD: &str = "old: the last answer of metrics-server had no sample of the nodes";
 /// The size of a bar of the CPU or the memory.
@@ -97,8 +95,10 @@ fn block(
 }
 
 /// The version of the server, the version of before during a failed read, or the state.
+/// The answer and the error text come from the server, so each has its limit.
 fn version(ui: &mut Ui, palette: &Palette, version: &ServerVersion, clock: &Clock) {
-    let known = version.version.as_deref();
+    let known = version.version.as_deref().map(|known| format::short(known, NAME_LIMIT));
+    let known = known.as_deref();
     let (tone, text) = match &version.state {
         VersionState::Reading => (Tone::Faint, "the read is on its way".to_owned()),
         VersionState::Read(_) => (Tone::Normal, known.unwrap_or(NONE).to_owned()),
@@ -113,7 +113,7 @@ fn version(ui: &mut Ui, palette: &Palette, version: &ServerVersion, clock: &Cloc
             (Tone::Error, format!("{}: internal error: {reason}", known.unwrap_or(NONE)))
         }
     };
-    ui.add(Label::new(RichText::new(text).color(tone.color(palette))).wrap());
+    ui.add(Label::new(RichText::new(format::short(&text, LINE_LIMIT)).color(tone.color(palette))).wrap());
 }
 
 /// A count as a link to the table of its kind. Gives the jump of a click.
@@ -254,9 +254,10 @@ fn warnings(ui: &mut Ui, palette: &Palette, clock: &Clock, row: &ClusterRow, cou
                     .color(palette.text_muted),
             );
             jump = object(ui, row, event).or(jump.take());
-            ui.label(RichText::new(event.reason.as_deref().unwrap_or(NONE)).color(palette.warn));
+            let reason = format::short(event.reason.as_deref().unwrap_or(NONE), NAME_LIMIT);
+            ui.label(RichText::new(reason).color(palette.warn));
             let message = event.message.as_deref().map(str::trim).unwrap_or_default();
-            ui.add(Label::new(format::short(message, MESSAGE_LIMIT)).truncate());
+            ui.add(Label::new(format::short(message, LINE_LIMIT)).truncate());
             ui.end_row();
         }
     });
@@ -268,7 +269,7 @@ fn warnings(ui: &mut Ui, palette: &Palette, clock: &Clock, row: &ClusterRow, cou
 fn object(ui: &mut Ui, row: &ClusterRow, event: &Event) -> Option<Jump> {
     let reference = &event.involved_object;
     let (kind, name) = (reference.kind.as_deref().unwrap_or(NONE), reference.name.as_deref().unwrap_or(NONE));
-    let text = format!("{kind} {name}");
+    let text = format!("{} {}", format::short(kind, NAME_LIMIT), format::short(name, NAME_LIMIT));
     let Some(kind) = Kind::named(kind).filter(|_| reference.name.is_some()) else {
         ui.label(text);
         return None;

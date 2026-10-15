@@ -35,6 +35,12 @@ use crate::widgets::worker::{Cancel, Done, RequestId, SLOW, Wake, Worker};
 /// The age of a sample and of an Event changes with no change of a store, so the page asks
 /// for a repaint each time this period ends.
 const AGE_REPAINT: Duration = Duration::from_secs(1);
+/// The most characters of a name of the cluster in a line: a version, a reason, a kind or the
+/// name of an object. The API gives most texts no limit, and the layout of a long one takes
+/// longer than a frame (`format::short`).
+const NAME_LIMIT: usize = 80;
+/// The most characters of a longer text in a line: a message of an Event, or an error.
+const LINE_LIMIT: usize = 160;
 
 /// The overview of one group of the sidebar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
