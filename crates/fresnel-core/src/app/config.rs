@@ -198,8 +198,8 @@ mod tests {
     /// The view with the result of a save of the settings view has the settings of that save.
     /// Before, the core showed the result and then read the file, so a view in that time
     /// showed "saved" with the old settings, and the settings view, which empties its draft
-    /// at the result, showed the old values. The core runs on the thread of this test, so the
-    /// look takes a view at each wait of the core for a file, where a frame can come too.
+    /// at the result, showed the old values. The test takes a view after each step of the
+    /// command, at each wait for a file: each state that a frame could see.
     #[tokio::test]
     async fn the_view_with_the_result_of_a_save_has_the_settings_of_the_save() {
         let home = Home::new("save-order", &["kubeconfig.yaml"]).expect("a home folder");
@@ -211,21 +211,23 @@ mod tests {
             tokio::task::yield_now().await;
         }
         assert_eq!(core.view().config.theme(), Theme::Dark);
+        let registry = core.inner.registry.get().cloned().expect("the registry of the start");
 
-        core.send(Command::EditSettings(vec![Edit::new(&["appearance", "theme"], EditValue::Text("light".into()))]));
-        let mut looks = 0;
-        let view = loop {
+        let light = Edit::new(&["appearance", "theme"], EditValue::Text("light".to_owned()));
+        let mut save = std::pin::pin!(core.inner.apply(&registry, Command::EditSettings(vec![light])));
+        let mut views = Vec::new();
+        let saved = std::future::poll_fn(|context| {
+            let step = save.as_mut().poll(context);
             let view = core.view();
-            looks += 1;
-            if view.config_file.save.as_ref().is_some_and(|save| save.result.is_some()) {
-                break view;
-            }
-            tokio::task::yield_now().await;
-        };
+            views.push((view.config_file.save.as_ref().and_then(|save| save.result.clone()), view.config.theme()));
+            step
+        })
+        .await;
         core.stop();
-        assert!(looks > 2, "the look saw the waits of the save: {looks} views");
-        assert_eq!(view.config_file.save.as_ref().and_then(|save| save.result.clone()), Some(Ok(())));
-        assert_eq!(view.config.theme(), Theme::Light, "the view with the result has the settings of the save");
+        saved.expect("the save");
+        assert!(views.len() > 2, "a view at each wait for a file: {views:?}");
+        let results: Vec<_> = views.iter().filter(|(result, _)| result.is_some()).collect();
+        assert!(!results.is_empty() && results.iter().all(|view| **view == (Some(Ok(())), Theme::Light)), "{views:?}");
     }
 
     /// The limits of the journal and of the repaints in the file act at once, and a file with
