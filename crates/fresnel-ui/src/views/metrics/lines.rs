@@ -70,6 +70,7 @@ pub(crate) fn of<K: Describe>(
         let lines = shown.enumerate().map(|(number, (name, series))| {
             let color = if number == 0 { palette.text } else { color(palette, number - 1) };
             Line::new(name.to_owned(), color, points(series, from, period, resource))
+                .with_legend(legend(name, &id.key.name))
         });
         let hidden = named.parts.len() - parts.len();
         let more = (hidden > 0).then(|| {
@@ -107,6 +108,16 @@ fn named<'a, K: Describe>(metered: &'a Metered, id: &'a ObjectId, object: &K) ->
             Named { whole, parts: parts.collect(), noun: "more pod" }
         }
     }
+}
+
+/// The name of a line in the legend: the random end of the name of a pod, as `gn8jp` for
+/// `checkout-api-7d9c5b8f6-gn8jp`. The title of the panel names the workload, and the end
+/// tells its pods apart; six full names made the legend cover the newest half of a chart.
+/// The number of a pod of a StatefulSet alone would read as a value, so it keeps its name.
+fn legend<'a>(name: &'a str, workload: &str) -> &'a str {
+    let own = name.strip_prefix(workload).and_then(|rest| rest.strip_prefix('-'));
+    let end = own.and_then(|rest| rest.rsplit('-').next());
+    end.filter(|end| !end.is_empty() && !end.bytes().all(|byte| byte.is_ascii_digit())).unwrap_or(name)
 }
 
 /// The points of a series from `from`, with a gap where samples are missing.
@@ -148,4 +159,20 @@ fn marks(usage: Option<&Usage>, node: Option<&Node>, resource: Resource, palette
 /// The color of a line after the first one.
 fn color(palette: &Palette, number: usize) -> Color32 {
     palette.clusters.get(number % palette.clusters.len()).copied().unwrap_or(palette.accent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::legend;
+
+    #[test]
+    fn the_legend_names_a_pod_by_the_end_of_its_name() {
+        assert_eq!(legend("checkout-api-7d9c5b8f6-gn8jp", "checkout-api"), "gn8jp");
+        assert_eq!(legend("node-exporter-x7k2p", "node-exporter"), "x7k2p");
+        assert_eq!(legend("report-29999640-k2x7p", "report"), "k2x7p", "a pod of a Job of a CronJob");
+        assert_eq!(legend("postgres-1", "postgres"), "postgres-1", "a number alone reads as a value");
+        assert_eq!(legend("all pods", "web"), "all pods");
+        assert_eq!(legend("web", "web"), "web");
+        assert_eq!(legend("webhook-1a", "web"), "webhook-1a", "an other name with the same start");
+    }
 }

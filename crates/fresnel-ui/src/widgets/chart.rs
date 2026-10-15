@@ -31,7 +31,10 @@ pub(crate) const MOST_LINES: usize = 11;
 
 /// One line of a chart: the samples of one series in the sequence of their times.
 pub(crate) struct Line {
+    /// The name in the tooltip.
     name: String,
+    /// The name in the legend: `name`, or a short form of it.
+    legend: String,
     color: Color32,
     /// x is the time in seconds since 1970, y the value in the unit of the chart.
     points: Vec<PlotPoint>,
@@ -54,7 +57,13 @@ impl Line {
             }
         }
         runs.extend((all.len() > start).then_some(start..all.len()));
-        Self { name, color, points: all, runs }
+        Self { legend: name.clone(), name, color, points: all, runs }
+    }
+
+    /// The line with a shorter name in the legend. The legend is on the right end of the
+    /// chart, over the newest samples; the tooltip keeps the full name.
+    pub(crate) fn with_legend(self, legend: &str) -> Self {
+        Self { legend: legend.to_owned(), ..self }
     }
 
     /// The value at the time `x`: the nearest sample. Between two samples of one part it is
@@ -130,7 +139,7 @@ pub(crate) fn show(
             let id = id.with(number);
             for run in &line.runs {
                 let points = PlotPoints::Borrowed(line.points.get(run.clone()).unwrap_or_default());
-                plot.line(egui_plot::Line::new(line.name.as_str(), points).color(line.color).width(1.5).id(id));
+                plot.line(egui_plot::Line::new(line.legend.as_str(), points).color(line.color).width(1.5).id(id));
             }
         }
         for mark in chart.marks {
