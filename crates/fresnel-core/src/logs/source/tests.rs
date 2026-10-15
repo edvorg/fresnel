@@ -119,6 +119,30 @@ async fn a_break_gives_a_new_stream_from_the_second_of_the_latest_line_with_a_ma
     assert_eq!(bed.reports(4).await, ["2: connecting", "2: streaming", marker, "2: 11.7 four (repeated 2)"]);
 }
 
+/// The worst moment for a break: the new stream sent some lines of the latest second again,
+/// and the start of an other one, and no new line yet.
+#[tokio::test(start_paused = true)]
+async fn a_break_in_the_lines_that_a_new_stream_sends_again_gives_no_second_marker_and_no_line_two_times() {
+    let mut bed = Bed::start(vec![running("containerd://a1")], false);
+    let stream = bed.call().await.open();
+    stream.send(data(&[(10.1, "one"), (11.2, "two"), (11.5, "three")])).expect("open");
+    stream.send(Err(CoreError::new(ErrorClass::Network, "the connection broke"))).expect("open");
+    assert_eq!(bed.reports(4).await[3], "2: reconnecting after: the connection broke");
+
+    let stream = bed.call().await.open();
+    stream.send(Ok(Bytes::from_static(b"1970-01-01T00:00:11.2Z two\n1970-01-01T00:00:11.5Z thr"))).expect("open");
+    stream.send(Err(CoreError::new(ErrorClass::Network, "the connection broke again"))).expect("open");
+    let marker = "2: 11.5 marker the stream started again after: the connection broke (repeated 0)";
+    let again = "2: reconnecting after: the connection broke again";
+    assert_eq!(bed.reports(4).await, ["2: connecting", "2: streaming", marker, again], "no line of the second stream");
+
+    let call = bed.call().await;
+    assert_eq!(since(&call.origin), "from 1970-01-01T00:00:11Z");
+    let stream = call.open();
+    stream.send(data(&[(11.2, "two"), (11.5, "three"), (11.7, "four")])).expect("open");
+    assert_eq!(bed.reports(3).await, ["2: connecting", "2: streaming", "2: 11.7 four (repeated 3)"]);
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_container_that_ends_and_starts_again_gives_a_wait_and_a_marker_before_its_new_lines() {
     let mut bed = Bed::start(vec![running("containerd://a1")], false);
