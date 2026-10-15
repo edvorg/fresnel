@@ -41,18 +41,23 @@ pub struct Folders {
     pub data: PathBuf,
     /// The log file and the panic reports.
     pub logs: PathBuf,
+    /// The files that the user saves, such as a log: the folder of downloads of the user,
+    /// which both builds share. The first save makes it.
+    pub downloads: PathBuf,
 }
 
 impl Folders {
     /// The folders of a build below the home folder of the user.
     pub fn of(home: &Path, build: Build) -> Self {
         let name = build.folder_name();
+        let downloads = home.join("Downloads");
         if cfg!(target_os = "macos") {
             let library = home.join("Library");
-            Self { data: library.join("Application Support").join(name), logs: library.join("Logs").join(name) }
+            let (data, logs) = (library.join("Application Support").join(name), library.join("Logs").join(name));
+            Self { data, logs, downloads }
         } else {
             let state = home.join(".local/state").join(name);
-            Self { data: home.join(".config").join(name), logs: state.join("logs") }
+            Self { data: home.join(".config").join(name), logs: state.join("logs"), downloads }
         }
     }
 
@@ -77,6 +82,7 @@ mod tests {
             assert_eq!(debug.data, home.join("Library/Application Support/fresnel-debug"));
             assert_eq!(debug.logs, home.join("Library/Logs/fresnel-debug"));
         }
+        assert_eq!((&release.downloads, &debug.downloads), (&home.join("Downloads"), &home.join("Downloads")));
         for (one, other) in [(&release.data, &debug.data), (&release.logs, &debug.logs)] {
             assert!(one.starts_with(home) && other.starts_with(home));
             assert!(!one.starts_with(other) && !other.starts_with(one), "{one:?} and {other:?}");

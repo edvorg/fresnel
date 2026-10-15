@@ -138,6 +138,7 @@ impl App {
             journal,
             state_file: home.path(STATE_FILE),
             config_file: home.path(CONFIG_FILE),
+            downloads: home.path("Downloads"),
             detectors: vec![Box::new(OnOrder(Arc::clone(&network_changed)))],
             settings,
         });

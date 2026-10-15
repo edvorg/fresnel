@@ -13,6 +13,7 @@
 //!   one container. `container`: the containers of a view and what the server gives.
 //! - `ingest`: from bytes to lines. `merge`: the sequence of many sources. `ring`: the
 //!   lines of a view with their limits. `line`: one line with its styles.
+//! - `save`: a view as a file: its lines, or the full log of each source.
 
 mod container;
 mod ingest;
@@ -20,6 +21,7 @@ mod line;
 mod merge;
 mod request;
 mod ring;
+mod save;
 mod session;
 mod source;
 #[cfg(test)]
@@ -33,6 +35,8 @@ use fresnel_net::task::Backoff;
 pub use line::{Color, LineKind, LogLine, Span, Style};
 pub use request::{Containers, LogOptions, LogRequest, Since};
 pub use ring::{Lines, RingLimits};
+pub use save::{LogSave, SavePart, SaveState, SaveView};
+pub(crate) use save::{SaveParts, Saves};
 pub use session::{LogSession, SessionParts};
 pub use view::{LogView, PodsState, SourceState, SourceView};
 

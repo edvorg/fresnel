@@ -316,6 +316,7 @@ mod tests {
             journal: Journal::new(100, WallClock::system()),
             state_file: home.path("state/state.json"),
             config_file: home.path("state/config.toml"),
+            downloads: home.path("Downloads"),
             detectors: Vec::new(),
             settings: CoreSettings::default(),
         });
@@ -343,6 +344,7 @@ mod tests {
             journal: Journal::new(100, WallClock::system()),
             state_file: home.path("state/state.json"),
             config_file: home.path("state/config.toml"),
+            downloads: home.path("Downloads"),
             detectors: Vec::new(),
             settings: CoreSettings::default(),
         });

@@ -21,6 +21,12 @@ pub struct Lines {
 }
 
 impl Lines {
+    /// These lines, the first one with the number `first`: the lines of a view that a test
+    /// of the views builds with no stream.
+    pub fn new(first: u64, lines: impl IntoIterator<Item = LogLine>) -> Self {
+        Self { lines: lines.into_iter().collect(), first }
+    }
+
     /// The number of the first line. The ring drops the oldest lines first, so this number
     /// grows.
     pub fn first(&self) -> u64 {

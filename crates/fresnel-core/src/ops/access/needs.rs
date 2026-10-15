@@ -45,10 +45,11 @@ pub fn needs(action: Action, kind: Kind, key: &ObjectKey) -> Vec<Attributes> {
         Action::EditKeys | Action::AddKey | Action::RemoveKey => {
             vec![on("get", kind, "", this), on("patch", kind, "", this)]
         }
+        // A workload view reads the pods from the owner index: the log of each one.
+        Action::Logs => vec![on("get", Kind::Pod, "log", if kind == Kind::Pod { this } else { none })],
         Action::CopyName
         | Action::CopyCommand
         | Action::RolloutStatus
-        | Action::Logs
         | Action::Terminal
         | Action::Attach
         | Action::DebugContainer
@@ -93,5 +94,7 @@ mod tests {
         assert_eq!(texts(Action::Drain, Kind::Node, &node)[3], "create pods/eviction in the cluster");
         assert!(needs(Action::RolloutStatus, Kind::Deployment, &web).is_empty(), "it reads the store");
         assert!(needs(Action::CopyName, Kind::Pod, &web).is_empty());
+        assert_eq!(texts(Action::Logs, Kind::Pod, &web), ["get pods/log web in shop"]);
+        assert_eq!(texts(Action::Logs, Kind::Deployment, &web), ["get pods/log in shop"], "each pod of the workload");
     }
 }

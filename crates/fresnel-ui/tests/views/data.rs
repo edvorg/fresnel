@@ -198,6 +198,7 @@ pub(crate) fn data(pods: Snapshot<Pod>) -> ClusterData {
         access: Arc::default(),
         metrics: held(Metrics::waiting(ClusterId::new("ams"), Duration::from_secs(15), now())),
         logs: Arc::from([]),
+        saves: Arc::from([]),
     }
 }
 

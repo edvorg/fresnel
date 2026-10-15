@@ -104,6 +104,7 @@ impl Boot {
             journal: journal.clone(),
             state_file: folders.data.join(state_file::FILE_NAME),
             config_file: folders.data.join(config::FILE_NAME),
+            downloads: folders.downloads.clone(),
             detectors: system_detectors(),
             settings: CoreSettings::default(),
         });

@@ -26,7 +26,7 @@ use crate::error::CoreError;
 use crate::index::{ClusterIndexes, Index, IndexParts, ObjectEvents, Owners, References};
 use crate::keys::Target;
 use crate::kinds::{Describe, Kind};
-use crate::logs::{LogRequest, LogView, SessionParts};
+use crate::logs::{LogRequest, LogSave, LogView, SaveParts, SaveView, SessionParts};
 use crate::metrics::{Inputs, Metrics, Sampler, SamplerParts};
 use crate::ops::{Cancel, Parts};
 use crate::published::{Changes, Disposal, Held, Notice, Reader};
@@ -61,6 +61,8 @@ pub struct ClusterData {
     pub metrics: Held<Metrics>,
     /// The log views of objects of this cluster (`Command::ShowLogs`).
     pub logs: Arc<[Held<LogView>]>,
+    /// The saves of the log views of this cluster, the oldest first (`Command::SaveLog`).
+    pub saves: Arc<[Held<SaveView>]>,
 }
 
 impl ClusterData {
@@ -152,6 +154,13 @@ impl Connected {
             let repaint = inner.repaint.clone();
             move || follow(notices.iter().map(Notice::changes).collect(), repaint.clone())
         });
+        let save_parts = SaveParts {
+            tasks: tasks.clone(),
+            folder: inner.downloads.clone(),
+            clock: WallClock::system(),
+            bin: bin.clone(),
+            notice: logs.clone(),
+        };
         let log_parts = SessionParts {
             tasks: tasks.clone(),
             pods: pods.clone(),
@@ -167,7 +176,7 @@ impl Connected {
         let mut shown_kinds = ShownKinds::default();
         shown_kinds.set(&stores, shown);
         Ok(Self {
-            logs: ClusterLogs::new(log_parts, link.gateway.clone()),
+            logs: ClusterLogs::new(log_parts, link.gateway.clone(), save_parts),
             keys: ClusterKeys::default(),
             access: ClusterAccess::start(tasks, id, link.gateway.clone(), inner.repaint.clone()),
             gateway: link.gateway.clone(),
@@ -203,6 +212,15 @@ impl Connected {
     /// Runs the log views of objects of this cluster, and stops the others.
     pub(super) fn show_logs(&mut self, requests: &[LogRequest]) {
         self.logs.show(requests);
+    }
+
+    /// Starts a save of a log view of this cluster.
+    pub(super) fn save_log(&mut self, save: LogSave) {
+        self.logs.save(save);
+    }
+
+    pub(super) fn cancel_save(&self, number: u64) {
+        self.logs.cancel_save(number);
     }
 
     /// The holder of the object of the key view, when it is the object of `target`.
@@ -246,6 +264,7 @@ impl Connected {
             access: self.access.view(),
             metrics: self.metrics.read(),
             logs: self.logs.views(),
+            saves: self.logs.saves(),
         }
     }
 }

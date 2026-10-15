@@ -81,6 +81,11 @@ pub(super) enum Origin {
     Options { tail: Option<u32>, since: Option<Since> },
     /// A time of the cluster, after a break or a restart of the container.
     Time(Timestamp),
+    /// The full log for a file: no follow and no tail, with the times when the file has them.
+    Whole {
+        /// True to ask for the time of each line.
+        times: bool,
+    },
 }
 
 /// The request of one stream of one container.
@@ -110,6 +115,7 @@ pub(super) fn stream(
             }
         }
         Origin::Time(time) => params.since_time = Some(time),
+        Origin::Whole { times } => (params.follow, params.timestamps) = (false, times),
     }
     let path = Kind::Pod.info().path_in(&pod.namespace);
     let request = kube::core::Request::new(path).logs(&pod.name, &params);
@@ -148,6 +154,15 @@ mod tests {
         assert_eq!(
             uri(true, options(None, Some(Since::Time(at)))),
             "/api/v1/namespaces/shop/pods/web-1/log?&container=app&previous=true&sinceTime=2027-01-15T08%3A00%3A00Z&timestamps=true"
+        );
+    }
+
+    #[test]
+    fn the_whole_log_of_a_file_has_no_follow_no_tail_and_the_times_of_the_view() {
+        assert_eq!(uri(false, Origin::Whole { times: false }), "/api/v1/namespaces/shop/pods/web-1/log?&container=app");
+        assert_eq!(
+            uri(true, Origin::Whole { times: true }),
+            "/api/v1/namespaces/shop/pods/web-1/log?&container=app&previous=true&timestamps=true"
         );
     }
 

@@ -122,6 +122,8 @@ pub struct CoreParts {
     pub state_file: PathBuf,
     /// The settings file of the user. The core reads it at its start and never writes it.
     pub config_file: PathBuf,
+    /// The folder of the files that the user saves, such as a log. The first save makes it.
+    pub downloads: PathBuf,
     /// The detectors of a wake and of a network change.
     pub detectors: Vec<Box<dyn Detector>>,
     /// The settings.
@@ -182,6 +184,7 @@ struct Inner {
     journal: Journal,
     state_file: PathBuf,
     config_file: PathBuf,
+    downloads: PathBuf,
     tasks: Tasks,
     runtime: Handle,
     base_env: ProcessEnv,
@@ -213,7 +216,7 @@ impl Core {
     /// Builds the core. It starts no task, reads no file and opens no connection before
     /// [`Core::start`], so the window can open first.
     pub fn new(parts: CoreParts) -> Self {
-        let CoreParts { runtime, base_env, journal, state_file, config_file, detectors, settings } = parts;
+        let CoreParts { runtime, base_env, journal, state_file, config_file, downloads, detectors, settings } = parts;
         let repaint = Repaint::new();
         let tasks = Tasks::new(runtime.clone(), reporter(journal.clone(), repaint.clone()));
         let state = State {
@@ -244,6 +247,7 @@ impl Core {
             journal,
             state_file,
             config_file,
+            downloads,
             tasks,
             runtime,
             base_env,

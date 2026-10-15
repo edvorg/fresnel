@@ -9,7 +9,7 @@ use crate::cluster::{ClusterId, Registry};
 use crate::error::CoreError;
 use crate::keys::{NewSecret, Save, Target};
 use crate::kinds::Kind;
-use crate::logs::LogRequest;
+use crate::logs::{LogRequest, LogSave};
 use crate::ops::Order;
 use crate::ops::access::Attributes;
 use crate::state_file::TableLayout;
@@ -51,6 +51,16 @@ pub enum Command {
     /// The log views that the UI shows. The core runs one for each request in the cluster
     /// of its object, and stops the others. The view of the cluster gets their lines.
     ShowLogs(Vec<LogRequest>),
+    /// Saves the lines or the full log of a log view as a new file in the folder of
+    /// downloads. The view of the cluster gets the state of the save.
+    SaveLog(LogSave),
+    /// Stops a save of a log, and removes its file.
+    CancelSave {
+        /// The cluster of the view.
+        cluster: ClusterId,
+        /// The number of the save.
+        number: u64,
+    },
     /// Creates a Secret. The view gets the state of the last create.
     CreateSecret(NewSecret),
     /// Starts one job for each order: one for an action, one for each row of a bulk action
@@ -103,6 +113,8 @@ impl Inner {
             Command::ShowKeys(target) => self.show_keys(target),
             Command::SaveKeys(save) => self.save_keys(save),
             Command::ShowLogs(requests) => self.show_logs(requests),
+            Command::SaveLog(save) => self.save_log(save),
+            Command::CancelSave { cluster, number } => self.cancel_save(&cluster, number),
             Command::CreateSecret(secret) => self.create_secret(registry, secret),
             Command::Run(orders) => self.run_orders(orders),
             Command::Cancel(number) => self.state().jobs.cancel(number),

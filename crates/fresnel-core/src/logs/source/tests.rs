@@ -92,6 +92,7 @@ fn since(origin: &Origin) -> String {
     match origin {
         Origin::Options { tail, since } => format!("options {tail:?} {since:?}"),
         Origin::Time(time) => format!("from {time}"),
+        Origin::Whole { times } => format!("whole, times {times}"),
     }
 }
 

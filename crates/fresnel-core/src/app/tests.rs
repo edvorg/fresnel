@@ -15,6 +15,7 @@ fn core() -> Core {
         // No test of this module starts the core, so nothing reads or writes the files.
         state_file: PathBuf::from("/no/such/folder/state.json"),
         config_file: PathBuf::from("/no/such/folder/config.toml"),
+        downloads: PathBuf::from("/no/such/folder/Downloads"),
         detectors: Vec::new(),
         settings: CoreSettings::default(),
     })
