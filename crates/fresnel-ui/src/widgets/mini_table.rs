@@ -11,7 +11,10 @@ use crate::theme::{self, ROW_HEIGHT, SMALL};
 #[derive(Clone, Copy)]
 pub(crate) enum Width {
     Fixed(f32),
-    /// The columns of this type share the width that the fixed columns leave.
+    /// This part of the width of the line, less its gaps: the column fits a long text in a
+    /// wide line and leaves room for the other columns in a narrow one.
+    Part(f32),
+    /// The columns of this type share the width that the other columns leave.
     Fill,
 }
 
@@ -25,6 +28,10 @@ pub(crate) struct Column {
 impl Column {
     pub(crate) const fn fixed(title: &'static str, width: f32) -> Self {
         Self { title, width: Width::Fixed(width), numeric: false }
+    }
+
+    pub(crate) const fn part(title: &'static str, part: f32) -> Self {
+        Self { title, width: Width::Part(part), numeric: false }
     }
 
     pub(crate) const fn fill(title: &'static str) -> Self {
@@ -46,11 +53,13 @@ pub(crate) struct Text {
     pub(crate) dot: bool,
     /// A clock time or an other text with fixed columns.
     pub(crate) mono: bool,
+    /// More words at the pointer, as the reason of the server for a state.
+    pub(crate) hover: Option<String>,
 }
 
 impl Text {
     pub(crate) fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into(), tone: Tone::Normal, dot: false, mono: false }
+        Self { text: text.into(), tone: Tone::Normal, dot: false, mono: false, hover: None }
     }
 
     pub(crate) fn tone(mut self, tone: Tone) -> Self {
@@ -66,6 +75,11 @@ impl Text {
 
     pub(crate) fn mono(mut self) -> Self {
         self.mono = true;
+        self
+    }
+
+    pub(crate) fn hover(mut self, hover: String) -> Self {
+        self.hover = Some(hover);
         self
     }
 }
@@ -130,7 +144,10 @@ fn cells_of(ui: &mut Ui, id_salt: impl egui::AsIdSalt, line: egui::Rect, columns
             if text.mono {
                 rich = rich.font(theme::mono());
             }
-            ui.add(Label::new(rich).truncate());
+            let label = ui.add(Label::new(rich).truncate());
+            if let Some(hover) = &text.hover {
+                label.on_hover_text(hover);
+            }
         });
     }
 }
@@ -141,11 +158,12 @@ fn line(ui: &mut Ui, height: f32) -> egui::Rect {
 
 /// The rectangle of each column in a line.
 fn cell_rects(line: egui::Rect, columns: &[Column]) -> impl Iterator<Item = egui::Rect> + use<> {
+    let gaps = GAP * columns.len().saturating_sub(1) as f32;
     let fixed_width = |column: &Column| match column.width {
         Width::Fixed(width) => Some(width),
+        Width::Part(part) => Some(part * (line.width() - gaps).max(0.0)),
         Width::Fill => None,
     };
-    let gaps = GAP * columns.len().saturating_sub(1) as f32;
     let fixed: f32 = columns.iter().filter_map(fixed_width).sum();
     let fills = columns.iter().filter(|column| fixed_width(column).is_none()).count().max(1);
     let fill = ((line.width() - gaps - fixed) / fills as f32).max(60.0);
@@ -165,4 +183,21 @@ fn cell(ui: &mut Ui, id: egui::Id, rect: egui::Rect, numeric: bool, add: impl Fn
     child.shrink_clip_rect(rect);
     child.spacing_mut().item_spacing.x = 6.0;
     add(&mut child);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_part_column_has_its_part_of_the_line_and_a_fill_column_the_rest() {
+        let columns = [Column::fill("Pod"), Column::part("Verdict", 0.25), Column::fixed("State", 100.0)];
+        let widths = |width: f32| {
+            let line = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 20.0));
+            cell_rects(line, &columns).map(|rect| rect.width()).collect::<Vec<f32>>()
+        };
+        // 424 points less the gaps of 12 points: 400.
+        assert_eq!(widths(424.0), [200.0, 100.0, 100.0]);
+        assert_eq!(widths(824.0), [500.0, 200.0, 100.0], "a wide line widens the part and the fill");
+    }
 }

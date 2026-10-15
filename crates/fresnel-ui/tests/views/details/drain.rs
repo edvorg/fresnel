@@ -19,9 +19,9 @@ use k8s_openapi::api::core::v1::Node;
 
 use super::{and, shows_part};
 use crate::data::{changed_object, scene};
-use crate::fake::{self, Window, open_tab, shows, view};
+use crate::fake::{self, Window, grow_dock, open_tab, shows, view};
 use crate::kinds::scene::{live, nodes};
-use crate::workloads::scene::{job, jobs, opened, runs, target};
+use crate::workloads::scene::{hover, job, jobs, opened, runs, target};
 
 /// The node of the scene: each pod of the scene runs on it.
 pub(super) fn node() -> String {
@@ -139,6 +139,9 @@ pub(super) fn drain_job(number: u64, state: JobState) -> Arc<fresnel_core::app::
     job
 }
 
+/// The dock grows this much to show each pod of the drain of the scene.
+const DOCK_GROWTH: f32 = 250.0;
+
 #[test]
 fn the_operations_tab_shows_each_pod_of_a_drain_and_a_budget_by_its_name_and_a_cancel_keeps_the_cordon() {
     let mut core = view(vec![with_nodes(&nodes())]);
@@ -147,8 +150,15 @@ fn the_operations_tab_shows_each_pod_of_a_drain_and_a_budget_by_its_name_and_a_c
     open_tab(&mut window, "Operations");
     assert!(shows(&window, "Job 1: Drain --ignore-daemonsets --force"));
     assert!(shows(&window, "4 pods: 1 gone, 1 held"));
-    let held = "budget guarded holds it (3×): The disruption budget guarded needs 1 healthy pods";
-    assert!(shows_part(&window, held), "the budget by its name");
+    let held = "budget guarded holds it (3×)";
+    assert!(shows(&window, held), "the budget by its name");
+    // The dock grows, so the list of the pods ends inside the window.
+    grow_dock(&mut window, DOCK_GROWTH);
+    let row = window.get_by_role_and_label(Role::Label, held).rect();
+    assert!(row.bottom() < window.ctx.content_rect().bottom(), "the budget in the window: {row:?}");
+    hover(&mut window, Role::Label, held);
+    let reason = "The disruption budget guarded needs 1 healthy pods and has 1 currently";
+    assert!(shows(&window, reason), "the reason of the server at the pointer");
     for text in ["shop/guarded-1", "kept on the node", "gone", "terminating", "keep: a pod of a DaemonSet"] {
         assert!(shows(&window, text), "{text}");
     }

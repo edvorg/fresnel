@@ -13,8 +13,10 @@ use crate::theme::{self, ROW_HEIGHT};
 use crate::widgets::mini_table::{self, Column, Text};
 use crate::widgets::tone::Tone;
 
-/// The state has the widest column: the name of a budget that holds a pod comes first in it.
-const COLUMNS: &[Column] = &[Column::fill("Pod"), Column::fixed("Verdict", 110.0), Column::fill("State")];
+/// The name of a pod takes the room that the verdict and the state leave. In the part of a
+/// drain that the user widened, they fit "keep: a pod of a DaemonSet" and "budget postgres
+/// holds it (9×)"; a longer text is cut, and shows in full at the pointer.
+const COLUMNS: &[Column] = &[Column::fill("Pod"), Column::part("Verdict", 0.28), Column::part("State", 0.31)];
 /// The height of the list of the pods before it scrolls.
 const LIST_HEIGHT: f32 = 260.0;
 
@@ -61,16 +63,16 @@ pub(crate) fn verdict(verdict: &Verdict) -> Text {
     }
 }
 
-/// The state of a pod as a cell: a budget that holds the pod shows by its name first. A text of
-/// the server can have 1 MiB, and a cell lays out each character in each frame.
+/// The state of a pod as a cell: a budget that holds the pod shows by its name, with the
+/// reason of the server at the pointer. A text of the server can have 1 MiB, and a cell lays
+/// out each character in each frame.
 fn state(state: &PodState) -> Text {
     let text = |text: &str| short(text, TEXT_LIMIT).into_owned();
     match state {
         PodState::Waiting => Text::new("waiting").state(Tone::Faint),
         PodState::Evicting => Text::new("evicting").state(Tone::Info),
         PodState::Blocked { budget: Some(budget), reason, attempts } => {
-            let reason = text(reason);
-            Text::new(format!("budget {budget} holds it ({attempts}×): {reason}")).state(Tone::Warn)
+            Text::new(format!("budget {budget} holds it ({attempts}×)")).state(Tone::Warn).hover(text(reason))
         }
         PodState::Blocked { budget: None, reason, attempts } => {
             Text::new(format!("refused for now ({attempts}×): {}", text(reason))).state(Tone::Warn)

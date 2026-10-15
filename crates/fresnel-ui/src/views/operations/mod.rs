@@ -24,10 +24,12 @@ use crate::theme::{self, BAR_HEIGHT, PAD, ROW_HEIGHT};
 use crate::widgets::mini_table::{self, Column, Text};
 use crate::widgets::tone::Tone;
 
+/// The state and the cluster are short words: the operation and the object, as
+/// "Drain --ignore-daemonsets" and "Deployment shop/cart", get the room.
 const COLUMNS: &[Column] = &[
     Column::fixed("Job", 44.0).numeric(),
-    Column::fixed("State", 130.0),
-    Column::fixed("Cluster", 120.0),
+    Column::fixed("State", 90.0),
+    Column::fixed("Cluster", 90.0),
     Column::fill("Operation"),
     Column::fill("Object"),
 ];
