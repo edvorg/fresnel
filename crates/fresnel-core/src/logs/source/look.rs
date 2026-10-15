@@ -12,7 +12,31 @@ use super::Stream;
 use crate::error::CoreError;
 use crate::logs::container::{self, Served};
 use crate::logs::view::SourceState;
-use crate::store::Snapshot;
+use crate::published::Reader;
+use crate::store::{ObjectKey, Snapshot};
+
+/// The pod of a source as its last look saw it. A wait for a change of the pod ends when
+/// the store has an other one. A change of an other pod does not count: a busy cluster
+/// changes its pods each 30 ms, and after a refusal the source would send a request at each
+/// change, with no pause.
+#[derive(Default, PartialEq)]
+pub(super) struct Looked {
+    listed: bool,
+    pod: Option<Arc<Pod>>,
+}
+
+impl Looked {
+    pub(super) fn of(pods: &Snapshot<Pod>, key: &ObjectKey) -> Self {
+        Self { listed: pods.listed, pod: pods.items.get(key).cloned() }
+    }
+
+    /// Waits until the store has an other pod than this one, also a change before the call.
+    pub(super) async fn changed(&self, pods: &mut Reader<Snapshot<Pod>>, key: &ObjectKey) {
+        while Self::of(&pods.read(), key) == *self {
+            pods.changed().await;
+        }
+    }
+}
 
 /// The next step of a source.
 #[derive(Clone, Debug, PartialEq, Eq)]

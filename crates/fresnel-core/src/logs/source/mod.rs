@@ -31,7 +31,7 @@ use crate::cluster::ClusterId;
 use crate::error::CoreError;
 use crate::published::Reader;
 use crate::store::{ObjectKey, Snapshot};
-use look::{Look, look};
+use look::{Look, Looked, look};
 
 /// One container of one pod in a view.
 #[derive(Clone, Debug)]
@@ -109,6 +109,8 @@ struct Source<O> {
     parts: Arc<SourceParts<O>>,
     memory: Arc<Mutex<Memory>>,
     pods: Reader<Snapshot<Pod>>,
+    /// The pod at the last look: a wait for a change of the pod waits for an other one.
+    looked: Looked,
     signal: Listener,
     /// The count of failures in sequence. A stream that gives data ends the sequence.
     failures: u32,
@@ -117,7 +119,20 @@ struct Source<O> {
 impl<O: Opener> Source<O> {
     fn new(parts: Arc<SourceParts<O>>, memory: Arc<Mutex<Memory>>) -> Self {
         let (pods, signal) = (parts.pods.clone(), parts.signal.listen());
-        Self { parts, memory, pods, signal, failures: 0 }
+        Self { parts, memory, pods, looked: Looked::default(), signal, failures: 0 }
+    }
+
+    /// The next step from the pod in its store. `complete` is the instance whose log a
+    /// stream read to its end.
+    fn step(&mut self, complete: Option<&str>) -> Look {
+        let (pods, stream) = (self.pods.read(), &self.parts.stream);
+        self.looked = Looked::of(&pods, &stream.pod);
+        look(&pods, stream, self.parts.previous, complete)
+    }
+
+    /// Waits until the pod is other than at the last look.
+    async fn pod_change(&mut self) {
+        self.looked.changed(&mut self.pods, &self.parts.stream.pod).await;
     }
 
     async fn run(mut self, restarted: bool) -> Result<(), CoreError> {
@@ -127,13 +142,11 @@ impl<O: Opener> Source<O> {
         }
         loop {
             let complete = self.memory().complete.clone();
-            let parts = &self.parts;
-            let next = look(&self.pods.read(), &parts.stream, parts.previous, complete.as_deref());
-            let instance = match next {
+            let instance = match self.step(complete.as_deref()) {
                 Look::Open(instance) => instance,
                 Look::Wait(reason) => {
                     self.tell(SourceState::Waiting { reason: reason.into() }).await?;
-                    self.pods.changed().await;
+                    self.pod_change().await;
                     continue;
                 }
                 Look::End(state) => {
@@ -190,9 +203,7 @@ impl<O: Opener> Source<O> {
             return pending().await;
         }
         self.memory().complete = Some(Arc::clone(&instance));
-        let parts = &self.parts;
-        let next = look(&self.pods.read(), &parts.stream, parts.previous, Some(&instance));
-        if next == Look::Open(instance) {
+        if self.step(Some(&instance)) == Look::Open(instance) {
             // The store can tell the end of the container some time after the end of the
             // stream: a change of the pod ends this pause.
             let reason = CoreError::new(ErrorClass::Network, "the stream ended while the container runs");
@@ -237,7 +248,7 @@ impl<O: Opener> Source<O> {
         let pause = self.parts.retry.pause(self.failures, fastrand::u32(..));
         self.tell(SourceState::Waiting { reason: reason.into() }).await?;
         tokio::select! {
-            () = self.pods.changed() => {}
+            () = self.pod_change() => {}
             () = sleep(pause) => {}
         }
         Ok(())
@@ -256,10 +267,10 @@ impl<O: Opener> Source<O> {
         }
         let at = self.parts.clock.now() + pause;
         self.tell(SourceState::Reconnecting { reason, at }).await?;
-        let (pods, signal) = (&mut self.pods, &mut self.signal);
+        let (looked, pods, signal, pod) = (&self.looked, &mut self.pods, &mut self.signal, &self.parts.stream.pod);
         let pod_change = async {
             if on_pod_change {
-                pods.changed().await;
+                looked.changed(pods, pod).await;
             } else {
                 pending::<()>().await;
             }

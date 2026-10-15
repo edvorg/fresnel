@@ -191,6 +191,32 @@ async fn a_container_that_did_not_start_waits_with_its_reason_and_sends_no_reque
     assert_eq!(bed.reports(2).await, ["2: connecting", "2: streaming"]);
 }
 
+/// A busy cluster changes its pods each 30 ms: a change of an other pod does not end the
+/// pause after a refusal, and a change of the pod of the source ends it at once.
+#[tokio::test(start_paused = true)]
+async fn only_a_change_of_its_own_pod_ends_the_pause_of_a_source_after_a_refusal() {
+    let mut bed = Bed::start(vec![running("containerd://a1")], false);
+    bed.call().await.refuse(CoreError::answered(404, "pods \"web-1\" not found"));
+    assert_eq!(bed.reports(2).await[1], "2: reconnecting after: pods \"web-1\" not found");
+    let started = tokio::time::Instant::now();
+    for number in 2..12 {
+        let other = pod(&format!("web-{number}"), "u9", json!({"running": {}}), |_| {});
+        bed.pods.set(vec![running("containerd://a1"), other]);
+        tokio::task::yield_now().await;
+    }
+    let call = bed.call().await;
+    assert_eq!(started.elapsed(), RETRY.first, "the pause after the first failure");
+
+    call.refuse(CoreError::answered(404, "pods \"web-1\" not found"));
+    assert_eq!(bed.reports(2).await, ["2: connecting", "2: reconnecting after: pods \"web-1\" not found"]);
+    let started = tokio::time::Instant::now();
+    let mut changed = running("containerd://a1");
+    changed.metadata.labels = Some([("a".to_owned(), "b".to_owned())].into());
+    bed.pods.set(vec![changed]);
+    let _call = bed.call().await;
+    assert_eq!(started.elapsed(), Duration::ZERO, "a change of its pod");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_container_that_completed_ends_after_its_full_log_and_a_gone_pod_ends_its_source() {
     let completed = json!({"terminated": {"exitCode": 0, "reason": "Completed", "containerID": "containerd://a1"}});
