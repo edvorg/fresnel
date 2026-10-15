@@ -36,6 +36,7 @@ pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, account: &ServiceAccount) -
         field(ui, cx.palette, label, |ui| {
             if names.is_empty() {
                 ui.label(NONE);
+                return;
             }
             ui.horizontal_wrapped(|ui| {
                 links_only(ui);

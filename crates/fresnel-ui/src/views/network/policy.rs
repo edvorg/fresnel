@@ -25,7 +25,7 @@ pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, policy: &NetworkPolicy) -> 
     let spec = policy.spec.as_ref();
     details_heading(ui, cx);
     let pods = spec.and_then(|spec| spec.pod_selector.as_ref());
-    line(ui, cx, "Pods", Some(pods_of(pods, "each pod of the namespace")));
+    line(ui, cx, "Selects", Some(pods_of(pods, "each pod of the namespace")));
     let ingress: Vec<Rule<'_>> = spec
         .and_then(|spec| spec.ingress.as_deref())
         .unwrap_or_default()

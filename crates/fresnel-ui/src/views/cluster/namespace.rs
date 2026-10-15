@@ -1,5 +1,5 @@
 //! The sections of a Namespace (`research/01` section 3.4.1, `research/02` section 4.5): its
-//! phase and its finalizers; then each ResourceQuota with its use and each LimitRange with
+//! phase and, while it ends, its finalizers; then each ResourceQuota with its use and each LimitRange with
 //! its limits, from the stores of their full objects that the page of the Namespaces holds
 //! (`Command::ShowKinds`); then the count of the objects of each kind in the namespace.
 //!
@@ -22,10 +22,11 @@ use crate::views::objects::{Link, old_since, old_text};
 pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, namespace: &Namespace) -> Option<Link> {
     details_heading(ui, cx);
     let phase = namespace.status.as_ref().and_then(|status| status.phase.clone());
-    line(ui, cx, "Status", Some(phase.unwrap_or_else(|| "Active".to_owned())));
+    line(ui, cx, "Status", Some(phase.clone().unwrap_or_else(|| "Active".to_owned())));
+    // Each namespace has the finalizer `kubernetes`; it matters only while the namespace ends.
     let finalizers = namespace.spec.as_ref().and_then(|spec| spec.finalizers.as_deref()).unwrap_or_default();
-    if !finalizers.is_empty() {
-        line(ui, cx, "Finalizers", Some(finalizers.join(", ")));
+    if phase.as_deref() == Some("Terminating") && !finalizers.is_empty() {
+        line(ui, cx, "Waits for", Some(finalizers.join(", ")));
     }
     ui.add_space(10.0);
     None

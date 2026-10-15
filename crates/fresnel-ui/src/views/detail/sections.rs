@@ -18,6 +18,7 @@ use k8s_openapi::api::batch::v1::{CronJob, Job};
 use k8s_openapi::api::core::v1::{Pod, ReplicationController};
 
 use super::fields::VALUE_LIMIT;
+use super::related::links_only;
 use crate::format::{Clock, short};
 use crate::theme::Palette;
 use crate::views::act::Ask;
@@ -47,6 +48,7 @@ impl Context<'_> {
     /// namespace takes none. Gives the object when the user clicked it.
     pub(crate) fn link(&self, ui: &mut Ui, text: &str, kind: Kind, namespace: &str, name: &str) -> Option<Link> {
         let namespace = if kind.info().namespaced { namespace } else { "" };
+        links_only(ui);
         let clicked = ui.link(short(text, VALUE_LIMIT)).clicked();
         clicked.then(|| Link { cluster: self.id.cluster.clone(), kind, key: ObjectKey::new(namespace, name) })
     }
