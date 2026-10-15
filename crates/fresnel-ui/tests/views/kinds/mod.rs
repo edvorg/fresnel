@@ -26,6 +26,11 @@ pub(crate) fn in_panel(window: &Window, text: &str) -> bool {
     times_in_panel(window, text) > 0
 }
 
+/// The texts of a list that the panel does not show.
+pub(crate) fn missing(window: &Window, texts: &[&str]) -> Vec<String> {
+    texts.iter().filter(|text| !in_panel(window, text)).map(|text| (*text).to_owned()).collect()
+}
+
 /// The count of the nodes of the detail panel with this text.
 pub(crate) fn times_in_panel(window: &Window, text: &str) -> usize {
     let Some(panel) = window.query_by_label("Overview").map(|tab| tab.rect().left() - 2.0) else {

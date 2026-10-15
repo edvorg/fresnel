@@ -13,12 +13,7 @@ use k8s_openapi::api::core::v1::{Pod, ReplicationController};
 use super::scene::{allowed, opened, press};
 use crate::data::{of_kinds, pods, scene};
 use crate::fake::{absent, shows, until};
-use crate::kinds::in_panel;
-
-/// The texts of the panel that are not there.
-fn missing(window: &crate::fake::Window, texts: &[&str]) -> Vec<String> {
-    texts.iter().filter(|text| !in_panel(window, text)).map(|text| (*text).to_owned()).collect()
-}
+use crate::kinds::{in_panel, missing};
 
 /// A pod: its details, each container with its state, restarts and last state, the
 /// environment with a link to the Secret of a key, and the volumes with their objects.

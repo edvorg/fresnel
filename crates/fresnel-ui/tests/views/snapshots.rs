@@ -9,6 +9,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use egui_kittest::kittest::Queryable as _;
+
 use fresnel_core::app::{CoreView, Startup};
 use fresnel_core::cluster::LinkState;
 use fresnel_core::journal::Level;
@@ -36,6 +38,30 @@ pub(crate) fn save(window: &mut Window, name: &str) {
     let folder = folder();
     std::fs::create_dir_all(&folder).expect("the snapshot folder");
     image.save(folder.join(format!("{name}.png"))).expect("the PNG file");
+}
+
+/// Saves the frame with no pointer arrow: the harness draws one at the last click.
+pub(crate) fn save_clean(window: &mut Window, name: &str) {
+    window.remove_cursor();
+    window.run();
+    save(window, name);
+}
+
+/// The window with the page of a kind and the panel of one of its objects, at the scale of
+/// a Retina display.
+pub(crate) fn panel_of(clusters: Vec<fresnel_core::app::ClusterRow>, page: &str, name: &str) -> Window {
+    let mut window = window_with(view(clusters), egui::Theme::Dark, SCALE);
+    crate::workloads::scene::open(&mut window, page, name);
+    window
+}
+
+/// The panel in a tall window, scrolled to a section of the kind.
+pub(crate) fn tall(mut window: Window, section: &str) -> Window {
+    window.set_size(egui::vec2(crate::fake::WINDOW.x, 1300.0));
+    window.run();
+    window.get_by_label(section).scroll_to_me();
+    window.run();
+    window
 }
 
 /// The four clusters of a session with a network fault and a plugin fault.

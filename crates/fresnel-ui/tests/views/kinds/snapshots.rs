@@ -14,14 +14,7 @@ use super::scene::{config_maps, deployments, live, nodes, services, uid_of, with
 use crate::data::{empty_store, held, scene, store};
 use crate::fake::{SECOND, Window, error, now, open_page, row, until, view, window_with};
 use crate::pods::scenes::{forbidden, no_answer};
-use crate::snapshots::{SCALE, save};
-
-/// Saves the frame with no pointer arrow: the harness draws one at the last click.
-fn save_clean(window: &mut Window, name: &str) {
-    window.remove_cursor();
-    window.run();
-    save(window, name);
-}
+use crate::snapshots::{SCALE, save_clean};
 
 fn open(window: &mut Window, page: &str, name: &str) {
     open_page(window, page);

@@ -9,31 +9,10 @@ use k8s_openapi::api::apps::v1::{Deployment, StatefulSet};
 use k8s_openapi::api::batch::v1::{CronJob, Job};
 
 use super::bulk::open_menu;
-use super::scene::{access, allowed, cluster, hover, open, rules_without};
+use super::scene::{access, allowed, cluster, hover, rules_without};
 use crate::data::{pods, scene};
-use crate::fake::{Window, open_tab, view, window_with};
-use crate::snapshots::{SCALE, save};
-
-fn save_clean(window: &mut Window, name: &str) {
-    window.remove_cursor();
-    window.run();
-    save(window, name);
-}
-
-fn panel_of(clusters: Vec<fresnel_core::app::ClusterRow>, page: &str, name: &str) -> Window {
-    let mut window = window_with(view(clusters), egui::Theme::Dark, SCALE);
-    open(&mut window, page, name);
-    window
-}
-
-/// The panel in a tall window, scrolled to a section of the kind.
-fn tall(mut window: Window, section: &str) -> Window {
-    window.set_size(egui::vec2(crate::fake::WINDOW.x, 1300.0));
-    window.run();
-    window.get_by_label(section).scroll_to_me();
-    window.run();
-    window
-}
+use crate::fake::{open_tab, view, window_with};
+use crate::snapshots::{SCALE, panel_of, save, save_clean, tall};
 
 #[test]
 fn the_panel_of_a_pod_with_its_containers() {
