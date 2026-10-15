@@ -2,18 +2,21 @@
 //! binding as links, and a ServiceAccount with the bindings that name it.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
-use fresnel_core::app::Command;
+use fresnel_core::app::{ClusterRow, Command};
 use fresnel_core::kinds::Kind;
+use fresnel_core::store::{Snapshot, StoreState};
 use k8s_openapi::api::core::v1::ServiceAccount;
 use k8s_openapi::api::rbac::v1::{ClusterRole, ClusterRoleBinding, Role, RoleBinding};
 use serde_json::json;
 
 use super::{and, follow, shows_part};
-use crate::data::{changed_object, of_kinds};
+use crate::data::{changed_object, held, of_kinds, store};
 use crate::fake::{shows, until};
 use crate::kinds::scene::live;
 use crate::kinds::{in_panel, missing, times_in_panel};
+use crate::pods::scenes::forbidden;
 use crate::workloads::scene::opened;
 
 #[test]
@@ -69,6 +72,23 @@ fn a_service_account_lists_the_bindings_that_name_it_with_their_role() {
     let window = opened::<ServiceAccount>(vec![live("ams-prod", &accounts)], "default");
     assert!(shows(&window, "The RoleBindings are not loaded: their store starts."));
     assert_eq!(times_in_panel(&window, "None."), 1, "no list, no \"None\": the one is of the pods that use it");
+}
+
+/// A user who may not list the RoleBindings: the panel tells the reason and shows the
+/// ClusterRoleBindings. With no binding of the other kind, it says no "None": a binding
+/// that the user cannot see can name the account.
+#[test]
+fn a_service_account_whose_role_bindings_are_forbidden_tells_why_and_shows_the_other_bindings() {
+    let refused = store(StoreState::Forbidden { reason: forbidden() }, &Vec::<Arc<RoleBinding>>::new());
+    let row = and(live("ams-prod", &of_kinds::<ServiceAccount>()), &of_kinds::<ClusterRoleBinding>());
+    let mut data = row.data.clone().expect("data");
+    data.objects = data.objects.with(held(Snapshot { listed: false, ..refused }));
+    let cluster = ClusterRow { data: Some(data), ..row };
+    let window = opened::<ServiceAccount>(vec![cluster.clone()], "web");
+    assert!(shows_part(&window, "The RoleBindings are not loaded: their store forbidden: pods is forbidden"));
+    assert!(in_panel(&window, "ClusterRoleBinding fresnel-viewer"), "the bindings of the other kind");
+    let window = opened::<ServiceAccount>(vec![cluster], "default");
+    assert_eq!(times_in_panel(&window, "None."), 1, "the one is of the pods that use it");
 }
 
 #[test]
