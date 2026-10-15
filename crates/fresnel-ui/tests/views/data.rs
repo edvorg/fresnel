@@ -5,11 +5,13 @@
 //! time of the view tests: a pod then has the age that `kubectl get pods` printed.
 
 use std::sync::{Arc, OnceLock};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use fresnel_core::app::{ClusterData, ClusterRow, Objects};
+use fresnel_core::cluster::ClusterId;
 use fresnel_core::index::{Index, IndexState, ObjectEvents, Owners, References};
 use fresnel_core::kinds::Describe;
+use fresnel_core::metrics::Metrics;
 use fresnel_core::net::task::{TaskReport, Tasks};
 use fresnel_core::published::{Disposal, Held, Notice, Publisher};
 use fresnel_core::store::{Snapshot, StoreState};
@@ -176,7 +178,8 @@ pub(crate) fn event_index(events_store: Snapshot<Event>, state: IndexState) -> H
     held(Index::<ObjectEvents>::of_snapshot(&events_store, state))
 }
 
-/// The data of a cluster with this Pod store, and the live indexes of the scene.
+/// The data of a cluster with this Pod store, the live indexes of the scene, and metrics
+/// before their first poll.
 pub(crate) fn data(pods: Snapshot<Pod>) -> ClusterData {
     let index = event_index(store(StoreState::Live, &events()), IndexState::Following);
     let (replica_sets, jobs) = (store(StoreState::Live, &scene()), store(StoreState::Live, &scene()));
@@ -193,6 +196,7 @@ pub(crate) fn data(pods: Snapshot<Pod>) -> ClusterData {
         objects: Objects::default(),
         keys: None,
         access: Arc::default(),
+        metrics: held(Metrics::waiting(ClusterId::new("ams"), Duration::from_secs(15), now())),
     }
 }
 

@@ -59,6 +59,7 @@ use crate::config::Config;
 use crate::journal::Journal;
 use crate::keys::Target;
 use crate::kinds::Kind;
+use crate::metrics::MetricsSettings;
 use crate::published::Disposal;
 use crate::state_file::TableLayout;
 use crate::store::StoreSettings;
@@ -81,6 +82,8 @@ pub struct CoreSettings {
     pub net: NetSettings,
     /// The stores of each cluster.
     pub stores: StoreSettings,
+    /// The metrics sampler of each cluster.
+    pub metrics: MetricsSettings,
     /// The wake detector and the network detector look each time this period ends.
     pub detect_period: Duration,
     /// The most repaints in one second that the core asks the UI for.
@@ -93,6 +96,7 @@ impl Default for CoreSettings {
             env: EnvSettings::default(),
             net: NetSettings::default(),
             stores: StoreSettings::default(),
+            metrics: MetricsSettings::default(),
             detect_period: Duration::from_secs(2),
             repaints_per_second: 60,
         }

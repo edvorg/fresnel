@@ -1,5 +1,5 @@
-//! The data of one connected cluster: its stores and its indexes, and what the views read
-//! of them.
+//! The data of one connected cluster: its stores, its indexes and its metrics, and what the
+//! views read of them.
 //!
 //! The core starts the stores with the connections of a cluster and stops them with the
 //! disconnect. A view reads a copy of the snapshots; it holds no handle to a store.
@@ -26,8 +26,9 @@ use crate::error::CoreError;
 use crate::index::{ClusterIndexes, Index, IndexParts, ObjectEvents, Owners, References};
 use crate::keys::Target;
 use crate::kinds::{Describe, Kind};
+use crate::metrics::{Inputs, Metrics, Sampler, SamplerParts};
 use crate::ops::{Cancel, Parts};
-use crate::published::{Changes, Disposal, Held, Reader};
+use crate::published::{Changes, Disposal, Held, Notice, Reader};
 use crate::search::Source;
 use crate::store::{ClusterStores, Snapshot, StoreParts, StoreStatus};
 
@@ -54,6 +55,8 @@ pub struct ClusterData {
     pub keys: Option<Arc<KeysView>>,
     /// The permissions of the user (`Command::ReadRules`, `Command::CheckAccess`).
     pub access: Arc<AccessView>,
+    /// The metrics: the state of each poll store, the history and the requests on each node.
+    pub metrics: Held<Metrics>,
 }
 
 impl ClusterData {
@@ -99,9 +102,9 @@ impl fmt::Debug for ClusterData {
 /// What the core runs for one connected cluster: its stores, its indexes and the tasks
 /// that follow them. Each part stops when this value drops.
 ///
-/// The sequence of the fields is the sequence of the stop: the indexes go before the
-/// stores that they read, and the state watch goes last, because it holds the connections
-/// of the cluster open.
+/// The sequence of the fields is the sequence of the stop: the sampler and the indexes go
+/// before the stores that they read, and the state watch goes last, because it holds the
+/// connections of the cluster open.
 pub(super) struct Connected {
     keys: ClusterKeys,
     access: ClusterAccess,
@@ -110,8 +113,10 @@ pub(super) struct Connected {
     events: Option<Reader<Index<ObjectEvents>>>,
     owners: Reader<Index<Owners>>,
     references: Reader<Index<References>>,
+    metrics: Reader<Metrics>,
     _data_watch: TaskHandle,
     shown: ShownKinds,
+    _sampler: Sampler,
     _indexes: ClusterIndexes,
     stores: ClusterStores,
     _state_watch: TaskHandle,
@@ -125,13 +130,18 @@ impl Connected {
         let bin = inner.disposal.get_or_init(|| Disposal::start(tasks)).bin();
         let parts = StoreParts { settings: settings.clone(), bin: bin.clone(), clock: WallClock::system() };
         let stores = ClusterStores::start(tasks, link, parts)?;
-        let indexes = ClusterIndexes::start(tasks, &stores, IndexParts { bin, restart: settings.restart })?;
+        let indexes =
+            ClusterIndexes::start(tasks, &stores, IndexParts { bin: bin.clone(), restart: settings.restart })?;
         let absent = || CoreError::invalid("the cluster has no store of the kind Pod");
         let pods = stores.full::<Pod>().ok_or_else(absent)?;
+        let notice = Notice::new();
+        let settings = inner.settings.metrics.clone();
+        let parts = SamplerParts { settings, bin, notice: notice.clone(), clock: WallClock::system() };
+        let sampler = Sampler::start(tasks, link.gateway.clone(), Inputs::of(&stores, &indexes)?, parts);
         let always = Restart::Always(Backoff::default());
         let data_watch = tasks.start(TaskName::scoped("data watch", id.as_str()), always, {
             let (stores, indexes, repaint) = (stores.notice(), indexes.notice(), inner.repaint.clone());
-            move || follow(stores.changes(), indexes.changes(), repaint.clone())
+            move || follow([stores.changes(), indexes.changes(), notice.changes()], repaint.clone())
         });
         let state_watch = watch::start(tasks, id, link.net.clone(), inner.journal.clone(), inner.repaint.clone());
         let mut shown_kinds = ShownKinds::default();
@@ -144,8 +154,10 @@ impl Connected {
             events: indexes.events(),
             owners: indexes.owners(),
             references: indexes.references(),
+            metrics: sampler.reader(),
             _data_watch: data_watch,
             shown: shown_kinds,
+            _sampler: sampler,
             _indexes: indexes,
             stores,
             _state_watch: state_watch,
@@ -205,17 +217,18 @@ impl Connected {
             objects: self.shown.read(),
             keys: self.keys.view(),
             access: self.access.view(),
+            metrics: self.metrics.read(),
         }
     }
 }
 
-/// Asks the UI for a repaint for each new snapshot of a store and each new value of an
-/// index: the sidebar shows the count of each store, and a table the objects of its kind.
-/// The notifier of the repaints limits their rate.
-async fn follow(mut stores: Changes, mut indexes: Changes, repaint: Repaint) -> Result<(), CoreError> {
+/// Asks the UI for a repaint for each new snapshot of a store, each new value of an index
+/// and each poll of the metrics: the sidebar shows the count of each store, and a table the
+/// objects of its kind. The notifier of the repaints limits their rate.
+async fn follow([mut stores, mut indexes, mut metrics]: [Changes; 3], repaint: Repaint) -> Result<(), CoreError> {
     loop {
         repaint.request();
-        select(pin!(stores.next()), pin!(indexes.next())).await;
+        select(pin!(stores.next()), select(pin!(indexes.next()), pin!(metrics.next()))).await;
     }
 }
 
@@ -232,13 +245,13 @@ mod tests {
 
     use super::*;
     use crate::index::IndexState;
-    use crate::published::{Notice, Publisher};
+    use crate::published::Publisher;
     use crate::store::StoreState;
 
     /// Nothing else tells the window that its rows are old: a state of a channel can stay
     /// the same for a long time while the pods of the cluster change.
     #[tokio::test(start_paused = true)]
-    async fn each_new_snapshot_and_each_new_index_ask_for_a_repaint_and_nothing_else_does() {
+    async fn each_new_snapshot_index_and_poll_asks_for_a_repaint_and_nothing_else_does() {
         let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("a task ended: {report}"));
         let disposal = Disposal::start(&tasks);
         let snapshot = |state| Snapshot::<Pod>::empty(state, SystemTime::UNIX_EPOCH);
@@ -246,9 +259,11 @@ mod tests {
             let events = Snapshot::<Event>::empty(StoreState::Live, SystemTime::UNIX_EPOCH);
             Index::<ObjectEvents>::of_snapshot(&events, IndexState::Following)
         };
-        let (of_stores, of_indexes) = (Notice::new(), Notice::new());
+        let (of_stores, of_indexes, of_metrics) = (Notice::new(), Notice::new(), Notice::new());
         let pods = Publisher::new(snapshot(StoreState::Live), disposal.bin(), of_stores.clone());
         let events = Publisher::new(index(), disposal.bin(), of_indexes.clone());
+        let polls = || Metrics::waiting(ClusterId::new("ams"), Duration::from_secs(15), SystemTime::UNIX_EPOCH);
+        let metrics = Publisher::new(polls(), disposal.bin(), of_metrics.clone());
 
         let repaint = Repaint::new();
         let wakes = Arc::new(AtomicU32::new(0));
@@ -262,7 +277,7 @@ mod tests {
             move || repaint.clone().run(Duration::from_millis(1))
         });
         let _watch = tasks.start(TaskName::new("data watch"), always, {
-            move || follow(of_stores.changes(), of_indexes.changes(), repaint.clone())
+            move || follow([of_stores.changes(), of_indexes.changes(), of_metrics.changes()], repaint.clone())
         });
         let wakes_after = |pause: Duration| {
             let wakes = Arc::clone(&wakes);
@@ -278,6 +293,8 @@ mod tests {
         assert_eq!(wakes_after(moment).await, 2, "a new snapshot of a store");
         events.publish(index());
         assert_eq!(wakes_after(moment).await, 3, "a new value of an index");
-        assert_eq!(wakes_after(Duration::from_secs(3600)).await, 3, "no new value, no repaint");
+        metrics.publish(polls());
+        assert_eq!(wakes_after(moment).await, 4, "a poll of the metrics");
+        assert_eq!(wakes_after(Duration::from_secs(3600)).await, 4, "no new value, no repaint");
     }
 }
