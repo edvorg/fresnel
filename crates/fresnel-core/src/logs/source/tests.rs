@@ -17,6 +17,8 @@ use crate::published::Disposal;
 
 struct Bed {
     _source: TaskHandle,
+    /// The report of each run of a task that ended.
+    ended: mpsc::UnboundedReceiver<String>,
     calls: mpsc::UnboundedReceiver<Call>,
     reports: mpsc::Receiver<Report>,
     pods: Store<Pod>,
@@ -33,7 +35,10 @@ const RETRY: Backoff = Backoff {
 
 impl Bed {
     fn start(pods: Vec<Pod>, previous: bool) -> Self {
-        let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("a task ended: {report}"));
+        let (end, ended) = mpsc::unbounded_channel();
+        let tasks = Tasks::new(Handle::current(), move |report: TaskReport| {
+            end.send(report.to_string()).expect("the test reads each report");
+        });
         let disposal = Disposal::start(&tasks);
         let pods = Store::new(&disposal, pods);
         let (script, calls) = Script::new();
@@ -53,7 +58,7 @@ impl Bed {
             clock: WallClock::new(|| SystemTime::UNIX_EPOCH),
         };
         let source = start(&tasks, &ClusterId::new("ams"), RETRY, 1024, parts);
-        Self { _source: source, calls, reports, pods, signal, _disposal: disposal }
+        Self { _source: source, ended, calls, reports, pods, signal, _disposal: disposal }
     }
 
     async fn call(&mut self) -> Call {
@@ -225,4 +230,27 @@ async fn the_earlier_instance_is_one_stream_with_no_follow_and_a_refusal_of_the_
     bed.signal.raise(fresnel_net::Cause::RetryNow);
     tokio::time::sleep(Duration::from_secs(60)).await;
     assert!(bed.calls.try_recv().is_err(), "a refusal of the rules sends no new request");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_panic_of_the_task_gives_a_report_and_the_next_run_starts_from_the_latest_line() {
+    let mut bed = Bed::start(vec![running("containerd://a1")], false);
+    let stream = bed.call().await.open();
+    stream.send(data(&[(10.1, "one"), (10.4, "two")])).expect("open");
+    assert_eq!(bed.reports(3).await[2], "2: 10.1 one, 10.4 two (repeated 0)");
+    drop(stream);
+    assert_eq!(bed.next().await, "2: reconnecting after: the stream ended while the container runs");
+
+    // The test drops the next open with no answer, and the script panics in the task.
+    drop(bed.call().await);
+    let ended = bed.ended.recv().await.expect("a report");
+    assert!(ended.contains("log stream") && ended.contains("the test answers each call"), "{ended}");
+    let call = bed.call().await;
+    assert_eq!(since(&call.origin), "from 1970-01-01T00:00:10Z", "the memory of the lines outlives the run");
+    let stream = call.open();
+    stream.send(data(&[(10.1, "one"), (10.4, "two"), (10.6, "three")])).expect("open");
+    let marker =
+        "2: 10.4 marker the stream started again after: the stream ended while the container runs (repeated 0)";
+    let expected = ["2: connecting", "2: connecting", "2: streaming", marker, "2: 10.6 three (repeated 2)"];
+    assert_eq!(bed.reports(5).await, expected, "the connect of each run, then one marker and no line two times");
 }

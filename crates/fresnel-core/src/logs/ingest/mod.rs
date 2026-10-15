@@ -112,7 +112,7 @@ impl Liner {
                 out.push(self.kubelet(&text));
             }
         }
-        if self.replay.repeats(&self.seen, time) {
+        if self.replay.repeats(time) {
             self.repeated += 1;
             return;
         }

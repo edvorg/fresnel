@@ -2,9 +2,13 @@
 //!
 //! A new stream of a source starts at the full second of its latest line (see
 //! `stamp::second_of`), so it sends the lines of that second again. [`Seen`] keeps the
-//! times of the lines of that second in their sequence. [`Replay`] drops the lines of a new
-//! stream while they repeat that sequence, and the first other line ends the replay. Thus a
-//! line that the view does not have is never dropped, also with two lines of one time.
+//! times of the lines of that second. [`Replay`] drops the lines of a new stream while each
+//! one has the time of a line of that second that the view has, as often as the view has
+//! it; the first other line ends the replay. Thus a line that the view does not have is
+//! never dropped, and a line that the server cannot send again, for example after a
+//! rotation of the log, does not end the replay early.
+
+use std::collections::BTreeMap;
 
 use super::stamp::NANOS;
 
@@ -55,24 +59,31 @@ impl Seen {
 /// The start of a new stream, which repeats the lines of the latest second.
 #[derive(Default)]
 pub(super) struct Replay {
-    /// The index in `Seen::times` of the next line that the stream repeats.
-    next: usize,
-    open: bool,
+    /// The count of the lines of each time of the latest second that the stream did not
+    /// send again yet. Empty after the end of the replay.
+    left: BTreeMap<i64, u32>,
 }
 
 impl Replay {
     /// The replay of a new stream from the second of `seen`.
     pub(super) fn after(seen: &Seen) -> Self {
-        Self { next: 0, open: seen.second.is_some() }
+        let mut left = BTreeMap::new();
+        for time in &seen.times {
+            *left.entry(*time).or_insert(0) += 1;
+        }
+        Self { left }
     }
 
     /// True for a line that the view has already. The first other line ends the replay.
-    pub(super) fn repeats(&mut self, seen: &Seen, time: i64) -> bool {
-        if self.open && seen.times.get(self.next) == Some(&time) {
-            self.next += 1;
+    pub(super) fn repeats(&mut self, time: i64) -> bool {
+        if let Some(count) = self.left.get_mut(&time) {
+            *count -= 1;
+            if *count == 0 {
+                self.left.remove(&time);
+            }
             return true;
         }
-        self.open = false;
+        self.left.clear();
         false
     }
 }
@@ -86,7 +97,7 @@ mod tests {
         let mut replay = Replay::after(seen);
         let mut kept = Vec::new();
         for time in stream {
-            if !replay.repeats(seen, *time) {
+            if !replay.repeats(*time) {
                 seen.note(*time);
                 kept.push(*time);
             }
@@ -114,10 +125,10 @@ mod tests {
     }
 
     #[test]
-    fn a_stream_that_differs_from_the_lines_keeps_each_line_from_the_first_difference() {
+    fn a_line_that_the_server_does_not_send_again_does_not_end_the_replay() {
         let mut seen = seen(&[5 * S + 2, 5 * S + 3]);
         // The log rotated: the line of the time 5.2 s is gone.
-        assert_eq!(kept(&mut seen, &[5 * S + 3, 5 * S + 4]), [5 * S + 3, 5 * S + 4]);
+        assert_eq!(kept(&mut seen, &[5 * S + 3, 5 * S + 4, 5 * S + 2]), [5 * S + 4, 5 * S + 2]);
         let mut empty = Seen::default();
         assert_eq!(kept(&mut empty, &[7, 8]), [7, 8], "with no line before, each line is new");
     }
