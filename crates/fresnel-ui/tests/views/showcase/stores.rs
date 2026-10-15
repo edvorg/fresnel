@@ -5,13 +5,13 @@ use std::sync::Arc;
 
 use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet};
 use k8s_openapi::api::batch::v1::{CronJob, Job};
-use k8s_openapi::api::core::v1::{ConfigMap, ContainerStatus, Event, Namespace, Node, Pod, Secret, Service};
+use k8s_openapi::api::core::v1::{ConfigMap, Event, Namespace, Node, Pod, Secret, Service};
 use serde_json::{Value, json};
 
 use super::objects::{
-    App, DAY, Owner, Warning, conditions, cron_job, event, meta, node, object, replica_set, service, workload,
+    App, DAY, Owner, State, Warning, conditions, cron_job, event, meta, node, object, replica_set, service, workload,
 };
-use super::world::{DRAINED, NAMESPACES, PENDING, REPORT_JOB, Site, pods_of};
+use super::world::{DRAINED, NAMESPACES, Planned, REPORT_JOB, Site, aged, pods_of, rollout};
 
 /// The Services of the apps: namespace, name, app and port.
 const SERVICES: [(&str, &str, &str, u16); 7] = [
@@ -41,7 +41,7 @@ const SECRETS: [(&str, &str, &str, &[&str]); 4] = [
 /// The objects of each kind of one cluster.
 #[derive(Default)]
 pub(super) struct Stores {
-    pub(super) pods: Vec<(Arc<Pod>, &'static App)>,
+    pub(super) pods: Vec<Planned>,
     pub(super) deployments: Vec<Arc<Deployment>>,
     pub(super) replica_sets: Vec<Arc<ReplicaSet>>,
     pub(super) stateful_sets: Vec<Arc<StatefulSet>>,
@@ -60,30 +60,41 @@ impl Stores {
     /// The objects of the cluster of a site.
     pub(super) fn of(site: &Site) -> Self {
         let mut stores = Self::default();
+        let cluster = site.name;
+        // The workloads and their Services, ConfigMaps and Secrets came two days after the
+        // namespaces.
+        let created =
+            |kind: &str, namespace: &str, name: &str| aged(site.age - 2 * DAY, &[cluster, kind, namespace, name]);
         for (app, count, age) in site.apps {
-            let pods = pods_of(site, app, *count, *age);
-            stores.controllers(site, app, (*count, ready(&pods)), *age);
+            let rollout = rollout(site, app, *age);
+            let pods = pods_of(site, app, *count, rollout);
+            let ready = pods.iter().filter(|pod| matches!(pod.state, State::Running(..))).count() as u32;
+            stores.controllers(site, app, (*count, ready), (rollout, created("workload", app.namespace, app.name)));
             stores.pods.extend(pods);
         }
-        let cluster = site.name;
         for name in site.nodes {
-            stores.nodes.push(object(node(cluster, name, site.version, 61 * DAY, *name == DRAINED)));
+            let age = aged(site.node_age, &[cluster, "Node", name]);
+            stores.nodes.push(object(node(cluster, (name, site.network), site.version, age, *name == DRAINED)));
         }
         for namespace in NAMESPACES {
-            stores.namespaces.push(object(json!({"metadata": meta(cluster, "Namespace", "", namespace, 90 * DAY),
+            let age = aged(site.age, &[cluster, "Namespace", namespace]);
+            stores.namespaces.push(object(json!({"metadata": meta(cluster, "Namespace", "", namespace, age),
                 "status": {"phase": "Active"}})));
         }
         let apps = site.apps.iter().map(|(app, _, _)| app.name).collect::<Vec<_>>();
         for (namespace, name, app, port) in SERVICES.into_iter().filter(|service| apps.contains(&service.2)) {
-            stores.services.push(object(service(cluster, (namespace, name, app), port)));
+            let age = created("Service", namespace, name);
+            stores.services.push(object(service(cluster, (namespace, name, app), port, age)));
         }
         for (namespace, name) in CONFIG_MAPS {
-            let config_map = json!({"metadata": meta(cluster, "ConfigMap", namespace, name, 40 * DAY), "data": {}});
+            let age = created("ConfigMap", namespace, name);
+            let config_map = json!({"metadata": meta(cluster, "ConfigMap", namespace, name, age), "data": {}});
             stores.config_maps.push(object(config_map));
         }
         for (namespace, name, kind, keys) in SECRETS {
             let data: serde_json::Map<String, Value> = keys.iter().map(|key| ((*key).to_owned(), "".into())).collect();
-            let secret = json!({"metadata": meta(cluster, "Secret", namespace, name, 40 * DAY), "type": kind,
+            let age = created("Secret", namespace, name);
+            let secret = json!({"metadata": meta(cluster, "Secret", namespace, name, age), "type": kind,
                 "data": data});
             stores.secrets.push(object(secret));
         }
@@ -92,21 +103,20 @@ impl Stores {
     }
 
     /// The controllers of the pods of an app: their workload and its ReplicaSet or Job.
-    fn controllers(&mut self, site: &Site, app: &App, pods: (u32, u32), age: u64) {
+    /// `ages` are the ages of the last rollout and of the workload.
+    fn controllers(&mut self, site: &Site, app: &App, pods: (u32, u32), (rollout, created): (u64, u64)) {
         let cluster = site.name;
         match app.owner {
-            Owner::Deployment(hash) => {
-                let mut deployment = workload(cluster, app, "Deployment", pods, 41 * DAY);
-                deployment["status"]["conditions"] = conditions(pods.0 == pods.1, age);
+            Owner::Deployment(hash, _) => {
+                let mut deployment = workload(cluster, app, "Deployment", pods, created);
+                deployment["status"]["conditions"] = conditions(pods.0 == pods.1, rollout);
                 self.replica_sets.push(object(replica_set(cluster, app, &deployment, hash, pods)));
                 self.deployments.push(object(deployment));
             }
-            Owner::StatefulSet => {
-                self.stateful_sets.push(object(workload(cluster, app, "StatefulSet", pods, 61 * DAY)))
-            }
-            Owner::DaemonSet => self.daemon_sets.push(object(workload(cluster, app, "DaemonSet", pods, 61 * DAY))),
+            Owner::StatefulSet => self.stateful_sets.push(object(workload(cluster, app, "StatefulSet", pods, created))),
+            Owner::DaemonSet => self.daemon_sets.push(object(workload(cluster, app, "DaemonSet", pods, created))),
             Owner::CronJob => {
-                let (cron, job) = cron_job(cluster, app, REPORT_JOB, age);
+                let (cron, job) = cron_job(cluster, app, (REPORT_JOB, rollout), created);
                 self.cron_jobs.push(object(cron));
                 self.jobs.push(object(job));
             }
@@ -116,50 +126,36 @@ impl Stores {
     /// The warnings of the pods that are not healthy: a pod with no node and a pod whose
     /// container crashes.
     fn warnings(&mut self, cluster: &str) {
-        for (pod, app) in &self.pods {
-            let status = pod.status.as_ref();
-            let phase = status.and_then(|status| status.phase.as_deref());
-            let crashes = status.and_then(|status| status.container_statuses.as_ref()).is_some_and(|statuses| {
-                let waits = |status: &ContainerStatus| {
-                    let waiting = status.state.as_ref().and_then(|state| state.waiting.as_ref());
-                    waiting.and_then(|waiting| waiting.reason.clone())
-                };
-                statuses.iter().filter_map(waits).any(|reason| reason == "CrashLoopBackOff")
-            });
+        for Planned { pod, app, state } in &self.pods {
             let meta = meta_of(pod);
-            if phase == Some("Pending") {
-                let warning = Warning { reason: "FailedScheduling", message: PENDING, count: 4, last: 12 };
-                self.events.push(object(event(cluster, &meta, &warning)));
-            } else if crashes {
-                let (name, uid) = (pod.metadata.name.as_deref(), pod.metadata.uid.as_deref());
-                let back_off = format!(
-                    "Back-off restarting failed container {} in pod {}_{}({})",
-                    app.name,
-                    name.unwrap_or_default(),
-                    app.namespace,
-                    uid.unwrap_or_default()
-                );
-                let address = status.and_then(|status| status.pod_ip.as_deref()).unwrap_or_default();
-                let probe = format!(
-                    "Readiness probe failed: Get \"http://{address}:8080/ready\": dial tcp {address}:8080: connect: \
-                     connection refused"
-                );
-                let crash = Warning { reason: "BackOff", message: &back_off, count: 212, last: 31 };
-                let probe = Warning { reason: "Unhealthy", message: &probe, count: 41, last: 96 };
-                self.events.push(object(event(cluster, &meta, &crash)));
-                self.events.push(object(event(cluster, &meta, &probe)));
+            match state {
+                State::Pending(reason) => {
+                    let warning = Warning { reason: "FailedScheduling", message: reason, count: 4, last: 12 };
+                    self.events.push(object(event(cluster, &meta, &warning)));
+                }
+                State::CrashLoopBackOff(..) => {
+                    let (name, uid) = (pod.metadata.name.as_deref(), pod.metadata.uid.as_deref());
+                    let back_off = format!(
+                        "Back-off restarting failed container {} in pod {}_{}({})",
+                        app.name,
+                        name.unwrap_or_default(),
+                        app.namespace,
+                        uid.unwrap_or_default()
+                    );
+                    let address = pod.status.as_ref().and_then(|status| status.pod_ip.as_deref()).unwrap_or_default();
+                    let probe = format!(
+                        "Readiness probe failed: Get \"http://{address}:8080/ready\": dial tcp {address}:8080: \
+                         connect: connection refused"
+                    );
+                    let crash = Warning { reason: "BackOff", message: &back_off, count: 212, last: 31 };
+                    let probe = Warning { reason: "Unhealthy", message: &probe, count: 41, last: 96 };
+                    self.events.push(object(event(cluster, &meta, &crash)));
+                    self.events.push(object(event(cluster, &meta, &probe)));
+                }
+                State::Running(..) | State::Completed => {}
             }
         }
     }
-}
-
-/// The count of the pods whose containers are each ready.
-fn ready(pods: &[(Arc<Pod>, &App)]) -> u32 {
-    let is_ready = |pod: &Arc<Pod>| {
-        let statuses = pod.status.as_ref().and_then(|status| status.container_statuses.as_ref());
-        statuses.is_some_and(|statuses| statuses.iter().all(|status| status.ready))
-    };
-    pods.iter().filter(|(pod, _)| is_ready(pod)).count() as u32
 }
 
 /// The metadata of a pod as JSON, for an Event about it.

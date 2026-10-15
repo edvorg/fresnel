@@ -16,6 +16,8 @@
 //! - `settings`: the settings view, read-only clusters, themes, keys and focus (M8).
 //! - `frame_time`: the time of a frame with 10,000 pods. Its limit holds in a release build.
 //! - `snapshots`: PNG files of the views, for a look by a person.
+//! - `showcase`: the pictures of the README on a made-up world of three clusters
+//!   (`cargo xtask screenshots`).
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 

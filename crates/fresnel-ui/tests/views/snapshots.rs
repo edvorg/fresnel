@@ -33,6 +33,11 @@ pub(crate) fn save(window: &mut Window, name: &str) {
     let image = window.render().expect("a GPU adapter draws the frame");
     let size = window.ctx.content_rect().size() * window.ctx.pixels_per_point();
     assert_eq!((image.width(), image.height()), (size.x as u32, size.y as u32));
+    write(&image, name);
+}
+
+/// Writes a frame as `<name>.png` into the folder of the PNG files, if it is not blank.
+pub(crate) fn write(image: &image::RgbaImage, name: &str) {
     let colors: HashSet<_> = image.pixels().collect();
     assert!(colors.len() > 20, "{name} has only {} colors", colors.len());
     let folder = folder();

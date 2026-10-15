@@ -8,7 +8,7 @@ use fresnel_core::CoreError;
 use fresnel_core::app::{AccessView, ClusterData, ClusterRow, CoreView, Objects, RulesState};
 use fresnel_core::cluster::{ServerVersion, VersionState};
 use fresnel_core::index::{Index, IndexState, Owners, References};
-use fresnel_core::journal::{Entry, JournalView, Level};
+use fresnel_core::journal::{JournalView, Level};
 use fresnel_core::kinds::{Describe, Kind, Meta, Tier};
 use fresnel_core::kubeconfig::AuthKind;
 use fresnel_core::metrics::{Metrics, PollState};
@@ -24,10 +24,17 @@ use super::stores::Stores;
 use super::usage;
 use super::world::{NAMESPACES, PROD_EU, PROD_US, STAGING, Site};
 use crate::data::{event_index, held, store};
-use crate::fake::{SECOND, channel, connected, live_status, now, status, valid, view};
+use crate::fake::{SECOND, channel, connected, journal_of, live_status, now, status, valid, view};
 
 /// The seconds since prod-us lost its connection: its stores have no data since then.
 const LOST: u32 = 48;
+/// The seconds since the last answer of the metrics API of prod-us: it polls each 15 s, and
+/// the poll after that answer came after the loss.
+const LAST_ANSWER: u32 = LOST + 7;
+/// The seconds since the first connect of prod-us after the loss failed.
+const RETRY: u32 = LOST - 8;
+/// The seconds since the start of the session.
+const START: u32 = 2460;
 
 /// The snapshot of a store of a cluster: live, or waiting for a connection.
 fn snapshot<T: fresnel_core::kinds::Object>(site: &Site, objects: &[Arc<T>]) -> Snapshot<T> {
@@ -62,11 +69,7 @@ impl Holder {
     fn hold<K: Describe>(&mut self, site: &Site, items: &[Arc<K>]) {
         let full = held(snapshot(site, items));
         self.sources.push(match K::TIER {
-            Tier::B => {
-                let metadata: Vec<Arc<Meta>> =
-                    items.iter().map(|item| Arc::new(Meta { metadata: item.metadata().clone() })).collect();
-                Source::metadata(K::ID, held(snapshot(site, &metadata)))
-            }
+            Tier::B => Source::metadata(K::ID, held(snapshot(site, &crate::search::metadata(items)))),
             Tier::A | Tier::C => Source::full(full.clone()),
         });
         self.objects = std::mem::take(&mut self.objects).with(full);
@@ -74,22 +77,21 @@ impl Holder {
 }
 
 /// The metrics of a cluster. The polls of a cluster that lost its connection end before
-/// the loss, and its two lists fail since then.
+/// the loss, and its lists of the pods and of the nodes fail since the first retry.
 fn metrics(site: &Site, stores: &Stores) -> Metrics {
-    let last = if site.live { now() } else { now() - (LOST + 7) * SECOND };
-    let mut metrics = usage::metrics(site.name, &stores.pods, last);
-    if !site.live {
-        let error = CoreError::new(ErrorClass::Network, "no connection to the cluster");
-        for poll in [&mut metrics.pods, &mut metrics.nodes] {
-            (poll.state, poll.since) = (PollState::Error(error.clone()), now() - (LOST - 8) * SECOND);
-        }
+    if site.live {
+        return usage::metrics(site.name, &stores.pods, now());
     }
+    let history = usage::metrics(site.name, &stores.pods, now() - LAST_ANSWER * SECOND);
+    let error = CoreError::new(ErrorClass::Network, "no connection to the cluster");
+    let mut metrics = crate::metrics::failed(history, PollState::Error(error), now() - RETRY * SECOND);
+    (metrics.nodes.state, metrics.nodes.since) = (metrics.pods.state.clone(), metrics.pods.since);
     metrics
 }
 
 /// The data of a cluster: each store, the indexes, the metrics and the version.
 fn data(site: &Site, stores: &Stores) -> ClusterData {
-    let pods = held(snapshot(site, &stores.pods.iter().map(|(pod, _)| Arc::clone(pod)).collect::<Vec<_>>()));
+    let pods = held(snapshot(site, &stores.pods.iter().map(|planned| Arc::clone(&planned.pod)).collect::<Vec<_>>()));
     let (replica_sets, jobs) = (snapshot(site, &stores.replica_sets), snapshot(site, &stores.jobs));
     let slices = snapshot::<EndpointSlice>(site, &[]);
     let owners = Index::<Owners>::of_snapshots(&replica_sets, &jobs, &pods, &slices, IndexState::Following);
@@ -155,20 +157,15 @@ fn journal() -> Arc<JournalView> {
     let live = "live: a request got an answer on each channel";
     let lost = "a connection was lost (watches: the server sent no ping answer in 5s); it connects again";
     let retry = "no connection (watches: connect: no answer in 3s); the channel tries again";
-    let entries: [(u32, Level, &str, &str); 6] = [
-        (2460, Level::Info, "app", "read 3 contexts from 1 kubeconfig file"),
-        (2459, Level::Info, "prod-eu", live),
-        (2459, Level::Info, "staging", live),
-        (2458, Level::Info, "prod-us", live),
+    let entries = [
+        (START, Level::Info, "app", "read 3 contexts from 1 kubeconfig file"),
+        (START - 1, Level::Info, "prod-eu", live),
+        (START - 1, Level::Info, "staging", live),
+        (START - 2, Level::Info, "prod-us", live),
         (LOST, Level::Warning, "prod-us", lost),
-        (LOST - 8, Level::Warning, "prod-us", retry),
+        (RETRY, Level::Warning, "prod-us", retry),
     ];
-    let entry = |(number, (seconds, level, source, text)): (u64, &(u32, Level, &str, &str))| {
-        let time = now() - *seconds * SECOND;
-        Arc::new(Entry { number, time, level: *level, source: (*source).to_owned(), text: (*text).to_owned() })
-    };
-    let entries: Vec<Arc<Entry>> = (0..).zip(&entries).map(entry).collect();
-    Arc::new(JournalView { total: entries.len() as u64, warnings: 2, errors: 0, entries })
+    journal_of(&entries.map(|(seconds, level, source, text)| (seconds * SECOND, level, source, text)), 0)
 }
 
 /// The view of the core with the three clusters and the journal.

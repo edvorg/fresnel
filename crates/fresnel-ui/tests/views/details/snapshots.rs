@@ -1,7 +1,6 @@
 //! PNG files of the detail views of milestone M7 in the dark theme, for a look by a person:
 //! a panel of each group of the sidebar with the most sections.
 
-use egui::accesskit::Role;
 use egui_kittest::kittest::Queryable as _;
 use fresnel_core::ops::JobState;
 use k8s_openapi::api::admissionregistration::v1::ValidatingWebhookConfiguration;
@@ -15,7 +14,7 @@ use super::and;
 use super::cluster::namespaces;
 use super::drain::{click, drain_job, node, with_nodes};
 use crate::data::{changed_object, events, of_kinds, scene};
-use crate::fake::{open_tab, view, window_with};
+use crate::fake::{grow_dock, open_tab, view, window_with};
 use crate::kinds::scene::{live, nodes};
 use crate::snapshots::{SCALE, panel_of, save_clean, tall};
 use crate::workloads::scene::jobs;
@@ -77,16 +76,7 @@ fn the_drain_dialog_and_the_pods_of_a_drain_in_the_operations_tab() {
     window.set_size(egui::vec2(crate::fake::WINDOW.x, 1100.0));
     window.run();
     open_tab(&mut window, "Operations");
-    // The dock grows to show the pods of the drain: a drag of its top edge.
-    let edge = window.get_by_role_and_label(Role::Button, "Operations").rect().top() - 4.0;
-    let start = egui::pos2(800.0, edge);
-    window.hover_at(start);
-    window.run();
-    window.drag_at(start);
-    window.run();
-    window.hover_at(start - egui::vec2(0.0, 420.0));
-    window.run();
-    window.drop_at(start - egui::vec2(0.0, 420.0));
-    window.run();
+    // The dock grows to show the pods of the drain.
+    grow_dock(&mut window, 420.0);
     save_clean(&mut window, "m7-drain-job");
 }

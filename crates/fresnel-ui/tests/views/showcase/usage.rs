@@ -4,31 +4,24 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::kinds::Kind;
 use fresnel_core::metrics::{self, Amount, Cover, Metrics, MetricsSettings, NodeLoad, Sample, SeriesKey};
 use fresnel_core::store::ObjectKey;
-use k8s_openapi::api::core::v1::{ContainerStatus, Pod};
 
-use super::objects::{App, Owner, hash};
-use crate::fake::{SECOND, now};
+use super::objects::{App, Owner, State, hash};
+use super::world::Planned;
+use crate::metrics::{PERIOD, POLLS, poll_at, poll_time};
 
-/// The polls of the history: one each 15 s for the 30 minutes of the charts.
-const POLLS: u32 = 120;
-const PERIOD: Duration = Duration::from_secs(15);
-const MI: f64 = 1024.0 * 1024.0;
+/// A MiB as a factor of a value of the world.
+const MI: f64 = crate::metrics::MI as f64;
 /// The usage of the system processes of a node: millicores and MiB.
 const SYSTEM: [f64; 2] = [160.0, 720.0];
 
 /// The sum of each series at one poll, with the count of its parts.
 type Sums = BTreeMap<SeriesKey, (Amount, u16)>;
-
-/// The time of a poll: the last one 5 s before now.
-fn poll_time(poll: u32) -> SystemTime {
-    now() - 5 * SECOND - PERIOD * (POLLS - 1 - poll)
-}
 
 /// A value near 1 that moves in waves of the object of `seed`, with some noise.
 fn wave(seed: u64, poll: u32, depth: f64) -> f64 {
@@ -56,7 +49,7 @@ fn usage(app: &App, pod: &str, poll: u32) -> Amount {
 fn workloads(app: &App, owner: Option<&str>) -> Vec<SeriesKey> {
     let key = |kind, name: &str| SeriesKey::Workload(kind, ObjectKey::new(app.namespace, name));
     match app.owner {
-        Owner::Deployment(_) => {
+        Owner::Deployment(..) => {
             let replica_set = owner.map(|name| key(Kind::ReplicaSet, name));
             [key(Kind::Deployment, app.name)].into_iter().chain(replica_set).collect()
         }
@@ -72,22 +65,16 @@ fn add(sums: &mut Sums, key: SeriesKey, usage: Amount) {
     *sum = (sum.0 + usage, sum.1 + 1);
 }
 
-/// True for a pod whose containers run: metrics-server has no sample of a container that
-/// waits, as one in CrashLoopBackOff does.
-fn runs(pod: &Pod) -> bool {
-    let statuses = pod.status.as_ref().and_then(|status| status.container_statuses.as_ref());
-    let running = |status: &ContainerStatus| status.state.as_ref().is_some_and(|state| state.running.is_some());
-    statuses.is_some_and(|statuses| statuses.iter().all(running))
-}
-
 /// The sums of one poll: each container, pod, workload, namespace and node, and the
-/// cluster. A pod counts from its creation on.
-fn sums(cluster: &str, pods: &[(Arc<Pod>, &App)], poll: u32) -> Sums {
+/// cluster. A pod counts from its creation on, while its container runs: metrics-server has
+/// no sample of a container that waits, as one in CrashLoopBackOff does.
+fn sums(cluster: &str, pods: &[Planned], poll: u32) -> Sums {
     let mut sums = Sums::new();
-    for (pod, app) in pods {
+    for Planned { pod, app, state } in pods {
         let node = pod.spec.as_ref().and_then(|spec| spec.node_name.as_deref());
         let born = pod.metadata.creation_timestamp.as_ref().map(|time| SystemTime::from(time.0));
-        let (Some(node), true, false) = (node, runs(pod), born.is_some_and(|born| born > poll_time(poll))) else {
+        let runs = matches!(state, State::Running(..));
+        let (Some(node), true, false) = (node, runs, born.is_some_and(|born| born > poll_time(poll))) else {
             continue;
         };
         let name = pod.metadata.name.as_deref().unwrap_or_default();
@@ -120,9 +107,9 @@ fn sums(cluster: &str, pods: &[(Arc<Pod>, &App)], poll: u32) -> Sums {
 }
 
 /// The requests on each node: the pods that are not done.
-fn loads(pods: &[(Arc<Pod>, &App)]) -> BTreeMap<Arc<str>, NodeLoad> {
+fn loads(pods: &[Planned]) -> BTreeMap<Arc<str>, NodeLoad> {
     let mut loads: BTreeMap<Arc<str>, NodeLoad> = BTreeMap::new();
-    for (pod, _) in pods.iter().filter(|(pod, _)| !metrics::is_done(pod)) {
+    for Planned { pod, .. } in pods.iter().filter(|planned| !metrics::is_done(&planned.pod)) {
         if let Some(node) = pod.spec.as_ref().and_then(|spec| spec.node_name.as_deref()) {
             let load = loads.entry(node.into()).or_default();
             (load.requests, load.pods) = (load.requests + metrics::of_pod(pod).requests, load.pods + 1);
@@ -133,11 +120,10 @@ fn loads(pods: &[(Arc<Pod>, &App)]) -> BTreeMap<Arc<str>, NodeLoad> {
 
 /// The metrics of a cluster with these pods. `last` is the time of its last answer: the
 /// polls of a cluster that lost its connection end there.
-pub(super) fn metrics(cluster: &str, pods: &[(Arc<Pod>, &App)], last: SystemTime) -> Metrics {
+pub(super) fn metrics(cluster: &str, pods: &[Planned], last: SystemTime) -> Metrics {
     let mut metrics = Metrics::waiting(ClusterId::new(cluster), PERIOD, poll_time(0) - PERIOD);
     for poll in (0..POLLS).filter(|poll| poll_time(*poll) <= last) {
-        let seconds = poll_time(poll).duration_since(SystemTime::UNIX_EPOCH).expect("a time").as_secs();
-        let at = u32::try_from(seconds).expect("a time of u32");
+        let at = poll_at(poll);
         let samples: Vec<(SeriesKey, Sample)> = sums(cluster, pods, poll)
             .into_iter()
             .map(|(key, (usage, count))| {

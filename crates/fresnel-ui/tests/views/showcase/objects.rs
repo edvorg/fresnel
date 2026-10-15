@@ -13,11 +13,16 @@ use crate::fake::now;
 pub(super) const MINUTE: u64 = 60;
 pub(super) const HOUR: u64 = 3_600;
 pub(super) const DAY: u64 = 86_400;
+/// The version of each object of the world: the store and a read of the server agree.
+pub(super) const RESOURCE_VERSION: &str = "48211";
+/// The seconds that the Job of the nightly report runs.
+const REPORT_RUN: u64 = 95;
 
-/// The controller of the pods of an app. A Deployment names the hash of its pod template.
+/// The controller of the pods of an app. A Deployment names the hash of its pod template
+/// and its revision.
 #[derive(Clone, Copy)]
 pub(super) enum Owner {
-    Deployment(&'static str),
+    Deployment(&'static str, u32),
     StatefulSet,
     DaemonSet,
     CronJob,
@@ -34,6 +39,17 @@ pub(super) struct App {
     pub(super) limits: [Option<&'static str>; 2],
     /// The usage of one pod at the last poll: millicores and MiB.
     pub(super) usage: [f64; 2],
+}
+
+impl App {
+    /// The name of the ReplicaSet of the pod template of a Deployment: the same template
+    /// has the same name in each cluster and each revision.
+    pub(super) fn replica_set(&self) -> Option<String> {
+        match self.owner {
+            Owner::Deployment(hash, _) => Some(format!("{}-{hash}", self.name)),
+            Owner::StatefulSet | Owner::DaemonSet | Owner::CronJob => None,
+        }
+    }
 }
 
 /// The state of one pod, as `kubectl get pods` prints it.
@@ -68,7 +84,8 @@ pub(super) fn hash(parts: &[&str]) -> u64 {
     hash
 }
 
-/// The UID of an object with this place.
+/// The UID of an object with this place, in the form of a version 4 UUID, as the API
+/// server makes one: the 4 is the version and the 8 the variant.
 pub(super) fn uid(parts: &[&str]) -> String {
     let (high, low) = (hash(parts), hash(&[parts, &["low"]].concat()));
     let text = format!("{high:016x}{low:016x}");
@@ -103,7 +120,8 @@ pub(super) fn object<K: DeserializeOwned>(value: Value) -> Arc<K> {
 /// The metadata of an object of a cluster, with its UID.
 pub(super) fn meta(cluster: &str, kind: &str, namespace: &str, name: &str, age: u64) -> Value {
     let uid = uid(&[cluster, kind, namespace, name]);
-    let mut meta = json!({"name": name, "uid": uid, "creationTimestamp": ago(age), "resourceVersion": "48211"});
+    let mut meta =
+        json!({"name": name, "uid": uid, "creationTimestamp": ago(age), "resourceVersion": RESOURCE_VERSION});
     if !namespace.is_empty() {
         meta["namespace"] = namespace.into();
     }
@@ -168,7 +186,7 @@ pub(super) fn pod(plan: &PodPlan<'_>) -> Value {
         State::Pending(reason) => json!({"phase": "Pending", "conditions": [
             {"type": "PodScheduled", "status": "False", "reason": "Unschedulable", "message": reason}]}),
         State::Completed => json!({"phase": "Succeeded", "conditions": condition(false),
-            "containerStatuses": container(false, 0, ended(age - 95, 0, "Completed"), json!({}))}),
+            "containerStatuses": container(false, 0, ended(age - REPORT_RUN, 0, "Completed"), json!({}))}),
     };
     pod["status"] = status;
     if let Some(node) = node {
@@ -188,8 +206,8 @@ pub(super) fn workload(cluster: &str, app: &App, kind: &str, (replicas, ready): 
             "updatedReplicas": replicas, "currentReplicas": replicas},
     });
     workload["metadata"]["labels"] = json!({"app": app.name});
-    if kind == "Deployment" {
-        workload["metadata"]["annotations"] = json!({"deployment.kubernetes.io/revision": "7"});
+    if let ("Deployment", Owner::Deployment(_, revision)) = (kind, app.owner) {
+        workload["metadata"]["annotations"] = json!({"deployment.kubernetes.io/revision": revision.to_string()});
         workload["spec"]["strategy"] = json!({"type": "RollingUpdate"});
     }
     if kind == "DaemonSet" {
@@ -228,17 +246,17 @@ pub(super) fn replica_set(cluster: &str, app: &App, deployment: &Value, hash: &s
 }
 
 /// The CronJob of an app that runs at 02:00, and its Job of today with one pod that ended.
-pub(super) fn cron_job(cluster: &str, app: &App, job_name: &str, age: u64) -> (Value, Value) {
+pub(super) fn cron_job(cluster: &str, app: &App, (job_name, age): (&str, u64), created: u64) -> (Value, Value) {
     let cron = json!({
-        "metadata": meta(cluster, "CronJob", app.namespace, app.name, 41 * DAY),
+        "metadata": meta(cluster, "CronJob", app.namespace, app.name, created),
         "spec": {"schedule": "0 2 * * *", "successfulJobsHistoryLimit": 1,
             "jobTemplate": {"spec": {"template": template(app)}}},
-        "status": {"lastScheduleTime": ago(age), "lastSuccessfulTime": ago(age - 95)},
+        "status": {"lastScheduleTime": ago(age), "lastSuccessfulTime": ago(age - REPORT_RUN)},
     });
     let mut job = json!({
         "metadata": meta(cluster, "Job", app.namespace, job_name, age),
         "spec": {"completions": 1, "template": template(app)},
-        "status": {"succeeded": 1, "startTime": ago(age), "completionTime": ago(age - 95),
+        "status": {"succeeded": 1, "startTime": ago(age), "completionTime": ago(age - REPORT_RUN),
             "conditions": [{"type": "Complete", "status": "True"}]},
     });
     let owner = cron["metadata"]["uid"].as_str().unwrap_or_default();
@@ -246,12 +264,13 @@ pub(super) fn cron_job(cluster: &str, app: &App, job_name: &str, age: u64) -> (V
     (cron, job)
 }
 
-/// A node with 4 cores and 8 GiB, ready, and cordoned when `cordoned` is true.
-pub(super) fn node(cluster: &str, name: &str, version: &str, age: u64, cordoned: bool) -> Value {
+/// A node with 4 cores and 8 GiB in the network `10.<network>.0.0/16`, ready, and cordoned
+/// when `cordoned` is true.
+pub(super) fn node(cluster: &str, (name, network): (&str, u8), version: &str, age: u64, cordoned: bool) -> Value {
     let capacity = json!({"cpu": "4", "memory": "8148668Ki", "pods": "110"});
     let allocatable = json!({"cpu": "3900m", "memory": "6919644Ki", "pods": "110"});
     let place = hash(&[cluster, name]);
-    let address = format!("10.110.{}.{}", place % 4, 2 + (place >> 8) % 250);
+    let address = format!("10.{network}.{}.{}", place % 4, 2 + (place >> 8) % 250);
     let condition = |kind: &str, status: &str| json!({"type": kind, "status": status, "lastTransitionTime": ago(age)});
     let mut node = json!({
         "metadata": meta(cluster, "Node", "", name, age),
@@ -298,12 +317,12 @@ pub(super) fn event(cluster: &str, pod: &Value, warning: &Warning<'_>) -> Value 
     })
 }
 
-/// A Service of an app on one port.
-pub(super) fn service(cluster: &str, (namespace, name, app): (&str, &str, &str), port: u16) -> Value {
+/// A Service of an app on one port, with an address of the service range of kubeadm.
+pub(super) fn service(cluster: &str, (namespace, name, app): (&str, &str, &str), port: u16, age: u64) -> Value {
     let address = hash(&[cluster, namespace, name]);
     json!({
-        "metadata": meta(cluster, "Service", namespace, name, 61 * DAY),
-        "spec": {"type": "ClusterIP", "clusterIP": format!("10.245.{}.{}", address % 64, 2 + address % 250),
+        "metadata": meta(cluster, "Service", namespace, name, age),
+        "spec": {"type": "ClusterIP", "clusterIP": format!("10.96.{}.{}", address % 64, 2 + address % 250),
             "ports": [{"port": port, "targetPort": port, "protocol": "TCP"}], "selector": {"app": app}},
     })
 }

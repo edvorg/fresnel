@@ -151,6 +151,59 @@ pub(crate) fn open_tab(window: &mut Window, tab: &str) {
     window.run();
 }
 
+/// A drag with the mouse from one place to an other, as on the edge of a panel: the
+/// pointer takes the edge in one frame and lets it go in a later one.
+pub(crate) fn move_edge(window: &mut Window, from: egui::Pos2, to: egui::Pos2) {
+    window.hover_at(from);
+    window.run();
+    window.drag_at(from);
+    window.run();
+    window.hover_at(to);
+    window.run();
+    window.drop_at(to);
+    window.run();
+}
+
+/// Asserts that a drag of an edge by `by` points moved `what` by `moved` points. The press
+/// takes an edge up to the grab radius away from it, and the edge then jumps to the
+/// pointer; a press that missed the edge moves nothing.
+pub(crate) fn assert_dragged(window: &Window, what: &str, moved: f32, by: f32) {
+    let radius = window.ctx.global_style().interaction.resize_grab_radius_side;
+    assert!((moved - by).abs() <= radius, "{what} moved by {moved} points, not by {by}");
+}
+
+/// The top edge of the dock is this far above its tabs: a press there takes the edge.
+const DOCK_EDGE_ABOVE_TABS: f32 = 4.0;
+/// The press on the top edge of the dock is this far from the right end of the window,
+/// where the tab bar of the dock has no tab.
+const DOCK_EDGE_FROM_RIGHT: f32 = 200.0;
+
+/// Drags the top edge of the dock `by` points up: the dock is then that much taller, and
+/// its tabs moved up with the edge.
+pub(crate) fn grow_dock(window: &mut Window, by: f32) {
+    let tabs = |window: &Window| window.get_by_role_and_label(egui::accesskit::Role::Button, "Operations").rect();
+    let before = tabs(window).top();
+    let edge = egui::pos2(window.ctx.content_rect().right() - DOCK_EDGE_FROM_RIGHT, before - DOCK_EDGE_ABOVE_TABS);
+    move_edge(window, edge, edge - egui::vec2(0.0, by));
+    assert_dragged(window, "the top of the dock", before - tabs(window).top(), by);
+}
+
+/// The left edge of the panel of an object is this far left of its tabs.
+const PANEL_EDGE_LEFT_OF_TABS: f32 = 12.0;
+/// The press on that edge is this far below the tabs, beside the fields of the panel.
+const PANEL_EDGE_BELOW_TABS: f32 = 100.0;
+
+/// Drags the left edge of the panel of an object `by` points to the left: the panel is
+/// then that much wider, and its tabs moved left with the edge. It is 720 points wide at
+/// most.
+pub(crate) fn widen_panel(window: &mut Window, by: f32) {
+    let tabs = |window: &Window| window.get_by_role_and_label(egui::accesskit::Role::Button, "Overview").rect();
+    let before = tabs(window);
+    let edge = egui::pos2(before.left() - PANEL_EDGE_LEFT_OF_TABS, before.bottom() + PANEL_EDGE_BELOW_TABS);
+    move_edge(window, edge, edge - egui::vec2(by, 0.0));
+    assert_dragged(window, "the left of the panel", before.left() - tabs(window).left(), by);
+}
+
 /// Gives these events to one frame, as a slow frame gets each key that the user pressed
 /// since the frame before. The harness gives each queued event a frame of its own.
 pub(crate) fn in_one_frame(window: &mut Window, events: impl IntoIterator<Item = egui::Event>) {
@@ -285,19 +338,29 @@ pub(crate) fn view(clusters: Vec<ClusterRow>) -> CoreView {
 /// A journal with these entries, one for each second before now. `dropped` entries left it.
 pub(crate) fn journal(entries: &[(Level, &str, &str)], dropped: u64) -> Arc<JournalView> {
     let count = entries.len() as u64;
-    let entry = |(index, (level, source, text)): (u64, &(Level, &str, &str))| {
+    let timed: Vec<(Duration, Level, &str, &str)> = (0..)
+        .zip(entries)
+        .map(|(index, (level, source, text))| (Duration::from_secs(count - index), *level, *source, *text))
+        .collect();
+    journal_of(&timed, dropped)
+}
+
+/// A journal with these entries, each with its age, the oldest first. Its counts of the
+/// warnings and the errors come from the entries.
+pub(crate) fn journal_of(entries: &[(Duration, Level, &str, &str)], dropped: u64) -> Arc<JournalView> {
+    let entry = |(index, (age, level, source, text)): (u64, &(Duration, Level, &str, &str))| {
         Arc::new(Entry {
             number: dropped + index,
-            time: now() - Duration::from_secs(count - index),
+            time: now() - *age,
             level: *level,
             source: (*source).to_owned(),
             text: (*text).to_owned(),
         })
     };
-    let of_level = |wanted: Level| entries.iter().filter(|(level, _, _)| *level == wanted).count() as u64;
+    let of_level = |wanted: Level| entries.iter().filter(|(_, level, _, _)| *level == wanted).count() as u64;
     Arc::new(JournalView {
         entries: (0..).zip(entries).map(entry).collect(),
-        total: dropped + count,
+        total: dropped + entries.len() as u64,
         warnings: of_level(Level::Warning),
         errors: of_level(Level::Error),
     })

@@ -32,13 +32,13 @@ use crate::fake::{SECOND, now};
 /// The node of the scene. Each cluster of these tests has a node of this name.
 pub(crate) const NODE: &str = "35f62a67b541";
 /// The polls of a history: 30 minutes, one each 15 s, the last one 5 s before now.
-const POLLS: u32 = 120;
-const PERIOD: Duration = Duration::from_secs(15);
+pub(crate) const POLLS: u32 = 120;
+pub(crate) const PERIOD: Duration = Duration::from_secs(15);
 /// The polls in which the pod `crash` had no sample: a restart of 2 minutes, 10 minutes ago.
 const RESTART: std::ops::Range<u32> = 80..88;
 /// The pod `leaving` has no sample in the last two answers: its value is old.
 const LEAVING: &str = "leaving";
-const MI: u64 = 1024 * 1024;
+pub(crate) const MI: u64 = 1024 * 1024;
 
 /// The pods of the scene, with requests and limits on the pods of `web` and a request with
 /// no limit on the pods of `db`.
@@ -59,8 +59,14 @@ pub(crate) fn scene_pods() -> Vec<Arc<Pod>> {
 }
 
 /// The time of a poll on the clock of the cluster.
-fn poll_time(poll: u32) -> SystemTime {
+pub(crate) fn poll_time(poll: u32) -> SystemTime {
     now() - 5 * SECOND - PERIOD * (POLLS - 1 - poll)
+}
+
+/// The time of a poll as a sample gives it: seconds since 1970.
+pub(crate) fn poll_at(poll: u32) -> u32 {
+    let seconds = poll_time(poll).duration_since(SystemTime::UNIX_EPOCH).expect("a time").as_secs();
+    u32::try_from(seconds).expect("a time of u32")
 }
 
 /// The usage of one container at one poll: a wave around a value of the container, which
@@ -99,8 +105,7 @@ pub(crate) fn scene_metrics(cluster: &str, scale: u64) -> Metrics {
     ];
     let mut metrics = Metrics::waiting(ClusterId::new(cluster), PERIOD, poll_time(0) - PERIOD);
     for poll in 0..POLLS {
-        let at = u32::try_from(poll_time(poll).duration_since(SystemTime::UNIX_EPOCH).expect("a time").as_secs())
-            .expect("a time of u32");
+        let at = poll_at(poll);
         let sample = |usage: Amount, sampled, of| Sample { at, cover: Cover { sampled, of }, usage };
         let mut samples = Vec::new();
         let mut by_pod = BTreeMap::new();

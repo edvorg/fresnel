@@ -1,33 +1,38 @@
 //! The world of the showcase: one shop with three clusters, each name made up.
 //!
 //! prod-eu and staging are live. prod-us lost its connection 48 s ago, so each of its stores
-//! keeps its objects as old ones. A drain of the node pool-general-7x2kw of prod-eu runs: it
+//! keeps its objects as old ones. A drain of the node general-7x2kw of prod-eu runs: it
 //! evicted the pods of cart, grafana and coredns there, whose new pods run on the other
-//! nodes or wait for one, and a disruption budget holds postgres-1. On staging, a new
-//! version of checkout-api crashes.
+//! nodes or wait for one, and a disruption budget holds postgres-1. On staging, a release
+//! candidate of checkout-api crashes.
 
 use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::Pod;
 
-use super::objects::{App, DAY, HOUR, MINUTE, Owner, PodPlan, State, object, pod, suffix, uid};
+use super::objects::{App, DAY, HOUR, MINUTE, Owner, PodPlan, State, hash, object, pod, suffix, uid};
 
-const CHECKOUT: App = App {
+pub(super) const CHECKOUT: App = App {
     namespace: "shop",
     name: "checkout-api",
-    owner: Owner::Deployment("7d9c5b8f6"),
+    owner: Owner::Deployment("7d9c5b8f6", 7),
     image: "shop/checkout-api:1.42.3",
     requests: ["200m", "256Mi"],
     limits: [Some("500m"), Some("512Mi")],
     usage: [190.0, 300.0],
 };
-/// The version on staging that crashes.
-const CHECKOUT_NEXT: App =
-    App { owner: Owner::Deployment("59f7c4d8b"), image: "shop/checkout-api:1.43.0-rc.1", ..CHECKOUT };
+/// The revision of the release candidate of checkout-api on staging, which crashes. Its
+/// revisions 6 and 7 are the release of prod and the candidate before.
+pub(super) const RC_REVISION: u32 = 8;
+/// The age of the rollout of that release candidate.
+pub(super) const RC_ROLLOUT: u64 = 52 * MINUTE;
+/// That release candidate: a new image with the resources of the release.
+pub(super) const CHECKOUT_NEXT: App =
+    App { owner: Owner::Deployment("59f7c4d8b", RC_REVISION), image: "shop/checkout-api:1.43.0-rc.1", ..CHECKOUT };
 const CART: App = App {
     namespace: "shop",
     name: "cart",
-    owner: Owner::Deployment("5c8f7b9d6"),
+    owner: Owner::Deployment("5c8f7b9d6", 12),
     image: "shop/cart:2.8.1",
     requests: ["100m", "128Mi"],
     limits: [Some("500m"), Some("256Mi")],
@@ -45,7 +50,7 @@ const REDIS: App = App {
 const PAYMENTS: App = App {
     namespace: "payments",
     name: "payments-worker",
-    owner: Owner::Deployment("6b4d8c7f9"),
+    owner: Owner::Deployment("6b4d8c7f9", 23),
     image: "payments/worker:3.15.0",
     requests: ["200m", "256Mi"],
     limits: [Some("1"), Some("512Mi")],
@@ -72,7 +77,7 @@ const REPORT: App = App {
 const INDEXER: App = App {
     namespace: "search",
     name: "search-indexer",
-    owner: Owner::Deployment("84f6d9b5c"),
+    owner: Owner::Deployment("84f6d9b5c", 4),
     image: "search/indexer:0.19.2",
     requests: ["500m", "1Gi"],
     limits: [Some("2"), Some("3Gi")],
@@ -90,7 +95,7 @@ const PROMETHEUS: App = App {
 const GRAFANA: App = App {
     namespace: "monitoring",
     name: "grafana",
-    owner: Owner::Deployment("7f5b6c8d4"),
+    owner: Owner::Deployment("7f5b6c8d4", 3),
     image: "grafana/grafana:11.4.0",
     requests: ["100m", "128Mi"],
     limits: [None, Some("256Mi")],
@@ -108,7 +113,7 @@ const NODE_EXPORTER: App = App {
 const COREDNS: App = App {
     namespace: "kube-system",
     name: "coredns",
-    owner: Owner::Deployment("5d78c9869d"),
+    owner: Owner::Deployment("5d78c9869d", 1),
     image: "coredns/coredns:1.11.4",
     requests: ["100m", "70Mi"],
     limits: [None, Some("170Mi")],
@@ -117,7 +122,7 @@ const COREDNS: App = App {
 const METRICS_SERVER: App = App {
     namespace: "kube-system",
     name: "metrics-server",
-    owner: Owner::Deployment("6f8c7b9d5"),
+    owner: Owner::Deployment("6f8c7b9d5", 2),
     image: "registry.k8s.io/metrics-server/metrics-server:v0.7.2",
     requests: ["100m", "200Mi"],
     limits: [None, None],
@@ -127,11 +132,17 @@ const METRICS_SERVER: App = App {
 /// The namespaces of each cluster.
 pub(super) const NAMESPACES: [&str; 6] = ["default", "kube-system", "monitoring", "payments", "search", "shop"];
 
-/// One cluster: its name, the version of its server, its nodes, and its apps with the
-/// count of their pods and the age of their last rollout.
+/// One cluster: its name, the version of its server, its ages, its nodes, and its apps with
+/// the count of their pods and the age of their last rollout.
 pub(super) struct Site {
     pub(super) name: &'static str,
     pub(super) version: &'static str,
+    /// The age of the cluster: its namespaces are that old, its workloads two days less.
+    pub(super) age: u64,
+    /// The age of its nodes: more than the age of each pod on them.
+    pub(super) node_age: u64,
+    /// The network of the nodes: 10.<network>.0.0/16, one of each cluster.
+    pub(super) network: u8,
     pub(super) nodes: &'static [&'static str],
     pub(super) apps: &'static [(&'static App, u32, u64)],
     /// False for a cluster that lost its connection: its stores keep old objects.
@@ -141,7 +152,10 @@ pub(super) struct Site {
 pub(super) const PROD_EU: Site = Site {
     name: "prod-eu",
     version: "v1.33.5",
-    nodes: &["pool-general-7x2kp", "pool-general-7x2kr", DRAINED],
+    age: 92 * DAY,
+    node_age: 64 * DAY,
+    network: 0,
+    nodes: &["general-7x2kp", "general-7x2kr", DRAINED],
     apps: &[
         (&CHECKOUT, 3, 2 * DAY + 4 * HOUR),
         (&CART, 3, 6 * DAY + HOUR),
@@ -162,7 +176,10 @@ pub(super) const PROD_EU: Site = Site {
 pub(super) const PROD_US: Site = Site {
     name: "prod-us",
     version: "v1.33.5",
-    nodes: &["pool-general-q4m8d", "pool-general-q4m8f"],
+    age: 80 * DAY,
+    node_age: 59 * DAY,
+    network: 1,
+    nodes: &["general-q4m8d", "general-q4m8f"],
     apps: &[
         (&CHECKOUT, 3, 2 * DAY + 3 * HOUR),
         (&CART, 2, 6 * DAY),
@@ -181,9 +198,12 @@ pub(super) const PROD_US: Site = Site {
 pub(super) const STAGING: Site = Site {
     name: "staging",
     version: "v1.34.1",
-    nodes: &["pool-small-h9t2c"],
+    age: 47 * DAY,
+    node_age: 41 * DAY,
+    network: 2,
+    nodes: &["small-h9t2c"],
     apps: &[
-        (&CHECKOUT_NEXT, 1, 52 * MINUTE),
+        (&CHECKOUT_NEXT, 1, RC_ROLLOUT),
         (&CART, 1, 3 * DAY),
         (&REDIS, 1, 12 * DAY),
         (&PAYMENTS, 1, DAY + 2 * HOUR),
@@ -196,11 +216,11 @@ pub(super) const STAGING: Site = Site {
 };
 
 /// The node of prod-eu that the drain empties.
-pub(super) const DRAINED: &str = "pool-general-7x2kw";
+pub(super) const DRAINED: &str = "general-7x2kw";
 /// The Job of the CronJob of today, at 02:00: its name has the minute of its start.
 pub(super) const REPORT_JOB: &str = "nightly-report-29999640";
 /// Why the scheduler finds no node for the new pod of cart.
-pub(super) const PENDING: &str = "0/3 nodes are available: 1 node(s) were unschedulable, 2 node(s) didn't match pod \
+const PENDING: &str = "0/3 nodes are available: 1 node(s) were unschedulable, 2 node(s) didn't match pod \
                                   anti-affinity rules. preemption: 0/3 nodes are available: 3 Preemption is not \
                                   helpful for scheduling.";
 
@@ -219,10 +239,10 @@ fn odd(site: &str, app: &str, index: u32) -> Option<Odd> {
         ("prod-eu", "cart", 2) => odd(State::Pending(PENDING), Some(70), None),
         ("prod-eu", "grafana", 0) => odd(State::Running(0, 0), Some(75), None),
         ("prod-eu", "coredns", 1) => odd(State::Running(0, 0), Some(80), None),
-        ("prod-eu", "postgres", 1) => odd(State::Running(1, 3 * DAY + 2 * HOUR), None, Some(DRAINED)),
-        ("prod-eu", "redis", 0) => odd(State::Running(2, 9 * DAY), None, None),
-        ("prod-eu", "search-indexer", 0) => odd(State::Running(1, 2 * HOUR + 14 * MINUTE), None, None),
-        ("prod-us", "payments-worker", 1) => odd(State::Running(3, 5 * HOUR), None, None),
+        ("prod-eu", "postgres", 1) => odd(State::Running(1, 3 * DAY + 2 * HOUR + 17 * MINUTE), None, Some(DRAINED)),
+        ("prod-eu", "redis", 0) => odd(State::Running(2, 9 * DAY + 6 * HOUR + 41 * MINUTE), None, None),
+        ("prod-eu", "search-indexer", 0) => odd(State::Running(1, 2 * HOUR + 14 * MINUTE + 33), None, None),
+        ("prod-us", "payments-worker", 1) => odd(State::Running(3, 5 * HOUR + 23 * MINUTE + 8), None, None),
         ("staging", "checkout-api", 0) => odd(State::CrashLoopBackOff(14, 95), None, None),
         _ => None,
     }
@@ -232,7 +252,7 @@ fn odd(site: &str, app: &str, index: u32) -> Option<Odd> {
 fn names(site: &str, app: &App, index: u32) -> (String, &'static str, String) {
     let end = suffix(&[site, app.name, &index.to_string()], 5);
     match app.owner {
-        Owner::Deployment(hash) => {
+        Owner::Deployment(hash, _) => {
             let set = format!("{}-{hash}", app.name);
             (format!("{set}-{end}"), "ReplicaSet", set)
         }
@@ -242,8 +262,34 @@ fn names(site: &str, app: &App, index: u32) -> (String, &'static str, String) {
     }
 }
 
-/// The pods of an app in a cluster, with their app.
-pub(super) fn pods_of(site: &Site, app: &'static App, count: u32, age: u64) -> Vec<(Arc<Pod>, &'static App)> {
+/// The age of an object with minutes and seconds of its own, as its place gives them: an
+/// age of whole hours or days looks made up. The part is less than a twentieth of the age
+/// and less than a day, so a pod stays younger than its node and its workload.
+pub(super) fn aged(age: u64, place: &[&str]) -> u64 {
+    age + hash(place) % (age / 20).clamp(1, DAY)
+}
+
+/// The age of the last rollout of an app in a cluster: `age` with the minutes and seconds of
+/// its place. A CronJob starts its Job on the minute of its schedule.
+pub(super) fn rollout(site: &Site, app: &App, age: u64) -> u64 {
+    match app.owner {
+        Owner::CronJob => age,
+        _ => aged(age, &[site.name, app.name, "rollout"]),
+    }
+}
+
+/// The pods of a rollout start this many seconds apart, the first one when it starts.
+const STARTS_APART: u64 = 11;
+
+/// A pod of the world with its app and its state.
+pub(super) struct Planned {
+    pub(super) pod: Arc<Pod>,
+    pub(super) app: &'static App,
+    pub(super) state: State,
+}
+
+/// The pods of an app in a cluster whose last rollout was `rollout` seconds ago.
+pub(super) fn pods_of(site: &Site, app: &'static App, count: u32, rollout: u64) -> Vec<Planned> {
     // The scheduler puts no new pod on the node of the drain. The pods of each app start on
     // an other node, so the nodes have mixed pods.
     let open: Vec<&str> = site.nodes.iter().copied().filter(|node| *node != DRAINED).collect();
@@ -263,11 +309,11 @@ pub(super) fn pods_of(site: &Site, app: &'static App, count: u32, age: u64) -> V
                 (None, Owner::CronJob) => State::Completed,
                 (None, _) => State::Running(0, 0),
             };
-            let age = odd.and_then(|odd| odd.age).unwrap_or(age - u64::from(index) * 11);
+            let age = odd.and_then(|odd| odd.age).unwrap_or(rollout.saturating_sub(u64::from(index) * STARTS_APART));
             let namespace = app.namespace;
             let owner = (kind, owner.clone(), uid(&[site.name, kind, namespace, &owner]));
             let plan = PodPlan { cluster: site.name, app, name, node, age, state, owner };
-            (object::<Pod>(pod(&plan)), app)
+            Planned { pod: object::<Pod>(pod(&plan)), app, state }
         })
         .collect()
 }
