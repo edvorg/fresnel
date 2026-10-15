@@ -4,7 +4,8 @@
 //!
 //! A pod that blocks stops the drain before its first eviction. A cancel and the time limit
 //! stop each task: a wait ends at once, an eviction on its way runs to its answer. The node
-//! stays cordoned after each end, as with kubectl; the outcome tells it.
+//! stays cordoned after each end, as with kubectl; the outcome tells it. After the cordon, no
+//! end is "not sent": the cordon is in effect.
 //!
 //! - `pod`: the task of one pod: its evictions and the wait until it is gone.
 
@@ -23,10 +24,11 @@ use tokio::time::{Instant, sleep_until};
 use super::super::drain::{self, Drain, DrainOptions, DrainPod, Found, PodState, Verdict};
 use super::super::{Target, node, request};
 use super::long::no_store;
-use super::{Cancel, JobState, Outcome, Parts, Progress, Steps, read_failure, send, written};
+use super::{Cancel, JobState, Outcome, Parts, Progress, Steps, send, written};
 use crate::error::CoreError;
 use crate::kinds::Kind;
-use crate::store::ObjectKey;
+use crate::published::Reader;
+use crate::store::{ObjectKey, Snapshot};
 
 /// Drains the node of the target.
 pub(super) async fn drain<P: Progress>(
@@ -35,15 +37,16 @@ pub(super) async fn drain<P: Progress>(
     parts: &Parts,
     job: &mut Steps<'_, P>,
 ) -> Result<(), JobState> {
-    parts.pods.as_ref().ok_or_else(|| no_store(Kind::Pod))?;
+    let store = parts.pods.clone().ok_or_else(|| no_store(Kind::Pod))?;
     let answer = send(parts, job, "cordon the node", node::cordon(target, true)).await?;
     job.done("the node takes no new pod");
     let mut shown = Drain { cordoned: true, written: written(&answer), pods: Arc::from([]) };
     job.outcome(Outcome::Drain(shown.clone()));
 
     job.begin("list the pods on the node");
-    let list = node::pods_on(&target.key.name).map_err(JobState::NotSent)?;
-    let listed = parts.gateway.list_page::<List<Pod>>(list).await.map_err(read_failure)?.items;
+    let list = node::pods_on(&target.key.name).map_err(JobState::Failed)?;
+    let listed = parts.gateway.list_page::<List<Pod>>(list).await.map_err(JobState::Failed)?.items;
+    on_node(&listed, &target.key.name)?;
     job.done(count_pods(listed.len()));
     let found = daemon_sets(&listed, parts, job).await?;
 
@@ -53,7 +56,11 @@ pub(super) async fn drain<P: Progress>(
         .map(|pod| {
             let target = of_pod(target, pod);
             let namespace = target.key.namespace.clone();
-            let found = |name: &str| found.get(&(namespace, name.to_owned())).cloned().unwrap_or(Found::Missing);
+            let found = |name: &str| {
+                // A DaemonSet that the reads above missed is not known to be gone.
+                let read = found.get(&(namespace, name.to_owned())).cloned();
+                read.unwrap_or_else(|| Found::Unknown("the drain did not read it".to_owned()))
+            };
             let verdict = drain::verdict(pod, options, found);
             (target, verdict)
         })
@@ -91,12 +98,25 @@ pub(super) async fn drain<P: Progress>(
     if parts.cancel.is_set() {
         return Err(JobState::Cancelled);
     }
-    evict_each(evicted, options, parts, job, shown).await
+    evict_each(evicted, store, options, parts, job, shown).await
 }
 
 /// "1 pod", "3 pods".
 fn count_pods(count: usize) -> String {
     if count == 1 { "1 pod".to_owned() } else { format!("{count} pods") }
+}
+
+/// Fails the drain when the list has a pod of an other node. The server selects the pods of
+/// the node; one that drops the field selector, or a proxy that does, would give each pod of
+/// the cluster, and the drain would evict them all.
+fn on_node(pods: &[Pod], node: &str) -> Result<(), JobState> {
+    let others = pods.iter().filter(|pod| pod.spec.as_ref().and_then(|spec| spec.node_name.as_deref()) != Some(node));
+    let others = others.count();
+    if others == 0 {
+        return Ok(());
+    }
+    let text = format!("the list of the server has {} of an other node, so no eviction went out", count_pods(others));
+    Err(JobState::Failed(CoreError::invalid(text)))
 }
 
 /// The target of a pod of the list, in the cluster of the node.
@@ -127,7 +147,7 @@ async fn daemon_sets<P: Progress>(
     }
     job.begin(format!("read the DaemonSets of the pods: {}", found.len()));
     for ((namespace, name), state) in &mut found {
-        let request = request::get_named(Kind::DaemonSet, namespace, name).map_err(JobState::NotSent)?;
+        let request = request::get_named(Kind::DaemonSet, namespace, name).map_err(JobState::Failed)?;
         *state = match parts.gateway.get::<serde_json::Value>(request).await {
             Ok(_) => Found::Here,
             Err(error) if error.status() == Some(404) => Found::Missing,
@@ -170,16 +190,17 @@ impl Board {
     }
 }
 
-/// Starts the task of each pod to evict and follows them to their end, the cancel or the
-/// time limit. The state of the job comes from the pods: a pod that failed fails the drain.
+/// Starts the task of each pod to evict, with its place in the list, and follows them to
+/// their end, the cancel or the time limit. `pods` is the store whose snapshots tell the end
+/// of each pod. The state of the job comes from the pods: a pod that failed fails the drain.
 async fn evict_each<P: Progress>(
     evicted: Vec<(usize, Target)>,
+    pods: Reader<Snapshot<Pod>>,
     options: &DrainOptions,
     parts: &Parts,
     job: &mut Steps<'_, P>,
     mut shown: Drain,
 ) -> Result<(), JobState> {
-    let pods = parts.pods.clone().ok_or_else(|| no_store(Kind::Pod))?;
     job.begin(format!("evict {} and wait until each one is gone", count_pods(evicted.len())));
     let board = Arc::new(Board { pods: Mutex::new(shown.pods.to_vec()), changed: Notify::new() });
     let (stop, stopping) = Cancel::pair();
@@ -212,8 +233,9 @@ async fn evict_each<P: Progress>(
                 None => break,
                 Some(Ok(_)) => {}
                 Some(Err(error)) => {
-                    let index = seats.get(&error.id()).copied().unwrap_or(usize::MAX);
-                    board.set(index, PodState::Failed(CoreError::invalid("the task of the pod stopped with a panic")));
+                    if let Some(index) = seats.get(&error.id()) {
+                        board.set(*index, PodState::Failed(CoreError::invalid("the task of the pod stopped with a panic")));
+                    }
                 }
             },
             () = board.changed.notified() => {

@@ -5,6 +5,7 @@
 //! - `gateway`: the six functions of the gateway. `manifest`: the YAML of one object.
 //! - `ops`: the fates of the writes of the operations. `run_again`: "run again" of a Job
 //!   at its worst moment, between the delete of the old Job and the create of the new one.
+//!   `drain`: the drain of a node at its worst moments, with bad data and with 500 pods.
 //! - `registry`: the list of the clusters and their connections.
 //! - `stores`: the stores of a cluster and their watch loops. `store_faults`: the stores with
 //!   a second fault during a recovery, a fault at the worst moment, a slow server and bad data.
@@ -19,6 +20,7 @@ mod bed;
 #[path = "../common/mod.rs"]
 mod common;
 mod demand;
+mod drain;
 mod gateway;
 mod indexes;
 mod manifest;

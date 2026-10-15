@@ -30,6 +30,7 @@ pub(super) enum FaultAnswer {
     Unauthorized,
     Forbidden,
     NotFound,
+    Conflict,
     Unavailable,
     TooManyRequests { retry_after_seconds: u64 },
 }
@@ -53,6 +54,12 @@ impl Fault {
     /// The request gets HTTP 404, as from a server that does not serve the kind of the path.
     pub fn not_found() -> Self {
         Self::new(FaultAnswer::NotFound)
+    }
+
+    /// The request gets HTTP 409, as a write whose precondition or resource version the
+    /// object does not meet.
+    pub fn conflict() -> Self {
+        Self::new(FaultAnswer::Conflict)
     }
 
     /// The request gets HTTP 503 with the text of the aggregator of an API server: an

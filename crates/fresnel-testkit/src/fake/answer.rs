@@ -24,6 +24,7 @@ const EMPTY_LIST: &str = r#"{"kind":"List","apiVersion":"v1","metadata":{"resour
 const UNAUTHORIZED: &str = r#"{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"Unauthorized","reason":"Unauthorized","code":401}"#;
 const FORBIDDEN: &str = r#"{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"forbidden: the user of the test cannot read this path","reason":"Forbidden","code":403}"#;
 const NOT_FOUND: &str = r#"{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"the server could not find the requested resource","reason":"NotFound","details":{},"code":404}"#;
+const CONFLICT: &str = r#"{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"Operation cannot be fulfilled: the object has been modified; please apply your changes to the latest version and try again","reason":"Conflict","code":409}"#;
 /// The aggregator writes a line of text, not a `Status` (`handler_proxy.go` of Kubernetes).
 const UNAVAILABLE: &str = "service unavailable\n";
 const TOO_MANY_REQUESTS: &str = r#"{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"Too many requests, please try again later.","reason":"TooManyRequests","code":429}"#;
@@ -40,6 +41,7 @@ pub(super) async fn answer<B>(shared: &Arc<Shared>, connection: u64, request: Re
         Some(FaultAnswer::Unauthorized) => json(StatusCode::UNAUTHORIZED, UNAUTHORIZED.into()),
         Some(FaultAnswer::Forbidden) => json(StatusCode::FORBIDDEN, FORBIDDEN.into()),
         Some(FaultAnswer::NotFound) => json(StatusCode::NOT_FOUND, NOT_FOUND.into()),
+        Some(FaultAnswer::Conflict) => json(StatusCode::CONFLICT, CONFLICT.into()),
         Some(FaultAnswer::Unavailable) => json(StatusCode::SERVICE_UNAVAILABLE, UNAVAILABLE.into()),
         Some(FaultAnswer::TooManyRequests { retry_after_seconds }) => {
             let mut response = json(StatusCode::TOO_MANY_REQUESTS, TOO_MANY_REQUESTS.into());
