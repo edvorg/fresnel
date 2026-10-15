@@ -269,6 +269,10 @@ async fn a_service_of_the_fixture_finds_its_slices_and_its_pods_with_their_state
     assert_eq!(pods(&index, "nobody"), BTreeMap::new(), "a Service with no pod has a slice with no endpoint");
     assert_eq!(index.slices_of(&service("nobody")).found.len(), 1);
     assert_eq!(index.slices_of(&service("outside")).found, [], "no slice for a name of an other system");
+    let objects = index.endpoint_slices_of(&service("web"));
+    let names: Vec<String> = objects.found.iter().filter_map(|slice| slice.metadata.name.clone()).collect();
+    let keys = index.slices_of(&service("web")).found;
+    assert_eq!((names, objects.basis), (keys.iter().map(|key| key.name.to_string()).collect(), Basis::Current));
 
     // An endpoint that is not ready any more: each change of a slice is a change of the index.
     let slice_of = |name: &str| index.slices_of(&service(name)).found.remove(0);

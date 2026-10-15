@@ -104,13 +104,17 @@ impl Index<Owners> {
         Answer { found, basis: self.basis(&[Kind::EndpointSlice]) }
     }
 
+    /// The EndpointSlices of a Service with their endpoints, from the read of its pods: the
+    /// endpoints of the view of a Service and its pods are of one moment.
+    pub fn endpoint_slices_of(&self, service: &ObjectKey) -> Answer<Vec<Arc<EndpointSlice>>> {
+        Answer { found: self.slices(service).cloned().collect(), basis: self.basis(&[Kind::EndpointSlice]) }
+    }
+
     /// The pods behind a Service, as its EndpointSlices name them. A pod in two slices
     /// is one entry, and it is ready when one slice tells so.
     pub fn pods_of_service(&self, service: &ObjectKey) -> Answer<Vec<EndpointPod>> {
-        let relations = self.relations();
         let mut pods = BTreeMap::new();
-        let slices = relations.slices.of(service).filter_map(|slice| relations.endpoints.get(slice));
-        for endpoint in slices.flat_map(|slice| &slice.endpoints) {
+        for endpoint in self.slices(service).flat_map(|slice| &slice.endpoints) {
             let target = endpoint.target_ref.as_ref().filter(|target| target.kind.as_deref() == Some("Pod"));
             let Some((target, name)) = target.and_then(|target| Some((target, target.name.as_deref()?))) else {
                 continue;
@@ -120,6 +124,11 @@ impl Index<Owners> {
         }
         let found = pods.into_iter().map(|(pod, ready)| EndpointPod { pod, ready }).collect();
         Answer { found, basis: self.basis(&[Kind::EndpointSlice]) }
+    }
+
+    fn slices(&self, service: &ObjectKey) -> impl Iterator<Item = &Arc<EndpointSlice>> {
+        let relations = self.relations();
+        relations.slices.of(service).filter_map(|slice| relations.endpoints.get(slice))
     }
 }
 
