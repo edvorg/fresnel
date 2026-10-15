@@ -60,12 +60,7 @@ impl Metered {
     fn pod(&self, key: &ObjectKey, pod: &Pod) -> Option<Usage> {
         let latest = self.latest(SeriesKey::Pod(key.clone()))?;
         let PodResources { requests, limits } = metrics::of_pod(pod);
-        let usage = latest.sample.usage;
-        Some(Usage {
-            cpu: gauge(usage.cpu, requests.cpu, limits.cpu),
-            memory: gauge(usage.memory, requests.memory, limits.memory),
-            ..of_latest(latest, Whole::Limit)
-        })
+        Some(of(latest, Whole::Limit, requests, [limits.cpu, limits.memory]))
     }
 
     /// A workload: the sum of the pods at each poll, against the requests and the limits of
@@ -82,12 +77,7 @@ impl Metered {
             let first = limits.next()??;
             limits.try_fold(first, |sum, limit| Some(sum.saturating_add(limit?)))
         };
-        let usage = latest.sample.usage;
-        Some(Usage {
-            cpu: gauge(usage.cpu, requests.cpu, limit(|limits| limits.cpu)),
-            memory: gauge(usage.memory, requests.memory, limit(|limits| limits.memory)),
-            ..of_latest(latest, Whole::Limit)
-        })
+        Some(of(latest, Whole::Limit, requests, [limit(|limits| limits.cpu), limit(|limits| limits.memory)]))
     }
 
     /// A node: its usage with its system processes, against the requests of its pods at
@@ -96,23 +86,22 @@ impl Metered {
         let latest = self.latest(SeriesKey::Node(name.into()))?;
         let requests = self.metrics.node_load(&self.cluster, name).map(|load| load.requests);
         let allocatable = node.status.as_ref().and_then(|status| status.allocatable.as_ref());
-        let (usage, requests) = (latest.sample.usage, requests.unwrap_or_default());
-        Some(Usage {
-            cpu: gauge(usage.cpu, requests.cpu, Resource::Cpu.read(allocatable)),
-            memory: gauge(usage.memory, requests.memory, Resource::Memory.read(allocatable)),
-            ..of_latest(latest, Whole::Allocatable)
-        })
+        let most = Resource::BOTH.map(|resource| resource.read(allocatable));
+        Some(of(latest, Whole::Allocatable, requests.unwrap_or_default(), most))
     }
 }
 
-/// One resource. A request of zero is no request: the API gives a pod with no request the
-/// value zero.
-fn gauge(usage: u64, request: u64, most: Option<u64>) -> Gauge {
-    Gauge { usage, request: (request > 0).then_some(request), most }
-}
-
-/// The parts of a usage that the sample gives, with no amount yet.
-fn of_latest(latest: Latest, whole: Whole) -> Usage {
-    let (cpu, memory) = (Gauge::default(), Gauge::default());
-    Usage { cpu, memory, whole, at: latest.sample.time(), cover: latest.sample.cover, current: latest.current }
+/// The usage of a sample against these requests and the most of CPU and of memory. A
+/// request of zero is no request: the API gives a pod with no request the value zero.
+fn of(latest: Latest, whole: Whole, requests: Amount, [cpu_most, memory_most]: [Option<u64>; 2]) -> Usage {
+    let used = latest.sample.usage;
+    let gauge = |usage, request, most| Gauge { usage, request: (request > 0).then_some(request), most };
+    Usage {
+        cpu: gauge(used.cpu, requests.cpu, cpu_most),
+        memory: gauge(used.memory, requests.memory, memory_most),
+        whole,
+        at: latest.sample.time(),
+        cover: latest.sample.cover,
+        current: latest.current,
+    }
 }
