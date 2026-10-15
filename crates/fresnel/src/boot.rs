@@ -22,6 +22,7 @@ use crate::folders::{Build, Folders};
 use crate::lock::{LockError, ProcessLock};
 use crate::log_file::{LogFile, Rotation};
 use crate::panic_report::{self, Reports};
+use crate::platform;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The source of the journal entries of the program.
@@ -37,7 +38,7 @@ const EXIT_LIMIT: Duration = Duration::from_secs(1);
 /// Why the program did not start.
 #[derive(Debug)]
 pub enum BootError {
-    /// The environment has no home folder.
+    /// The environment has no variable that names the folders of the app.
     NoHome,
     /// A folder of the app could not be made.
     Folders(Folders, io::Error),
@@ -52,7 +53,7 @@ pub enum BootError {
 impl Display for BootError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoHome => f.write_str("the environment has no HOME"),
+            Self::NoHome => write!(f, "the environment has no {}", platform::FOLDER_VARIABLES),
             Self::Folders(folders, error) => {
                 write!(f, "cannot make {} and {}: {error}", folders.data.display(), folders.logs.display())
             }
@@ -78,8 +79,7 @@ impl Boot {
     /// Starts the program for the environment of the process. A program from Finder has
     /// only `HOME` and a short `PATH` there; the core reads the rest from the login shell.
     pub fn start(base_env: ProcessEnv) -> Result<Self, BootError> {
-        let home = base_env.get("HOME").filter(|home| !home.is_empty()).ok_or(BootError::NoHome)?;
-        let folders = Folders::of(home.as_ref(), Build::current());
+        let folders = Folders::of(&base_env, Build::current()).ok_or(BootError::NoHome)?;
         folders.create().map_err(|error| BootError::Folders(folders.clone(), error))?;
         let lock = ProcessLock::take(&folders.data).map_err(BootError::Lock)?;
         let log = LogFile::open(&folders.logs, Rotation::default());

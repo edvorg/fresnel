@@ -4,8 +4,8 @@
 //! - [`frame`]: one frame of the window, also for a test with no window.
 //! - [`folders`]: where the files are. [`lock`]: one process of the app at a time.
 //! - [`log_file`]: the journal on the disk. [`panic_report`]: a file for each panic.
-//! - [`nap`]: the macOS activity against App Nap. [`notify`]: the notifications of macOS.
-//! - `window`: the window itself.
+//! - [`nap`]: the macOS activity against App Nap. [`notify`]: the notifications of the system.
+//! - `platform`: each difference of macOS, Windows and Linux. `window`: the window itself.
 
 pub mod boot;
 pub mod folders;
@@ -15,6 +15,7 @@ pub mod log_file;
 pub mod nap;
 pub mod notify;
 pub mod panic_report;
+mod platform;
 #[cfg(test)]
 mod testing;
 mod window;

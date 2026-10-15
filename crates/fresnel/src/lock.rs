@@ -1,13 +1,15 @@
 //! The lock that lets only one process of the app run (plan section 11.6).
 //!
 //! Two processes would write the same settings files and bind the same local ports. The
-//! lock is a lock of the system on a file of the data folder. The system frees it when the
-//! process ends, also after a crash, so no old lock file can stop a start.
+//! lock is a lock of the system on a file of the data folder (`platform`). The system frees
+//! it when the process ends, also after a crash, so no old lock file can stop a start.
 
 use std::fmt::{self, Display};
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{self, Read as _, Seek as _, Write as _};
 use std::path::Path;
+
+use crate::platform::try_lock;
 
 const FILE: &str = "fresnel.lock";
 
@@ -49,7 +51,7 @@ impl ProcessLock {
             .truncate(false)
             .open(data_folder.join(FILE))
             .map_err(LockError::File)?;
-        match file.try_lock() {
+        match try_lock(&file) {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => return Err(LockError::Held { process: read_process(&mut file) }),
             Err(TryLockError::Error(error)) => return Err(LockError::File(error)),

@@ -5,6 +5,8 @@
 //! [`fresnel::boot::Boot`] as `main` does, with the environment of its process. The home
 //! folder is a folder of the test, so no test reads or changes a file of the user.
 
+// A start as from Finder: the login shell and the fake plugin are shell scripts.
+#![cfg(unix)]
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 mod child;
@@ -40,7 +42,7 @@ fn home(server: &FakeApiServer) -> Home {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fresnel-net/tests/fixtures/fake-plugin");
     home.add_program(PLUGIN, &format!("#!/bin/sh\nexec '{}'\n", fixture.display())).expect("the plugin");
     home.write("work/kubeconfig.yaml", &kubeconfig(&home, server.addr(), server)).expect("the kubeconfig");
-    let data = Folders::of(home.folder(), Build::current()).data;
+    let data = Folders::of(&home.finder_env(), Build::current()).expect("the folders").data;
     std::fs::create_dir_all(&data).expect("the settings folder");
     std::fs::write(data.join(STATE_FILE), r#"{"version": 1, "selected_clusters": ["fake"]}"#).expect("the state file");
     home
@@ -113,7 +115,7 @@ fn the_app_core_starts_with_the_environment_of_finder() {
     assert_eq!(home.read("state/runs"), "run\n", "the plugin process ran one time");
 
     // A debug build has its own folders, in the home folder of the test.
-    let folders = Folders::of(home.folder(), Build::current());
+    let folders = Folders::of(&home.finder_env(), Build::current()).expect("the folders");
     assert_eq!(result["data_folder"], folders.data.display().to_string());
     assert!(folders.data.ends_with("fresnel-debug") || !cfg!(debug_assertions), "{folders:?}");
     assert_eq!(files(&folders.data), [folders.data.join("fresnel.lock"), folders.data.join(STATE_FILE)]);

@@ -3,6 +3,9 @@
 //! macOS slows the timers of an app whose window is hidden. The keepalive ping of a
 //! channel would then be late, and a silent connection would show late. The app holds an
 //! activity while a cluster is selected. The activity permits the sleep of an idle system.
+//! The other systems have no App Nap (`platform`).
+
+use crate::platform::Activity;
 
 /// Holds the activity while it is wanted.
 #[derive(Debug, Default)]
@@ -19,52 +22,6 @@ impl NapGuard {
             (true, true) | (false, false) => return false,
         }
         true
-    }
-}
-
-#[cfg(target_os = "macos")]
-use macos::Activity;
-
-#[cfg(target_os = "macos")]
-mod macos {
-    use objc2::rc::Retained;
-    use objc2::runtime::{NSObjectProtocol, ProtocolObject};
-    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
-
-    const REASON: &str = "fresnel keeps the connections to the selected clusters";
-
-    /// One activity of the process. Its drop ends it.
-    #[derive(Debug)]
-    pub(super) struct Activity {
-        token: Retained<ProtocolObject<dyn NSObjectProtocol>>,
-    }
-
-    impl Activity {
-        pub(super) fn begin() -> Self {
-            let options = NSActivityOptions::UserInitiatedAllowingIdleSystemSleep;
-            let reason = NSString::from_str(REASON);
-            Self { token: NSProcessInfo::processInfo().beginActivityWithOptions_reason(options, &reason) }
-        }
-    }
-
-    impl Drop for Activity {
-        fn drop(&mut self) {
-            // SAFETY: the token is the object that `beginActivityWithOptions:reason:` gave,
-            // and it ends one time: this value owns it.
-            unsafe { NSProcessInfo::processInfo().endActivity(&self.token) };
-        }
-    }
-}
-
-/// App Nap exists on macOS only.
-#[cfg(not(target_os = "macos"))]
-#[derive(Debug)]
-struct Activity;
-
-#[cfg(not(target_os = "macos"))]
-impl Activity {
-    fn begin() -> Self {
-        Self
     }
 }
 
