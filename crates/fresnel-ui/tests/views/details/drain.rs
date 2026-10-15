@@ -19,9 +19,9 @@ use k8s_openapi::api::core::v1::Node;
 
 use super::{and, shows_part};
 use crate::data::{changed_object, scene};
-use crate::fake::{self, Window, grow_dock, open_tab, shows, view};
+use crate::fake::{self, JOB_WIDENING, Window, grow_dock, open_tab, shows, view, whole, widen_job};
 use crate::kinds::scene::{live, nodes};
-use crate::workloads::scene::{hover, job, jobs, opened, runs, target};
+use crate::workloads::scene::{job, jobs, opened, runs, target};
 
 /// The node of the scene: each pod of the scene runs on it.
 pub(super) fn node() -> String {
@@ -141,6 +141,8 @@ pub(super) fn drain_job(number: u64, state: JobState) -> Arc<fresnel_core::app::
 
 /// The dock grows this much to show each pod of the drain of the scene.
 const DOCK_GROWTH: f32 = 250.0;
+/// The space between two columns of a small table.
+const COLUMN_GAP: f32 = 12.0;
 
 #[test]
 fn the_operations_tab_shows_each_pod_of_a_drain_and_a_budget_by_its_name_and_a_cancel_keeps_the_cordon() {
@@ -150,19 +152,25 @@ fn the_operations_tab_shows_each_pod_of_a_drain_and_a_budget_by_its_name_and_a_c
     open_tab(&mut window, "Operations");
     assert!(shows(&window, "Job 1: Drain --ignore-daemonsets --force"));
     assert!(shows(&window, "4 pods: 1 gone, 1 held"));
-    let held = "budget guarded holds it (3×)";
-    assert!(shows(&window, held), "the budget by its name");
-    // The dock grows, so the list of the pods ends inside the window.
-    grow_dock(&mut window, DOCK_GROWTH);
-    let row = window.get_by_role_and_label(Role::Label, held).rect();
-    assert!(row.bottom() < window.ctx.content_rect().bottom(), "the budget in the window: {row:?}");
-    hover(&mut window, Role::Label, held);
-    let reason = "The disruption budget guarded needs 1 healthy pods and has 1 currently";
-    assert!(shows(&window, reason), "the reason of the server at the pointer");
+    // The State and the Cluster of the job list are as wide as their words, so the operation
+    // gets the room.
+    assert!(whole(&window, "Drain --ignore-daemonsets --force"), "the operation in the job list");
+    let held = "budget guarded holds it (3×): The disruption budget guarded needs 1 healthy pods";
+    assert!(shows_part(&window, held), "the budget by its name");
     for text in ["shop/guarded-1", "kept on the node", "gone", "terminating", "keep: a pod of a DaemonSet"] {
         assert!(shows(&window, text), "{text}");
     }
     assert!(!shows_part(&window, "stays cordoned"), "the drain runs");
+    // The verdict has the room of a fixed column of 110 points at the default width, and grows
+    // with the part of the chosen job: that column cut this verdict at any width.
+    let verdict = "keep: a pod of a DaemonSet";
+    grow_dock(&mut window, DOCK_GROWTH);
+    // The job list has a State column too, left of the part of the job.
+    let state = window.query_all_by_label("State").map(|node| node.rect().left()).fold(0.0, f32::max);
+    let width = state - window.get_by_label("Verdict").rect().left() - COLUMN_GAP;
+    assert!((width - 110.0).abs() < 3.0, "the verdict at the default width: {width}");
+    widen_job(&mut window, ("Job 1: Drain", "shop/agent-x1"), JOB_WIDENING);
+    assert!(whole(&window, verdict), "{verdict} in a wider part");
     window.get_by_label("Cancel job 1").click();
     window.run();
     assert_eq!(window.state().sent.last(), Some(&Command::Cancel(1)));

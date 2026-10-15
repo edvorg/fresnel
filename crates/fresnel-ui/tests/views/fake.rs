@@ -204,6 +204,33 @@ pub(crate) fn widen_panel(window: &mut Window, by: f32) {
     assert_dragged(window, "the left of the panel", before.left() - tabs(window).left(), by);
 }
 
+/// The part of the chosen job of the Operations tab has a margin of this many points at its
+/// left, so its left edge is that far left of its text.
+const JOB_MARGIN: f32 = 8.0;
+/// The part of the chosen job grows this much in the test of a drain and in its picture: the
+/// verdict "keep: a pod of a DaemonSet" then fits whole.
+pub(crate) const JOB_WIDENING: f32 = 200.0;
+
+/// Drags the left edge of the part of the chosen job of the Operations tab `by` points to the
+/// left. `title` is a part of the title of the job, and the press is at the height of the
+/// text `row` of the job: the rows of the job list end higher up.
+pub(crate) fn widen_job(window: &mut Window, (title, row): (&str, &str), by: f32) {
+    let left = |window: &Window| window.get_by_label_contains(title).rect().left();
+    let before = left(window);
+    let edge = egui::pos2(before - JOB_MARGIN, window.get_by_label_contains(row).rect().center().y);
+    move_edge(window, edge, edge - egui::vec2(by, 0.0));
+    assert_dragged(window, "the left of the chosen job", before - left(window), by);
+}
+
+/// True when each label with this text shows it whole, and one does. A label that cuts its
+/// text is as wide as the part that it shows, with "…".
+pub(crate) fn whole(window: &Window, text: &str) -> bool {
+    let font = egui::TextStyle::Body.resolve(&window.ctx.global_style());
+    let galley = window.ctx.fonts_mut(|fonts| fonts.layout_no_wrap(text.to_owned(), font, egui::Color32::WHITE));
+    let mut labels = window.query_all_by_label(text).peekable();
+    labels.peek().is_some() && labels.all(|label| label.rect().width() >= galley.size().x - 0.5)
+}
+
 /// Gives these events to one frame, as a slow frame gets each key that the user pressed
 /// since the frame before. The harness gives each queued event a frame of its own.
 pub(crate) fn in_one_frame(window: &mut Window, events: impl IntoIterator<Item = egui::Event>) {

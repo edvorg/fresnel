@@ -17,7 +17,7 @@ use k8s_openapi::api::core::v1::Pod;
 use super::objects::suffix;
 use super::world::{DRAINED, PROD_EU, PROD_US};
 use super::{MARGIN, TO_THE_END, save, target, window};
-use crate::fake::{Window, assert_dragged, grow_dock, move_edge, open_page, open_tab, until};
+use crate::fake::{JOB_WIDENING, Window, assert_dragged, grow_dock, move_edge, open_page, open_tab, until, widen_job};
 use crate::frame_time::wheel;
 use crate::pods::resize::drag;
 use crate::workloads::scene::{job, jobs};
@@ -102,10 +102,6 @@ fn drain(window: &Window) -> Arc<JobView> {
 
 /// The dock grows this much to show each step and each pod of the drain.
 const DRAIN_DOCK: f32 = 280.0;
-/// The part of the chosen job grows this much to the left, so the names of the pods fit
-/// beside their verdicts and states. The job list keeps the room for its operations and
-/// objects.
-const DRAIN_WIDENING: f32 = 200.0;
 /// The Status column of the Nodes gets this much wider, so "Ready,SchedulingDisabled" fits.
 /// The Name column, wider than the names of the nodes, gives that room, and the Roles and
 /// External IP columns, with no value, give the room of Memory.
@@ -113,20 +109,6 @@ const STATUS_WIDENING: f32 = 60.0;
 const NAME_NARROWING: f32 = 90.0;
 const ROLES_NARROWING: f32 = 85.0;
 const EXTERNAL_NARROWING: f32 = 40.0;
-/// The part of the chosen job has a margin of this many points at its left, so its left
-/// edge is that far left of its text.
-const JOB_MARGIN: f32 = 8.0;
-
-/// Drags the left edge of the part of the chosen job of the Operations tab `by` points to
-/// the left, at the height of its last pod: the rows of the job list end higher up.
-fn widen_job(window: &mut Window, by: f32) {
-    let left = |window: &Window| window.get_by_label_contains("Job 4: Drain").rect().left();
-    let before = left(window);
-    let last_pod = window.get_by_label_contains("postgres-1").rect().center().y;
-    let edge = egui::pos2(before - JOB_MARGIN, last_pod);
-    move_edge(window, edge, edge - egui::vec2(by, 0.0));
-    assert_dragged(window, "the left of the chosen job", before - left(window), by);
-}
 
 /// Drags the edge at the right of a column title of the Nodes `by` points to the left. The
 /// drag of the Pod tests knows only the titles of the Pods.
@@ -166,7 +148,8 @@ fn a_node_drain_in_the_operations_tab() {
     window.state_mut().view = core;
     open_tab(&mut window, "Operations");
     grow_dock(&mut window, DRAIN_DOCK);
-    widen_job(&mut window, DRAIN_WIDENING);
+    // The verdicts fit beside the names of the pods, and the job list keeps its room.
+    widen_job(&mut window, ("Job 4: Drain", "postgres-1"), JOB_WIDENING);
     until(&mut window, "the metrics", |window| window.query_all_by_label_contains("\nallocatable ").next().is_some());
     save(&mut window, "node-drain");
 }

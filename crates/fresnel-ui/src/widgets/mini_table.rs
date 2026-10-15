@@ -53,13 +53,11 @@ pub(crate) struct Text {
     pub(crate) dot: bool,
     /// A clock time or an other text with fixed columns.
     pub(crate) mono: bool,
-    /// More words at the pointer, as the reason of the server for a state.
-    pub(crate) hover: Option<String>,
 }
 
 impl Text {
     pub(crate) fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into(), tone: Tone::Normal, dot: false, mono: false, hover: None }
+        Self { text: text.into(), tone: Tone::Normal, dot: false, mono: false }
     }
 
     pub(crate) fn tone(mut self, tone: Tone) -> Self {
@@ -75,11 +73,6 @@ impl Text {
 
     pub(crate) fn mono(mut self) -> Self {
         self.mono = true;
-        self
-    }
-
-    pub(crate) fn hover(mut self, hover: String) -> Self {
-        self.hover = Some(hover);
         self
     }
 }
@@ -144,10 +137,7 @@ fn cells_of(ui: &mut Ui, id_salt: impl egui::AsIdSalt, line: egui::Rect, columns
             if text.mono {
                 rich = rich.font(theme::mono());
             }
-            let label = ui.add(Label::new(rich).truncate());
-            if let Some(hover) = &text.hover {
-                label.on_hover_text(hover);
-            }
+            ui.add(Label::new(rich).truncate());
         });
     }
 }

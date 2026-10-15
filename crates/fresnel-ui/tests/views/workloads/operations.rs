@@ -16,7 +16,7 @@ use k8s_openapi::api::batch::v1::Job;
 
 use super::scene::{allowed, job, jobs, open, target};
 use crate::data::scene;
-use crate::fake::{Window, error, open_tab, shows, view, window, window_with};
+use crate::fake::{Window, error, open_tab, shows, view, whole, window, window_with};
 use crate::kinds::in_panel;
 
 /// A session with one job of each state, the newest last, on the Operations tab.
@@ -113,11 +113,12 @@ fn choose(window: &mut Window, number: u64) {
     window.run();
 }
 
+/// The State column fits each state whole: "result not known" is the state of design rule 6.
 #[test]
 fn the_tab_lists_each_job_with_its_state_and_the_count_of_the_jobs_that_left() {
     let window = session();
     for state in ["done", "failed", "not sent", "result not known", "cancelled", "running"] {
-        assert!(shows(&window, state), "the state {state}");
+        assert!(whole(&window, state), "the state {state}");
     }
     assert!(shows(&window, "1 running, 5 ended"));
     assert!(shows(&window, "7 older jobs that ended left the list"));

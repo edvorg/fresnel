@@ -12,27 +12,26 @@ mod job;
 
 pub(crate) use job::TEXT_LIMIT;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use egui::{Frame, Margin, Panel, RichText, ScrollArea, Ui};
+use egui::{Color32, FontId, Frame, Margin, Panel, RichText, ScrollArea, TextStyle, Ui};
 use fresnel_core::app::{JobView, JobsView};
 use fresnel_core::ops::JobState;
 
 use crate::format;
 use crate::shell::Scene;
-use crate::theme::{self, BAR_HEIGHT, PAD, ROW_HEIGHT};
+use crate::theme::{self, BAR_HEIGHT, PAD, ROW_HEIGHT, SMALL};
 use crate::widgets::mini_table::{self, Column, Text};
 use crate::widgets::tone::Tone;
 
-/// The state and the cluster are short words: the operation and the object, as
-/// "Drain --ignore-daemonsets" and "Deployment shop/cart", get the room.
-const COLUMNS: &[Column] = &[
-    Column::fixed("Job", 44.0).numeric(),
-    Column::fixed("State", 90.0),
-    Column::fixed("Cluster", 90.0),
-    Column::fill("Operation"),
-    Column::fill("Object"),
-];
+/// The most width of the State and of the Cluster column, as their fixed columns had. Each one
+/// is as wide as its widest text in the list, so the operation and the object get the room
+/// that short words leave.
+const STATE_MOST: f32 = 130.0;
+const CLUSTER_MOST: f32 = 120.0;
+/// The room of the dot of a state before its words: the dot and the space after it.
+const DOT: f32 = 13.0;
 
 /// The width of the part with the chosen job.
 const DETAIL_WIDTH: f32 = 440.0;
@@ -75,7 +74,8 @@ impl OperationsTab {
         Frame::new().inner_margin(Margin { left: PAD as i8, ..Margin::ZERO }).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.style_mut().interaction.selectable_labels = false;
-            mini_table::header(ui, "operations", COLUMNS);
+            let columns = columns(ui, &jobs);
+            mini_table::header(ui, "operations", &columns);
             // The newest job first.
             let rows: Vec<&Arc<JobView>> = jobs.jobs.iter().rev().collect();
             ScrollArea::vertical().auto_shrink(false).show_rows(ui, ROW_HEIGHT, rows.len(), |ui, range| {
@@ -84,7 +84,7 @@ impl OperationsTab {
                     let row = mini_table::row_to_choose(
                         ui,
                         job.number,
-                        COLUMNS,
+                        &columns,
                         &cells(job),
                         (Some(job.number) == chosen, &name),
                     );
@@ -95,6 +95,26 @@ impl OperationsTab {
             });
         });
     }
+}
+
+/// The columns of the job list for these jobs. A title fits too.
+fn columns(ui: &Ui, jobs: &JobsView) -> [Column; 5] {
+    let (body, small) = (TextStyle::Body.resolve(ui.style()), FontId::proportional(SMALL));
+    let width = |text: &str, font: &FontId| {
+        ui.fonts_mut(|fonts| fonts.layout_no_wrap(text.to_owned(), font.clone(), Color32::PLACEHOLDER).size().x)
+    };
+    let widest = |texts: BTreeSet<&str>, title: &str| {
+        texts.into_iter().map(|text| width(text, &body)).fold(width(title, &small), f32::max)
+    };
+    let states = jobs.jobs.iter().map(|job| state(&job.report.state).0).collect();
+    let clusters = jobs.jobs.iter().map(|job| job.order.target.cluster.as_str()).collect();
+    [
+        Column::fixed("Job", 44.0).numeric(),
+        Column::fixed("State", (DOT + widest(states, "State")).min(STATE_MOST)),
+        Column::fixed("Cluster", widest(clusters, "Cluster").min(CLUSTER_MOST)),
+        Column::fill("Operation"),
+        Column::fill("Object"),
+    ]
 }
 
 /// "2 running, 14 ended".

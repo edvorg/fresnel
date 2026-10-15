@@ -13,10 +13,13 @@ use crate::theme::{self, ROW_HEIGHT};
 use crate::widgets::mini_table::{self, Column, Text};
 use crate::widgets::tone::Tone;
 
-/// The name of a pod takes the room that the verdict and the state leave. In the part of a
-/// drain that the user widened, they fit "keep: a pod of a DaemonSet" and "budget postgres
-/// holds it (9×)"; a longer text is cut, and shows in full at the pointer.
-const COLUMNS: &[Column] = &[Column::fill("Pod"), Column::part("Verdict", 0.28), Column::part("State", 0.31)];
+/// The state shares the room with the pod: the name of a budget that holds a pod comes first
+/// in it. The verdict keeps the 110 points of its old fixed column at the default width of the
+/// part of the chosen job, and grows when the user widens that part: 200 points more fit "keep:
+/// a pod of a DaemonSet". A cut text shows in full at the pointer.
+const COLUMNS: &[Column] = &[Column::fill("Pod"), Column::part("Verdict", VERDICT), Column::fill("State")];
+/// The part of the verdict: some 110 of the 390 points of the columns at the default width.
+const VERDICT: f32 = 0.28;
 /// The height of the list of the pods before it scrolls.
 const LIST_HEIGHT: f32 = 260.0;
 
@@ -63,16 +66,16 @@ pub(crate) fn verdict(verdict: &Verdict) -> Text {
     }
 }
 
-/// The state of a pod as a cell: a budget that holds the pod shows by its name, with the
-/// reason of the server at the pointer. A text of the server can have 1 MiB, and a cell lays
-/// out each character in each frame.
+/// The state of a pod as a cell: a budget that holds the pod shows by its name first. A text of
+/// the server can have 1 MiB, and a cell lays out each character in each frame.
 fn state(state: &PodState) -> Text {
     let text = |text: &str| short(text, TEXT_LIMIT).into_owned();
     match state {
         PodState::Waiting => Text::new("waiting").state(Tone::Faint),
         PodState::Evicting => Text::new("evicting").state(Tone::Info),
         PodState::Blocked { budget: Some(budget), reason, attempts } => {
-            Text::new(format!("budget {budget} holds it ({attempts}×)")).state(Tone::Warn).hover(text(reason))
+            let reason = text(reason);
+            Text::new(format!("budget {budget} holds it ({attempts}×): {reason}")).state(Tone::Warn)
         }
         PodState::Blocked { budget: None, reason, attempts } => {
             Text::new(format!("refused for now ({attempts}×): {}", text(reason))).state(Tone::Warn)
