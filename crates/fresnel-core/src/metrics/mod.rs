@@ -13,3 +13,7 @@
 
 mod duration;
 mod quantity;
+mod resources;
+mod wire;
+
+pub use resources::{Amount, Limits, PodResources, of_pod};
