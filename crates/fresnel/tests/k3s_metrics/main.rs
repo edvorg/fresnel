@@ -157,14 +157,16 @@ fn tooltip(window: &mut Window, chart: &str, part: f32) -> Vec<String> {
 
 /// The tooltip of the CPU chart at the first place, from now back, where the line of the
 /// container has a value: the samples of the sampler are in the line. Its first samples
-/// can be few, so the pointer moves over the range of 5 minutes in steps of 3 s.
+/// can be few, so the pointer moves over the range of 5 minutes in steps of 3 s. A value has
+/// no unit when it is zero, which the pause container often uses, or in cores, as `1.5`.
 fn tooltip_with_a_value(window: &mut Window, container: &str) -> Vec<String> {
     window.get_by_role_and_label(Role::Button, "5 min").click();
     window.run();
     let mut seen = Vec::new();
     for step in 1..100u8 {
         let lines = tooltip(window, "CPU chart", 1.0 - f32::from(step) / 100.0);
-        let valued = lines.iter().any(|line| line.starts_with(&format!("{container}: ")) && line.ends_with('m'));
+        let value = |line: &String| line.strip_prefix(&format!("{container}: ")).map(str::to_owned);
+        let valued = lines.iter().filter_map(value).any(|value| value != "no sample");
         if valued {
             return lines;
         }
