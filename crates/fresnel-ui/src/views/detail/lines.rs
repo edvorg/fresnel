@@ -93,6 +93,17 @@ pub(crate) fn seconds(value: Option<i32>, default: Option<i32>) -> Option<String
     value.or(default).map(|seconds| format!("{seconds} s"))
 }
 
+/// The first items of a list as one text, and the count of the other ones: a rule of a Role
+/// can name hundreds of resources.
+pub(crate) fn list<'a>(items: impl IntoIterator<Item = &'a str>) -> String {
+    let items: Vec<&str> = items.into_iter().collect();
+    let shown = items.iter().take(ITEM_LIMIT).copied().collect::<Vec<_>>().join(", ");
+    match items.len().checked_sub(ITEM_LIMIT).filter(|more| *more > 0) {
+        Some(more) => format!("{shown} and {more} more"),
+        None => shown,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -108,5 +119,13 @@ mod tests {
         assert_eq!(super::selector(Some(&selector)), "app=web,tier in (a,b),!canary");
         assert_eq!(super::selector(Some(&LabelSelector::default())), "each object");
         assert_eq!(super::selector(None), NONE);
+    }
+
+    #[test]
+    fn a_long_list_shows_its_first_items_and_the_count_of_the_others() {
+        assert_eq!(list(["get", "list"]), "get, list");
+        let names: Vec<String> = (0..ITEM_LIMIT + 3).map(|number| number.to_string()).collect();
+        let text = list(names.iter().map(String::as_str));
+        assert!(text.starts_with("0, 1, 2") && text.ends_with(&format!("{} and 3 more", ITEM_LIMIT - 1)), "{text}");
     }
 }

@@ -22,7 +22,7 @@ use crate::theme::Palette;
 use crate::views::act::Ask;
 use crate::views::objects::Link;
 use crate::views::pod_spec::Place;
-use crate::views::{network, pods, workloads};
+use crate::views::{config, network, pods, workloads};
 use crate::widgets::table::model::ObjectId;
 
 /// What a section of a kind reads besides its object.
@@ -113,6 +113,17 @@ pub(super) fn details<K: Describe>(ui: &mut Ui, cx: &Context<'_>, object: &K) ->
         Kind::Ingress => of(object).and_then(|ingress| network::ingress::details(ui, cx, ingress)),
         Kind::IngressClass => of(object).and_then(|class| network::ingress::class_details(ui, cx, class)),
         Kind::NetworkPolicy => of(object).and_then(|policy| network::policy::details(ui, cx, policy)),
+        Kind::HorizontalPodAutoscaler => of(object).and_then(|scaler| config::autoscaler::details(ui, cx, scaler)),
+        Kind::PodDisruptionBudget => of(object).and_then(|budget| config::disruption::details(ui, cx, budget)),
+        Kind::ResourceQuota => of(object).and_then(|quota| config::quota::quota_details(ui, cx, quota)),
+        Kind::LimitRange => of(object).and_then(|range| config::quota::range_details(ui, cx, range)),
+        Kind::PriorityClass => of(object).and_then(|class| config::classes::priority_details(ui, cx, class)),
+        Kind::RuntimeClass => of(object).and_then(|class| config::classes::runtime_details(ui, cx, class)),
+        Kind::Lease => of(object).and_then(|lease| config::lease::details(ui, cx, lease)),
+        Kind::MutatingWebhookConfiguration => of(object).and_then(|hooks| config::webhooks::mutating(ui, cx, hooks)),
+        Kind::ValidatingWebhookConfiguration => {
+            of(object).and_then(|hooks| config::webhooks::validating(ui, cx, hooks))
+        }
         _ => None,
     };
     link.map(Pick::Open)

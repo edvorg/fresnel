@@ -46,7 +46,7 @@ pub(super) fn probe(probe: &Probe) -> String {
 }
 
 /// "cpu 100m, memory 64Mi". `None` for no value.
-pub(super) fn resources(values: Option<&BTreeMap<String, Quantity>>) -> Option<String> {
+pub(crate) fn resources(values: Option<&BTreeMap<String, Quantity>>) -> Option<String> {
     let values = values.filter(|values| !values.is_empty())?;
     Some(values.iter().map(|(name, quantity)| format!("{name} {}", quantity.0)).collect::<Vec<_>>().join(", "))
 }
@@ -115,7 +115,11 @@ fn with_message(text: String, message: Option<&str>) -> String {
 
 /// A time of the cluster with its age: "2027-01-15 07:59:09 (51 s ago)".
 pub(crate) fn at(time: &Time, clock: &Clock) -> String {
-    let time = SystemTime::from(time.0);
+    moment(SystemTime::from(time.0), clock)
+}
+
+/// A time with its age, of any type of time of the API.
+pub(crate) fn moment(time: SystemTime, clock: &Clock) -> String {
     format!("{} ({} ago)", clock.date_time(time), format::span(clock.since(time)))
 }
 

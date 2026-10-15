@@ -18,3 +18,13 @@ pub(crate) fn dot(ui: &mut Ui, color: Color32) {
 pub(crate) fn name(response: &egui::Response, name: &str) {
     response.ctx.accesskit_node_builder(response.id, |node| node.set_label(name));
 }
+
+/// A small bar that a part fills: the use of a limit. A part of 1 or more fills the bar,
+/// and a part that is not a number fills nothing.
+pub(crate) fn bar(ui: &mut Ui, part: f64, fill: Color32, empty: Color32) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(60.0, 6.0), Sense::hover());
+    ui.painter().rect_filled(rect, 3.0, empty);
+    let part = if part.is_nan() { 0.0 } else { part.clamp(0.0, 1.0) };
+    let width = rect.width() * part as f32;
+    ui.painter().rect_filled(egui::Rect::from_min_size(rect.min, egui::vec2(width, rect.height())), 3.0, fill);
+}
