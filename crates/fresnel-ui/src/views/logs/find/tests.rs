@@ -89,6 +89,33 @@ fn the_filter_keeps_its_lines_and_each_marker_and_the_search_finds_hits_among_th
     assert_eq!(bed.find.go(true, 108), Some(109), "no current hit: from the line of the pane");
 }
 
+/// The pane shows the kept lines: a new search that emptied them would move the pane to the
+/// end of the first part that the worker gives again.
+#[test]
+fn a_new_search_keeps_the_lines_of_the_same_filter_and_a_new_filter_reads_them_again() {
+    let mut bed = Bed::new();
+    bed.find.filter = "error".to_owned();
+    let view = lines(0, 45_000);
+    bed.read(&view);
+    let kept = |find: &Find| find.kept().map(|kept| kept.iter().copied().collect::<Vec<u64>>()).unwrap_or_default();
+    let before = kept(&bed.find);
+    assert_eq!(before.len(), 4_500);
+
+    bed.find.search = "4".to_owned();
+    bed.find.update(&view, &bed.bed.tasks, &bed.wake);
+    assert_eq!(kept(&bed.find), before, "the kept lines stay while the worker reads again");
+    bed.read(&view);
+    assert_eq!(kept(&bed.find), before, "no line two times");
+    let with_4 = (0..45_000_u64).step_by(10).filter(|number| number.to_string().contains('4')).count();
+    assert_eq!(bed.hits().len(), with_4);
+
+    bed.find.filter = "fine".to_owned();
+    bed.find.update(&view, &bed.bed.tasks, &bed.wake);
+    assert_eq!(kept(&bed.find), [] as [u64; 0], "a new filter keeps other lines");
+    bed.read(&view);
+    assert_eq!(kept(&bed.find).len(), 40_500);
+}
+
 #[test]
 fn a_view_that_starts_again_with_fewer_lines_gets_a_new_search() {
     let mut bed = Bed::new();

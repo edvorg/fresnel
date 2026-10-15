@@ -4,8 +4,10 @@
 //! The worker reads the lines in parts of `PART` lines. For each part, it gives the lines
 //! that the filter keeps, and the lines with a hit of the search among them. A part for the
 //! new lines follows when they come; a change of a text starts again at the first line, and
-//! the worker drops the part that it reads for the old text. A line that leaves the ring
-//! leaves the lists. A marker of the app always passes the filter: it tells of a gap.
+//! the worker drops the part that it reads for the old text. A new search with the same
+//! filter keeps the kept lines: the pane shows them, and a list that starts again empty
+//! would move the pane to its end. A line that leaves the ring leaves the lists. A marker of
+//! the app always passes the filter: it tells of a gap.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -58,6 +60,9 @@ pub(crate) struct Find {
     hits: VecDeque<u64>,
     /// The number of the first line that the worker did not read.
     done: u64,
+    /// The number of the first line that `kept` does not cover. It is past `done` while
+    /// the worker reads again for a new search.
+    kept_to: u64,
     /// The start of the part that the worker reads now.
     asked: Option<u64>,
     /// True after the worker read each line of the view one time: from then on it reads the
@@ -72,11 +77,14 @@ impl Find {
     /// Follows the texts of the fields and the lines of this frame: takes a part from the
     /// worker and asks for the next one.
     pub(crate) fn update(&mut self, lines: &Lines, tasks: &Tasks, wake: &Wake) {
-        let needles = (Needle::new(&self.search), Needle::new(&self.filter));
+        let (search, filter) = (Needle::new(&self.search), Needle::new(&self.filter));
         // A view that started again numbers its lines from 0.
-        if needles != self.needles || lines.end() < self.done {
-            self.needles = needles;
+        if filter != self.needles.1 || lines.end() < self.done.max(self.kept_to) {
+            self.needles = (search, filter);
             self.restart();
+        } else if search != self.needles.0 {
+            self.needles.0 = search;
+            self.search_again();
         }
         if self.needles == (None, None) {
             return;
@@ -89,9 +97,10 @@ impl Find {
         if let Some(done) = worker.take() {
             if done.id.query == self.query && Some(done.output.from) == self.asked {
                 let Scanned { to, kept, hits, whole, .. } = done.output;
-                Arc::make_mut(&mut self.kept).extend(kept);
+                let kept_to = self.kept_to;
+                Arc::make_mut(&mut self.kept).extend(kept.into_iter().filter(|number| *number >= kept_to));
                 self.hits.extend(hits);
-                (self.done, self.asked) = (to, None);
+                (self.done, self.kept_to, self.asked) = (to, kept_to.max(to), None);
                 self.complete |= whole;
             } else {
                 worker.discard(done.output);
@@ -111,11 +120,16 @@ impl Find {
         }
     }
 
-    /// Starts again from the first line: a new text or a new view.
+    /// Starts again from the first line: a new filter or a new view.
     pub(crate) fn restart(&mut self) {
+        (self.kept, self.kept_to) = (Arc::default(), 0);
+        self.search_again();
+    }
+
+    /// Reads each line again for a new search. The kept lines stay.
+    fn search_again(&mut self) {
         self.query += 1;
-        (self.kept, self.hits, self.done, self.asked, self.current) = (Arc::default(), VecDeque::new(), 0, None, None);
-        self.complete = false;
+        (self.hits, self.done, self.asked, self.current, self.complete) = (VecDeque::new(), 0, None, None, false);
     }
 
     /// The lines that the filter keeps. `None` with no filter.

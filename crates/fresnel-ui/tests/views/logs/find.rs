@@ -5,7 +5,7 @@ use egui::Key;
 use egui_kittest::kittest::Queryable as _;
 use fresnel_core::logs::{LogLine, SourceState};
 
-use super::{line, log_view, marker, opened, rows, show, source, until_row};
+use super::{line, log_view, marker, numbered, opened, rows, show, source, until_row};
 use crate::fake::{shows, until};
 
 const WEB: &str = "web-6888b778b6-75md7";
@@ -52,6 +52,36 @@ fn the_search_counts_its_hits_and_goes_to_the_next_and_the_one_before() {
     assert!(shows(&window, "1 of 10 hits"));
     window.get_by_label("Search the log").type_text("X");
     until(&mut window, "no hit", |window| shows(window, "no hit"));
+}
+
+/// Fast input on a large view: each key of a search reads the lines again in parts of 20,000.
+/// The pane stays on its lines; it moved to the end of the first part before.
+#[test]
+fn a_new_search_under_a_filter_keeps_the_place_of_the_pane() {
+    let (mut window, request) = opened(WEB);
+    show(&mut window, vec![log_view(&request, vec![source(WEB, "web", SourceState::Streaming)], numbered(50_000))]);
+    until_row(&mut window, "line 49999 of the log");
+    window.get_by_label("Filter the log").click();
+    window.get_by_label("Filter the log").type_text("of the");
+    until(&mut window, "the filter reads each line", |window| !shows_part(window, "Reading "));
+    window.get_by_label("Search the log").click();
+    window.get_by_label("Search the log").type_text("30000");
+    until(&mut window, "the hit", |window| shows(window, "1 hit"));
+    window.get_by_label("The next hit").click();
+    until_row(&mut window, "line 30000 of the log");
+    let place = rows(&window);
+    window.get_by_label("Search the log").click();
+    for key in " of the".chars() {
+        window.get_by_label("Search the log").type_text(&key.to_string());
+        window.run();
+        assert_eq!(rows(&window), place, "the pane keeps its rows after {key:?}");
+    }
+    until(&mut window, "the hit of the new search", |window| shows(window, "1 hit"));
+    assert_eq!(rows(&window), place);
+}
+
+fn shows_part(window: &crate::fake::Window, part: &str) -> bool {
+    window.query_by_label_contains(part).is_some()
 }
 
 #[test]
