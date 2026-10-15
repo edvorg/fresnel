@@ -9,6 +9,7 @@ use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use super::fields::{ITEM_LIMIT, NONE, heading, more, text_field};
 use super::related::links_only;
 use super::sections::Context;
+use crate::format;
 
 /// The heading of the details of a kind.
 pub(crate) fn details_heading(ui: &mut Ui, cx: &Context<'_>) {
@@ -96,11 +97,19 @@ pub(crate) fn seconds(value: Option<i32>, default: Option<i32>) -> Option<String
 /// The first items of a list as one text, and the count of the other ones: a rule of a Role
 /// can name hundreds of resources.
 pub(crate) fn list<'a>(items: impl IntoIterator<Item = &'a str>) -> String {
-    let items: Vec<&str> = items.into_iter().collect();
-    let shown = items.iter().take(ITEM_LIMIT).copied().collect::<Vec<_>>().join(", ");
-    match items.len().checked_sub(ITEM_LIMIT).filter(|more| *more > 0) {
-        Some(more) => format!("{shown} and {more} more"),
-        None => shown,
+    let mut items = items.into_iter();
+    let shown: Vec<&str> = items.by_ref().take(ITEM_LIMIT).collect();
+    let total = shown.len() + items.count();
+    first_of(&shown, total)
+}
+
+/// The text of the first items of a list of `total` items, for a list that is too long to
+/// make: the resources of a rule with each of its groups are a product of two lists.
+pub(crate) fn first_of<T: AsRef<str>>(shown: &[T], total: usize) -> String {
+    let text = shown.iter().map(AsRef::as_ref).collect::<Vec<_>>().join(", ");
+    match total.saturating_sub(shown.len()) {
+        0 => text,
+        more => format!("{text} and {} more", format::thousands(more as u64)),
     }
 }
 
