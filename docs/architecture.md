@@ -145,8 +145,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 1. **State.** `Core::view` gives a copy of each state, with no lock: the clusters and their
    connections; of each connected cluster the Pods, the indexes, the snapshots, the full objects
-   of the kinds of `ShowKinds`, the key view, the permissions, the metrics, the logs and their
-   saves; the settings, the last manifest read and create of a Secret, the jobs and the journal.
+   of the kinds of `ShowKinds`, the key view, the permissions, the metrics, the server version,
+   the logs and saves; the settings, the last manifest read and Secret create, jobs and journal.
 2. **Commands.** A view returns a `Command`, and the task of the core runs it.
 3. **Workers.** A view computes its rows on a worker thread: see "Window".
 4. **Repaint.** A new snapshot, index, poll or log view asks for a repaint. One notifier limits
