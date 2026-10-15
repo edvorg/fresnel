@@ -22,6 +22,7 @@ use super::related::links_only;
 use crate::format::{Clock, short};
 use crate::theme::Palette;
 use crate::views::act::Ask;
+use crate::views::logs::LogAsk;
 use crate::views::objects::Link;
 use crate::views::pod_spec::Place;
 use crate::views::{access, cluster, config, network, pods, workloads};
@@ -73,6 +74,8 @@ pub(crate) enum Pick {
     Open(Link),
     /// A click on an action, for example "Roll back" of one revision.
     Ask(Ask),
+    /// A click on the logs of a container of a pod.
+    Logs(LogAsk),
 }
 
 impl From<Link> for Pick {
@@ -145,7 +148,7 @@ pub(super) fn details<K: Describe>(ui: &mut Ui, cx: &Context<'_>, object: &K) ->
 /// The parts of the kind, after the related objects.
 pub(super) fn parts<K: Describe>(ui: &mut Ui, cx: &Context<'_>, object: &K) -> Option<Pick> {
     match K::ID {
-        Kind::Pod => of::<Pod, K>(object).and_then(|pod| pods::detail::parts(ui, cx, pod)).map(Pick::Open),
+        Kind::Pod => of::<Pod, K>(object).and_then(|pod| pods::detail::parts(ui, cx, pod)),
         Kind::Deployment => of::<Deployment, K>(object).and_then(|set| workloads::deployment::parts(ui, cx, set)),
         Kind::StatefulSet => of::<StatefulSet, K>(object).and_then(|set| workloads::stateful_set::parts(ui, cx, set)),
         Kind::DaemonSet => of::<DaemonSet, K>(object).and_then(|set| workloads::daemon_set::parts(ui, cx, set)),

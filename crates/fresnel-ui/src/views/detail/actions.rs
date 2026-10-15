@@ -40,6 +40,7 @@ pub(crate) fn can_run(action: Action) -> bool {
             | Action::Cordon
             | Action::Uncordon
             | Action::Drain
+            | Action::Logs
     )
 }
 

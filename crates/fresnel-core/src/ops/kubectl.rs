@@ -23,13 +23,6 @@ pub fn edit(cluster: &ClusterId, kind: Kind, key: &ObjectKey) -> String {
     format!("{} {}{} {}", start(cluster, "edit"), resource(kind), namespace(key), quoted(&key.name))
 }
 
-/// `kubectl logs` that follows a container of a pod, or of a pod that kubectl selects for
-/// a workload. With no container, kubectl takes the default one of the pod.
-pub fn logs(cluster: &ClusterId, kind: Kind, key: &ObjectKey, container: Option<&str>) -> String {
-    let (start, object) = (start(cluster, "logs"), object(kind, key));
-    format!("{start}{} {object}{} --follow", namespace(key), container_flag(container))
-}
-
 /// `kubectl exec` of an interactive shell in a container of a pod.
 pub fn exec(cluster: &ClusterId, key: &ObjectKey, container: Option<&str>) -> String {
     let (start, pod, container) = (start(cluster, "exec"), quoted(&key.name), container_flag(container));
@@ -94,16 +87,8 @@ mod tests {
     }
 
     #[test]
-    fn logs_exec_and_port_forward_name_the_object_and_its_container() {
+    fn exec_and_port_forward_name_the_object_and_its_container() {
         let a = ClusterId::new("a");
-        assert_eq!(
-            logs(&a, Kind::Pod, &key("shop", "web-1"), Some("app")),
-            "kubectl --context a logs --namespace shop pods/web-1 --container app --follow"
-        );
-        assert_eq!(
-            logs(&a, Kind::Deployment, &key("shop", "web"), None),
-            "kubectl --context a logs --namespace shop deployments.apps/web --follow"
-        );
         let shell = "'command -v bash >/dev/null 2>&1 && exec bash || exec sh'";
         assert_eq!(
             exec(&a, &key("shop", "web-1"), Some("app")),
@@ -122,7 +107,11 @@ mod tests {
         assert_eq!(quoted("it's"), r"'it'\''s'");
         assert_eq!(quoted("$(reboot)"), "'$(reboot)'");
         assert_eq!(quoted(""), "''");
-        let odd = logs(&ClusterId::new("my cluster"), Kind::Pod, &key("shop", "web"), Some("a b"));
-        assert_eq!(odd, "kubectl --context 'my cluster' logs --namespace shop pods/web --container 'a b' --follow");
+        let odd = exec(&ClusterId::new("my cluster"), &key("shop", "web"), Some("a b"));
+        assert!(
+            odd.starts_with(
+                "kubectl --context 'my cluster' exec --stdin --tty --namespace shop web --container 'a b' "
+            )
+        );
     }
 }

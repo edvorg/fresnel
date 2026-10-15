@@ -30,6 +30,7 @@ use fresnel_core::app::{Command, CoreView};
 use fresnel_core::commands::CommandId;
 use fresnel_core::keys::Target;
 use fresnel_core::kinds::Kind;
+use fresnel_core::logs::LogRequest;
 use fresnel_core::net::task::Tasks;
 
 pub(crate) use dock::Tab;
@@ -41,6 +42,7 @@ use crate::theme::{self, ClusterColors};
 use crate::views::detail::sections;
 use crate::views::journal::JournalTab;
 use crate::views::keys::new_secret::NewSecretDialog;
+use crate::views::logs::LogTabs;
 use crate::views::objects::{self, Link};
 use crate::views::operations::OperationsTab;
 use crate::views::search::{Choice, QuickSearch};
@@ -55,6 +57,7 @@ pub struct Shell {
     tab: Tab,
     journal: JournalTab,
     operations: OperationsTab,
+    logs: LogTabs,
     /// The page of the kind that the sidebar opened last. The Connections page keeps it.
     open: Box<dyn objects::Page>,
     /// The kinds whose full objects the core holds for the views, as far as the shell knows.
@@ -83,6 +86,8 @@ pub(crate) struct Scene<'a> {
     /// A command of the command table that a button of a view asks for. The shell runs it
     /// after the frame of the view.
     pub(crate) asked: Option<CommandId>,
+    /// A log view that a view asks for. The shell opens its tab after the frame.
+    pub(crate) logs: Option<LogRequest>,
 }
 
 impl Shell {
@@ -101,6 +106,7 @@ impl Shell {
             tab: Tab::Journal,
             journal: JournalTab::default(),
             operations: OperationsTab::default(),
+            logs: LogTabs::new(tasks, Arc::clone(&wake)),
             open: kinds::page(Kind::Pod, tasks, Arc::clone(&wake)),
             shown: BTreeSet::new(),
             namespaces: BTreeSet::new(),
@@ -139,6 +145,7 @@ impl Shell {
             namespaces: &mut self.namespaces,
             commands: &mut commands,
             asked: None,
+            logs: None,
         };
         let palette = theme::palette(ui);
 
@@ -157,16 +164,30 @@ impl Shell {
             .frame(chrome.inner_margin(Margin::symmetric(6, 0)))
             .show(ui, |ui| sidebar::show(ui, view, &mut self.page));
         follow_page(&mut self.open, self.page, &self.tasks, &self.wake);
-        let dock = Panel::bottom("dock").resizable(true).default_size(dock::HEIGHT).min_size(dock::SMALLEST);
+        let titles = self.logs.titles(view);
+        // A dock with a log view has a height of its own: a log needs more rows.
+        let (name, height) = match self.tab {
+            Tab::Logs(_) => ("dock with logs", dock::LOG_HEIGHT),
+            _ => ("dock", dock::HEIGHT),
+        };
+        let dock = Panel::bottom(name).resizable(true).default_size(height).min_size(dock::SMALLEST);
         dock.frame(Frame::new().fill(palette.bg_sunken)).show(ui, |ui| {
-            dock::tab_bar(ui, &mut self.tab);
+            if let Some(closed) = dock::tab_bar(ui, &mut self.tab, &titles, scene.colors) {
+                self.logs.close(closed);
+            }
             // The center can show the same view, so the two have widgets with different identities.
             ui.push_id("dock", |ui| match self.tab {
                 Tab::Operations => self.operations.show(ui, &mut scene),
                 Tab::Journal => self.journal.show(ui, &view.journal, &self.clock),
                 Tab::Connections => connections::show(ui, &mut scene),
+                Tab::Logs(id) => self.logs.show(id, ui, &mut scene),
             });
         });
+        if let Tab::Logs(id) = self.tab
+            && !self.logs.has(id)
+        {
+            self.tab = Tab::Journal;
+        }
         let link =
             CentralPanel::default().frame(Frame::new().fill(palette.bg_surface)).show(ui, |ui| match self.page {
                 Page::Kind(_) => self.open.show(ui, &mut scene),
@@ -179,6 +200,10 @@ impl Shell {
         let chosen = self.search.show(ui.ctx(), &scene, &view.config.keys);
         let created = self.new_secret.show(ui.ctx(), &mut scene, &on_page);
         let asked = scene.asked.take();
+        if let Some(request) = scene.logs.take() {
+            self.tab = Tab::Logs(self.logs.open(request));
+            ui.ctx().request_repaint();
+        }
         if let Some(visited) = self.open.opened() {
             self.history.visit(visited);
         }
@@ -200,6 +225,7 @@ impl Shell {
         }
         commands.extend(self.show_kinds());
         commands.extend(self.show_keys());
+        commands.extend(self.logs.command());
         // A job that the user started shows its steps in the Operations tab.
         if commands.iter().any(|command| matches!(command, Command::Run(_))) {
             self.tab = Tab::Operations;

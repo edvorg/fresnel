@@ -146,6 +146,15 @@ impl Clock {
         self.now.now().checked_add(wait).map_or_else(|| NO_TIME.to_owned(), |time| self.time_of_day(time))
     }
 
+    /// "14:03:07.123": the time of a log line in nanoseconds since 1970, with its milliseconds,
+    /// in the time zone of the clock. The calendar has each time of an `i64`.
+    pub(crate) fn log_time(&self, nanos: i64) -> String {
+        match Timestamp::from_nanosecond(i128::from(nanos)) {
+            Ok(time) => time.to_zoned(self.zone.clone()).strftime("%H:%M:%S%.3f").to_string(),
+            Err(_) => format!("{NO_TIME}.---"),
+        }
+    }
+
     /// "2027-01-15 14:03:07": the day and the time of day in the time zone of the clock.
     pub(crate) fn date_time(&self, time: SystemTime) -> String {
         self.text(time, "%Y-%m-%d %H:%M:%S").unwrap_or_else(|| "no date".to_owned())
@@ -211,6 +220,7 @@ mod tests {
         assert_eq!(clock.time_of_day(now + 3725 * SECOND), "09:02:05");
         assert_eq!(clock.date_time(now + 3725 * SECOND), "2027-01-15 09:02:05");
         assert_eq!(clock.hour_minute(now + 3725 * SECOND), "09:02");
+        assert_eq!(clock.log_time(1_800_000_000_123_456_789), "08:00:00.123");
         assert_eq!((clock.until(now + 5 * SECOND), clock.until(now - 5 * SECOND)), (5 * SECOND, Duration::ZERO));
         assert_eq!((clock.since(now - 7 * SECOND), clock.since(now + 7 * SECOND)), (7 * SECOND, Duration::ZERO));
         assert_eq!(

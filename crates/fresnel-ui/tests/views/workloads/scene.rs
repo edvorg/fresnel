@@ -29,6 +29,7 @@ pub(crate) fn rules_without(missing: &[(&str, &str)]) -> Rules {
     let resources = [
         ("", "pods"),
         ("", "pods/eviction"),
+        ("", "pods/log"),
         ("", "replicationcontrollers"),
         ("", "replicationcontrollers/scale"),
         ("apps", "deployments"),

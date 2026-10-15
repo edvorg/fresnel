@@ -8,7 +8,7 @@ use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::core::v1::Pod;
 
 use crate::views::detail::fields::{NONE, field, heading, text_field};
-use crate::views::detail::sections::Context;
+use crate::views::detail::sections::{Context, Pick};
 use crate::views::objects::Link;
 use crate::views::pod_spec::{self, scheduling, texts};
 
@@ -79,8 +79,8 @@ pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, pod: &Pod) -> Option<Link> 
     clicked
 }
 
-/// The containers, with the status of each one, and the volumes.
-pub(crate) fn parts(ui: &mut Ui, cx: &Context<'_>, pod: &Pod) -> Option<Link> {
+/// The containers, with the status and the logs of each one, and the volumes.
+pub(crate) fn parts(ui: &mut Ui, cx: &Context<'_>, pod: &Pod) -> Option<Pick> {
     let spec = pod.spec.as_ref()?;
     // A pod with no status yet shows each container with no state, not as a template.
     let none = k8s_openapi::api::core::v1::PodStatus::default();

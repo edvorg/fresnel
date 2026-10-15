@@ -1,6 +1,7 @@
 //! The `kubectl` commands of an object (plan section 10, "copy as kubectl command"): get,
-//! edit, the logs and the exec of each container, and the port forward of each port. Each
-//! command names the context of its cluster (`fresnel_core::ops::kubectl`).
+//! edit, the exec of each container, and the port forward of each port. Each command names
+//! the context of its cluster (`fresnel_core::ops::kubectl`). The logs have a view of the
+//! app: the action Logs.
 
 use egui::{Grid, Label, RichText, Ui};
 use fresnel_core::kinds::Kind;
@@ -30,25 +31,10 @@ impl Commands {
             ("get".to_owned(), kubectl::get(cluster, kind, key)),
             ("edit".to_owned(), kubectl::edit(cluster, kind, key)),
         ];
-        let containers = facts.containers.iter().take(LIMIT);
-        match kind {
-            Kind::Pod => {
-                for container in containers.clone() {
-                    lines.push((format!("logs of {container}"), kubectl::logs(cluster, kind, key, Some(container))));
-                }
-                for container in containers {
-                    lines.push((format!("exec in {container}"), kubectl::exec(cluster, key, Some(container))));
-                }
+        if kind == Kind::Pod {
+            for container in facts.containers.iter().take(LIMIT) {
+                lines.push((format!("exec in {container}"), kubectl::exec(cluster, key, Some(container))));
             }
-            Kind::Deployment
-            | Kind::StatefulSet
-            | Kind::DaemonSet
-            | Kind::ReplicaSet
-            | Kind::ReplicationController
-            | Kind::Job => {
-                lines.push(("logs of a pod".to_owned(), kubectl::logs(cluster, kind, key, None)));
-            }
-            _ => {}
         }
         let forwards = matches!(
             kind,
@@ -121,7 +107,7 @@ mod tests {
         let facts = Facts { containers: vec!["app".to_owned()], ports: vec![80, 9090], ..Facts::default() };
         let commands = Commands::of(&Subject { target, facts });
         let words: Vec<&str> = commands.lines.iter().map(|(words, _)| words.as_str()).collect();
-        assert_eq!(words, ["get", "edit", "logs of app", "exec in app", "port-forward 80", "port-forward 9090"]);
+        assert_eq!(words, ["get", "edit", "exec in app", "port-forward 80", "port-forward 9090"]);
         let forward = commands.lines.iter().find(|(words, _)| words == "port-forward 80").map(|(_, command)| command);
         assert_eq!(
             forward.map(String::as_str),

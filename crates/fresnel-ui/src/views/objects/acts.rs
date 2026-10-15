@@ -18,6 +18,7 @@ use crate::views::act::{
 };
 use crate::views::detail::DetailPanel;
 use crate::views::detail::actions::{later, of_kind};
+use crate::views::logs::LogAsk;
 use crate::widgets::tone::Tone;
 
 /// A note of the page: its tone and its text.
@@ -30,6 +31,8 @@ const BULK: [Action; 3] = [Action::Scale, Action::Restart, Action::Delete];
 #[derive(Default)]
 pub(super) struct Acts {
     asked: Option<Ask>,
+    /// The choice of a log view in the panel, with an ask of `Action::Logs`.
+    logs: Option<LogAsk>,
     dialog: Option<Dialog>,
     permits: Permits,
 }
@@ -37,7 +40,12 @@ pub(super) struct Acts {
 impl Acts {
     /// The user asked for an action on the object of the panel. It starts in the frame.
     pub(super) fn ask(&mut self, ask: Ask) {
-        self.asked = Some(ask);
+        (self.asked, self.logs) = (Some(ask), None);
+    }
+
+    /// The user asked for the logs of a container of the object of the panel.
+    pub(super) fn ask_logs(&mut self, logs: LogAsk) {
+        (self.asked, self.logs) = (Some(Ask { action: Action::Logs, revision: None }), Some(logs));
     }
 
     pub(super) fn has_dialog(&self) -> bool {
@@ -46,7 +54,7 @@ impl Acts {
 
     /// Drops the action and the dialog of a page that is not painted.
     pub(super) fn rest(&mut self) {
-        (self.asked, self.dialog) = (None, None);
+        (self.asked, self.logs, self.dialog) = (None, None, None);
     }
 
     /// The gate of an action on the object of a row, for the menu of the row.
@@ -79,6 +87,10 @@ impl Acts {
         }
         if action == Action::Drain {
             self.dialog = Some(Dialog::Drain(DrainDialog::new(subject)));
+            return None;
+        }
+        if action == Action::Logs {
+            scene.logs = Some(self.logs.take().unwrap_or_default().request(&subject.target));
             return None;
         }
         if asks_first(action) {

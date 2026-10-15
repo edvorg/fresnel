@@ -33,7 +33,7 @@ pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, set: &ReplicaSet) -> Option
 pub(crate) fn parts(ui: &mut Ui, cx: &Context<'_>, set: &ReplicaSet) -> Option<Pick> {
     let pod = pods::show(ui, cx, Kind::ReplicaSet).map(Pick::from);
     let spec = set.spec.as_ref();
-    template(ui, cx, spec.and_then(|spec| spec.template.as_ref())).map(Pick::from).or(pod)
+    template(ui, cx, spec.and_then(|spec| spec.template.as_ref())).or(pod)
 }
 
 pub(crate) fn controller_details(ui: &mut Ui, cx: &Context<'_>, set: &ReplicationController) -> Option<Link> {
@@ -64,5 +64,5 @@ pub(crate) fn controller_details(ui: &mut Ui, cx: &Context<'_>, set: &Replicatio
 pub(crate) fn controller_parts(ui: &mut Ui, cx: &Context<'_>, set: &ReplicationController) -> Option<Pick> {
     let pod = pods::show(ui, cx, Kind::ReplicationController).map(Pick::from);
     let spec = set.spec.as_ref();
-    template(ui, cx, spec.and_then(|spec| spec.template.as_ref())).map(Pick::from).or(pod)
+    template(ui, cx, spec.and_then(|spec| spec.template.as_ref())).or(pod)
 }

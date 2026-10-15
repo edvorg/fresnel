@@ -7,6 +7,7 @@
 //! - `workloads`: the sections of the workloads. `pod_spec`: the containers and volumes.
 //! - `cluster`, `config`, `network`, `access`: the sections of the kinds of these groups.
 //! - `act`: the actions on objects and their dialogs. `operations`: the jobs of the core.
+//! - `logs`: the tabs of the log views.
 //! - `connections`, `journal`: the pages of the app itself. `search`: the quick search.
 
 pub(crate) mod access;
@@ -18,6 +19,7 @@ pub(crate) mod detail;
 pub(crate) mod journal;
 pub(crate) mod keys;
 pub(crate) mod kinds;
+pub(crate) mod logs;
 pub(crate) mod metrics;
 pub(crate) mod network;
 pub(crate) mod objects;

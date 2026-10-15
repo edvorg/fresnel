@@ -46,6 +46,7 @@ use crate::shell::Scene;
 use crate::theme::{self, Palette, SMALL};
 use crate::views::act::{Ask, Facts, Gate, Permits, Subject, facts};
 use crate::views::keys::KeyPanel;
+use crate::views::logs::LogAsk;
 use crate::views::metrics::has_columns;
 use crate::views::metrics::tab::MetricsTab;
 use crate::views::objects::{Link, Nouns, old_since, uid};
@@ -62,6 +63,8 @@ pub(crate) enum Act {
     Open(Link),
     /// A click on an action.
     Ask(Ask),
+    /// A click on the logs of a container.
+    Logs(LogAsk),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -249,6 +252,7 @@ impl<K: Describe> DetailPanel<K> {
                     Frame::new().inner_margin(inner).show(ui, |ui| match self.overview(ui, palette, scene, cluster) {
                         Some(Pick::Open(link)) => act = Act::Open(link),
                         Some(Pick::Ask(ask)) => act = Act::Ask(ask),
+                        Some(Pick::Logs(logs)) => act = Act::Logs(logs),
                         None => {}
                     });
                 });

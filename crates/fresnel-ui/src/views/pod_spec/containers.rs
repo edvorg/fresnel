@@ -1,7 +1,8 @@
 //! One block for each container of a spec: the init containers, the containers and the
 //! ephemeral containers, in the sequence of the spec, as `kubectl describe pod` lists them.
+//! A container of a pod has its logs, and the logs of its earlier instance after a restart.
 
-use egui::{Frame, Label, Margin, RichText, Ui};
+use egui::{Button, Frame, Label, Margin, RichText, Ui};
 use fresnel_core::kinds::Kind;
 use k8s_openapi::api::core::v1::{
     Container, ContainerPort, ContainerStatus, EnvFromSource, EnvVar, EphemeralContainer, PodSpec, PodStatus, Probe,
@@ -13,8 +14,10 @@ use super::{Place, section};
 use crate::format::short;
 use crate::theme::SMALL;
 use crate::views::detail::fields::{ITEM_LIMIT, VALUE_LIMIT, field, more, text_field};
+use crate::views::detail::sections::Pick;
+use crate::views::logs::LogAsk;
 use crate::views::objects::Link;
-use crate::widgets::dot;
+use crate::widgets::{self, dot};
 
 /// What a block shows of one container. A container and an ephemeral container are two
 /// types with the same fields.
@@ -73,8 +76,8 @@ impl<'a> Shown<'a> {
     }
 }
 
-/// Draws the section. Gives the object of a link that the user clicked.
-pub(super) fn show(ui: &mut Ui, place: &Place<'_>, spec: &PodSpec, status: Option<&PodStatus>) -> Option<Link> {
+/// Draws the section. Gives the link or the logs that the user clicked.
+pub(super) fn show(ui: &mut Ui, place: &Place<'_>, spec: &PodSpec, status: Option<&PodStatus>) -> Option<Pick> {
     let (init, main, ephemeral) = match status {
         Some(status) => (
             statuses(status.init_container_statuses.as_ref()),
@@ -115,15 +118,19 @@ fn statuses(list: Option<&Vec<ContainerStatus>>) -> &[ContainerStatus] {
 
 /// One container. `status` is `None` for a template, and `Some(None)` for a container of
 /// a pod that has no status yet.
-fn block(ui: &mut Ui, place: &Place<'_>, shown: &Shown<'_>, status: Option<Option<&ContainerStatus>>) -> Option<Link> {
+fn block(ui: &mut Ui, place: &Place<'_>, shown: &Shown<'_>, status: Option<Option<&ContainerStatus>>) -> Option<Pick> {
     let palette = place.palette;
     let mut clicked = None;
+    let mut picked = None;
     let frame = Frame::new().fill(palette.bg_raised).corner_radius(4.0).inner_margin(Margin::symmetric(8, 6));
     frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
             ui.label(RichText::new(short(shown.name, VALUE_LIMIT)).strong());
             ui.label(RichText::new(shown.role).size(SMALL).color(palette.text_faint));
+            if let Some(status) = status {
+                picked = logs(ui, shown.name, status);
+            }
         });
         if let Some(status) = status {
             state(ui, place, status);
@@ -144,7 +151,27 @@ fn block(ui: &mut Ui, place: &Place<'_>, shown: &Shown<'_>, status: Option<Optio
         optional(ui, place, "Limits", resources.and_then(|r| texts::resources(r.limits.as_ref())));
     });
     ui.add_space(6.0);
-    clicked
+    picked.or(clicked.map(Pick::Open))
+}
+
+/// The buttons of the logs of a container of a pod: its log, and the log of its instance
+/// before the last restart when it has one.
+fn logs(ui: &mut Ui, name: &str, status: Option<&ContainerStatus>) -> Option<Pick> {
+    let restarted = status.is_some_and(|status| {
+        status.restart_count > 0 && status.last_state.as_ref().is_some_and(|last| last.terminated.is_some())
+    });
+    let mut picked = None;
+    for (text, previous) in [("Logs", false), ("Previous logs", true)] {
+        if previous && !restarted {
+            continue;
+        }
+        let button = ui.add(Button::new(RichText::new(text).size(SMALL)).small());
+        widgets::name(&button, &format!("{text} of {name}"));
+        if button.clicked() {
+            picked = Some(Pick::Logs(LogAsk { container: Some(name.into()), previous }));
+        }
+    }
+    picked
 }
 
 /// The state, the readiness, the restarts and the last state of a container of a pod.

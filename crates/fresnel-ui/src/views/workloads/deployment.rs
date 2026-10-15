@@ -41,7 +41,7 @@ pub(crate) fn parts(ui: &mut Ui, cx: &Context<'_>, deployment: &Deployment) -> O
     let pod = pods::show(ui, cx, Kind::Deployment).map(Pick::from);
     let picked = revisions::show(ui, cx).or(pod);
     let spec = deployment.spec.as_ref();
-    template(ui, cx, spec.map(|spec| &spec.template)).map(Pick::from).or(picked)
+    template(ui, cx, spec.map(|spec| &spec.template)).or(picked)
 }
 
 /// "RollingUpdate (max surge 25%, max unavailable 25%)" or "Recreate".

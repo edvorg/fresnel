@@ -295,9 +295,10 @@ fn a_key_a_menu_and_the_quick_search_open_the_same_dialog() {
     assert!(lists(&window, &["Deployment", "web"]), "the quick search acts on the object of the panel");
 }
 
-/// "Copy kubectl command" lists the commands of the object; each one names its context.
+/// "Copy kubectl command" lists the commands of the object; each one names its context. The
+/// logs have their own view in the app (M9).
 #[test]
-fn the_kubectl_commands_of_a_deployment_have_its_logs_and_its_port_forward() {
+fn the_kubectl_commands_of_a_deployment_have_its_port_forward_and_no_logs() {
     let deployments = scene::<Deployment>();
     let mut window = opened::<Deployment>(vec![allowed("ams-prod", &deployments)], "web");
     click(&mut window, "More");
@@ -305,12 +306,12 @@ fn the_kubectl_commands_of_a_deployment_have_its_logs_and_its_port_forward() {
     window.run();
     let lines = [
         "kubectl --context ams-prod edit deployments.apps --namespace scene web",
-        "kubectl --context ams-prod logs --namespace scene deployments.apps/web --follow",
         "kubectl --context ams-prod port-forward --namespace scene deployments.apps/web 8080:80",
     ];
     for line in lines {
         assert!(shows(&window, line), "{line}");
     }
+    assert!(window.query_by_label_contains(" logs ").is_none(), "no kubectl logs");
     click(&mut window, "Copy port-forward 80");
-    assert!(shows(&window, &format!("Copied: {}", lines[2])));
+    assert!(shows(&window, &format!("Copied: {}", lines[1])));
 }

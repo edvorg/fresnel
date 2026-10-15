@@ -24,8 +24,7 @@ use egui::Ui;
 use k8s_openapi::api::core::v1::PodTemplateSpec;
 
 use crate::views::detail::fields::{heading, text_field};
-use crate::views::detail::sections::Context;
-use crate::views::objects::Link;
+use crate::views::detail::sections::{Context, Pick};
 use crate::views::pod_spec::{self, scheduling};
 
 /// The counts of the pods of a workload in one line: "3 desired, 2 ready, 3 up to date".
@@ -36,10 +35,10 @@ fn counts(ui: &mut Ui, cx: &Context<'_>, counts: &[(&str, Option<i32>)]) {
 }
 
 /// The pod template: where and as whom its pods run, its containers and its volumes.
-fn template(ui: &mut Ui, cx: &Context<'_>, template: Option<&PodTemplateSpec>) -> Option<Link> {
+fn template(ui: &mut Ui, cx: &Context<'_>, template: Option<&PodTemplateSpec>) -> Option<Pick> {
     let spec = template.and_then(|template| template.spec.as_ref())?;
     heading(ui, cx.palette, "POD TEMPLATE");
     let place = cx.place();
     let clicked = scheduling::show(ui, &place, spec);
-    pod_spec::show(ui, &place, spec, None).or(clicked)
+    pod_spec::show(ui, &place, spec, None).or(clicked.map(Pick::Open))
 }

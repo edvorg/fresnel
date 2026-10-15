@@ -23,6 +23,7 @@ use k8s_openapi::api::core::v1::{PodSpec, PodStatus};
 use crate::format::{Clock, short};
 use crate::theme::Palette;
 use crate::views::detail::fields::{VALUE_LIMIT, heading};
+use crate::views::detail::sections::Pick;
 use crate::views::objects::Link;
 
 /// Where the objects of a spec are, and what the parts need to draw them.
@@ -44,11 +45,10 @@ impl Place<'_> {
 }
 
 /// The containers and the volumes of a spec. `status` is the status of a pod, `None` for
-/// a template. Gives the object of a link that the user clicked.
-pub(crate) fn show(ui: &mut Ui, place: &Place<'_>, spec: &PodSpec, status: Option<&PodStatus>) -> Option<Link> {
-    let mut clicked = containers::show(ui, place, spec, status);
-    clicked = volumes::show(ui, place, spec).or(clicked);
-    clicked
+/// a template. Gives the link or the logs of a container that the user clicked.
+pub(crate) fn show(ui: &mut Ui, place: &Place<'_>, spec: &PodSpec, status: Option<&PodStatus>) -> Option<Pick> {
+    let picked = containers::show(ui, place, spec, status);
+    volumes::show(ui, place, spec).map(Pick::Open).or(picked)
 }
 
 /// The heading of a section of the spec, with a space after the section before it.

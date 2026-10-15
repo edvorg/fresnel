@@ -48,5 +48,5 @@ pub(crate) fn parts(ui: &mut Ui, cx: &Context<'_>, set: &DaemonSet) -> Option<Pi
     let pod = pods::show(ui, cx, Kind::DaemonSet).map(Pick::from);
     let picked = revisions::show(ui, cx).or(pod);
     let spec = set.spec.as_ref();
-    template(ui, cx, spec.map(|spec| &spec.template)).map(Pick::from).or(picked)
+    template(ui, cx, spec.map(|spec| &spec.template)).or(picked)
 }
