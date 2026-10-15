@@ -22,37 +22,57 @@ const HOLD_TIME: Duration = Duration::from_secs(120);
 /// The shortest and the longest break of the network, in seconds.
 const BREAK: (u64, u64) = (30, 180);
 
+/// One kind of fault.
+#[derive(Clone, Copy)]
+enum Fault {
+    Silence,
+    Reset,
+    Resets,
+    Held,
+    Break,
+    Restart,
+}
+
+/// Each kind once in each round, in a random sequence: an hour has each kind, and two rounds
+/// have it two times. A draw of each fault alone could leave a kind out of a short soak.
+const ROUND: [Fault; 6] = [Fault::Silence, Fault::Reset, Fault::Resets, Fault::Held, Fault::Break, Fault::Restart];
+
 pub(crate) struct Faults<'a> {
     k3s: &'a K3s,
     proxy: &'a FaultProxy,
     file: PathBuf,
     rng: fastrand::Rng,
+    /// The faults of the round that did not come yet.
+    round: Vec<Fault>,
     made: BTreeMap<&'static str, u64>,
 }
 
 impl<'a> Faults<'a> {
     pub(crate) fn new(k3s: &'a K3s, proxy: &'a FaultProxy, file: &Path, rng: fastrand::Rng) -> Self {
-        Self { k3s, proxy, file: file.to_owned(), rng, made: BTreeMap::new() }
+        Self { k3s, proxy, file: file.to_owned(), rng, round: Vec::new(), made: BTreeMap::new() }
     }
 
     pub(crate) async fn run(&mut self) -> Never {
         loop {
             sleep(Duration::from_secs(self.rng.u64(PAUSE.0..=PAUSE.1))).await;
-            // A restart of the API server is the largest fault: it comes less often.
-            match self.rng.u32(0..13) {
-                0..=2 => {
+            if self.round.is_empty() {
+                self.round = ROUND.to_vec();
+                self.rng.shuffle(&mut self.round);
+            }
+            match self.round.pop().unwrap_or(Fault::Reset) {
+                Fault::Silence => {
                     self.note("silence", "each open connection is silent");
                     self.proxy.silence_open();
                 }
-                3..=5 => {
+                Fault::Reset => {
                     self.note("reset", "a reset of each connection");
                     self.proxy.reset_all().await;
                 }
-                6..=7 => {
+                Fault::Resets => {
                     self.note("resets", "a reset of each connection each 5 s for 60 s");
                     self.for_a_time(ProxyMode::ResetEach(Duration::from_secs(5)), RESETS_TIME).await;
                 }
-                8..=9 => {
+                Fault::Held => {
                     self.note("held connects", "30 percent of the new connections held 1 to 10 s, for 120 s");
                     let hold = ProxyMode::HoldNew {
                         probability: 0.3,
@@ -63,12 +83,12 @@ impl<'a> Faults<'a> {
                     self.proxy.reset_all().await;
                     self.for_a_time(hold, HOLD_TIME).await;
                 }
-                10..=11 => {
+                Fault::Break => {
                     let seconds = self.rng.u64(BREAK.0..=BREAK.1);
                     self.note("break", &format!("a break of the network of {seconds} s"));
                     self.for_a_time(ProxyMode::Freeze, Duration::from_secs(seconds)).await;
                 }
-                _ => {
+                Fault::Restart => {
                     self.note("restart", "a restart of the API server");
                     let start = Instant::now();
                     let restarted = self.k3s.restart().await;
