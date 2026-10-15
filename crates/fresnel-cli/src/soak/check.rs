@@ -32,6 +32,9 @@ const GAP: Duration = Duration::from_secs(5);
 /// A check ends after this time also when the store is still behind, so that a store that
 /// never catches up is in the report.
 const GIVE_UP: Duration = Duration::from_secs(300);
+/// The most texts of states that a gap keeps: a state of a retry has its count of attempts in
+/// its text, so a long gap has many.
+const STATES: usize = 8;
 
 /// One time in which a store was behind the API.
 #[derive(Clone, Debug, Serialize)]
@@ -136,15 +139,21 @@ impl Behind {
             }
             Some(other) => {
                 self.live_since = None;
-                self.states.insert(other.to_string());
+                self.note(other.to_string());
             }
             None => {
                 self.live_since = None;
-                self.states.insert("the cluster has no stores".to_owned());
+                self.note("the cluster has no stores".to_owned());
             }
         }
         if self.reason.is_empty() {
             self.reason = reason;
+        }
+    }
+
+    fn note(&mut self, state: String) {
+        if self.states.len() < STATES {
+            self.states.insert(state);
         }
     }
 
@@ -217,5 +226,65 @@ async fn until_covered(
         if looks.changed().await.is_err() {
             std::future::pending::<()>().await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fresnel_core::store::Wait;
+
+    use super::*;
+
+    fn behind(start: Instant) -> Behind {
+        let states = BTreeSet::new();
+        Behind { kind: "Pod", start, live_since: None, longest_live: Duration::ZERO, states, reason: String::new() }
+    }
+
+    #[test]
+    fn a_store_that_shows_live_and_is_behind_past_the_limit_is_a_gap_with_no_visible_state() {
+        let start = Instant::now();
+        let at = |seconds| start + Duration::from_secs(seconds);
+        let mut check = behind(start);
+        for second in [0, 10, 21] {
+            check.see(Some(&StoreState::Live), at(second), "ns/a has an older version".to_owned());
+        }
+        let (lag, gap) = check.end(at(22), false);
+        let gap = gap.expect("a gap");
+        assert_eq!((lag, gap.kind, gap.without_state, gap.live_seconds), (at(22) - start, "Pod", true, 22.0));
+        assert_eq!(gap.reason, "ns/a has an older version");
+    }
+
+    #[test]
+    fn a_visible_state_ends_the_live_time_and_a_short_lag_is_no_gap() {
+        let start = Instant::now();
+        let at = |seconds| start + Duration::from_secs(seconds);
+        let mut check = behind(start);
+        let waits = StoreState::Waiting(Wait::Channel);
+        check.see(Some(&StoreState::Live), at(0), "first".to_owned());
+        check.see(Some(&StoreState::Live), at(14), "second".to_owned());
+        check.see(Some(&waits), at(15), "third".to_owned());
+        check.see(Some(&StoreState::Live), at(40), "fourth".to_owned());
+        let gap = check.end(at(45), false).1.expect("a gap of 45 s");
+        assert_eq!((gap.without_state, gap.live_seconds, gap.reason.as_str()), (false, 14.0, "first"));
+        assert_eq!(gap.states, ["waits for a connection"]);
+
+        let mut check = behind(start);
+        check.see(Some(&StoreState::Live), at(0), "an event on its way".to_owned());
+        let (lag, gap) = check.end(at(1), false);
+        assert_eq!((lag, gap.is_none()), (Duration::from_secs(1), true));
+    }
+
+    #[test]
+    fn a_gap_keeps_a_limited_count_of_states() {
+        let start = Instant::now();
+        let mut check = behind(start);
+        for failures in 0..20 {
+            let state = StoreState::Attempt {
+                failures,
+                reason: fresnel_core::CoreError::new(fresnel_core::net::ErrorClass::Network, "no connection"),
+            };
+            check.see(Some(&state), start, String::new());
+        }
+        assert_eq!(check.end(start + GIVE_UP, true).1.map(|gap| (gap.states.len(), gap.open)), Some((STATES, true)));
     }
 }
