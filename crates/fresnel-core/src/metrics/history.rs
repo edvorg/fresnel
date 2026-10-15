@@ -132,9 +132,10 @@ impl History {
         self.samples -= dropped;
     }
 
-    /// Drops the oldest samples until the history fits in `max_bytes`: the coarse tier of
-    /// each rank before its fine tier, and the containers first (research 11 section 4.3).
-    /// One step drops the samples of the oldest minute of one tier of one rank.
+    /// Drops the oldest samples until the history fits in `max_bytes` (research 11 section
+    /// 4.3): first the coarse tiers, rank by rank from the containers to the cluster, then
+    /// the fine tiers in the same sequence. One step drops the samples of the oldest minute
+    /// of one tier of one rank.
     pub(crate) fn limit(&mut self, max_bytes: usize) {
         for tier in [Tier::Coarse, Tier::Fine] {
             for rank in 0..RANKS {
@@ -144,9 +145,9 @@ impl History {
                     let Some(oldest) = ranked.filter_map(|(_, series)| series.oldest(tier)).min() else {
                         break;
                     };
-                    let cut = oldest.saturating_add(LIMIT_STEP);
+                    let last = oldest.saturating_add(LIMIT_STEP - 1);
                     let ranked = self.series.iter_mut().filter(|(key, _)| in_rank(key));
-                    let freed: usize = ranked.map(|(_, series)| series.drop_before(tier, cut)).sum();
+                    let freed: usize = ranked.map(|(_, series)| series.drop_through(tier, last)).sum();
                     self.samples -= freed;
                     self.dropped += freed as u64;
                 }

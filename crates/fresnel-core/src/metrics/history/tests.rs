@@ -86,6 +86,17 @@ fn the_series_of_an_object_that_left_its_store_go_one_hour_later() {
     assert_eq!(history.len(), 1);
 }
 
+/// Bad data of a server: a sample at the last second of the time of a sample. Each step of
+/// the limit drops a sample, so the limit ends.
+#[test]
+fn the_memory_limit_ends_with_a_sample_at_the_last_second() {
+    let mut history = History::default();
+    history.record(SeriesKey::Cluster, sample(u32::MAX - 15), 1, &TIERS);
+    history.record(SeriesKey::Cluster, sample(u32::MAX), 2, &TIERS);
+    history.limit(0);
+    assert_eq!((history.samples, history.dropped), (0, 2));
+}
+
 /// Two hours of samples each 15 s of one series of each rank.
 fn full_history() -> History {
     let mut history = History::default();

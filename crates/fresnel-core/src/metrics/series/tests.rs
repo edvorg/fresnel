@@ -76,13 +76,13 @@ fn a_step_keeps_the_smallest_cover_and_a_gap_starts_a_new_step() {
 }
 
 #[test]
-fn a_drop_removes_the_samples_of_a_tier_before_a_time() {
+fn a_drop_removes_the_samples_of_a_tier_up_to_a_time() {
     let mut series = Series::default();
     for second in [0, 15, 30, 45, 60, 75] {
         series.push(sample(START + second, 1, 1), &TIERS);
     }
-    assert_eq!(series.drop_before(Tier::Fine, START + 31), 3);
-    assert_eq!((series.oldest(Tier::Fine), series.drop_before(Tier::Coarse, START + 46)), (Some(START + 45), 1));
+    assert_eq!(series.drop_through(Tier::Fine, START + 30), 3);
+    assert_eq!((series.oldest(Tier::Fine), series.drop_through(Tier::Coarse, START + 45)), (Some(START + 45), 1));
     assert_eq!((series.oldest(Tier::Coarse), series.len()), (None, 3));
 }
 

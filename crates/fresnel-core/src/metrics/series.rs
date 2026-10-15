@@ -157,8 +157,8 @@ impl Series {
                 }
             }
         }
-        self.drop_before(Tier::Fine, sample.at.saturating_sub(tiers.fine).saturating_add(1));
-        self.drop_before(Tier::Coarse, sample.at.saturating_sub(tiers.coarse).saturating_add(1));
+        self.drop_through(Tier::Fine, sample.at.saturating_sub(tiers.fine));
+        self.drop_through(Tier::Coarse, sample.at.saturating_sub(tiers.coarse));
         true
     }
 
@@ -167,14 +167,16 @@ impl Series {
         self.tier(tier).front().map(|sample| sample.at)
     }
 
-    /// Drops each sample of a tier before `at`. Gives their count.
-    pub(crate) fn drop_before(&mut self, tier: Tier, at: u32) -> usize {
+    /// Drops each sample of a tier at `last` or before. Gives their count. The bound is
+    /// inclusive, so a drop through the time of the oldest sample always drops it, also at
+    /// the last second of `u32`.
+    pub(crate) fn drop_through(&mut self, tier: Tier, last: u32) -> usize {
         let samples = match tier {
             Tier::Fine => &mut self.fine,
             Tier::Coarse => &mut self.coarse,
         };
         let before = samples.len();
-        while samples.front().is_some_and(|sample| sample.at < at) {
+        while samples.front().is_some_and(|sample| sample.at <= last) {
             samples.pop_front();
         }
         before - samples.len()
