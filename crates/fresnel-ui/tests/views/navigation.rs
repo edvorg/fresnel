@@ -99,7 +99,7 @@ fn the_keys_of_the_settings_act_and_the_defaults_they_replace_do_not() {
     let (keys, problems) = Keys::with_choices(&[(CommandId::QuickSearch, Some(shortcut("Alt+Space")), ())]);
     assert!(problems.is_empty());
     let mut session = view(vec![searchable("ams-prod", StoreState::Live)]);
-    session.config = Arc::new(Config { keys });
+    session.config = Arc::new(Config { keys, ..Config::default() });
     let mut window = window(session);
     window.key_press_modifiers(Modifiers::COMMAND, Key::K);
     window.run();

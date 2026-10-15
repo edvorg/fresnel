@@ -276,9 +276,10 @@ pub(crate) fn error(text: &str) -> CoreError {
 /// The view of a core whose start is complete, with no saved table layout and an empty journal.
 pub(crate) fn view(clusters: Vec<ClusterRow>) -> CoreView {
     let tables = Some(Arc::default());
-    let (config, journal) = (Arc::default(), Arc::default());
+    let (config, config_file, journal) = (Arc::default(), Arc::default(), Arc::default());
     let (manifest, create, jobs) = (None, None, Arc::default());
-    CoreView { startup: Startup::Ready, shell_problem: None, clusters, tables, config, manifest, create, jobs, journal }
+    let startup = Startup::Ready;
+    CoreView { startup, shell_problem: None, clusters, tables, config, config_file, manifest, create, jobs, journal }
 }
 
 /// A journal with these entries, one for each second before now. `dropped` entries left it.

@@ -8,7 +8,7 @@ use std::time::Duration;
 use fresnel_core::app::{Command, CoreSettings, Health, KeysView, ReadState, SaveJob};
 use fresnel_core::journal::Level;
 use fresnel_core::keys::{Draft, KeyObject, Save, WriteState};
-use fresnel_testkit::{FakeApiServer, FaultProxy, ProxyMode};
+use fresnel_testkit::{FakeApiServer, FaultProxy, Home, ProxyMode};
 use http::Method;
 use tokio::time::timeout;
 
@@ -27,6 +27,8 @@ struct Bed {
     app: App,
     /// The read of the view.
     object: Arc<KeyObject>,
+    /// The core follows the kubeconfig file of the home folder: it must stay.
+    _home: Home,
 }
 
 impl Bed {
@@ -41,7 +43,7 @@ impl Bed {
         app.core.send(Command::ShowKeys(Some(target("ams"))));
         let open = app.until("the Secret", |view| password(view, "ams").is_some()).await;
         let object = keys(&open, "ams").and_then(|keys| keys.object.clone()).expect("the object");
-        Self { server, proxy, app, object }
+        Self { server, proxy, app, object, _home: home }
     }
 
     /// The save of a new value of `password` on the read of the view.

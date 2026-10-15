@@ -26,6 +26,7 @@ fn settings(limit: Duration) -> EnvSettings {
         shell_limit: limit,
         extra_folders: vec![PathBuf::from("/setting/bin")],
         shell: Some(fixture("fake-shell")),
+        ..EnvSettings::default()
     }
 }
 

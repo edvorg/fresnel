@@ -14,7 +14,7 @@ use super::health::{self, Health};
 use super::jobs::JobsView;
 use super::manifest::ManifestRead;
 use crate::cluster::{ClusterId, ClusterView, LinkState};
-use crate::config::Config;
+use crate::config::{Config, FileState};
 use crate::error::CoreError;
 use crate::journal::JournalView;
 use crate::kubeconfig::AuthKind;
@@ -129,6 +129,8 @@ pub struct CoreView {
     pub tables: Option<Arc<BTreeMap<String, TableLayout>>>,
     /// The settings of the user: the defaults before the core read the settings file.
     pub config: Arc<Config>,
+    /// The last read of the settings file and the last save of the settings view.
+    pub config_file: Arc<FileState>,
     /// The last read of a manifest that a view asked for.
     pub manifest: Option<Arc<ManifestRead>>,
     /// The last create of a Secret.

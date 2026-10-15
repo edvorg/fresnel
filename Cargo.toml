@@ -50,6 +50,9 @@ base64 = "0.22.1"
 # The settings file `config.toml`. Its parser gives the place of each key, so a report names
 # the line and the column.
 toml = { version = "1.1", default-features = false, features = ["parse"] }
+# The settings view writes `config.toml` with it: a change of one key keeps each comment and
+# each other line of the file.
+toml_edit = { version = "0.25.17", default-features = false, features = ["parse", "display"] }
 
 # The certificates of a TLS Secret: subject, issuer, validity and names. The parse needs no
 # crypto feature. rcgen of the tests uses the same version.

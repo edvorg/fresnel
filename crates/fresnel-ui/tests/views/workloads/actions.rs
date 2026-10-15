@@ -269,7 +269,7 @@ fn a_key_a_menu_and_the_quick_search_open_the_same_dialog() {
     let shortcut = Shortcut::parse("Alt+R").expect("a shortcut");
     let (keys, _) = Keys::with_choices(&[(CommandId::Object(Action::Restart), Some(shortcut), ())]);
     let mut session = view(vec![allowed("ams-prod", &deployments)]);
-    session.config = Arc::new(Config { keys });
+    session.config = Arc::new(Config { keys, ..Config::default() });
     let mut window = window(session);
     open(&mut window, "Deployments", "web");
     window.key_press_modifiers(Modifiers::ALT, Key::R);

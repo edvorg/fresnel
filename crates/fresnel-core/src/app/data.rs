@@ -139,7 +139,7 @@ impl Connected {
     /// Starts the stores, the indexes and the tasks of a cluster on its connections, with
     /// a store of the full objects of each kind of `shown`.
     pub(super) fn start(inner: &Inner, id: &ClusterId, link: &Link, shown: &BTreeSet<Kind>) -> Result<Self, CoreError> {
-        let (tasks, settings) = (&inner.tasks, &inner.settings.stores);
+        let (tasks, settings) = (&inner.tasks, &inner.settings().stores);
         let bin = inner.disposal.get_or_init(|| Disposal::start(tasks)).bin();
         let parts = StoreParts { settings: settings.clone(), bin: bin.clone(), clock: WallClock::system() };
         let stores = ClusterStores::start(tasks, link, parts)?;
@@ -148,7 +148,7 @@ impl Connected {
         let absent = || CoreError::invalid("the cluster has no store of the kind Pod");
         let pods = stores.full::<Pod>().ok_or_else(absent)?;
         let notice = Notice::new();
-        let settings = inner.settings.metrics.clone();
+        let settings = inner.settings().metrics.clone();
         let parts = SamplerParts { settings, bin: bin.clone(), notice: notice.clone(), clock: WallClock::system() };
         let sampler = Sampler::start(tasks, link.gateway.clone(), Inputs::of(&stores, &indexes)?, parts);
         let version = ClusterVersion::start(tasks, link.gateway.clone(), bin.clone(), notice.clone());
@@ -172,8 +172,8 @@ impl Connected {
             owners: indexes.owners(),
             signal: link.net.signal(),
             clock: WallClock::system(),
-            settings: inner.settings.logs.clone(),
-            restart: inner.settings.stores.restart,
+            settings: inner.settings().logs.clone(),
+            restart: inner.settings().stores.restart,
             bin,
             notice: logs,
         };

@@ -17,6 +17,8 @@ http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
 imbl.workspace = true
+# The check of a time zone of the settings, with the database of the system.
+jiff = { workspace = true, features = ["tzdb-zoneinfo"] }
 k8s-openapi.workspace = true
 # `ws`: the WebSocket handshake of exec, attach and port forward.
 kube = { workspace = true, features = ["ws"] }
@@ -26,6 +28,7 @@ serde-saphyr.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt", "sync", "time"] }
 toml.workspace = true
+toml_edit.workspace = true
 tower-service.workspace = true
 vte.workspace = true
 x509-parser.workspace = true

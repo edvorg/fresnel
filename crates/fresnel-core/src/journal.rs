@@ -83,6 +83,8 @@ impl JournalView {
 
 struct Ring {
     entries: VecDeque<Arc<Entry>>,
+    /// The most entries of the list.
+    limit: usize,
     total: u64,
     warnings: u64,
     errors: u64,
@@ -91,7 +93,6 @@ struct Ring {
 }
 
 struct Shared {
-    limit: usize,
     clock: WallClock,
     ring: Mutex<Ring>,
     /// Its lock also puts the entries of two tasks into one sequence. It is not the lock
@@ -108,8 +109,9 @@ pub struct Journal {
 impl Journal {
     /// A journal that keeps the last `limit` entries in memory, and one entry at least.
     pub fn new(limit: usize, clock: WallClock) -> Self {
-        let ring = Ring { entries: VecDeque::new(), total: 0, warnings: 0, errors: 0, view: None };
-        let shared = Shared { limit: limit.max(1), clock, ring: Mutex::new(ring), sink: Mutex::new(None) };
+        let limit = limit.max(1);
+        let ring = Ring { entries: VecDeque::new(), limit, total: 0, warnings: 0, errors: 0, view: None };
+        let shared = Shared { clock, ring: Mutex::new(ring), sink: Mutex::new(None) };
         Self { shared: Arc::new(shared) }
     }
 
@@ -142,6 +144,17 @@ impl Journal {
     /// Adds an entry with the level `Error`.
     pub fn error(&self, source: impl Into<String>, text: impl Into<String>) {
         self.push(Level::Error, source, text);
+    }
+
+    /// Changes the limit of the list: the settings file can give one after the start. A
+    /// smaller limit drops the oldest entries at once; the log file keeps them.
+    pub fn set_limit(&self, limit: usize) {
+        let mut ring = lock(&self.shared.ring);
+        ring.limit = limit.max(1);
+        while ring.entries.len() > ring.limit {
+            ring.entries.pop_front();
+            ring.view = None;
+        }
     }
 
     /// Tells the sink to make its entries safe. The quit sequence of the app calls it.
@@ -180,7 +193,7 @@ impl Journal {
             Level::Warning => ring.warnings += 1,
             Level::Error => ring.errors += 1,
         }
-        if ring.entries.len() >= self.shared.limit {
+        if ring.entries.len() >= ring.limit {
             ring.entries.pop_front();
         }
         ring.entries.push_back(with_short_text(&entry));
@@ -216,7 +229,7 @@ fn cut(text: &str, limit: usize) -> Option<(&str, usize)> {
 
 impl std::fmt::Debug for Journal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Journal").field("limit", &self.shared.limit).finish_non_exhaustive()
+        f.debug_struct("Journal").field("limit", &lock(&self.shared.ring).limit).finish_non_exhaustive()
     }
 }
 
@@ -318,6 +331,16 @@ mod tests {
         let third = journal.view();
         assert!(!Arc::ptr_eq(&first, &third));
         assert_eq!((third.entries.len(), third.total, third.dropped()), (1, 2, 1), "a limit of 0 keeps one entry");
+
+        journal.set_limit(3);
+        for text in ["three", "four", "five"] {
+            journal.info("app", text);
+        }
+        assert_eq!(journal.view().entries.len(), 3, "a larger limit keeps more");
+        journal.set_limit(2);
+        let view = journal.view();
+        let texts: Vec<&str> = view.entries.iter().map(|entry| entry.text.as_str()).collect();
+        assert_eq!((texts, view.total), (vec!["four", "five"], 5), "a smaller limit drops the oldest at once");
     }
 
     #[test]

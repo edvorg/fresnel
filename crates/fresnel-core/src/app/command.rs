@@ -6,6 +6,7 @@ use std::sync::Arc;
 use super::Inner;
 use super::manifest::ManifestRequest;
 use crate::cluster::{ClusterId, Registry};
+use crate::config::Edit;
 use crate::error::CoreError;
 use crate::keys::{NewSecret, Save, Target};
 use crate::kinds::Kind;
@@ -68,6 +69,13 @@ pub enum Command {
     Run(Vec<Order>),
     /// Stops the job with this number. A wait ends at once; a write runs to its answer.
     Cancel(u64),
+    /// The kubeconfig files or the settings file changed: the core reads them again and
+    /// connects the clusters of the selection. The look of the core at the files sends it.
+    ReloadFiles,
+    /// Writes changes of the settings view into the settings file, which keeps its comments,
+    /// and reads it again. The view gets the state of the save; a file that the app cannot
+    /// read stays as it is.
+    EditSettings(Vec<Edit>),
     /// Reads the rules of the user in a namespace of a cluster, unless an answer of the last
     /// minutes exists. The view of the cluster gets them.
     ReadRules {
@@ -91,11 +99,17 @@ impl Inner {
         self.state().commands.pop_front()
     }
 
-    /// Runs one command. Only a change of the selection and "retry now" change connections.
+    /// Runs one command. Only a change of the selection, "retry now" and a read of the
+    /// files change connections.
     pub(super) async fn apply(&self, registry: &Registry, command: Command) -> Result<(), CoreError> {
         match command {
             Command::Select { cluster, selected } => self.select(cluster, selected),
             Command::RetryNow(cluster) => self.retry(registry, &cluster).await?,
+            Command::ReloadFiles => self.reload_files(registry).await?,
+            Command::EditSettings(edits) => {
+                self.edit_config(edits).await?;
+                self.reload_files(registry).await?;
+            }
             other => {
                 self.apply_in_place(registry, other);
                 return Ok(());
@@ -120,7 +134,7 @@ impl Inner {
             Command::Cancel(number) => self.state().jobs.cancel(number),
             Command::ReadRules { cluster, namespace } => self.read_rules(&cluster, namespace),
             Command::CheckAccess { cluster, attributes } => self.check_access(&cluster, attributes),
-            Command::Select { .. } | Command::RetryNow(_) => {}
+            Command::Select { .. } | Command::RetryNow(_) | Command::ReloadFiles | Command::EditSettings(_) => {}
         }
     }
 }

@@ -1,11 +1,19 @@
 //! The reader of the text of `config.toml`. The TOML parser gives the place of each key and
 //! value in the text, so each problem has its line and column.
+//!
+//! - `fixed`: the groups of the settings table, with the bounds of each number.
+//! - `clusters`: the options of each cluster and the cluster groups.
 
+mod clusters;
+pub(super) mod fixed;
+
+use std::collections::BTreeMap;
 use std::ops::Range;
 
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
+use super::table::Group;
 use super::{Config, Loaded, Problem, VERSION};
 use crate::commands::{self, CommandId, Keys, Shortcut};
 
@@ -24,12 +32,18 @@ pub fn parse(text: &str) -> Loaded {
         }
     };
     let mut reader = Reader { text, problems: Vec::new() };
-    let (mut version, mut choices) = (None, Vec::new());
+    let (mut version, mut choices, mut config) = (None, Vec::new(), Config::default());
+    let mut values = BTreeMap::new();
     for (key, value) in table.get_ref().iter() {
         match key.get_ref().as_ref() {
             "version" => version = Some(reader.version(value)),
             "shortcuts" => choices = reader.shortcuts(value),
-            other => reader.problem(key.span(), format!("unknown key `{other}`; the app ignores it")),
+            "clusters" => config.clusters = reader.clusters(value),
+            "groups" => config.groups = reader.groups(value),
+            other => match Group::named(other) {
+                Some(group) => reader.fixed(group, value, &mut values),
+                None => reader.problem(key.span(), format!("unknown key `{other}`; the app ignores it")),
+            },
         }
     }
     // A version that is not a number has its own problem, and the app reads the file as
@@ -50,7 +64,9 @@ pub fn parse(text: &str) -> Loaded {
         reader.problem(span, text);
     }
     reader.problems.sort_by_key(|problem| (problem.line, problem.column));
-    Loaded { config: Config { keys }, problems: limited(reader.problems), used: true }
+    config.keys = keys;
+    config.values = values;
+    Loaded { config, problems: limited(reader.problems), used: true }
 }
 
 /// The first [`MAX_PROBLEMS`] problems, and the count of the others at the place of the
@@ -76,12 +92,57 @@ impl Reader<'_> {
         self.problems.push(at(self.text, span, text));
     }
 
+    /// The table of a key, or a problem for a value that is no table.
+    fn table_of<'v, 'i>(&mut self, path: &str, value: &'v Spanned<DeValue<'i>>) -> Option<&'v DeTable<'i>> {
+        let table = value.get_ref().as_table();
+        if table.is_none() {
+            self.problem(value.span(), format!("`{path}` is a table: [{path}]"));
+        }
+        table
+    }
+
+    /// A text of a key, or a problem.
+    fn text<'v>(&mut self, path: &str, value: &'v Spanned<DeValue<'_>>) -> Option<&'v str> {
+        let text = value.get_ref().as_str();
+        if text.is_none() {
+            self.problem(value.span(), format!("`{path}` is a text in quotes"));
+        }
+        text
+    }
+
+    /// A list of texts, or a problem for a value that is no such list.
+    fn texts(&mut self, path: &str, value: &Spanned<DeValue<'_>>, limit: usize) -> Option<Vec<String>> {
+        let items = value.get_ref().as_array().and_then(|items| {
+            items.iter().map(|item| item.get_ref().as_str().map(str::to_owned)).collect::<Option<Vec<String>>>()
+        });
+        match items {
+            Some(items) if items.len() <= limit => Some(items),
+            Some(items) => {
+                self.problem(
+                    value.span(),
+                    format!("`{path}` has {} entries; the app uses the first {limit}", items.len()),
+                );
+                Some(items.into_iter().take(limit).collect())
+            }
+            None => {
+                self.problem(value.span(), format!("`{path}` is a list of texts, for example [\"a\", \"b\"]"));
+                None
+            }
+        }
+    }
+
+    /// A flag of a key, or a problem.
+    fn flag(&mut self, path: &str, value: &Spanned<DeValue<'_>>) -> Option<bool> {
+        let flag = value.get_ref().as_bool();
+        if flag.is_none() {
+            self.problem(value.span(), format!("`{path}` is true or false"));
+        }
+        flag
+    }
+
     /// The version. `None` for a value that is no whole number.
     fn version(&mut self, value: &Spanned<DeValue<'_>>) -> Option<i64> {
-        let number = value.get_ref().as_integer().and_then(|number| {
-            let digits: String = number.as_str().chars().filter(|char| *char != '_').collect();
-            i64::from_str_radix(&digits, number.radix()).ok()
-        });
+        let number = integer(value).and_then(|number| i64::try_from(number).ok());
         if number.is_none() {
             self.problem(value.span(), format!("`version` is a whole number, for example {VERSION}"));
         }
@@ -91,8 +152,7 @@ impl Reader<'_> {
     /// The table `[shortcuts]`: the identifier of a command, and its key as text. An empty
     /// text takes the key from the command.
     fn shortcuts(&mut self, value: &Spanned<DeValue<'_>>) -> Vec<(CommandId, Option<Shortcut>, Range<usize>)> {
-        let Some(table) = value.get_ref().as_table() else {
-            self.problem(value.span(), "`shortcuts` is a table: `[shortcuts]`".to_owned());
+        let Some(table) = self.table_of("shortcuts", value) else {
             return Vec::new();
         };
         let mut choices = Vec::new();
@@ -116,6 +176,14 @@ impl Reader<'_> {
         }
         choices
     }
+}
+
+/// A whole number of the file. `None` for a value that is no integer.
+fn integer(value: &Spanned<DeValue<'_>>) -> Option<i128> {
+    value.get_ref().as_integer().and_then(|number| {
+        let digits: String = number.as_str().chars().filter(|char| *char != '_').collect();
+        i128::from_str_radix(&digits, number.radix()).ok()
+    })
 }
 
 /// The problem at the start of `span`, with its line and its column from 1.

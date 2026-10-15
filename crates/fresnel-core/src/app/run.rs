@@ -26,6 +26,7 @@ use crate::kubeconfig::{self, Context};
 /// that the core has: a start that was complete does not run again.
 pub(super) async fn run(inner: Arc<Inner>) -> Result<(), CoreError> {
     let registry = inner.prepare().await?;
+    inner.watch_files();
     loop {
         // A command that arrives after this read leaves a permit, so the wait ends at once.
         while let Some(command) = inner.next_command() {
@@ -49,10 +50,12 @@ impl Inner {
         self.load_config().await?;
         let env = self.environment().await;
         let registry = self.registry.get_or_init(|| {
-            Registry::new(self.tasks.clone(), self.runtime.clone(), env.clone(), self.settings.net.clone())
+            Registry::new(self.tasks.clone(), self.runtime.clone(), env.clone(), self.settings().net.clone())
         });
         self.enter(Startup::Kubeconfig);
         let saved = self.load_saved_state().await?;
+        // The stamps of the files come before their read, so the look sees each later change.
+        self.mark_files().await?;
         let current = self.load_kubeconfig(&env, registry).await?;
         self.restore_at_start(saved, current, registry);
         self.start_monitor(registry);
@@ -82,7 +85,7 @@ impl Inner {
             return env;
         }
         self.enter(Startup::Environment);
-        let resolved = env::resolve(&self.base_env, &self.settings.env).await;
+        let resolved = env::resolve(&self.base_env, &self.settings().env).await;
         let problem = match resolved.source {
             EnvSource::LoginShell(shell) => {
                 let time = resolved.elapsed.as_millis();
@@ -104,8 +107,12 @@ impl Inner {
 
     /// Reads the kubeconfig files and gives their contexts to the registry. Returns the
     /// `current-context` of the files.
-    async fn load_kubeconfig(&self, env: &ProcessEnv, registry: &Registry) -> Result<Option<String>, CoreError> {
-        let sources = kubeconfig::default_sources(env);
+    pub(super) async fn load_kubeconfig(
+        &self,
+        env: &ProcessEnv,
+        registry: &Registry,
+    ) -> Result<Option<String>, CoreError> {
+        let sources = self.kubeconfig_sources(env);
         let loaded = self.off_worker(move || kubeconfig::load(&sources)).await?;
         let files = count(loaded.sources.len() - loaded.absent.len(), "kubeconfig file");
         let text = format!("read {} from {files}", count(loaded.contexts.len(), "context"));
@@ -151,7 +158,7 @@ impl Inner {
             return;
         };
         let (registry, journal, repaint) = (registry.clone(), self.journal.clone(), self.repaint.clone());
-        let calm = calm_text(&self.settings.net);
+        let calm = calm_text(&self.settings().net);
         let report = move |disturbance: Disturbance| {
             registry.raise(disturbance.cause());
             let what = match disturbance {
@@ -165,6 +172,15 @@ impl Inner {
         let mut state = self.state();
         // A stopped core keeps no monitor: its task would run to the end of the runtime.
         state.monitor = Some(monitor).filter(|_| state.phase != Phase::Stopped);
+    }
+
+    /// Starts the look for changes of the files, one time for the life of the core.
+    fn watch_files(self: &Arc<Self>) {
+        let mut state = self.state();
+        // A stopped core keeps no task: it would run to the end of the runtime.
+        if state.file_watch.is_none() && state.phase != Phase::Stopped {
+            state.file_watch = Some(super::files::start(self));
+        }
     }
 
     /// Holds the stores of the full objects of these kinds in each connected cluster, and
@@ -195,7 +211,7 @@ impl Inner {
     pub(super) async fn retry(&self, registry: &Registry, cluster: &ClusterId) -> Result<(), CoreError> {
         if let Some(link) = registry.link(cluster) {
             link.net.signal().raise(Cause::RetryNow);
-            let calm = calm_text(&self.settings.net);
+            let calm = calm_text(&self.settings().net);
             let text = format!("retry now: each retry delay ends{calm}, and a failed plugin runs again");
             self.journal.info(cluster.as_str(), text);
             return Ok(());

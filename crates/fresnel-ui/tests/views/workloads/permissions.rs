@@ -55,7 +55,7 @@ fn a_key_of_a_forbidden_action_gives_a_note_with_its_reason() {
     let shortcut = Shortcut::parse("Alt+S").expect("a shortcut");
     let (keys, _) = Keys::with_choices(&[(CommandId::Object(Action::Scale), Some(shortcut), ())]);
     let mut session = crate::fake::view(vec![cluster("ams-prod", &deployments, rules)]);
-    session.config = Arc::new(Config { keys });
+    session.config = Arc::new(Config { keys, ..Config::default() });
     let mut window = crate::fake::window(session);
     super::scene::open(&mut window, "Deployments", "web");
     window.key_press_modifiers(egui::Modifiers::ALT, egui::Key::S);

@@ -6,7 +6,7 @@
 //!
 //! - `run`: the task that starts the core and runs each command.
 //! - `saved`: the selection of clusters and the table layouts in the state file. `config`:
-//!   the read of the settings file.
+//!   the settings file. `files`: the look for changes of the files.
 //! - `command`: what the UI asks for.
 //! - `data`: the stores and the indexes of each connected cluster. `objects`: the full
 //!   objects of the kinds that the views show. `manifest`: the read of one manifest.
@@ -15,18 +15,21 @@
 //! - `jobs`: the jobs of the operations. `access`: the permissions of the user.
 //! - `watch`: one task for each connected cluster, for the journal and the repaint.
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
+//! - `parts`: what the program gives to the core, and the settings of the core.
 
 mod access;
 mod command;
 mod config;
 mod create;
 mod data;
+mod files;
 mod health;
 mod jobs;
 mod keys;
 mod logs;
 mod manifest;
 mod objects;
+mod parts;
 mod repaint;
 mod run;
 mod saved;
@@ -38,9 +41,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 
-use fresnel_net::NetSettings;
 use fresnel_net::detect::{Detector, Monitor};
-use fresnel_net::env::{EnvSettings, ProcessEnv};
+use fresnel_net::env::ProcessEnv;
 use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
@@ -54,18 +56,17 @@ pub use jobs::{JobView, JobsView};
 pub use keys::{KeysView, ReadState, SaveJob};
 pub use manifest::{ManifestRead, ManifestRequest, ManifestState};
 pub use objects::Objects;
+pub use parts::{CoreParts, CoreSettings};
 pub use view::{ClusterRow, CoreView, ShellNote, Startup};
 
 use crate::cluster::{ClusterId, Registry};
-use crate::config::Config;
+use crate::config::{Config, FileState};
 use crate::journal::Journal;
 use crate::keys::Target;
 use crate::kinds::Kind;
-use crate::logs::{LogRequest, LogSettings};
-use crate::metrics::MetricsSettings;
+use crate::logs::LogRequest;
 use crate::published::Disposal;
 use crate::state_file::TableLayout;
-use crate::store::StoreSettings;
 use create::SecretWriter;
 use data::Connected;
 use manifest::ManifestReader;
@@ -75,60 +76,6 @@ use repaint::Repaint;
 const COMMAND_LIMIT: usize = 256;
 /// The source of the journal entries of the core itself.
 const APP: &str = "app";
-
-/// The settings of the core.
-#[derive(Clone, Debug)]
-pub struct CoreSettings {
-    /// The read of the login shell environment.
-    pub env: EnvSettings,
-    /// The connection layer of each cluster.
-    pub net: NetSettings,
-    /// The stores of each cluster.
-    pub stores: StoreSettings,
-    /// The metrics sampler of each cluster.
-    pub metrics: MetricsSettings,
-    /// The log views.
-    pub logs: LogSettings,
-    /// The wake detector and the network detector look each time this period ends.
-    pub detect_period: Duration,
-    /// The most repaints in one second that the core asks the UI for.
-    pub repaints_per_second: u32,
-}
-
-impl Default for CoreSettings {
-    fn default() -> Self {
-        Self {
-            env: EnvSettings::default(),
-            net: NetSettings::default(),
-            stores: StoreSettings::default(),
-            metrics: MetricsSettings::default(),
-            logs: LogSettings::default(),
-            detect_period: Duration::from_secs(2),
-            repaints_per_second: 60,
-        }
-    }
-}
-
-/// What the program gives to the core.
-pub struct CoreParts {
-    /// The runtime of each task.
-    pub runtime: Handle,
-    /// The environment of the process. The login shell starts from it.
-    pub base_env: ProcessEnv,
-    /// The journal. The program gives it the log file as its sink.
-    pub journal: Journal,
-    /// The state file: the core reads the selection and the table layouts of the last run
-    /// from it, and writes each change of them to it.
-    pub state_file: PathBuf,
-    /// The settings file of the user. The core reads it at its start and never writes it.
-    pub config_file: PathBuf,
-    /// The folder of the files that the user saves, such as a log. The first save makes it.
-    pub downloads: PathBuf,
-    /// The detectors of a wake and of a network change.
-    pub detectors: Vec<Box<dyn Detector>>,
-    /// The settings.
-    pub settings: CoreSettings,
-}
 
 /// The life of the core. It goes one way.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -157,6 +104,12 @@ struct State {
     config: Arc<Config>,
     /// True after the read of the settings file, also of a file that the app does not use.
     config_read: bool,
+    /// The last read of the settings file and the last save of the settings view.
+    config_file: Arc<FileState>,
+    /// The size and the time of change of each file at its last read. `None` before it.
+    stamps: Option<Vec<files::Stamp>>,
+    /// The task of the look for changes of the files. It starts after the start of the core.
+    file_watch: Option<TaskHandle>,
     commands: VecDeque<Command>,
     /// The stores, the indexes and the tasks of each connected cluster.
     connected: HashMap<ClusterId, Connected>,
@@ -188,7 +141,11 @@ struct Inner {
     tasks: Tasks,
     runtime: Handle,
     base_env: ProcessEnv,
+    /// The settings of the program. The values of the settings file replace some of them.
     settings: CoreSettings,
+    /// The settings of the program with the values of the settings file, from the first
+    /// read of the file on. The core builds each connection, store and view with them.
+    effective: OnceLock<CoreSettings>,
     repaint: Repaint,
     /// The registry exists after the environment is known: each plugin runs with it.
     registry: OnceLock<Registry>,
@@ -204,6 +161,31 @@ impl Inner {
     /// Each use holds the lock for one small change or one copy, never across a wait.
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Gives a command to the task of the core. A stopped core drops it.
+    fn queue(&self, command: Command) {
+        let accepted = {
+            let mut state = self.state();
+            if state.phase == Phase::Stopped {
+                return;
+            }
+            let free = state.commands.len() < COMMAND_LIMIT;
+            if free {
+                state.commands.push_back(command);
+            }
+            free
+        };
+        if accepted {
+            self.command_sent.notify_one();
+        } else {
+            self.journal.error(APP, format!("a command is lost: {COMMAND_LIMIT} commands wait for the core"));
+        }
+    }
+
+    /// The settings of the program with the values of the settings file, after its read.
+    fn settings(&self) -> &CoreSettings {
+        self.effective.get().unwrap_or(&self.settings)
     }
 }
 
@@ -230,6 +212,9 @@ impl Core {
             tables: None,
             config: Arc::default(),
             config_read: false,
+            config_file: Arc::new(FileState { path: config_file.clone(), ..FileState::default() }),
+            stamps: None,
+            file_watch: None,
             commands: VecDeque::new(),
             connected: HashMap::new(),
             shown: BTreeSet::new(),
@@ -252,6 +237,7 @@ impl Core {
             runtime,
             base_env,
             settings,
+            effective: OnceLock::new(),
             repaint,
             registry: OnceLock::new(),
             disposal: OnceLock::new(),
@@ -311,7 +297,7 @@ impl Core {
                 state.connected.iter().map(|(id, connected)| (id.clone(), connected.data())).collect();
             let manifest = state.manifests.as_ref().and_then(ManifestReader::last);
             let (create, jobs) = (state.creates.as_ref().and_then(SecretWriter::last), state.jobs.view());
-            let (tables, config) = (state.tables.clone(), Arc::clone(&state.config));
+            let (tables, config) = (state.tables.clone(), (Arc::clone(&state.config), Arc::clone(&state.config_file)));
             let clusters = self.inner.registry.get().map(Registry::snapshot).unwrap_or_default();
             let selected = state.selected.clone();
             let reads = (manifest, create, jobs);
@@ -326,7 +312,8 @@ impl Core {
             shell_problem,
             clusters: clusters.into_iter().map(row).collect(),
             tables,
-            config,
+            config: config.0,
+            config_file: config.1,
             manifest,
             create,
             jobs,
@@ -337,22 +324,7 @@ impl Core {
     /// Gives a command to the task of the core. The call returns at once. A stopped core
     /// drops the command: no task reads it.
     pub fn send(&self, command: Command) {
-        let accepted = {
-            let mut state = self.inner.state();
-            if state.phase == Phase::Stopped {
-                return;
-            }
-            let free = state.commands.len() < COMMAND_LIMIT;
-            if free {
-                state.commands.push_back(command);
-            }
-            free
-        };
-        if accepted {
-            self.inner.command_sent.notify_one();
-        } else {
-            self.inner.journal.error(APP, format!("a command is lost: {COMMAND_LIMIT} commands wait for the core"));
-        }
+        self.inner.queue(command);
     }
 
     /// The quit sequence of the core: each task stops, each connection closes, and a
@@ -366,7 +338,7 @@ impl Core {
             state.phase = Phase::Stopped;
             state.commands.clear();
             let readers = (state.manifests.take(), state.creates.take(), std::mem::take(&mut state.jobs));
-            let tasks = (std::mem::take(&mut state.running), readers, state.monitor.take());
+            let tasks = (std::mem::take(&mut state.running), readers, (state.monitor.take(), state.file_watch.take()));
             (tasks, std::mem::take(&mut state.connected))
         };
         drop(stopped);

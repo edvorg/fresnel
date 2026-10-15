@@ -18,9 +18,9 @@ pub use vars::ProcessEnv;
 
 /// The shell of macOS, for a user with no shell in the user database and no `SHELL`.
 const FALLBACK_SHELL: &str = "/bin/zsh";
-/// Where a credential plugin most often is. They go after each other entry of `PATH`.
+/// Where a credential plugin most often is: the default of the fixed folders.
 const FIXED_FOLDERS: [&str; 2] = ["/opt/homebrew/bin", "/usr/local/bin"];
-/// The same, below the home folder.
+/// A fixed folder below the home folder, after the others.
 const HOME_FOLDER: &str = ".local/bin";
 
 /// The settings of the environment resolve.
@@ -30,13 +30,17 @@ pub struct EnvSettings {
     pub shell_limit: Duration,
     /// Folders that go before each other entry of `PATH`.
     pub extra_folders: Vec<PathBuf>,
+    /// Folders that go after each other entry of `PATH`: a plugin of a package manager is
+    /// there, also when the login shell gave no environment.
+    pub fixed_folders: Vec<PathBuf>,
     /// The shell to run. `None` selects the login shell of the user.
     pub shell: Option<PathBuf>,
 }
 
 impl Default for EnvSettings {
     fn default() -> Self {
-        Self { shell_limit: Duration::from_secs(5), extra_folders: Vec::new(), shell: None }
+        let fixed_folders = FIXED_FOLDERS.iter().map(PathBuf::from).collect();
+        Self { shell_limit: Duration::from_secs(5), extra_folders: Vec::new(), fixed_folders, shell: None }
     }
 }
 
@@ -71,7 +75,7 @@ pub async fn resolve(base: &ProcessEnv, settings: &EnvSettings) -> Environment {
         Ok(vars) => (vars, EnvSource::LoginShell(shell)),
         Err(problem) => (base.clone(), EnvSource::Fallback(problem)),
     };
-    let mut fixed: Vec<PathBuf> = FIXED_FOLDERS.iter().map(PathBuf::from).collect();
+    let mut fixed = settings.fixed_folders.clone();
     fixed.extend(vars.get("HOME").map(|home| PathBuf::from(home).join(HOME_FOLDER)));
     vars.extend_path(&settings.extra_folders, &fixed);
     Environment { vars, source, elapsed: started.elapsed() }
