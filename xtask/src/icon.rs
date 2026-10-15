@@ -1,7 +1,7 @@
 //! The icon of the app: a Fresnel lens from the front, drawn by this code.
 //!
-//! The repository holds no image file. The icon is some rings on a dark tile, so a
-//! function draws it at each size that macOS asks for, with smooth edges at each one.
+//! The repository holds no image file. The icon is some rings on a dark tile, so a function
+//! draws it at each size that macOS and Windows ask for, with smooth edges at each one.
 
 use std::io;
 use std::path::Path;

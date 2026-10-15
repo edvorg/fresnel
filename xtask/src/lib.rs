@@ -2,7 +2,7 @@
 //!
 //! - [`sizes`]: the size limits of the documents and the source files.
 //! - [`borders`]: what a crate of the workspace must not depend on.
-//! - [`install`]: the macOS bundle and its install.
+//! - [`install`]: the macOS bundle and its install. [`windows`]: the program for Windows.
 //! - [`version`]: the version of a build. `program`: its build. `icon`: the icon of the app.
 //! - [`soak`]: the soak with k3s, faults and `fresnel-cli soak`.
 
@@ -13,6 +13,7 @@ mod program;
 pub mod sizes;
 pub mod soak;
 pub mod version;
+pub mod windows;
 
 use std::ffi::OsString;
 use std::path::PathBuf;

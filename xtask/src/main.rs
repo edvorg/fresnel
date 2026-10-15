@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use xtask::version::Version;
-use xtask::{borders, install, sizes, soak};
+use xtask::{borders, install, sizes, soak, windows};
 
 const USAGE: &str = "\
 usage: cargo xtask <command>
@@ -16,12 +16,13 @@ commands:
   install [--to <folder>]
                          build Fresnel.app and install it into /Applications or into
                          <folder>; the earlier bundle stays as Fresnel.app.prev
+  windows --to <folder>  build fresnel.exe with its icon and its version (on Windows)
   soak --hours <number> [--label <text>] [--report <folder>] [--seed <number>]
                          run the app core for some hours on k3s in Docker with changes
                          and random faults, and write a report of each minute
 
-The variable FRESNEL_BUILD of install is the build number of a release: the version is
-then 0.1.0+build.<number>.";
+The variable FRESNEL_BUILD of install and windows is the build number of a release: the
+version is then 0.1.0+build.<number>.";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
@@ -31,6 +32,7 @@ fn main() -> ExitCode {
         ["check-borders"] => check_borders(),
         ["install"] => install(Path::new(install::APPLICATIONS)),
         ["install", "--to", folder] => install(Path::new(folder)),
+        ["windows", "--to", folder] => windows(Path::new(folder)),
         ["soak", options @ ..] => soak(options),
         _ => {
             eprintln!("{USAGE}");
@@ -90,6 +92,20 @@ fn install(destination: &Path) -> ExitCode {
         }
         Err(error) => {
             eprintln!("install: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn windows(destination: &Path) -> ExitCode {
+    let Some(version) = version("windows") else { return ExitCode::FAILURE };
+    match windows::run(&root(), destination, &version) {
+        Ok(program) => {
+            println!("windows: {} is fresnel {version}", program.display());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("windows: {error}");
             ExitCode::FAILURE
         }
     }
