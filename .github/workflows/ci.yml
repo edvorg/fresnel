@@ -109,5 +109,6 @@ jobs:
             ~/.cargo/git/db
             target
           key: cluster-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml') }}
+      # Each test program runs: a failure of one does not hide the results of the others.
       - name: Cluster tests
-        run: cargo test --workspace --locked -- --ignored
+        run: cargo test --workspace --locked --no-fail-fast -- --ignored
