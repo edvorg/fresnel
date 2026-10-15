@@ -5,8 +5,9 @@
 //!
 //! - `tables`: the columns, an old value, a missing value and the weaknesses 2 and 4.
 //! - `tab`: the charts, their tooltip, their gaps and the range. `sampler`: the Connections
-//!   view. `snapshots`: PNG files.
+//!   view. `snapshots`: PNG files. `edges`: many containers, two pods that change places.
 
+mod edges;
 mod sampler;
 mod snapshots;
 mod tab;

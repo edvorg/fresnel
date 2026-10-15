@@ -1,7 +1,8 @@
-//! The lines of the charts of the Metrics tab (research 11 section 8.2): a line for each
-//! container of a pod and one for the pod; the sum of a workload and its largest pods; the
-//! usage of a node with its system processes. The request and the limit, or the requests,
-//! the allocatable part and the capacity of a node, are fixed lines.
+//! The lines of the charts of the Metrics tab (research 11 section 8.2): the line of the
+//! whole object, and a line for each of its largest parts: the containers of a pod, the pods
+//! of a workload. A node has the line of its usage with its system processes. The request
+//! and the limit, or the requests, the allocatable part and the capacity of a node, are
+//! fixed lines.
 //!
 //! A line has a gap where samples are missing: more than 2.5 times the distance of its tier
 //! (`Series::fine_from`). A poll that gets the same scrape of the server again misses one
@@ -16,6 +17,7 @@ use k8s_openapi::api::core::v1::Node;
 
 use super::gauge::{Resource, Usage, Whole};
 use super::read::Metered;
+use crate::format;
 use crate::theme::Palette;
 use crate::views::objects::uid;
 use crate::widgets::chart::{Line, MOST_LINES, Mark};
@@ -28,15 +30,18 @@ pub(super) const GAP: f64 = 2.5;
 pub(crate) struct Lines {
     pub(crate) lines: Vec<Line>,
     pub(crate) marks: Vec<Mark>,
-    /// The pods of a workload with no line of their own: the line of the sum has them.
-    pub(crate) more: usize,
+    /// The parts with no line of their own in words, when there are such parts: the line
+    /// of the whole has them.
+    pub(crate) more: Option<String>,
 }
 
-/// The series of an object: the lines that it always has, and the pods of a workload, of
-/// which the largest get a line.
+/// The series of an object: the line of the whole, and its parts, of which the largest get
+/// a line of their own (`MOST_LINES`): a pod can have many containers, a workload many pods.
 struct Named<'a> {
-    always: Vec<(String, &'a Series)>,
-    pods: Vec<(String, &'a Series)>,
+    whole: Option<(&'static str, &'a Series)>,
+    parts: Vec<(String, &'a Series)>,
+    /// The noun of a part, for the note of the parts with no line. A node has no parts.
+    noun: &'static str,
 }
 
 /// The lines of each resource of an object with the samples from `from`, in seconds on the
@@ -52,46 +57,56 @@ pub(crate) fn of<K: Describe>(
     let usage = metered.usage(&id.key, object);
     let node: Option<&Node> = (object as &dyn Any).downcast_ref();
     let period = u32::try_from(metered.metrics.period.as_secs()).unwrap_or(u32::MAX);
+    let room = MOST_LINES - usize::from(named.whole.is_some());
     Resource::BOTH.map(|resource| {
-        let mut pods: Vec<&(String, &Series)> = named.pods.iter().collect();
         let latest = |series: &Series| series.latest().map(|sample| resource.of(sample.usage));
-        pods.sort_by_key(|(name, series)| (std::cmp::Reverse(latest(series)), name.clone()));
-        let room = MOST_LINES.saturating_sub(named.always.len());
-        let shown = named.always.iter().chain(pods.iter().copied().take(room));
+        let mut parts: Vec<&(String, &Series)> = named.parts.iter().collect();
+        // The largest parts get a line. The lines then keep the sequence of their names: the
+        // color of a line is of its place, and it must not change when two values change places.
+        parts.sort_by_key(|(_, series)| std::cmp::Reverse(latest(series)));
+        parts.truncate(room);
+        parts.sort_by(|(a, _), (b, _)| a.cmp(b));
+        let shown = named.whole.into_iter().chain(parts.iter().map(|(name, series)| (name.as_str(), *series)));
         let lines = shown.enumerate().map(|(number, (name, series))| {
             let color = if number == 0 { palette.text } else { color(palette, number - 1) };
-            Line::new(name.clone(), color, points(series, from, period, resource))
+            Line::new(name.to_owned(), color, points(series, from, period, resource))
         });
-        let marks = marks(usage.as_ref(), node, resource, palette);
-        Lines { lines: lines.collect(), marks, more: pods.len().saturating_sub(room) }
+        let hidden = named.parts.len() - parts.len();
+        let more = (hidden > 0).then(|| {
+            let hidden = format::count(hidden as u64, named.noun);
+            named.whole.map_or_else(
+                || format!("{hidden} with no line."),
+                |(whole, _)| format!("{hidden} in the line \"{whole}\"."),
+            )
+        });
+        Lines { lines: lines.collect(), marks: marks(usage.as_ref(), node, resource, palette), more }
     })
 }
 
-/// The series of the lines of an object, by its kind.
+/// The series of the lines of an object, by its kind. A pod with one container has the line
+/// of the container only: the line of the pod would be the same line.
 fn named<'a, K: Describe>(metered: &'a Metered, id: &'a ObjectId, object: &K) -> Named<'a> {
     let (metrics, cluster) = (&metered.metrics, &id.cluster);
-    let mut named = Named { always: Vec::new(), pods: Vec::new() };
-    let mut add = |name: &str, key: SeriesKey| {
-        named.always.extend(metrics.series(cluster, &key).map(|series| (name.to_owned(), series)))
-    };
+    let series = |key: SeriesKey| metrics.series(cluster, &key);
     match K::ID {
         Kind::Pod => {
-            let containers: Vec<(&str, &Series)> = metrics.containers(cluster, &id.key).collect();
-            if containers.len() != 1 {
-                add("pod", SeriesKey::Pod(id.key.clone()));
-            }
-            named.always.extend(containers.into_iter().map(|(name, series)| (name.to_owned(), series)));
+            let parts: Vec<(String, &Series)> =
+                metrics.containers(cluster, &id.key).map(|(name, series)| (name.to_owned(), series)).collect();
+            let whole = (parts.len() != 1).then(|| series(SeriesKey::Pod(id.key.clone()))).flatten();
+            Named { whole: whole.map(|series| ("pod", series)), parts, noun: "more container" }
         }
-        Kind::Node => add("node", SeriesKey::Node(id.key.name.clone())),
+        Kind::Node => {
+            let whole = series(SeriesKey::Node(id.key.name.clone())).map(|series| ("node", series));
+            Named { whole, parts: Vec::new(), noun: "" }
+        }
         kind => {
-            add("all pods", SeriesKey::Workload(kind, id.key.clone()));
+            let whole = series(SeriesKey::Workload(kind, id.key.clone())).map(|series| ("all pods", series));
             let owned = metered.owners.pods_of(kind, uid(object.meta())).found;
-            let series = |key| metrics.series(cluster, &SeriesKey::Pod(key));
-            named.pods =
-                owned.into_iter().filter_map(|pod| Some((pod.key.name.to_string(), series(pod.key)?))).collect();
+            let parts =
+                owned.into_iter().filter_map(|pod| Some((pod.key.name.to_string(), series(SeriesKey::Pod(pod.key))?)));
+            Named { whole, parts: parts.collect(), noun: "more pod" }
         }
     }
-    named
 }
 
 /// The points of a series from `from`, with a gap where samples are missing.

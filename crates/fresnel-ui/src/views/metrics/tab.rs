@@ -88,9 +88,8 @@ impl MetricsTab {
             let text = cell.hint.as_deref().unwrap_or(&cell.text).replace('\n', "  ·  ");
             let old = matches!(cell.lead, Lead::Old(_));
             ui.label(RichText::new(text).color(if old { palette.warn } else { palette.text }));
-            if lines.more > 0 {
-                let more = format::count(lines.more as u64, "more pod");
-                ui.label(RichText::new(format!("{more} in the line of all pods.")).color(palette.text_muted));
+            if let Some(more) = &lines.more {
+                ui.label(RichText::new(more).color(palette.text_muted));
             }
             let text = |value: f64| resource.text_of(value);
             let (lines, marks) = (&lines.lines, &lines.marks);

@@ -15,7 +15,7 @@ use crate::kinds::scene::nodes;
 use crate::workloads::scene::open;
 
 /// Opens the Metrics tab of the panel of the object with this name on a page.
-fn metrics_tab(window: &mut Window, page: &str, name: &str) {
+pub(super) fn metrics_tab(window: &mut Window, page: &str, name: &str) {
     open(window, page, name);
     window.get_by_role_and_label(Role::Button, "Metrics").click();
     until(window, "the charts", |window| shows(window, "CPU chart") && shows(window, "Memory chart"));
@@ -23,7 +23,7 @@ fn metrics_tab(window: &mut Window, page: &str, name: &str) {
 
 /// Holds the pointer over a chart at this part of its width, from its left edge, and gives
 /// the lines of the tooltip: the texts that the frame did not have before.
-fn tooltip(window: &mut Window, chart: &str, part: f32) -> Vec<String> {
+pub(super) fn tooltip(window: &mut Window, chart: &str, part: f32) -> Vec<String> {
     let texts = |window: &Window| -> Vec<String> {
         let labels = window.query_all_by_role(Role::Label);
         labels.filter_map(|node| node.accesskit_node().value()).collect()
