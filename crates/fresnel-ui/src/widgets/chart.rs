@@ -215,19 +215,22 @@ mod tests {
         );
     }
 
-    /// The top of the value axis of a chart with the lines "app" near zero and "burst" near
-    /// 8, and the fixed line "limit" on 4, after these clicks on its legend.
-    fn top_after(clicks: &[(&str, egui::Modifiers)]) -> f64 {
-        use egui_kittest::kittest::Queryable as _;
+    /// A line from 0 to 60 seconds on the value `y`.
+    fn flat(name: &str, color: Color32, y: f64) -> Line {
+        Line::new(name.to_owned(), color, [Some([0.0, y]), Some([60.0, y])])
+    }
 
-        let flat = |name: &str, y: f64| Line::new(name.to_owned(), Color32::WHITE, [Some([0.0, y]), Some([60.0, y])]);
-        let lines = [flat("app", 0.02), flat("burst", 8.0)];
-        let marks = [Mark { name: "limit".to_owned(), value: 4.0, color: Color32::RED }];
+    /// Draws the legend and the chart of these lines and fixed lines, lets `act` use the
+    /// legend, and gives the top of the value axis and the shapes of the last frame.
+    fn drawn(
+        (lines, marks): (&[Line], &[Mark]),
+        act: impl FnOnce(&mut egui_kittest::Harness<'_>),
+    ) -> (f64, Vec<egui::Shape>) {
         let top = std::cell::Cell::new(f64::NAN);
         let mut harness = egui_kittest::Harness::new_ui(|ui| {
             let palette = crate::theme::palette(ui);
             let text = |value: f64| value.to_string();
-            let chart = Chart { title: "CPU", lines: &lines, marks: &marks, text: &text, reach: 15.0, binary: false };
+            let chart = Chart { title: "CPU", lines, marks, text: &text, reach: 15.0, binary: false };
             let group = Id::new("charts");
             let shown = legend(ui, palette, (group, 0), &chart);
             let clock = Clock::fixed(SystemTime::UNIX_EPOCH);
@@ -237,12 +240,43 @@ mod tests {
             top.set(memory.map_or(f64::NAN, |memory| memory.bounds().max()[1]));
         });
         harness.run();
+        act(&mut harness);
+        let shapes = harness.output().shapes.iter().map(|clipped| clipped.shape.clone()).collect();
+        drop(harness);
+        (top.get(), shapes)
+    }
+
+    /// Clicks these entries of the legend, with a frame after each click.
+    fn click(harness: &mut egui_kittest::Harness<'_>, clicks: &[(&str, egui::Modifiers)]) {
+        use egui_kittest::kittest::Queryable as _;
+
         for (name, modifiers) in clicks {
             harness.get_by_label(name).click_modifiers(*modifiers);
             harness.run();
         }
-        drop(harness);
-        top.get()
+    }
+
+    /// The top of the value axis of a chart with the lines "app" near zero and "burst" near
+    /// 8, and the fixed line "limit" on 4, after these clicks on its legend.
+    fn top_after(clicks: &[(&str, egui::Modifiers)]) -> f64 {
+        let lines = [flat("app", Color32::WHITE, 0.02), flat("burst", Color32::WHITE, 8.0)];
+        let marks = [Mark { name: "limit".to_owned(), value: 4.0, color: Color32::RED }];
+        drawn((&lines, &marks), |harness| click(harness, clicks)).0
+    }
+
+    /// The widths of the strokes of the lines of this color: a line of a chart is a path.
+    fn widths(shapes: &[egui::Shape], color: Color32) -> Vec<f32> {
+        let mut found = Vec::new();
+        for shape in shapes {
+            match shape {
+                egui::Shape::Vec(inner) => found.extend(widths(inner, color)),
+                egui::Shape::Path(path) if path.stroke.color == egui::epaint::ColorMode::Solid(color) => {
+                    found.push(path.stroke.width);
+                }
+                _ => {}
+            }
+        }
+        found
     }
 
     #[test]
@@ -257,6 +291,38 @@ mod tests {
         assert!(alone < 1.0, "an Alt+click shows the line alone: {alone}");
         let again = top_after(&[("app", egui::Modifiers::ALT), ("app", egui::Modifiers::ALT)]);
         assert!(again > 8.0, "a second Alt+click shows each line again: {again}");
+    }
+
+    #[test]
+    fn the_pointer_on_a_legend_entry_draws_its_line_thicker() {
+        use egui_kittest::kittest::Queryable as _;
+
+        let (app, burst) = (Color32::from_rgb(10, 120, 200), Color32::from_rgb(220, 90, 40));
+        let lines = [flat("app", app, 1.0), flat("burst", burst, 2.0)];
+        let (_, before) = drawn((&lines, &[]), |_| {});
+        assert_eq!((widths(&before, app), widths(&before, burst)), (vec![1.5], vec![1.5]));
+        let (_, hovered) = drawn((&lines, &[]), |harness| {
+            harness.get_by_label("burst").hover();
+            harness.run();
+        });
+        assert_eq!((widths(&hovered, app), widths(&hovered, burst)), (vec![1.5], vec![3.0]), "only burst is thicker");
+    }
+
+    /// A chart with no line, or with each entry hidden, draws no line and keeps a value axis.
+    /// An Alt+click on the only entry leaves it shown: no other entry is there to hide.
+    #[test]
+    fn a_chart_with_no_shown_line_has_a_value_axis_and_an_alt_click_on_its_only_line_shows_it() {
+        let (top, shapes) = drawn((&[], &[]), |_| {});
+        assert!(top.is_finite() && widths(&shapes, Color32::WHITE).is_empty(), "no line: {top}");
+        let line = [flat("app", Color32::WHITE, 3.0)];
+        let marks = [Mark { name: "limit".to_owned(), value: 4.0, color: Color32::RED }];
+        let none = egui::Modifiers::NONE;
+        let (top, shapes) = drawn((&line, &marks), |harness| click(harness, &[("app", none), ("limit", none)]));
+        assert!(top.is_finite() && widths(&shapes, Color32::WHITE).is_empty(), "each entry hidden: {top}");
+        let (top, shapes) = drawn((&line, &[]), |harness| click(harness, &[("app", egui::Modifiers::ALT)]));
+        // The pointer stays on the entry, so the line is thicker.
+        assert_eq!(widths(&shapes, Color32::WHITE), [3.0], "the only line stays");
+        assert!(top > 3.0, "{top}");
     }
 
     #[test]
