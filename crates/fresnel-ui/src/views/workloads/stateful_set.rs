@@ -6,8 +6,8 @@ use egui::Ui;
 use fresnel_core::kinds::Kind;
 use k8s_openapi::api::apps::v1::StatefulSet;
 
-use super::deployment::number;
-use super::{counts, details_heading, line, pods, revisions, seconds, selector, template};
+use super::{counts, pods, revisions, template};
+use crate::views::detail::lines::{details_heading, line, number, seconds, selector};
 use crate::views::detail::sections::{Context, Pick};
 use crate::views::objects::Link;
 

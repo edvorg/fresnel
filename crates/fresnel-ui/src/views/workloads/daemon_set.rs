@@ -5,9 +5,9 @@ use egui::Ui;
 use fresnel_core::kinds::Kind;
 use k8s_openapi::api::apps::v1::DaemonSet;
 
-use super::deployment::number;
-use super::{details_heading, line, pods, revisions, seconds, selector, template};
+use super::{pods, revisions, template};
 use crate::views::detail::fields::text_field;
+use crate::views::detail::lines::{details_heading, line, number, seconds, selector};
 use crate::views::detail::sections::{Context, Pick};
 use crate::views::objects::Link;
 

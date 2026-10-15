@@ -9,8 +9,9 @@ use fresnel_core::kinds::Kind;
 use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 
-use super::{details_heading, line, pods, seconds, selector, template};
+use super::{pods, template};
 use crate::format::{self, Clock};
+use crate::views::detail::lines::{details_heading, line, seconds, selector};
 use crate::views::detail::sections::{Context, Pick};
 use crate::views::objects::Link;
 use crate::views::pod_spec::texts::at;

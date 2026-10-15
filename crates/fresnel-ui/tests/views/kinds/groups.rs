@@ -106,7 +106,7 @@ fn a_config_map_shows_its_keys_and_the_pods_that_use_it() {
 fn a_service_shows_its_endpoint_slices_and_the_pods_behind_it() {
     let mut window = page::<k8s_openapi::api::core::v1::Service>(vec![live("ams-prod", &services())], 8);
     open(&mut window, "web");
-    assert_eq!(absent(&window, &["ENDPOINTSLICES", "EndpointSlice web-5qcnf", "PODS"]), Vec::<&str>::new());
+    assert_eq!(absent(&window, &["ENDPOINTSLICES", "EndpointSlice web-5qcnf", "ENDPOINTS"]), Vec::<&str>::new());
     for pod in pod_names("web-6888b778b6-") {
         assert!(in_panel(&window, &pod), "the pod {pod}");
     }

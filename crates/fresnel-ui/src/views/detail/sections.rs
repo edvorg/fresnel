@@ -11,16 +11,18 @@ use std::borrow::Cow;
 use egui::Ui;
 use fresnel_core::app::{ClusterData, CoreView};
 use fresnel_core::kinds::{Describe, Kind, ObjectHealth};
+use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet};
 use k8s_openapi::api::batch::v1::{CronJob, Job};
 use k8s_openapi::api::core::v1::{Pod, ReplicationController};
 
-use crate::format::Clock;
+use super::fields::VALUE_LIMIT;
+use crate::format::{Clock, short};
 use crate::theme::Palette;
 use crate::views::act::Ask;
 use crate::views::objects::Link;
 use crate::views::pod_spec::Place;
-use crate::views::{pods, workloads};
+use crate::views::{network, pods, workloads};
 use crate::widgets::table::model::ObjectId;
 
 /// What a section of a kind reads besides its object.
@@ -38,6 +40,27 @@ impl Context<'_> {
     /// The place of the objects that a pod spec of the object names.
     pub(crate) fn place(&self) -> Place<'_> {
         Place { palette: self.palette, clock: self.clock, cluster: &self.id.cluster, namespace: &self.id.key.namespace }
+    }
+
+    /// A link with this text to an object of the cluster of the panel. A kind with no
+    /// namespace takes none. Gives the object when the user clicked it.
+    pub(crate) fn link(&self, ui: &mut Ui, text: &str, kind: Kind, namespace: &str, name: &str) -> Option<Link> {
+        let namespace = if kind.info().namespaced { namespace } else { "" };
+        let clicked = ui.link(short(text, VALUE_LIMIT)).clicked();
+        clicked.then(|| Link { cluster: self.id.cluster.clone(), kind, key: ObjectKey::new(namespace, name) })
+    }
+
+    /// An object that an other object names with the name of its kind, as "Deployment web":
+    /// a link when the kind is in the scope of the app, else a text.
+    pub(crate) fn reference(&self, ui: &mut Ui, kind: &str, namespace: &str, name: &str) -> Option<Link> {
+        let text = format!("{kind} {name}");
+        match Kind::named(kind) {
+            Some(kind) => self.link(ui, &text, kind, namespace, name),
+            None => {
+                ui.label(short(&text, VALUE_LIMIT));
+                None
+            }
+        }
     }
 }
 
@@ -84,6 +107,12 @@ pub(super) fn details<K: Describe>(ui: &mut Ui, cx: &Context<'_>, object: &K) ->
         }
         Kind::Job => of(object).and_then(|job| workloads::job::details(ui, cx, job)),
         Kind::CronJob => of(object).and_then(|job| workloads::cron_job::details(ui, cx, job)),
+        Kind::Service => of(object).and_then(|service| network::service::details(ui, cx, service)),
+        Kind::EndpointSlice => of(object).and_then(|slice| network::endpoints::slice_details(ui, cx, slice)),
+        Kind::Endpoints => of(object).and_then(|endpoints| network::endpoints::details(ui, cx, endpoints)),
+        Kind::Ingress => of(object).and_then(|ingress| network::ingress::details(ui, cx, ingress)),
+        Kind::IngressClass => of(object).and_then(|class| network::ingress::class_details(ui, cx, class)),
+        Kind::NetworkPolicy => of(object).and_then(|policy| network::policy::details(ui, cx, policy)),
         _ => None,
     };
     link.map(Pick::Open)
@@ -102,6 +131,7 @@ pub(super) fn parts<K: Describe>(ui: &mut Ui, cx: &Context<'_>, object: &K) -> O
         }
         Kind::Job => of::<Job, K>(object).and_then(|job| workloads::job::parts(ui, cx, job)),
         Kind::CronJob => of::<CronJob, K>(object).and_then(|job| workloads::cron_job::parts(ui, cx, job)),
+        Kind::Service => network::service::parts(ui, cx).map(Pick::Open),
         _ => None,
     }
 }

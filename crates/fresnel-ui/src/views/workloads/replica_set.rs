@@ -6,7 +6,8 @@ use fresnel_core::kinds::Kind;
 use k8s_openapi::api::apps::v1::ReplicaSet;
 use k8s_openapi::api::core::v1::ReplicationController;
 
-use super::{counts, details_heading, line, pods, seconds, selector, template};
+use super::{counts, pods, template};
+use crate::views::detail::lines::{details_heading, line, seconds, selector};
 use crate::views::detail::sections::{Context, Pick};
 use crate::views::objects::Link;
 

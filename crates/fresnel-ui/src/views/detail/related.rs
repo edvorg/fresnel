@@ -102,17 +102,10 @@ fn groups<K: Describe>(data: &ClusterData, id: &ObjectId, object: &K) -> Vec<Gro
             let answer = refs(owners.owned(kind, uid));
             vec![Group { title: "REPLICASETS", noun: "ReplicaSets", index: OWNERS, answer }]
         }
+        // The endpoints of a Service, with their pods, are a part of the kind (`views/network`).
         Kind::Service => {
             let slices = Links::of(owners.slices_of(&id.key), |key| named(Kind::EndpointSlice, key));
-            let ready = |ready: bool| if ready { "" } else { " (not ready)" };
-            let behind = Links::of(owners.pods_of_service(&id.key), |pod| {
-                let text = format!("{}{}", short(&pod.pod.name, 200), ready(pod.ready));
-                (Kind::Pod, pod.pod, text)
-            });
-            vec![
-                Group { title: "ENDPOINTSLICES", noun: "EndpointSlices", index: OWNERS, answer: slices },
-                Group { title: "PODS", noun: "pods", index: OWNERS, answer: behind },
-            ]
+            vec![Group { title: "ENDPOINTSLICES", noun: "EndpointSlices", index: OWNERS, answer: slices }]
         }
         Kind::ConfigMap | Kind::Secret | Kind::ServiceAccount | Kind::Node => {
             let answer = pods(references.used_by(kind, &id.key));

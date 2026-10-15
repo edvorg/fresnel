@@ -13,8 +13,9 @@ use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::batch::v1::{CronJob, Job};
 
 use super::job::{duration, state};
-use super::{details_heading, line, pods, template};
+use super::{pods, template};
 use crate::views::detail::fields::{ITEM_LIMIT, NONE, field, heading, more, note};
+use crate::views::detail::lines::{details_heading, line};
 use crate::views::detail::related::{basis_note, links_only};
 use crate::views::detail::sections::{Context, Pick};
 use crate::views::objects::{Link, old_since};

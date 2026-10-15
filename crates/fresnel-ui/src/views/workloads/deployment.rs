@@ -4,9 +4,9 @@
 use egui::Ui;
 use fresnel_core::kinds::Kind;
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 
-use super::{counts, details_heading, line, pods, revisions, seconds, selector, template};
+use super::{counts, pods, revisions, template};
+use crate::views::detail::lines::{details_heading, line, number, seconds, selector};
 use crate::views::detail::sections::{Context, Pick};
 use crate::views::objects::Link;
 
@@ -55,12 +55,4 @@ fn strategy(strategy: Option<&k8s_openapi::api::apps::v1::DeploymentStrategy>) -
     let unavailable =
         rolling.and_then(|rolling| rolling.max_unavailable.as_ref()).map_or_else(|| "25%".to_owned(), number);
     format!("{kind} (max surge {surge}, max unavailable {unavailable})")
-}
-
-/// A count or a percent of the spec.
-pub(super) fn number(value: &IntOrString) -> String {
-    match value {
-        IntOrString::Int(count) => count.to_string(),
-        IntOrString::String(text) => text.clone(),
-    }
 }

@@ -9,7 +9,8 @@
 //! time and showed a deleted object with each button. Here an object that left a store
 //! with a complete list shows as deleted, with its last state.
 //!
-//! - `fields`: the parts of a section. `sections`: the sections of a kind.
+//! - `fields`: the parts of a section. `lines`: the lines, tables and texts of a kind.
+//! - `sections`: the sections of a kind.
 //! - `conditions`, `related`, `events`: the sections of each kind. `manifest`: the tab.
 //! - `status`: the JSON of the status of an object, for its conditions.
 //! - `actions`: the actions of the command table on the object of the panel.
@@ -18,6 +19,7 @@ pub(crate) mod actions;
 mod conditions;
 mod events;
 pub(crate) mod fields;
+pub(crate) mod lines;
 mod manifest;
 pub(crate) mod related;
 pub(crate) mod sections;
