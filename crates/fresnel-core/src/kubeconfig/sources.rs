@@ -52,6 +52,17 @@ mod tests {
         assert_eq!(sources(&[]), Vec::<String>::new());
     }
 
+    /// An empty home variable names no folder, so no default file comes: `.kube/config`
+    /// would be a path below the current folder of the process.
+    #[test]
+    fn an_empty_home_variable_gives_no_default_file() {
+        let mut env = ProcessEnv::default();
+        env.set_home("");
+        assert_eq!(default_sources(&env), Vec::<PathBuf>::new());
+        env.set(VARIABLE, "a.yaml");
+        assert_eq!(default_sources(&env), [PathBuf::from("a.yaml")]);
+    }
+
     #[cfg(windows)]
     #[test]
     fn the_default_file_is_in_the_profile_folder_of_the_user() {

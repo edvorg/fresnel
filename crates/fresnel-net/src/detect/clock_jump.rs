@@ -150,4 +150,21 @@ mod tests {
         ASLEEP.set(720 * SECOND);
         assert_eq!(detector.look(), Some(Disturbance::Wake(60 * SECOND)));
     }
+
+    /// Windows reads its two interrupt times one after the other, so a tick between the two
+    /// reads makes the time asleep fall back. That is no wake, and the next sleep counts from
+    /// the lower value.
+    #[tokio::test(start_paused = true)]
+    async fn a_time_asleep_that_falls_back_is_no_wake() {
+        let tick = Duration::from_millis(16);
+        let (clock, _offset) = clock();
+        ASLEEP.set(600 * SECOND);
+        let mut detector = ClockJump::new(clock, asleep, 5 * SECOND);
+        sleep(SECOND).await;
+        ASLEEP.set(600 * SECOND - tick);
+        assert_eq!(detector.look(), None, "a count that falls back is no sleep");
+        sleep(SECOND).await;
+        ASLEEP.set(660 * SECOND);
+        assert_eq!(detector.look(), Some(Disturbance::Wake(60 * SECOND + tick)));
+    }
 }

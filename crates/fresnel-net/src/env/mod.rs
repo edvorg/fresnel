@@ -76,3 +76,21 @@ pub async fn resolve(base: &ProcessEnv, settings: &EnvSettings) -> Environment {
     vars.extend_path(&settings.extra_folders, &fixed);
     Environment { vars, source, elapsed: started.elapsed() }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An empty home variable names no folder. A home folder after `PATH` would then be a
+    /// path below the current folder of the process, where a bare plugin name finds a file.
+    #[tokio::test]
+    async fn an_empty_home_variable_adds_no_folder_to_path() {
+        let mut base: ProcessEnv =
+            [("PATH", std::env::join_paths(["/usr/bin"]).expect("a folder"))].into_iter().collect();
+        base.set_home("");
+        let shell = Some(PathBuf::from("/nonexistent/shell"));
+        let settings = EnvSettings { shell, fixed_folders: Vec::new(), ..EnvSettings::default() };
+        let resolved = resolve(&base, &settings).await;
+        assert_eq!(resolved.vars.path_entries(), [PathBuf::from("/usr/bin")]);
+    }
+}
