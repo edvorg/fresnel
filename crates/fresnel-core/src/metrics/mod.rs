@@ -12,8 +12,12 @@
 //! - `resources`: the requests and the limits of a pod.
 
 mod duration;
+mod history;
 mod quantity;
 mod resources;
+mod series;
 mod wire;
 
+pub use history::SeriesKey;
 pub use resources::{Amount, Limits, PodResources, of_pod};
+pub use series::{Cover, Sample, Series};

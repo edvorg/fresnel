@@ -1,0 +1,145 @@
+use std::collections::BTreeSet;
+
+use super::*;
+use crate::metrics::resources::Amount;
+use crate::metrics::series::Cover;
+
+const TIERS: Tiers = Tiers { fine: 3_600, step: 60, coarse: 86_400 };
+const START: u32 = 1_792_058_400;
+const HOUR: Duration = Duration::from_secs(3_600);
+
+fn sample(at: u32) -> Sample {
+    Sample { at, cover: Cover::ONE, usage: Amount { cpu: 1, memory: 1 } }
+}
+
+fn pod(name: &str) -> ObjectKey {
+    ObjectKey::new("shop", name)
+}
+
+fn container(pod_name: &str, name: &str) -> SeriesKey {
+    SeriesKey::Container { pod: pod(pod_name), name: name.into() }
+}
+
+fn at(seconds: u64) -> SystemTime {
+    SystemTime::UNIX_EPOCH + Duration::from_secs(seconds)
+}
+
+#[test]
+fn the_containers_of_a_pod_come_in_the_sequence_of_their_names_and_no_other_pod_comes() {
+    let mut history = History::default();
+    for key in [
+        container("web-2", "app"),
+        container("web-1", "proxy"),
+        container("web-1", "app"),
+        SeriesKey::Pod(pod("web-1")),
+    ] {
+        history.record(key, sample(START), 1, &TIERS);
+    }
+    let web = pod("web-1");
+    let names: Vec<&str> = history.containers(&web).map(|(name, _)| name).collect();
+    assert_eq!(names, ["app", "proxy"]);
+    assert_eq!(history.containers(&pod("web-3")).count(), 0);
+    assert_eq!((history.len(), history.samples), (4, 4));
+}
+
+#[test]
+fn a_sample_again_marks_its_series_as_seen_and_adds_nothing() {
+    let mut history = History::default();
+    history.record(SeriesKey::Cluster, sample(START), 1, &TIERS);
+    history.record(SeriesKey::Cluster, sample(START), 2, &TIERS);
+    let series = history.get(&SeriesKey::Cluster).expect("the series");
+    assert_eq!((series.seen, series.len(), history.samples), (2, 1, 1));
+}
+
+/// Plan section 12.4: the drop of a deleted pod after one hour.
+#[test]
+fn the_series_of_an_object_that_left_its_store_go_one_hour_later() {
+    let mut history = History::default();
+    for key in [SeriesKey::Pod(pod("web-1")), container("web-1", "app"), SeriesKey::Pod(pod("web-2"))] {
+        history.record(key, sample(START), 1, &TIERS);
+    }
+    let pods = |names: &[&str]| -> BTreeSet<ObjectKey> { names.iter().map(|name| pod(name)).collect() };
+    let exists = |store: Option<BTreeSet<ObjectKey>>| {
+        move |key: &SeriesKey| match key {
+            SeriesKey::Pod(pod) | SeriesKey::Container { pod, .. } => store.as_ref().map(|store| store.contains(pod)),
+            _ => Some(true),
+        }
+    };
+    history.sweep(exists(Some(pods(&["web-1", "web-2"]))), at(0), HOUR);
+    history.sweep(exists(Some(pods(&["web-2"]))), at(60), HOUR);
+    // A store with no complete list changes no mark.
+    history.sweep(exists(None), at(1_800), HOUR);
+    history.sweep(exists(Some(pods(&["web-2"]))), at(3_659), HOUR);
+    assert_eq!(history.len(), 3, "59 minutes and 59 seconds after the delete");
+    history.sweep(exists(Some(pods(&["web-2"]))), at(3_660), HOUR);
+    let left: Vec<_> = history.series.keys().cloned().collect();
+    assert_eq!((left, history.samples), (vec![SeriesKey::Pod(pod("web-2"))], 1));
+
+    // A pod that comes back loses its mark: a StatefulSet makes a pod of the same name.
+    history.sweep(exists(Some(pods(&[]))), at(4_000), HOUR);
+    history.sweep(exists(Some(pods(&["web-2"]))), at(5_000), HOUR);
+    history.sweep(exists(Some(pods(&["web-2"]))), at(9_000), HOUR);
+    assert_eq!(history.len(), 1);
+    // A clock that goes back keeps the series.
+    history.sweep(exists(Some(pods(&[]))), at(10_000), HOUR);
+    history.sweep(exists(Some(pods(&[]))), at(5), HOUR);
+    assert_eq!(history.len(), 1);
+}
+
+/// Two hours of samples each 15 s of one series of each rank.
+fn full_history() -> History {
+    let mut history = History::default();
+    let keys = [
+        container("web-1", "app"),
+        SeriesKey::Pod(pod("web-1")),
+        SeriesKey::Workload(Kind::Deployment, pod("web")),
+        SeriesKey::Namespace("shop".into()),
+        SeriesKey::Node("node-a".into()),
+        SeriesKey::Cluster,
+    ];
+    for step in 0..480u32 {
+        for key in &keys {
+            history.record(key.clone(), sample(START + step * 15), u64::from(step), &TIERS);
+        }
+    }
+    history
+}
+
+fn kept(history: &History, key: &SeriesKey, tier: Tier) -> Option<u32> {
+    history.get(key).and_then(|series| series.oldest(tier)).map(|oldest| oldest - START)
+}
+
+/// Research 11 section 4.3: when the limit is reached, the coarse tier of the containers
+/// goes first.
+#[test]
+fn the_memory_limit_drops_the_oldest_coarse_samples_of_the_containers_first() {
+    let mut history = full_history();
+    let full = history.bytes();
+    assert_eq!(history.samples, 6 * (240 + 119));
+    history.limit(full);
+    assert_eq!((history.bytes(), history.dropped), (full, 0), "a history in its limit");
+
+    history.limit(full - 30 * SAMPLE_BYTES);
+    assert!(history.bytes() <= full - 30 * SAMPLE_BYTES);
+    let app = container("web-1", "app");
+    assert_eq!(kept(&history, &app, Tier::Coarse), Some(30 * 60 + 45), "30 minutes of the container went");
+    assert_eq!(kept(&history, &SeriesKey::Pod(pod("web-1")), Tier::Coarse), Some(45));
+    assert_eq!(history.dropped, 30);
+
+    // A limit below each coarse tier: the coarse tiers are empty, the fine tier of the
+    // containers loses its oldest minutes, and the cluster keeps its fine tier.
+    let fine = 6 * 240 * SAMPLE_BYTES + 6 * SERIES_BYTES;
+    history.limit(fine - 4 * SAMPLE_BYTES);
+    assert!(history.bytes() <= fine - 4 * SAMPLE_BYTES);
+    for key in history.series.keys() {
+        assert_eq!(kept(&history, key, Tier::Coarse), None, "{key:?}");
+    }
+    assert_eq!(kept(&history, &app, Tier::Fine), Some(3_660), "one minute of the fine tier went");
+    assert_eq!(kept(&history, &SeriesKey::Cluster, Tier::Fine), Some(3_600));
+    assert_eq!(history.dropped, 6 * 119 + 4);
+
+    // No room for any sample: each series keeps its key and its last value.
+    history.limit(0);
+    assert_eq!((history.samples, history.len()), (0, 6));
+    assert_eq!(history.get(&SeriesKey::Cluster).and_then(Series::latest), Some(sample(START + 479 * 15)));
+}
