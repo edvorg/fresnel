@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use egui::accesskit::Role;
-use egui_kittest::kittest::Queryable as _;
+use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use fresnel_core::CoreError;
 use fresnel_core::app::Command;
 use fresnel_core::logs::{LogSave, SavePart, SaveState, SaveView, SourceState};
@@ -35,6 +35,8 @@ fn saves(window: &Window) -> Vec<Command> {
 #[test]
 fn a_save_sends_its_command_and_the_tab_shows_its_state_and_a_cancel() {
     let (mut window, request) = opened(WEB);
+    let menu = window.get_by_role_and_label(Role::Button, "Save");
+    assert!(menu.accesskit_node().is_disabled(), "no view yet: the core has nothing to save");
     show(&mut window, vec![log_view(&request, vec![source(WEB, "web", SourceState::Streaming)], Vec::new())]);
     window.get_by_role_and_label(Role::Button, "Save").click();
     window.run();

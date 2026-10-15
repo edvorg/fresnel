@@ -224,22 +224,26 @@ fn search(ui: &mut Ui, find: &mut Find, view: Option<&LogView>) -> Vec<Asked> {
     asked
 }
 
-/// The menu of the saves, and the state of the last save of the view.
+/// The menu of the saves, and the state of the last save of the view. A tab with no view
+/// has the menu off: the core saves only a view that runs in its cluster.
 fn saves(ui: &mut Ui, request: &LogRequest, parts: &Parts<'_>) -> Vec<Asked> {
     let mut asked = Vec::new();
     let config = MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside);
     let full =
         if request.options.previous { "Save the full log of the previous instance" } else { "Save the full log" };
-    MenuButton::new("Save").config(config).ui(ui, |ui| {
-        if ui.button("Save the lines of the view").clicked() {
-            asked.push(Asked::Save(SavePart::Buffer));
-            ui.close();
-        }
-        if ui.button(full).clicked() {
-            asked.push(Asked::Save(SavePart::Full));
-            ui.close();
-        }
+    let menu = ui.add_enabled_ui(parts.view.is_some(), |ui| {
+        MenuButton::new("Save").config(config).ui(ui, |ui| {
+            if ui.button("Save the lines of the view").clicked() {
+                asked.push(Asked::Save(SavePart::Buffer));
+                ui.close();
+            }
+            if ui.button(full).clicked() {
+                asked.push(Asked::Save(SavePart::Full));
+                ui.close();
+            }
+        })
     });
+    menu.inner.0.on_disabled_hover_text("The view did not start: its cluster has no session for it yet.");
     let Some(save) = parts.save else {
         return asked;
     };
