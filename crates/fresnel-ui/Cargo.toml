@@ -11,6 +11,7 @@ repository.workspace = true
 # "Copy value" of a binary value of a Secret or a ConfigMap gives its base64 text.
 base64.workspace = true
 egui.workspace = true
+egui_plot.workspace = true
 egui_table.workspace = true
 fresnel-core.workspace = true
 # The time of day of a journal entry, in the time zone of the system.

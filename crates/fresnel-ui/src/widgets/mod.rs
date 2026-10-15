@@ -1,5 +1,6 @@
 //! Small parts that more than one view uses.
 
+pub(crate) mod chart;
 pub(crate) mod mini_table;
 pub(crate) mod table;
 pub(crate) mod tone;

@@ -51,6 +51,37 @@ pub(crate) fn span(time: Duration) -> String {
     }
 }
 
+/// "6.1m", "250m", "1.25": CPU from nanocores in the form of `kubectl top`, millicores
+/// below one core and cores from one core on.
+pub(crate) fn cpu(nanocores: u64) -> String {
+    let millicores = nanocores as f64 / 1e6;
+    match millicores {
+        _ if millicores.round() >= 1000.0 => trimmed(millicores / 1000.0),
+        _ if millicores >= 9.95 => format!("{millicores:.0}m"),
+        _ if nanocores == 0 => "0m".to_owned(),
+        _ if millicores < 0.1 => "<0.1m".to_owned(),
+        _ => format!("{millicores:.1}m"),
+    }
+}
+
+/// "512Ki", "128Mi", "1.5Gi": memory from bytes in the units of the API.
+pub(crate) fn memory(bytes: u64) -> String {
+    const KI: f64 = 1024.0;
+    let value = bytes as f64;
+    match value {
+        _ if (value / KI / KI).round() >= KI => format!("{}Gi", trimmed(value / KI / KI / KI)),
+        _ if value >= KI * KI => format!("{:.0}Mi", value / KI / KI),
+        _ if value >= KI => format!("{:.0}Ki", value / KI),
+        _ => bytes.to_string(),
+    }
+}
+
+/// A number with two decimals at most and no zero at the end: "1.25", "1.5", "2".
+fn trimmed(value: f64) -> String {
+    let text = format!("{value:.2}");
+    text.trim_end_matches('0').trim_end_matches('.').to_owned()
+}
+
 /// The first `limit` characters of a text of a cluster, with a mark for the part that
 /// does not show. The API gives most texts no limit of their length, and the layout of a
 /// text of 1 MB takes longer than a frame.
@@ -103,6 +134,12 @@ impl Clock {
         self.text(time, "%H:%M:%S").unwrap_or_else(|| NO_TIME.to_owned())
     }
 
+    /// "14:03": the hour and the minute in the time zone of the clock, for the marks of a
+    /// time axis.
+    pub(crate) fn hour_minute(&self, time: SystemTime) -> String {
+        self.text(time, "%H:%M").unwrap_or_else(|| NO_TIME.to_owned())
+    }
+
     /// The time of day `wait` after now. A wait from extreme settings can be past the end of
     /// the clock, and a plain sum would then stop the frame.
     pub(crate) fn time_of_day_after(&self, wait: Duration) -> String {
@@ -149,6 +186,16 @@ mod tests {
     }
 
     #[test]
+    fn cpu_and_memory_have_the_units_of_kubectl_top() {
+        let cpu: Vec<String> =
+            [0, 40_000, 6_082_165, 9_960_000, 250_000_000, 999_600_000, 1_250_000_000, 2_000_000_000].map(cpu).to_vec();
+        assert_eq!(cpu, ["0m", "<0.1m", "6.1m", "10m", "250m", "1", "1.25", "2"]);
+        let memory: Vec<String> =
+            [100, 2048, 22_272 * 1024, 1_073_217_536, 1_610_612_736, 3 << 40].map(memory).to_vec();
+        assert_eq!(memory, ["100", "2Ki", "22Mi", "1Gi", "1.5Gi", "3072Gi"]);
+    }
+
+    #[test]
     fn a_long_text_shows_its_start_with_a_mark_and_a_cut_is_between_two_characters() {
         assert_eq!(short("Running", 7), "Running");
         assert_eq!(short("CrashLoopBackOff", 5), "Crash…");
@@ -163,6 +210,7 @@ mod tests {
         assert_eq!(clock.time_of_day(now), "08:00:00");
         assert_eq!(clock.time_of_day(now + 3725 * SECOND), "09:02:05");
         assert_eq!(clock.date_time(now + 3725 * SECOND), "2027-01-15 09:02:05");
+        assert_eq!(clock.hour_minute(now + 3725 * SECOND), "09:02");
         assert_eq!((clock.until(now + 5 * SECOND), clock.until(now - 5 * SECOND)), (5 * SECOND, Duration::ZERO));
         assert_eq!((clock.since(now - 7 * SECOND), clock.since(now + 7 * SECOND)), (7 * SECOND, Duration::ZERO));
         assert_eq!(

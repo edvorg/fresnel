@@ -78,6 +78,8 @@ eframe = { version = "0.36.2", default-features = false, features = ["accesskit"
 egui_kittest = { version = "0.36.2", features = ["wgpu"] }
 # The virtual rows of a table. Only `widgets/table.rs` of `fresnel-ui` uses it.
 egui_table = "0.10.0"
+# The charts of the metrics. Only `widgets/chart.rs` of `fresnel-ui` uses it.
+egui_plot = "0.37.0"
 # The PNG files of the view tests. egui_kittest gives the image of a frame as this type.
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 
