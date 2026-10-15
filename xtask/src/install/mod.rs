@@ -59,7 +59,5 @@ fn build(root: &Path) -> io::Result<PathBuf> {
     if !status.success() {
         return Err(io::Error::other(format!("the release build failed ({status})")));
     }
-    // A relative folder of the variable starts from the root, as for the build above.
-    let target = std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| PathBuf::from("target"), PathBuf::from);
-    Ok(root.join(target).join("release").join(PACKAGE))
+    Ok(crate::target_folder(root).join("release").join(PACKAGE))
 }

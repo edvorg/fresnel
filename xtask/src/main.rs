@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use xtask::{borders, install, sizes};
+use xtask::{borders, install, screenshots, sizes};
 
 const USAGE: &str = "\
 usage: cargo xtask <command>
@@ -14,7 +14,8 @@ commands:
                          no egui dependency
   install [--to <folder>]
                          build Fresnel.app and install it into /Applications or into
-                         <folder>; the earlier bundle stays as Fresnel.app.prev";
+                         <folder>; the earlier bundle stays as Fresnel.app.prev
+  screenshots            draw the pictures of the README into docs/screenshots";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
@@ -24,6 +25,7 @@ fn main() -> ExitCode {
         ["check-borders"] => check_borders(),
         ["install"] => install(Path::new(install::APPLICATIONS)),
         ["install", "--to", folder] => install(Path::new(folder)),
+        ["screenshots"] => draw_screenshots(),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
@@ -76,6 +78,23 @@ fn install(destination: &Path) -> ExitCode {
         }
         Err(error) => {
             eprintln!("install: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn draw_screenshots() -> ExitCode {
+    match screenshots::run(&root()) {
+        Ok(pictures) => {
+            for picture in &pictures {
+                println!("screenshots: {}/{}: {} bytes", screenshots::FOLDER, picture.name, picture.file.len());
+            }
+            let total: usize = pictures.iter().map(|picture| picture.file.len()).sum();
+            println!("screenshots: {} pictures, {total} bytes", pictures.len());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("screenshots: {error}");
             ExitCode::FAILURE
         }
     }

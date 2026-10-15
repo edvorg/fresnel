@@ -88,6 +88,9 @@ image = { version = "0.25.10", default-features = false, features = ["png"] }
 
 # xtask writes the icon of the app with it. The image crate uses the same version.
 png = "0.18.1"
+# xtask makes the pictures of the README smaller with no loss. No feature: no command line
+# program and one thread, so two runs give the same bytes.
+oxipng = { version = "10.2.1", default-features = false }
 
 # The macOS activity against App Nap. eframe uses these versions too.
 objc2 = "0.6.4"
@@ -133,6 +136,13 @@ panic = "unwind"
 # small enough for the disk of a CI runner, and a backtrace keeps each function name.
 [profile.dev.package."*"]
 debug = false
+
+# `cargo xtask screenshots` compresses its pictures in a debug build of xtask. With no
+# optimization, the compression takes five times as long.
+[profile.dev.package.oxipng]
+opt-level = 3
+[profile.dev.package.libdeflate-sys]
+opt-level = 3
 
 [profile.release]
 panic = "unwind"

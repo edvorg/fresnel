@@ -8,6 +8,8 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The compression of the pictures of the README.
+oxipng.workspace = true
 # The PNG files of the app icon.
 png.workspace = true
 

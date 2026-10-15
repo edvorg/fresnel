@@ -43,7 +43,7 @@ xtask
   hook, the runtime and the core, which starts after the window opens; the quit stops its tasks.
 - `fresnel-cli`: the command line program for tests and fault diagnosis: `doctor` and `watch`.
 - `fresnel-testkit`: test tools on `fresnel-net`; a `fresnel-net` test that uses it is in `tests/`.
-- `xtask`: the size check and the macOS bundle. It uses no other crate of the workspace.
+- `xtask`: the checks, the macOS bundle, the README pictures; no other crate of the workspace.
 
 ## Borders in the code
 
