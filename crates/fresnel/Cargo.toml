@@ -38,5 +38,9 @@ path = "tests/live/main.rs"
 name = "k3s_views"
 path = "tests/k3s_views/main.rs"
 
+[[test]]
+name = "k3s_metrics"
+path = "tests/k3s_metrics/main.rs"
+
 [lints]
 workspace = true

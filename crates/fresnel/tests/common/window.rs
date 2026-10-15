@@ -54,6 +54,17 @@ pub(crate) fn window(core: Core, size: egui::Vec2) -> Window {
 
 /// Draws frames until the window meets the condition. Gives the time of the wait.
 pub(crate) fn until(window: &mut Window, what: &str, met: impl Fn(&Window) -> bool) -> Duration {
+    until_within(window, what, LIMIT, met)
+}
+
+/// Draws frames until the window meets the condition, for `limit` at most: a wait for a
+/// cluster that starts a part of its own, such as metrics-server.
+pub(crate) fn until_within(
+    window: &mut Window,
+    what: &str,
+    limit: Duration,
+    met: impl Fn(&Window) -> bool,
+) -> Duration {
     let started = Instant::now();
     loop {
         window.run();
@@ -61,7 +72,7 @@ pub(crate) fn until(window: &mut Window, what: &str, met: impl Fn(&Window) -> bo
             return started.elapsed();
         }
         let journal = || window.state().core.view().journal;
-        assert!(started.elapsed() < LIMIT, "in time: {what}: {:#?}", journal().entries);
+        assert!(started.elapsed() < limit, "in time: {what}: {:#?}", journal().entries);
         std::thread::sleep(Duration::from_millis(5));
     }
 }
