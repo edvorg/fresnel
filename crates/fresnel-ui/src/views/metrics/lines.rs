@@ -42,7 +42,8 @@ struct Named<'a> {
     parts: Vec<(String, &'a Series)>,
     /// The noun of a part, for the note of the parts with no line. A node has no parts.
     noun: &'static str,
-    /// The short names of the parts that are pods, for the legend: the end of each name.
+    /// The short names of the parts that are pods, for the legend: each name without the
+    /// start that the pods share. None for a pod, whose parts are its containers, and a node.
     pods: Option<PodNames>,
 }
 
