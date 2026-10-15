@@ -23,7 +23,8 @@ pub struct LogRequest {
     /// The namespace and the name of the object.
     pub key: ObjectKey,
     /// The UID of the object that the user saw. A pod of the same name with an other UID
-    /// is an other pod. Empty for any object of the name.
+    /// is an other pod; empty for a pod of any UID. A workload needs it: the owner index
+    /// knows the pods of a UID, so a workload view with no UID has no pod.
     pub uid: Arc<str>,
     /// The options of the streams.
     pub options: LogOptions,

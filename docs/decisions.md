@@ -1261,6 +1261,19 @@ again. The view drops a line while its time is one of that second, as often as t
 the first other line ends the drop. Each gap gets one marker line. On k3s, a reset of each
 connection lost no line.
 
+## A step back of the clock of a node starts the latest second again
+
+The kubelet drops each line before `sinceTime`. A line more than a minute before the latest
+second of its source tells that the clock of the node went back, and a new stream from that
+second would lose each line until the clock reaches it again. The latest second thus starts again
+at that line: the next stream shows some lines two times and loses none.
+
+## A source waits for a change of its own pod
+
+After a refusal, or while its container does not run, a source waits for its pause or for a change
+of its pod in the store. The store of a busy cluster changes each 30 ms, and a wait for any change
+would send a request at each one, with no pause.
+
 ## The pod tells what the end of a stream means
 
 A stream ends when its container ends and when its connection closes. The source reads the pod in
@@ -1279,10 +1292,10 @@ marker.
 
 ## The lines of many pods merge by their times with a hold of 250 ms
 
-A line goes into the view when each open source has a line, or after it waited 250 ms. A slow
-source holds the view for that time at most. A line that comes after a later line went in goes
-to the end with the mark "late": the ring never takes a line into its middle, so each number of a
-line stays for the scroll position, a selection and a search hit.
+A line goes into the view when each open source has a line, after a wait of 250 ms, or when the
+waiting lines hold an eighth of the bytes of the ring. A slow source holds the view 250 ms at
+most, and a fast one cannot fill the memory. A later line of the slow one goes to the end with
+the mark "late": each number of a line stays for a scroll position and a selection.
 
 ## The ring of a view is a vector of imbl
 
@@ -1297,6 +1310,13 @@ kubectl follows 5 pods of a selector; a workload of the app can have more, and e
 stream of the log channel. A container over the limit is a count in the view, and a stream that
 ends frees its place. Without a choice of the user, the view reads the container that restarts
 most in its pods, else the one of kubectl.
+
+## A view that starts again after a panic has no line, and a count tells it
+
+The sources of a view stop with the run of its task, so a new run cannot continue their lines.
+It starts with an empty ring and new sources, and `LogView::restarts` counts such runs, so the
+view can tell that the earlier lines are gone. A source keeps its lines after a panic of its own
+task: it starts from its latest line with a marker.
 
 ## The log sessions belong to their connected cluster
 
