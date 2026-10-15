@@ -1,5 +1,5 @@
-//! The data of one connected cluster: its stores, its indexes and its metrics, and what the
-//! views read of them.
+//! The data of one connected cluster: its stores, its indexes, its metrics and the version
+//! of its server, and what the views read of them.
 //!
 //! The core starts the stores with the connections of a cluster and stops them with the
 //! disconnect. A view reads a copy of the snapshots; it holds no handle to a store.
@@ -21,7 +21,7 @@ use super::logs::ClusterLogs;
 use super::objects::{Objects, ShownKinds};
 use super::repaint::Repaint;
 use super::{Inner, watch};
-use crate::cluster::{ClusterId, Gateway, Link};
+use crate::cluster::{ClusterId, ClusterVersion, Gateway, Link, ServerVersion};
 use crate::error::CoreError;
 use crate::index::{ClusterIndexes, Index, IndexParts, ObjectEvents, Owners, References};
 use crate::keys::Target;
@@ -59,6 +59,8 @@ pub struct ClusterData {
     pub access: Arc<AccessView>,
     /// The metrics: the state of each poll store, the history and the requests on each node.
     pub metrics: Held<Metrics>,
+    /// The version of the API server, for the cluster overview.
+    pub version: Held<ServerVersion>,
     /// The log views of objects of this cluster (`Command::ShowLogs`).
     pub logs: Arc<[Held<LogView>]>,
     /// The saves of the log views of this cluster, the oldest first (`Command::SaveLog`).
@@ -123,7 +125,9 @@ pub(super) struct Connected {
     owners: Reader<Index<Owners>>,
     references: Reader<Index<References>>,
     metrics: Reader<Metrics>,
+    version: Reader<ServerVersion>,
     _data_watch: TaskHandle,
+    _version: ClusterVersion,
     shown: ShownKinds,
     _sampler: Sampler,
     _indexes: ClusterIndexes,
@@ -147,6 +151,7 @@ impl Connected {
         let settings = inner.settings.metrics.clone();
         let parts = SamplerParts { settings, bin: bin.clone(), notice: notice.clone(), clock: WallClock::system() };
         let sampler = Sampler::start(tasks, link.gateway.clone(), Inputs::of(&stores, &indexes)?, parts);
+        let version = ClusterVersion::start(tasks, link.gateway.clone(), bin.clone(), notice.clone());
         let always = Restart::Always(Backoff::default());
         let logs = Notice::new();
         let data_watch = tasks.start(TaskName::scoped("data watch", id.as_str()), always, {
@@ -185,7 +190,9 @@ impl Connected {
             owners: indexes.owners(),
             references: indexes.references(),
             metrics: sampler.reader(),
+            version: version.reader(),
             _data_watch: data_watch,
+            _version: version,
             shown: shown_kinds,
             _sampler: sampler,
             _indexes: indexes,
@@ -263,6 +270,7 @@ impl Connected {
             keys: self.keys.view(),
             access: self.access.view(),
             metrics: self.metrics.read(),
+            version: self.version.read(),
             logs: self.logs.views(),
             saves: self.logs.saves(),
         }

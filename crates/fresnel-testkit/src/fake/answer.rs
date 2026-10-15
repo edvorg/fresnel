@@ -63,7 +63,7 @@ fn normal_answer(shared: &Arc<Shared>, request: &SeenRequest) -> Response<Body> 
     match request.headers.get(UPGRADE) {
         Some(protocol) if request.version == Version::HTTP_11 => switching_protocols(protocol.clone()),
         _ if request.is_watch() => json_body(StatusCode::OK, watch::body(shared, path)),
-        _ if path == "/version" => json(StatusCode::OK, VERSION.into()),
+        _ if path == "/version" => json(StatusCode::OK, shared.body(path).unwrap_or_else(|| VERSION.into())),
         _ => json(StatusCode::OK, shared.body(path).unwrap_or_else(|| EMPTY_LIST.into())),
     }
 }

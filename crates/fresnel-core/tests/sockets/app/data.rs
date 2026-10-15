@@ -37,7 +37,7 @@ fn live_pods(view: &CoreView, cluster: &str) -> Option<Vec<String>> {
 }
 
 /// Design rule 8 and weakness 1 of plan section 6: each selected cluster gives its own
-/// objects, and a cluster that leaves the selection gives none.
+/// objects and the version of its own server, and a cluster that leaves the selection gives none.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_view_has_the_pods_and_the_events_of_each_selected_cluster_and_a_change_wakes_the_ui() {
     let (ams, fra) = (FakeApiServer::start().await.expect("a server"), FakeApiServer::start().await.expect("a server"));
@@ -46,6 +46,7 @@ async fn the_view_has_the_pods_and_the_events_of_each_selected_cluster_and_a_cha
     let about_api = r#"{"metadata":{"name":"api.1","namespace":"shop","resourceVersion":"3"},"reason":"Pulled",
         "involvedObject":{"kind":"Pod","namespace":"shop","name":"api","uid":"u-api"}}"#;
     ams.set_body(&Kind::Event.info().path(), &list(&[about_api.to_owned()]));
+    ams.set_body("/version", r#"{"major":"1","minor":"34","gitVersion":"v1.34.1+ams","platform":"linux/amd64"}"#);
     let home = home("data");
     write_kubeconfig(&home, "ams", &[("ams", ams.addr(), &ams, false), ("fra", fra.addr(), &fra, false)]);
     let app = App::started(&home, CoreSettings::default());
@@ -59,6 +60,13 @@ async fn the_view_has_the_pods_and_the_events_of_each_selected_cluster_and_a_cha
     let two = app.until("the pods of fra", |view| live_pods(view, "fra").is_some()).await;
     assert_eq!(live_pods(&two, "fra"), Some(vec!["db".to_owned()]));
     assert_eq!(live_pods(&two, "ams"), Some(vec!["api".to_owned(), "web".to_owned()]), "each cluster has its own");
+    let version = |view: &CoreView, cluster| data(view, cluster).and_then(|data| data.version.version.clone());
+    let read = app.until("both versions", |view| version(view, "ams").is_some() && version(view, "fra").is_some());
+    let read = read.await;
+    assert_eq!(
+        [version(&read, "ams"), version(&read, "fra")],
+        [Some("v1.34.1+ams".into()), Some("v1.33.5+fake".into())]
+    );
 
     // The Events of one object, with what the answer is good for.
     let events_of_api = |view: &CoreView| {

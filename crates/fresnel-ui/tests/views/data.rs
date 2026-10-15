@@ -8,7 +8,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use fresnel_core::app::{ClusterData, ClusterRow, Objects};
-use fresnel_core::cluster::ClusterId;
+use fresnel_core::cluster::{ClusterId, ServerVersion, VersionState};
 use fresnel_core::index::{Index, IndexState, ObjectEvents, Owners, References};
 use fresnel_core::kinds::Describe;
 use fresnel_core::metrics::Metrics;
@@ -178,8 +178,8 @@ pub(crate) fn event_index(events_store: Snapshot<Event>, state: IndexState) -> H
     held(Index::<ObjectEvents>::of_snapshot(&events_store, state))
 }
 
-/// The data of a cluster with this Pod store, the live indexes of the scene, and metrics
-/// before their first poll.
+/// The data of a cluster with this Pod store, the live indexes of the scene, metrics before
+/// their first poll, and the version of k3s of the scene.
 pub(crate) fn data(pods: Snapshot<Pod>) -> ClusterData {
     let index = event_index(store(StoreState::Live, &events()), IndexState::Following);
     let (replica_sets, jobs) = (store(StoreState::Live, &scene()), store(StoreState::Live, &scene()));
@@ -197,6 +197,7 @@ pub(crate) fn data(pods: Snapshot<Pod>) -> ClusterData {
         keys: None,
         access: Arc::default(),
         metrics: held(Metrics::waiting(ClusterId::new("ams"), Duration::from_secs(15), now())),
+        version: held(ServerVersion { version: Some("v1.33.5+k3s1".into()), state: VersionState::Read(now()) }),
         logs: Arc::from([]),
         saves: Arc::from([]),
     }
