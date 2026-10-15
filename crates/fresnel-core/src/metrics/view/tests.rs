@@ -151,11 +151,19 @@ fn the_samples_of_a_test_give_each_series_its_value_and_count_one_answer_of_each
     let (pod, node) = (SeriesKey::Pod(ObjectKey::new("shop", "web")), SeriesKey::Node("node-a".into()));
     let load = NodeLoad { requests: Amount { cpu: 5, memory: 6 }, pods: 1 };
     let loads = [(Arc::from("node-a"), load)].into();
-    metrics.take_samples(&[(pod.clone(), sample(START, 3)), (node.clone(), sample(START, 4))], loads, at(15), &settings);
+    metrics.take_samples(
+        &[(pod.clone(), sample(START, 3)), (node.clone(), sample(START, 4))],
+        loads,
+        at(15),
+        &settings,
+    );
     let value = |key: &SeriesKey| metrics.latest(&ams, key).map(|latest| (latest.sample.usage.cpu, latest.current));
     assert_eq!((value(&pod), value(&node)), (Some((3, true)), Some((4, true))));
     assert_eq!((metrics.pods.items, metrics.nodes.items, metrics.node_load(&ams, "node-a")), (1, 1, Some(load)));
-    assert_eq!((&metrics.pods.state, metrics.pods.answered, metrics.next), (&PollState::Ok, Some(at(15)), Some(at(30))));
+    assert_eq!(
+        (&metrics.pods.state, metrics.pods.answered, metrics.next),
+        (&PollState::Ok, Some(at(15)), Some(at(30)))
+    );
 
     metrics.take_samples(&[(node.clone(), sample(START + 15, 7))], BTreeMap::new(), at(30), &settings);
     let value = |key: &SeriesKey| metrics.latest(&ams, key).map(|latest| (latest.sample.usage.cpu, latest.current));
