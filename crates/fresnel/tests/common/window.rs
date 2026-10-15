@@ -7,7 +7,7 @@ use eframe::egui;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use fresnel_core::app::{Core, CoreParts, CoreSettings};
-use fresnel_core::journal::{Journal, TASK_SOURCE};
+use fresnel_core::journal::{Journal, Level, TASK_SOURCE};
 use fresnel_core::net::WallClock;
 use fresnel_testkit::Home;
 use fresnel_ui::{Clock, Shell};
@@ -81,12 +81,13 @@ pub(crate) fn shows(window: &Window, text: &str) -> bool {
     window.query_all_by_label(text).next().is_some()
 }
 
-/// Stops the core. No task of the app ended in the test: each fault was a state.
+/// Stops the core. No task of the app ended in the test: each fault was a state. A job runs
+/// one time, and the end of its task is an entry of the level Info.
 pub(crate) fn stop_with_no_ended_task(window: &Window) {
     let core = &window.state().core;
     let journal = core.view().journal;
-    let ended: Vec<&str> =
-        journal.entries.iter().filter(|entry| entry.source == TASK_SOURCE).map(|entry| entry.text.as_str()).collect();
+    let ended = journal.entries.iter().filter(|entry| entry.source == TASK_SOURCE && entry.level != Level::Info);
+    let ended: Vec<&str> = ended.map(|entry| entry.text.as_str()).collect();
     assert_eq!(ended, Vec::<&str>::new(), "no task of the app ended");
     core.stop();
 }

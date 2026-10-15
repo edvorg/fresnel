@@ -4,7 +4,8 @@
 //! The fake core of the view tests builds each state by hand. This test proves the way from
 //! the server to a panel: the endpoints of a Service from the owner index, the quotas and
 //! the counts of a Namespace from the stores that its page holds, the bindings of a
-//! ServiceAccount from the stores of the full bindings, and the pods on a Node.
+//! ServiceAccount from the stores of the full bindings, and the pods on a Node. Last, a
+//! click drains the node: the dialog, the job of the core and the Operations tab.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
@@ -72,6 +73,12 @@ fn open(window: &mut Window, page: &str, name: &str) {
     until(window, &format!("the panel of {name}"), |window| shows(window, "Overview"));
 }
 
+/// Clicks the button with this label.
+fn click(window: &mut Window, label: &str) {
+    window.get_by_role_and_label(Role::Button, label).click();
+    window.run();
+}
+
 /// Clicks the link of the panel with this text.
 fn follow(window: &mut Window, text: &str) {
     let link = window.query_all_by_label(text).find(|node| node.accesskit_node().role() == Role::Link);
@@ -115,5 +122,15 @@ fn the_views_of_a_service_a_namespace_a_binding_an_account_and_a_node_show_the_o
     let node = node.expect("the node");
     open(window, "Nodes", node.trim());
     until(window, "the pods on the node", |window| shows(window, "CAPACITY") && shows(window, &pods[0]));
+
+    // The dialog reads the verdicts from the stores, the core runs the drain, and the
+    // Operations tab shows each pod gone: the pods of web and of k3s, with no option.
+    click(window, "Drain…");
+    until(window, "the verdicts of the pods", |window| shows(window, "4 pods: 4 to evict, 0 to keep, 0 block"));
+    click(window, "Confirm Drain");
+    until(window, "the end of the drain", |window| shows(window, "4 pods: 4 gone, 0 held"));
+    assert!(shows(window, "The node stays cordoned: it takes no new pod. Uncordon opens it again."));
+    let cordoned = runtime.block_on(k3s.kubectl(&["get", "node", node.trim(), "-o", "jsonpath={.spec.unschedulable}"]));
+    assert_eq!(cordoned.expect("the node").trim(), "true");
     stop_with_no_ended_task(window);
 }
