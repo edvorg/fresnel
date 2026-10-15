@@ -1,6 +1,6 @@
 //! The settings that act on the window at once: the theme, the time zone and the form of a
-//! time of day, the alias and the read-only mark of a cluster, the cluster groups, and the
-//! default and favorite namespaces.
+//! time of day, the height of a row, the alias and the read-only mark of a cluster, the
+//! cluster groups, and the default and favorite namespaces.
 
 use egui::accesskit::Role;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
@@ -10,7 +10,7 @@ use fresnel_core::journal::Level;
 
 use super::with_config;
 use crate::data::{live, pods};
-use crate::fake::{Window, journal, open_tab, shows, view, window};
+use crate::fake::{Window, journal, open_tab, shows, until, view, window};
 
 fn dark(window: &Window) -> bool {
     window.ctx.theme() == egui::Theme::Dark
@@ -70,4 +70,25 @@ fn the_filter_starts_with_the_default_namespace_and_the_menu_lists_the_favorites
     let favorite = entries.iter().position(|entry| entry == "★ kube-system");
     let scene = entries.iter().position(|entry| entry == "scene");
     assert!(favorite.zip(scene).is_some_and(|(favorite, scene)| favorite < scene), "{entries:?}");
+}
+
+/// The smallest distance between the rows of the pods on the screen.
+fn row_step(text: &str) -> f32 {
+    let mut window = window(with_config(view(vec![live("ams-prod", &pods())]), text));
+    let names: Vec<String> = pods().iter().filter_map(|pod| pod.metadata.name.clone()).collect();
+    until(&mut window, "the rows", |window| names.iter().filter(|name| shows(window, name)).count() >= 3);
+    let mut tops: Vec<f32> =
+        names.iter().filter_map(|name| window.query_all_by_label(name).next().map(|node| node.rect().top())).collect();
+    tops.sort_by(f32::total_cmp);
+    let steps = tops.windows(2).filter_map(|pair| match pair {
+        [above, below] => Some(below - above),
+        _ => None,
+    });
+    steps.fold(f32::MAX, f32::min)
+}
+
+#[test]
+fn the_height_of_a_row_of_the_file_reaches_the_tables() {
+    assert_eq!(row_step("version = 1\n"), 24.0, "the default");
+    assert_eq!(row_step("version = 1\n[table]\nrow_height = 36\n"), 36.0);
 }
