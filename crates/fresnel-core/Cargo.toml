@@ -17,8 +17,9 @@ http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
 imbl.workspace = true
-# The check of a time zone of the settings, with the database of the system.
-jiff = { workspace = true, features = ["tzdb-zoneinfo"] }
+# The check of a time zone of the settings, with the database of the system. Windows has no
+# such database, so the program has a copy there (`tzdb-bundle-platform`).
+jiff = { workspace = true, features = ["tzdb-bundle-platform", "tzdb-zoneinfo"] }
 k8s-openapi.workspace = true
 # `ws`: the WebSocket handshake of exec, attach and port forward.
 kube = { workspace = true, features = ["ws"] }
