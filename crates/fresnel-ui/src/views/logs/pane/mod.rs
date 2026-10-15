@@ -37,7 +37,8 @@ use crate::theme;
 const TIME_COLUMNS: f32 = 13.0;
 /// The most columns of the name of a source, for a view with more than one source: the full
 /// name of a pod of a Deployment has some 26 characters. The gutter is as wide as its widest
-/// name and a space (`draw::source_columns`), so short names leave no gap before the text.
+/// name and a space, and for the pods of an object at least as wide as a rollout name
+/// (`draw::source_columns`), so short names leave little gap before the text.
 const SOURCE_COLUMNS: usize = 32;
 /// The space between the text and the edges of the pane.
 const MARGIN: f32 = 6.0;
@@ -237,7 +238,8 @@ impl Metrics {
         let time = rect.left() + MARGIN;
         let source = if input.times { time + TIME_COLUMNS * column } else { time };
         let names = if input.view.sources.len() > 1 { draw::source_names(input.view) } else { Vec::new() };
-        let text_left = draw::source_columns(&names).map_or(source, |columns| source + columns as f32 * column);
+        let gutter = draw::source_columns(input.view.request.kind, &names);
+        let text_left = gutter.map_or(source, |columns| source + columns as f32 * column);
         let bottom = horizontal.map_or(rect.bottom(), |bar| bar.top());
         let text = Rect::from_min_max(pos2(text_left, rect.top() + 2.0), pos2(vertical.left() - MARGIN, bottom));
         let columns = ((text.width() / column).floor() as usize).max(8);

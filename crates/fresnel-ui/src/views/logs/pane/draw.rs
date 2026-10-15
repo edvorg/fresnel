@@ -17,6 +17,9 @@ use crate::theme::{self, Palette, SMALL};
 
 /// The space above the text in a row.
 const ABOVE: f32 = 1.5;
+/// The characters of the name of a pod in a rollout, `7d9c5b8f6-gn8jp`: the hash of its
+/// ReplicaSet has up to 10, a dash, and the end of the pod name 5.
+const ROLLOUT_NAME: usize = 16;
 
 /// What the first row of a line draws besides its text.
 struct Gutter<'a> {
@@ -143,9 +146,13 @@ pub(super) fn source_names(view: &LogView) -> Vec<String> {
 
 /// The columns of the source before the text: the widest name and a space. None for a
 /// view whose lines name no source. The gutter is no wider than its names, so the text of
-/// a view of short names gets the room.
-pub(super) fn source_columns(names: &[String]) -> Option<usize> {
-    names.iter().map(|name| name.chars().count() + 1).max()
+/// a view of short names gets the room, but the gutter of the pods of an object holds a
+/// rollout name from the start: the first pod of a new ReplicaSet gives each name the hash
+/// of its ReplicaSet (`PodNames`), and a gutter that grew then moved the text under a user
+/// who read an earlier line.
+pub(super) fn source_columns(kind: Kind, names: &[String]) -> Option<usize> {
+    let least = if kind == Kind::Pod { 0 } else { ROLLOUT_NAME };
+    names.iter().map(|name| name.chars().count().max(least) + 1).max()
 }
 
 /// A node of the accessibility tree for a row: a screen reader reads the text that the pane
@@ -258,7 +265,27 @@ mod tests {
     #[test]
     fn the_gutter_is_as_wide_as_its_widest_name_and_a_space() {
         let names = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<String>>();
-        assert_eq!(source_columns(&names(&["gn8jp", "gn8jp/istio-proxy"])), Some(18));
-        assert_eq!(source_columns(&[]), None, "a view with one source");
+        assert_eq!(source_columns(Kind::Pod, &names(&["app", "istio-proxy"])), Some(12), "the containers of a pod");
+        assert_eq!(source_columns(Kind::Deployment, &names(&["gn8jp", "k8q55"])), Some(ROLLOUT_NAME + 1));
+        let long = names(&["gn8jp/web", "gn8jp/istio-proxy-sidecar"]);
+        assert_eq!(source_columns(Kind::Deployment, &long), Some(26), "a name that is longer than a rollout");
+        assert_eq!(source_columns(Kind::Deployment, &[]), None, "a view with one source");
+    }
+
+    /// The first pod of a new ReplicaSet in a rollout gives each name the hash of its
+    /// ReplicaSet, of up to 10 characters. The gutter keeps its width.
+    #[test]
+    fn a_rollout_does_not_change_the_width_of_the_gutter() {
+        let old = ["checkout-api-7d9c5b8f6-gn8jp", "checkout-api-7d9c5b8f6-k8q55"];
+        let columns = |pods: &[&str]| {
+            let sources: Vec<(&str, &str)> = pods.iter().map(|pod| (*pod, "api")).collect();
+            let names = names(Kind::Deployment, "checkout-api", &sources);
+            (source_columns(Kind::Deployment, &names), names)
+        };
+        let (before, names_before) = columns(&old);
+        let (during, names_during) = columns(&[old[0], old[1], "checkout-api-5f6b7c8d9b-ab12c"]);
+        assert_eq!(names_before, ["gn8jp", "k8q55"]);
+        assert_eq!(names_during, ["7d9c5b8f6-gn8jp", "7d9c5b8f6-k8q55", "5f6b7c8d9b-ab12c"]);
+        assert_eq!(before, during, "the width before and in the rollout");
     }
 }

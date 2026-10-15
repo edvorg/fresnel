@@ -1685,3 +1685,11 @@ The legend of a chart and the gutter of a log view name the pods of one owner wi
 that all their names share, up to a dash: `gn8jp`, `7d9c5b8f6-gn8jp` in a rollout, `0-x7k2p` in
 an Indexed Job. The view names the owner. A pod of a StatefulSet keeps its full name: a number
 alone reads as a value. A gutter name that is too long shows its end, where the names differ.
+
+## The log gutter of the pods of an object holds a rollout name
+
+The gutter of a log view is as wide as its widest name, and for the pods of an object at least
+16 characters: a rollout name, `7d9c5b8f6-gn8jp`, has a ReplicaSet hash of up to 10, a dash and
+an end of 5. Before, the first pod of a new ReplicaSet grew the gutter from 6 to 17 columns,
+which moved the text under a user who read an earlier line. A Pod view, of containers, has
+no minimum.
