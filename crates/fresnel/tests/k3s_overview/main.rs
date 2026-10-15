@@ -6,8 +6,8 @@
 //! (`Command::ShowKinds`), the pods by phase in the namespace filter, the warning Events of
 //! a pod that cannot start, and the CPU and memory of the sampler against the allocatable
 //! part. The cluster with no metrics-server shows that state, and the other one keeps its
-//! values (weakness 4 of plan section 6). Last, a count of the Workloads overview opens the
-//! table of the Deployments with the problems filter.
+//! values (weakness 4 of plan section 6). A warning opens the panel of its pod. Last, a
+//! count of the Workloads overview opens the table of the Deployments with the problems filter.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
@@ -131,6 +131,16 @@ fn the_overviews_show_the_version_counts_usage_and_warnings_of_each_cluster_from
         "the CPU and the memory of one cluster"
     );
     assert!(shows_part(window, " s ago"), "the age of the sample");
+
+    // A warning links to the panel of its object: the key of a real Event finds its pod.
+    let warned = window
+        .query_all_by_label_contains("Pod broken-")
+        .find(|node| node.accesskit_node().role() == Role::Link)
+        .expect("the link of a warning");
+    let pod = warned.accesskit_node().label().expect("a text").trim_start_matches("Pod ").to_owned();
+    warned.click();
+    window.run();
+    until(window, "the panel of the pod of the warning", |window| shows(window, "CONTAINERS") && shows(window, &pod));
 
     // The Workloads overview: the Deployments of each cluster by health, from the stores
     // that the page holds, and a store of the full ReplicationControllers on demand.
