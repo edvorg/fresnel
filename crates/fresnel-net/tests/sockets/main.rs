@@ -5,14 +5,19 @@
 //! - `acceptance`: the network numbers of milestone M0.
 //! - `credential`: the real plugin process. `upgrade`: the warm upgrade connections.
 //! - `environment`: the login shell resolve with a real shell process.
+//! - `plugin`: the fake plugin and the fake shell, shell scripts for unix.
 //! - `probe`: the measured steps of a connect. `recovery`: a second fault during a recovery.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 mod acceptance;
 mod common;
+#[cfg(unix)]
 mod credential;
+#[cfg(unix)]
 mod environment;
+#[cfg(unix)]
+mod plugin;
 mod probe;
 mod recovery;
 mod upgrade;

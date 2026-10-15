@@ -1,27 +1,22 @@
 //! The environment for the child processes of the app (plan section 8.1).
 //!
-//! The app reads the environment of the login shell one time at its start. If that fails,
-//! the app continues with its own environment. In each case `PATH` also gets the folders of
+//! On macOS, the app reads the environment of the login shell one time at its start. If that
+//! fails, the app continues with its own environment. On Windows, the process has the full
+//! environment of the user, and no shell runs. In each case `PATH` also gets the folders of
 //! the settings and some fixed folders, so that a credential plugin is found.
 
-mod shell;
+pub(crate) mod shell;
 mod vars;
 
 use std::path::PathBuf;
 use std::time::Duration;
 
-use nix::unistd::{Uid, User};
 use tokio::time::Instant;
 
+pub use crate::platform::FIXED_FOLDERS;
+use crate::platform::{self, HOME_FOLDERS};
 pub use shell::{ShellFailure, ShellProblem};
 pub use vars::ProcessEnv;
-
-/// The shell of macOS, for a user with no shell in the user database and no `SHELL`.
-const FALLBACK_SHELL: &str = "/bin/zsh";
-/// Where a credential plugin most often is: the default of the fixed folders.
-const FIXED_FOLDERS: [&str; 2] = ["/opt/homebrew/bin", "/usr/local/bin"];
-/// A fixed folder below the home folder, after the others.
-const HOME_FOLDER: &str = ".local/bin";
 
 /// The settings of the environment resolve.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,6 +47,9 @@ pub enum EnvSource {
     /// The login shell gave nothing. The variables are those of the process. The journal
     /// shows the problem.
     Fallback(ShellProblem),
+    /// The system has no login shell for the app (Windows): the variables of the process
+    /// are complete.
+    Process,
 }
 
 /// The result of [`resolve`].
@@ -70,22 +68,11 @@ pub struct Environment {
 /// The function always gives an environment: the app must start with a broken profile too.
 pub async fn resolve(base: &ProcessEnv, settings: &EnvSettings) -> Environment {
     let started = Instant::now();
-    let shell = settings.shell.clone().unwrap_or_else(|| login_shell(base));
-    let (mut vars, source) = match shell::dump(&shell, base, settings.shell_limit).await {
-        Ok(vars) => (vars, EnvSource::LoginShell(shell)),
-        Err(problem) => (base.clone(), EnvSource::Fallback(problem)),
-    };
+    let (mut vars, source) = platform::environment(base, settings).await;
     let mut fixed = settings.fixed_folders.clone();
-    fixed.extend(vars.get("HOME").map(|home| PathBuf::from(home).join(HOME_FOLDER)));
+    if let Some(home) = vars.home().map(PathBuf::from) {
+        fixed.extend(HOME_FOLDERS.iter().map(|folder| home.join(folder)));
+    }
     vars.extend_path(&settings.extra_folders, &fixed);
     Environment { vars, source, elapsed: started.elapsed() }
-}
-
-/// The shell of the user database. `SHELL` can be absent for a program from Finder.
-fn login_shell(base: &ProcessEnv) -> PathBuf {
-    let from_database = User::from_uid(Uid::current()).ok().flatten().map(|user| user.shell);
-    from_database
-        .filter(|shell| !shell.as_os_str().is_empty())
-        .or_else(|| base.get("SHELL").map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from(FALLBACK_SHELL))
 }

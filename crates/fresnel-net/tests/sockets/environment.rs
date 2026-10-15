@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 
 use fresnel_net::env::{EnvSettings, EnvSource, ProcessEnv, ShellFailure, resolve};
 
-use crate::common::{Scratch, fixture, in_time, process_exists};
+use crate::common::in_time;
+use crate::plugin::{Scratch, fixture, process_exists};
 
 fn base(mode: &str, state: &Scratch) -> ProcessEnv {
     [

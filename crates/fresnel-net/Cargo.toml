@@ -18,13 +18,20 @@ http-body-util.workspace = true
 hyper = { workspace = true, features = ["client", "http1", "http2"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 jiff.workspace = true
-nix.workspace = true
 rustls.workspace = true
 serde_json.workspace = true
 socket2.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "signal", "sync", "time"] }
 tokio-rustls.workspace = true
 tower-service.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
+# `process`: a child process starts with the command of tokio, in a job object.
+[target.'cfg(windows)'.dependencies]
+tokio = { workspace = true, features = ["process"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [dev-dependencies]
 base64.workspace = true

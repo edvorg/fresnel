@@ -8,9 +8,8 @@ use fresnel_net::{Cause, ChannelState, Cluster, ClusterSpec, ErrorClass, Request
 use fresnel_testkit::{FakeApiServer, Fault};
 use http::StatusCode;
 
-use crate::common::{
-    Scratch, TestTasks, fetch, finder_env, first_channels, plugin, process_exists, send, spec, trust, until, until_live,
-};
+use crate::common::{TestTasks, fetch, first_channels, send, spec, trust, until, until_live};
+use crate::plugin::{Scratch, finder_env, plugin, process_exists};
 
 const SECOND: Duration = Duration::from_secs(1);
 const METRICS: &str = "/apis/metrics.k8s.io/v1beta1/nodes";

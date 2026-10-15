@@ -3,10 +3,8 @@
 use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 
-use nix::ifaddrs::getifaddrs;
-use nix::net::if_::InterfaceFlags;
-
 use super::{Detector, Disturbance};
+use crate::platform::interface_addresses;
 
 /// Addresses for documents. No packet goes to them: the connect of a UDP socket only asks
 /// the kernel for the route.
@@ -16,7 +14,8 @@ const FAR_V6: SocketAddr = SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb
 /// What the detector compares between two looks.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct NetworkFacts {
-    /// Each address of each interface that is up, with the name of the interface.
+    /// Each address of each interface that is up, with the name of the interface. Empty on
+    /// Windows (`platform`), where the routes tell a change.
     addresses: BTreeSet<(String, IpAddr)>,
     /// The source address of a packet to a far IPv4 address. It changes with the default route.
     route_v4: Option<IpAddr>,
@@ -61,15 +60,11 @@ impl std::fmt::Debug for NetworkChange {
 fn read_system() -> NetworkFacts {
     // With an error of the system, the list is empty. If it was not empty before, that is
     // a change, and the app tests its connections.
-    let addresses = getifaddrs().into_iter().flatten().filter_map(|interface| {
-        let up = interface.flags.contains(InterfaceFlags::IFF_UP | InterfaceFlags::IFF_RUNNING);
-        let address = interface.address?;
-        let v4 = address.as_sockaddr_in().map(|v4| IpAddr::V4(v4.ip()));
-        let v6 = address.as_sockaddr_in6().map(|v6| IpAddr::V6(v6.ip()));
-        let ip = v4.or(v6).filter(|ip| up && !ip.is_loopback())?;
-        Some((interface.interface_name, ip))
-    });
-    NetworkFacts { addresses: addresses.collect(), route_v4: source_address(FAR_V4), route_v6: source_address(FAR_V6) }
+    NetworkFacts {
+        addresses: interface_addresses(),
+        route_v4: source_address(FAR_V4),
+        route_v6: source_address(FAR_V6),
+    }
 }
 
 /// The address that the kernel selects for a packet to `far`. `None` with no route.

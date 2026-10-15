@@ -39,8 +39,11 @@ flate2 = "1.1"
 serde_json = "1.0.150"
 jiff = { version = "0.2.38", default-features = false, features = ["std"] }
 # A new session and a kill of the process group for each child process, the login shell of
-# the user and the interface addresses.
+# the user and the interface addresses. Unix only.
 nix = { version = "0.30.1", default-features = false, features = ["net", "process", "signal", "user"] }
+# The Windows variants of the platform modules: the job object of a child process and the
+# lock of the process. eframe uses this version too, so the build has one copy.
+windows-sys = { version = "0.61.2", default-features = false }
 
 # The kubeconfig files of `fresnel-core`: YAML with base64 values. kube reads YAML with the
 # same crate.

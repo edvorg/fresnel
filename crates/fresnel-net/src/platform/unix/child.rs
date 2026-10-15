@@ -8,13 +8,12 @@
 //! no code of the app or of a library in the child, and its flag SETSID gives the child a
 //! session of its own.
 
-use std::ffi::{CString, OsStr, OsString};
+use std::ffi::{CString, OsStr};
 use std::fs::File;
 use std::io;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::process::ExitStatusExt as _;
-use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::sync::{Mutex, PoisonError};
 
@@ -27,7 +26,7 @@ use nix::unistd::Pid;
 use tokio::net::unix::pipe::Receiver;
 use tokio::signal::unix::{SignalKind, signal};
 
-use crate::env::ProcessEnv;
+use crate::process::Program;
 
 /// The flags of `<spawn.h>` that `nix` does not name: a new session and, on macOS, no
 /// descriptor of the app in the child but the three of the file actions. On Linux, each
@@ -36,14 +35,6 @@ use crate::env::ProcessEnv;
 const FLAGS: c_int = 0x0400 | nix::libc::POSIX_SPAWN_CLOEXEC_DEFAULT;
 #[cfg(not(target_os = "macos"))]
 const FLAGS: c_int = nix::libc::POSIX_SPAWN_SETSID as c_int;
-
-/// A program to start: its file, its arguments and its whole environment. No `Debug`: the
-/// environment can hold a secret.
-pub(crate) struct Program {
-    pub(crate) path: PathBuf,
-    pub(crate) args: Vec<OsString>,
-    pub(crate) env: ProcessEnv,
-}
 
 /// A started child with the read ends of its output pipes.
 pub(super) struct Started {
@@ -131,9 +122,9 @@ impl Drop for Child {
 }
 
 /// Collects a child that dropped before its end was collected, and then kills the rest of
-/// its group, as [`super::Group::stop`] does.
+/// its group, as [`super::tree::Tree::stop`] does.
 ///
-/// The owner kills the process group before the drop of its child (`Group`), so the end
+/// The owner kills the process group before the drop of its child (`Tree`), so the end
 /// comes a moment later. No later child may come to collect it: the stop of the core kills
 /// the last plugin. Thus a thread of the blocking pool of the runtime waits for the end. It
 /// is not a task of `Tasks`: a drop has none, the wait has no state to show, and SIGKILL
@@ -147,7 +138,7 @@ fn collect_later(pid: Pid) {
         let wait = move || {
             if let Some(pid) = dropped.0.take() {
                 wait_blocking(pid);
-                super::kill_the_rest_blocking(pid);
+                super::tree::kill_the_rest_blocking(pid);
             }
         };
         // The handle drops: nothing reads the end of a child that its owner gave up.

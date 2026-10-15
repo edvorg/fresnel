@@ -98,6 +98,10 @@ impl Inner {
                 self.journal.warning(APP, format!("{problem}; {note}"));
                 Some(ShellNote { problem: problem.to_string(), detail: problem.detail().to_owned() })
             }
+            EnvSource::Process => {
+                self.journal.info(APP, "the environment of the process is complete; no login shell runs");
+                None
+            }
         };
         let mut state = self.state();
         state.shell_problem = problem;
