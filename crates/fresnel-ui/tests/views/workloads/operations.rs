@@ -144,6 +144,17 @@ fn the_cluster_column_shows_two_contexts_with_one_start_whole() {
     }
 }
 
+/// With no job, the tab says how a job starts and draws no job list, so the columns that
+/// fit their words have no word to measure.
+#[test]
+fn with_no_job_the_tab_says_how_one_starts() {
+    let mut window = window(view(vec![allowed("ams-prod", &scene::<Deployment>())]));
+    open_tab(&mut window, "Operations");
+    assert!(shows(&window, "0 running, 0 ended"));
+    assert!(shows(&window, "No job yet. An action on an object starts one, and this tab shows its steps."));
+    assert!(window.query_by_label("Operation").is_none(), "no job list");
+}
+
 /// The newest job shows first: a rollout that runs, with its step, its last state and a
 /// cancel. The cancel is a command of the core.
 #[test]
