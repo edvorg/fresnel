@@ -174,3 +174,32 @@ fn each_tab_names_its_view_to_the_core_and_the_same_request_opens_its_tab_again(
     let commands = window.state().sent.iter().filter(|command| matches!(command, Command::ShowLogs(_))).count();
     assert_eq!(commands, 2, "a command only for a change");
 }
+
+/// Extreme sizes: eight tabs of logs are wider than the window. The tab bar scrolls, and the
+/// tab that opened last comes into it with its close button.
+#[test]
+fn the_tab_that_opened_last_is_in_the_tab_bar_when_the_tabs_are_wider_than_the_window() {
+    let mut window = window(view(vec![live("ams-prod", &pods())]));
+    let names = [
+        "coredns-64fd4b4794-6lsjp",
+        "local-path-provisioner-774c6665dc-zlbfm",
+        "broken-6bf768c954-gjvsw",
+        "web-6888b778b6-75md7",
+        "web-6888b778b6-p2twl",
+        "tick-manual-d6v5w",
+        "loop-a-zrwmv",
+        "init-crash",
+    ];
+    for name in names {
+        super::open_logs(&mut window, name);
+    }
+    assert_eq!(shown(&window).len(), names.len());
+    let width = crate::fake::WINDOW.x;
+    let first = window.get_by_role_and_label(Role::Button, "Logs coredns-64fd4b4794-6lsjp").rect();
+    let last = window.get_by_role_and_label(Role::Button, "Logs init-crash").rect();
+    assert!(last.right() - first.left() > width, "the tabs are wider than the window");
+    assert!(last.left() >= 0.0 && last.right() <= width, "the last tab is in the window: {last:?}");
+    window.get_by_label("Close Logs init-crash").click();
+    window.run();
+    assert_eq!(shown(&window).len(), names.len() - 1, "its close button works");
+}
