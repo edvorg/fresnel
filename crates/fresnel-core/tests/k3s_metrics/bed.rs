@@ -10,7 +10,7 @@ use fresnel_core::kinds::Kind;
 use fresnel_core::kubeconfig;
 use fresnel_core::metrics::{Inputs, Metrics, MetricsSettings, Sampler, SamplerParts};
 use fresnel_core::net::env::ProcessEnv;
-use fresnel_core::net::{NetSettings, WallClock};
+use fresnel_core::net::{NetSettings, Signal, WallClock};
 use fresnel_core::published::{Disposal, Notice, Reader};
 use fresnel_core::store::StoreSettings;
 use fresnel_testkit::{K3s, K3sOptions};
@@ -103,7 +103,13 @@ fn start(
     settings: MetricsSettings,
 ) -> Sampler {
     let inputs = Inputs::of(&stores.stores, indexes).expect("a store of each kind");
-    let parts = SamplerParts { settings, bin: disposal.bin(), notice: Notice::new(), clock: WallClock::system() };
+    let parts = SamplerParts {
+        settings,
+        bin: disposal.bin(),
+        notice: Notice::new(),
+        clock: WallClock::system(),
+        signal: Signal::new(),
+    };
     Sampler::start(&tasks.tasks, link.gateway.clone(), inputs, parts)
 }
 

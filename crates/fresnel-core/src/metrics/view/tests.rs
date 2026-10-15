@@ -21,6 +21,10 @@ fn read<T>(items: Vec<T>) -> Result<Read<T>, CoreError> {
     Ok(Read { items, unread: 0, problem: None })
 }
 
+fn poll(pods: Result<Read<PodSample>, CoreError>, nodes: Result<Read<NodeSample>, CoreError>) -> Poll {
+    Poll { pods, nodes, service: None }
+}
+
 fn world(nodes: &[&str]) -> World {
     let nodes = nodes.iter().map(|name| Arc::from(*name)).collect::<BTreeSet<_>>();
     World {
@@ -40,7 +44,7 @@ fn a_lookup_with_an_other_cluster_finds_nothing() {
     let (ams, fra) = (ClusterId::new("ams"), ClusterId::new("fra"));
     let mut metrics = Metrics::waiting(ams.clone(), PERIOD, at(0));
     let settings = MetricsSettings::default();
-    metrics.take(read(vec![]), read(vec![node("node-a", START, None, 7)]), world(&["node-a"]), at(1), &settings);
+    metrics.take(poll(read(vec![]), read(vec![node("node-a", START, None, 7)])), world(&["node-a"]), at(1), &settings);
     let key = SeriesKey::Node("node-a".into());
     assert_eq!(metrics.latest(&ams, &key).map(|latest| latest.sample.usage.cpu), Some(7));
     assert_eq!(metrics.latest(&fra, &key), None);
@@ -59,14 +63,13 @@ fn a_value_is_current_while_its_list_works_and_has_the_object_and_stays_old_afte
     let settings = MetricsSettings::default();
     let mut metrics = Metrics::waiting(ams.clone(), PERIOD, at(0));
     let both = vec![node("node-a", START, None, 1), node("node-b", START, None, 2)];
-    metrics.take(read(vec![]), read(both), world(&["node-a", "node-b"]), at(15), &settings);
+    metrics.take(poll(read(vec![]), read(both)), world(&["node-a", "node-b"]), at(15), &settings);
     let latest = |key: &str| metrics.latest(&ams, &SeriesKey::Node(key.into())).map(|latest| latest.current);
     assert_eq!((latest("node-a"), latest("node-b")), (Some(true), Some(true)));
 
     // The same sample again is still current; a node that is not in the list is old.
     metrics.take(
-        read(vec![]),
-        read(vec![node("node-a", START, None, 1)]),
+        poll(read(vec![]), read(vec![node("node-a", START, None, 1)])),
         world(&["node-a", "node-b"]),
         at(30),
         &settings,
@@ -77,12 +80,23 @@ fn a_value_is_current_while_its_list_works_and_has_the_object_and_stays_old_afte
     assert_eq!(cluster, Some(Cover { sampled: 2, of: 2 }), "the sum of the first answer: the second had no later time");
 
     // Weakness 4 of plan section 6: a failed list keeps each value, and shows it as old.
-    metrics.take(read(vec![]), Err(not_installed()), world(&["node-a", "node-b"]), at(45), &settings);
+    metrics.take(poll(read(vec![]), Err(not_installed())), world(&["node-a", "node-b"]), at(45), &settings);
     assert_eq!((&metrics.nodes.state, metrics.nodes.since), (&PollState::NotInstalled(not_installed()), at(45)));
     let latest = metrics.latest(&ams, &SeriesKey::Node("node-a".into()));
     assert_eq!(latest.map(|latest| (latest.sample.usage.cpu, latest.current)), Some((1, false)));
     assert_eq!(metrics.pods.state, PollState::Ok, "the other list of the cluster keeps its state");
     assert_eq!(metrics.next, Some(at(60)));
+}
+
+/// Research 11 section 4.6: a cluster with no `metrics.k8s.io` gets no poll each period.
+#[test]
+fn a_cluster_with_no_metrics_api_has_its_next_poll_after_the_long_pause() {
+    let mut metrics = Metrics::waiting(ClusterId::new("ams"), PERIOD, at(0));
+    let settings = MetricsSettings::default();
+    metrics.take(poll(Err(not_installed()), read(vec![])), World::default(), at(15), &settings);
+    assert_eq!((metrics.pause(), metrics.next), (PERIOD, Some(at(30))), "one list works");
+    metrics.take(poll(Err(not_installed()), Err(not_installed())), World::default(), at(30), &settings);
+    assert_eq!((metrics.pause(), metrics.next), (ABSENT_PAUSE, Some(at(330))));
 }
 
 /// Bad data of a cluster: one sample of a clock that is one day ahead. No later answer has
@@ -95,7 +109,7 @@ fn a_value_that_no_later_answer_replaces_shows_as_old() {
     let mut metrics = Metrics::waiting(ams.clone(), PERIOD, at(0));
     let mut answer = |at_cluster: u32, now| {
         let nodes = read(vec![node("node-a", at_cluster, None, 1)]);
-        metrics.take(read(vec![]), nodes, world(&["node-a"]), at(now), &settings);
+        metrics.take(poll(read(vec![]), nodes), world(&["node-a"]), at(now), &settings);
         let latest = metrics.latest(&ams, &SeriesKey::Node("node-a".into()));
         latest.map(|latest| (latest.sample.at - START, latest.current))
     };
@@ -115,7 +129,7 @@ fn a_longer_window_of_the_server_sets_the_period_up_to_one_minute() {
         read(nodes)
     };
     let mut period_of = |windows| {
-        metrics.take(read(vec![]), nodes(windows), World::default(), at(0), &settings);
+        metrics.take(poll(read(vec![]), nodes(windows)), World::default(), at(0), &settings);
         metrics.period
     };
     assert_eq!(period_of([Some(10), Some(10), Some(10)]), PERIOD, "a shorter window keeps the setting");
@@ -129,7 +143,7 @@ fn a_new_state_of_both_lists_keeps_each_value_and_has_no_next_poll() {
     let ams = ClusterId::new("ams");
     let mut metrics = Metrics::waiting(ams.clone(), PERIOD, at(0));
     let settings = MetricsSettings::default();
-    metrics.take(read(vec![]), read(vec![node("node-a", START, None, 1)]), world(&["node-a"]), at(15), &settings);
+    metrics.take(poll(read(vec![]), read(vec![node("node-a", START, None, 1)])), world(&["node-a"]), at(15), &settings);
     let stopped = metrics.in_state(&PollState::Stopped, at(20));
     assert_eq!(
         (&stopped.pods.state, &stopped.nodes.state, stopped.next),

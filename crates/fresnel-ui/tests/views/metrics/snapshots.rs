@@ -18,7 +18,7 @@ use crate::snapshots::{SCALE, panel_of, save, save_clean};
 /// `ams` with metrics, `fra` whose PodMetrics fail since a moment, and `lon` with no
 /// metrics API.
 fn three_clusters() -> Vec<fresnel_core::app::ClusterRow> {
-    let unavailable = PollState::Unavailable(error("service unavailable (HTTP 503)"));
+    let unavailable = PollState::Unavailable(error("service unavailable (HTTP 503)"), None);
     let not_found = PollState::NotInstalled(error("the server could not find the requested resource (HTTP 404)"));
     let never = Metrics::waiting(ClusterId::new("lon"), 15 * SECOND, now());
     vec![

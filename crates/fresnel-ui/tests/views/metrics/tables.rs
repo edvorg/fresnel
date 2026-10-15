@@ -73,7 +73,7 @@ fn a_value_that_the_last_answer_did_not_have_is_old_and_a_pod_with_no_sample_has
 fn w4_a_cluster_without_the_metrics_api_shows_that_state_and_the_other_cluster_keeps_its_values() {
     let not_found = PollState::NotInstalled(error("the server could not find the requested resource (HTTP 404)"));
     let never = failed(Metrics::waiting(ClusterId::new("lon"), 15 * SECOND, now()), not_found, now() - 120 * SECOND);
-    let unavailable = PollState::Unavailable(error("service unavailable (HTTP 503)"));
+    let unavailable = PollState::Unavailable(error("service unavailable (HTTP 503)"), None);
     let lost = failed(scene_metrics("fra", 2), unavailable, now() - 3 * SECOND);
     let clusters = vec![of_pods("ams", scene_metrics("ams", 1)), of_pods("fra", lost), of_pods("lon", never)];
     let mut window = wide(clusters);

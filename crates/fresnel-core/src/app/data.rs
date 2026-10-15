@@ -149,7 +149,9 @@ impl Connected {
         let pods = stores.full::<Pod>().ok_or_else(absent)?;
         let notice = Notice::new();
         let settings = inner.settings().metrics.clone();
-        let parts = SamplerParts { settings, bin: bin.clone(), notice: notice.clone(), clock: WallClock::system() };
+        let clock = WallClock::system();
+        let parts =
+            SamplerParts { settings, bin: bin.clone(), notice: notice.clone(), clock, signal: link.net.signal() };
         let sampler = Sampler::start(tasks, link.gateway.clone(), Inputs::of(&stores, &indexes)?, parts);
         let version = ClusterVersion::start(tasks, link.gateway.clone(), bin.clone(), notice.clone());
         let always = Restart::Always(Backoff::default());

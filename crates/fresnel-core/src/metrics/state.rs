@@ -3,12 +3,18 @@
 
 use std::fmt::{self, Display};
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use fresnel_net::ErrorClass;
 
+use super::service::Availability;
 use super::wire::Read;
 use crate::error::CoreError;
+
+/// The pause before the next poll of a cluster with no `metrics.k8s.io`, in place of the
+/// period (research 11 section 4.6). A user installs metrics-server seldom, and each poll of
+/// such a cluster gives the same 404 again. "Retry now" ends the pause.
+pub const ABSENT_PAUSE: Duration = Duration::from_secs(5 * 60);
 
 /// What the last poll of one list gave (research 11 section 4.6). In each state, the
 /// history keeps its samples.
@@ -21,8 +27,9 @@ pub enum PollState {
     /// HTTP 404: the cluster has no `metrics.k8s.io`. On DigitalOcean, the user installs
     /// metrics-server from the Marketplace.
     NotInstalled(CoreError),
-    /// HTTP 503: the API server has the API, and its backend does not answer.
-    Unavailable(CoreError),
+    /// HTTP 503: the API server has the API, and its backend does not answer. The
+    /// `Available` condition of the APIService tells why. `None` when no read of it came.
+    Unavailable(CoreError, Option<Availability>),
     /// HTTP 403: the user cannot list the metrics.
     Forbidden(CoreError),
     /// No answer in the time limit of a read (10 s).
@@ -38,11 +45,11 @@ pub enum PollState {
 impl PollState {
     /// The state after a failed poll. A 404 and a 503 come straight from the gateway: it
     /// sends a read one time, with no retry that would turn a 503 into a timeout (research
-    /// 11 section 4.1).
-    pub(crate) fn of_error(error: CoreError) -> Self {
+    /// 11 section 4.1). `service` is the read of the APIService after a 503.
+    pub(crate) fn of_error(error: CoreError, service: Option<&Availability>) -> Self {
         match (error.status(), error.class()) {
             (Some(404), _) => Self::NotInstalled(error),
-            (Some(503), _) => Self::Unavailable(error),
+            (Some(503), _) => Self::Unavailable(error, service.cloned()),
             (_, ErrorClass::Forbidden) => Self::Forbidden(error),
             (_, ErrorClass::Timeout) => Self::Timeout(error),
             _ => Self::Error(error),
@@ -53,6 +60,16 @@ impl PollState {
     pub fn is_ok(&self) -> bool {
         matches!(self, Self::Ok)
     }
+
+    /// True when the cluster has no `metrics.k8s.io`.
+    pub fn is_absent(&self) -> bool {
+        matches!(self, Self::NotInstalled(_))
+    }
+
+    /// True for a list that gets HTTP 503: the sampler reads the APIService then.
+    pub(crate) fn is_unavailable(error: &CoreError) -> bool {
+        error.status() == Some(503)
+    }
 }
 
 impl Display for PollState {
@@ -62,7 +79,8 @@ impl Display for PollState {
             Self::Waiting => f.write_str("waits for its first answer"),
             Self::Ok => f.write_str("ok"),
             Self::NotInstalled(reason) => write!(f, "metrics-server not found: {reason}"),
-            Self::Unavailable(reason) => write!(f, "metrics-server not available: {reason}"),
+            Self::Unavailable(reason, None) => write!(f, "metrics-server not available: {reason}"),
+            Self::Unavailable(reason, Some(service)) => write!(f, "metrics-server not available: {reason}; {service}"),
             Self::Forbidden(reason) => write!(f, "forbidden: {reason}"),
             Self::Timeout(reason) => write!(f, "no answer in time: {reason}"),
             Self::Error(reason) => write!(f, "failed: {reason}"),
@@ -98,14 +116,19 @@ impl PollStatus {
         Self { state: PollState::Waiting, since: now, answered: None, answers: 0, items: 0, unread: 0, problem: None }
     }
 
-    /// Takes the result of one poll.
-    pub(crate) fn take<T>(&mut self, result: Result<&Read<T>, CoreError>, now: SystemTime) {
+    /// Takes the result of one poll, and the read of the APIService after a 503.
+    pub(crate) fn take<T>(
+        &mut self,
+        result: Result<&Read<T>, CoreError>,
+        service: Option<&Availability>,
+        now: SystemTime,
+    ) {
         match result {
             Ok(read) => {
                 self.answer(read.items.len(), now);
                 (self.unread, self.problem) = (read.unread, read.problem.clone());
             }
-            Err(error) => self.set(PollState::of_error(error), now),
+            Err(error) => self.set(PollState::of_error(error, service), now),
         }
     }
 
@@ -148,8 +171,14 @@ mod tests {
             (error(500, "internal"), "failed: internal (HTTP 500)"),
         ];
         for (error, words) in cases {
-            assert_eq!(PollState::of_error(error).to_string(), words);
+            assert_eq!(PollState::of_error(error, None).to_string(), words);
         }
+        let service = Availability::NoCondition;
+        assert_eq!(
+            PollState::of_error(error(503, "service unavailable"), Some(&service)).to_string(),
+            "metrics-server not available: service unavailable (HTTP 503); the APIService v1beta1.metrics.k8s.io has \
+             no Available condition"
+        );
         assert_eq!(PollState::Waiting.to_string(), "waits for its first answer");
         assert_eq!(PollState::InternalError("index 3 of 2".into()).to_string(), "internal error: index 3 of 2");
         assert_eq!(
@@ -163,15 +192,15 @@ mod tests {
         let at = |seconds| SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(seconds);
         let mut status = PollStatus::new(at(0));
         let read = Read { items: vec![1, 2], unread: 1, problem: Some("an item has no name".into()) };
-        status.take(Ok(&read), at(15));
-        status.take(Ok(&read), at(30));
+        status.take(Ok(&read), None, at(15));
+        status.take(Ok(&read), None, at(30));
         assert_eq!(
             (status.since, status.answered, status.answers, status.items, status.unread),
             (at(15), Some(at(30)), 2, 2, 1)
         );
         let gone = || CoreError::answered(404, "not found (HTTP 404)");
-        status.take(Err::<&Read<u8>, _>(gone()), at(45));
-        status.take(Err::<&Read<u8>, _>(gone()), at(60));
+        status.take(Err::<&Read<u8>, _>(gone()), None, at(45));
+        status.take(Err::<&Read<u8>, _>(gone()), None, at(60));
         assert_eq!(
             (&status.state, status.since, status.answered),
             (&PollState::NotInstalled(gone()), at(45), Some(at(30)))

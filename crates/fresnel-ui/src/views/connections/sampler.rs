@@ -19,7 +19,7 @@ pub(super) fn show(ui: &mut Ui, palette: &Palette, metrics: &Metrics, clock: &Cl
         });
     }
     let next = metrics.next.map(|next| format!(", next in {}", format::span(clock.until(next))));
-    let mut text = format!("A poll each {}{}", format::span(metrics.period), next.unwrap_or_default());
+    let mut text = format!("A poll each {}{}", format::span(metrics.pause()), next.unwrap_or_default());
     text.push_str(&format!(
         ". History: {} series, {}",
         format::thousands(metrics.series_count() as u64),
@@ -40,7 +40,7 @@ fn state_text(status: &PollStatus, clock: &Clock) -> (Tone, String) {
         PollState::Waiting => return (Tone::Info, status.state.to_string()),
         PollState::Stopped => return (Tone::Muted, status.state.to_string()),
         PollState::NotInstalled(_) | PollState::Forbidden(_) => Tone::Warn,
-        PollState::Unavailable(_) | PollState::Timeout(_) | PollState::Error(_) | PollState::InternalError(_) => {
+        PollState::Unavailable(..) | PollState::Timeout(_) | PollState::Error(_) | PollState::InternalError(_) => {
             Tone::Error
         }
     };

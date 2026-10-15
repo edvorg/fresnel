@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use fresnel_core::metrics::{Inputs, Metrics, MetricsSettings, PollState, Sampler, SamplerParts, SeriesKey};
-use fresnel_core::net::{Limits, NetSettings, WallClock};
+use fresnel_core::net::{Limits, NetSettings, Signal, WallClock};
 use fresnel_core::published::{Disposal, Notice};
 use fresnel_core::store::StoreSettings;
 use fresnel_testkit::Fault;
@@ -16,6 +16,7 @@ use crate::store_bed::Stores;
 
 const PODS: &str = "/apis/metrics.k8s.io/v1beta1/pods";
 const NODES: &str = "/apis/metrics.k8s.io/v1beta1/nodes";
+const SERVICE: &str = "/apis/apiregistration.k8s.io/v1/apiservices/v1beta1.metrics.k8s.io";
 const NODE_LIST: &str = r#"{"kind":"NodeMetricsList","items":[{"metadata":{"name":"node-a"},
     "timestamp":"2026-10-15T10:00:05Z","window":"15s","usage":{"cpu":"250m","memory":"1Gi"}}]}"#;
 
@@ -42,8 +43,13 @@ impl Polls {
         let reads = |path: &str| self.bed.server.requests().iter().filter(|seen| seen.uri.path() == path).count();
         let before = (reads(PODS), reads(NODES));
         let settings = MetricsSettings { period: Duration::from_secs(3_600), ..MetricsSettings::default() };
-        let parts =
-            SamplerParts { settings, bin: self.disposal.bin(), notice: Notice::new(), clock: WallClock::system() };
+        let parts = SamplerParts {
+            settings,
+            bin: self.disposal.bin(),
+            notice: Notice::new(),
+            clock: WallClock::system(),
+            signal: Signal::new(),
+        };
         let indexes = self.stores.indexes(&self.bed.tasks);
         let inputs = Inputs::of(&self.stores.stores, &indexes).expect("a store of each kind");
         let sampler = Sampler::start(&self.bed.tasks.tasks, self.bed.link.gateway.clone(), inputs, parts);
@@ -68,9 +74,16 @@ async fn a_poll_reads_each_list_one_time_and_each_refusal_gives_the_state_of_its
     let server = &polls.bed.server;
     server.add_fault(Fault::unavailable().on_path(PODS));
     server.add_fault(Fault::not_found().on_path(NODES));
+    let condition = r#"{"type": "Available", "status": "False", "reason": "FailedDiscoveryCheck",
+        "message": "failing or missing response from https://10.43.0.9:10250"}"#;
+    server.set_body(SERVICE, &format!(r#"{{"status": {{"conditions": [{condition}]}}}}"#));
     let (metrics, pods, nodes) = polls.first_poll().await;
-    assert!(matches!(metrics.pods.state, PollState::Unavailable(_)), "{}", metrics.pods.state);
-    assert_eq!(metrics.pods.state.to_string(), "metrics-server not available: the server answered HTTP 503");
+    assert!(matches!(metrics.pods.state, PollState::Unavailable(..)), "{}", metrics.pods.state);
+    assert_eq!(
+        metrics.pods.state.to_string(),
+        "metrics-server not available: the server answered HTTP 503; the APIService v1beta1.metrics.k8s.io has \
+         Available=False (FailedDiscoveryCheck): failing or missing response from https://10.43.0.9:10250"
+    );
     assert!(matches!(metrics.nodes.state, PollState::NotInstalled(_)), "{}", metrics.nodes.state);
     assert_eq!((pods, nodes), (1, 1), "a 503 and a 404 get no retry");
 

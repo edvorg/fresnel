@@ -1239,6 +1239,13 @@ The sampler keeps one hour of samples and 24 hours of minutes in memory. A limit
 cluster, not one for all, keeps a large cluster from pushing the history of a small one out.
 A history from before the start of the app needs Prometheus, a later option of the plan.
 
+## A cluster with no metrics API gets a poll each 5 minutes
+
+A 404 of both metrics lists means no metrics-server, which a user installs seldom; two reads each
+15 s would give the same 404 again. The next poll then comes after 5 minutes, and "retry now", a
+wake and a network change end that pause. After a 503, the sampler reads the APIService of the
+metrics one time: its `Available` condition tells why the API server cannot reach metrics-server.
+
 ## The CPU and memory columns come after the age
 
 The columns of the Pods fit next to the sidebar in a window of 1,328 points; the two columns with

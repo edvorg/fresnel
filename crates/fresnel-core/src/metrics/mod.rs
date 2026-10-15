@@ -6,6 +6,7 @@
 //! type: each poll store, each series and the requests on each node.
 //!
 //! - `sampler`: the task. `state`: the state of a poll store. `view`: what a reader holds.
+//!   `service`: the APIService of the metrics, which tells why its backend does not answer.
 //! - `wire`: the answers of the server. `quantity` and `duration`: own readers of their texts;
 //!   the view of a ResourceQuota reads its quantities with `quantity::number` too.
 //! - `world`: what a poll reads of the stores. `rollup`: the sums of a poll.
@@ -19,6 +20,7 @@ mod resources;
 mod rollup;
 mod sampler;
 mod series;
+mod service;
 mod state;
 mod view;
 mod wire;
@@ -30,7 +32,8 @@ pub use history::SeriesKey;
 pub use resources::{Amount, Limits, PodResources, is_done, of_pod};
 pub use sampler::{Sampler, SamplerParts};
 pub use series::{Cover, Sample, Series};
-pub use state::{PollState, PollStatus};
+pub use service::Availability;
+pub use state::{ABSENT_PAUSE, PollState, PollStatus};
 pub use view::{Latest, Metrics};
 pub use world::{Inputs, NodeLoad};
 
