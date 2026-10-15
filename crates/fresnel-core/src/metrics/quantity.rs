@@ -43,7 +43,7 @@ struct Exact {
 fn scaled(text: &str, unit: i32) -> Result<u64, &'static str> {
     let Exact { digits, exponent, binary } = exact(text)?;
     let value = digits.checked_mul(1u128.checked_shl(binary).ok_or("too large")?).ok_or("too large")?;
-    let shift = exponent - unit;
+    let shift = exponent.checked_sub(unit).ok_or("too large")?;
     let ten = |power: i32| 10u128.checked_pow(power.unsigned_abs());
     let units = if shift >= 0 {
         ten(shift).and_then(|factor| value.checked_mul(factor))
@@ -65,7 +65,9 @@ fn exact(text: &str) -> Result<Exact, &'static str> {
     let (number, suffix) = unsigned.split_at(end);
     let (digits, fraction) = decimal(number)?;
     let (exponent, binary) = suffix_of(suffix)?;
-    Ok(Exact { digits, exponent: exponent - fraction, binary })
+    // `1.5e-2147483648` has an exponent below the range of `i32`.
+    let exponent = exponent.checked_sub(fraction).ok_or("too large")?;
+    Ok(Exact { digits, exponent, binary })
 }
 
 /// The digits of a number with at most one point, and the count of digits after the point.
@@ -209,6 +211,9 @@ mod tests {
         }
         // 5 exa cores have more nanocores than `u64` holds; 5 exabytes fit.
         assert_eq!(nanocores("5E"), Err("too large"));
+        // An exponent at the end of the range of `i32`, with a fraction or with the unit.
+        assert_eq!(number("1.5e-2147483648"), Err("too large"));
+        assert_eq!(nanocores("1e2147483647"), Err("too large"));
         assert_eq!(bytes("000000000000000000000000000000000000000001"), Ok(1), "leading zeros are no digits");
     }
 }
