@@ -82,17 +82,49 @@ pub(crate) enum Lead<'a> {
     Old(&'a str),
 }
 
+/// A small bar between the lead and the text of a cell: the use of a limit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Bar {
+    /// The part that the bar fills, from 0 to 1.
+    pub(crate) part: f32,
+    /// A second mark on the bar, for example the request of a pod against its limit.
+    pub(crate) mark: Option<f32>,
+    pub(crate) tone: Tone,
+}
+
 /// The content of one cell.
 #[derive(Clone, Debug)]
 pub(crate) struct Cell<'a> {
     pub(crate) text: Cow<'a, str>,
     pub(crate) tone: Tone,
     pub(crate) lead: Lead<'a>,
+    pub(crate) bar: Option<Bar>,
+    /// The value in more words, for the pointer and for a screen reader: they read it in
+    /// place of the text.
+    pub(crate) hint: Option<Cow<'a, str>>,
 }
 
 impl<'a> Cell<'a> {
     pub(crate) fn new(text: impl Into<Cow<'a, str>>) -> Self {
-        Self { text: text.into(), tone: Tone::Normal, lead: Lead::None }
+        Self { text: text.into(), tone: Tone::Normal, lead: Lead::None, bar: None, hint: None }
+    }
+
+    pub(crate) fn bar(mut self, bar: Bar) -> Self {
+        self.bar = Some(bar);
+        self
+    }
+
+    /// The cell with no color that tells a state of now: an old value.
+    pub(crate) fn faint(mut self) -> Self {
+        if let Some(bar) = &mut self.bar {
+            bar.tone = Tone::Faint;
+        }
+        self.tone(Tone::Faint)
+    }
+
+    pub(crate) fn hint(mut self, hint: impl Into<Cow<'a, str>>) -> Self {
+        self.hint = Some(hint.into());
+        self
     }
 
     pub(crate) fn tone(mut self, tone: Tone) -> Self {

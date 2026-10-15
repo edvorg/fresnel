@@ -3,6 +3,7 @@
 //! - `objects`: the page of the objects of one kind. `kinds`: the table of each kind.
 //! - `pods`: the table and the sections of the Pods. `detail`: the detail panel.
 //! - `keys`: the keys of a Secret or a ConfigMap, and the dialog of a new Secret.
+//! - `metrics`: the CPU and memory columns of the tables and the Metrics tab of the panel.
 //! - `workloads`: the sections of the workloads. `pod_spec`: the containers and volumes.
 //! - `cluster`, `config`, `network`, `access`: the sections of the kinds of these groups.
 //! - `act`: the actions on objects and their dialogs. `operations`: the jobs of the core.
@@ -17,6 +18,7 @@ pub(crate) mod detail;
 pub(crate) mod journal;
 pub(crate) mod keys;
 pub(crate) mod kinds;
+pub(crate) mod metrics;
 pub(crate) mod network;
 pub(crate) mod objects;
 pub(crate) mod operations;

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use egui::Color32;
 use fresnel_core::cluster::ClusterId;
-use fresnel_core::kinds::{Describe, Object};
+use fresnel_core::kinds::{Describe, Kind, Object};
 use fresnel_core::published::Held;
 use fresnel_core::store::Snapshot;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
@@ -14,16 +14,27 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use super::filter::{Namespaces, ObjectFilter};
 use crate::format::{self, Clock};
 use crate::theme::Palette;
+use crate::views::metrics::read::Metered;
+use crate::views::metrics::{Problems, has_columns};
 use crate::widgets::table::model::{Model, ObjectId};
 
-/// The stores of one kind of the selected clusters at one moment.
+/// The stores of one kind of the selected clusters at one moment, and the metrics of each
+/// cluster for a kind with the CPU and memory columns.
 pub(crate) struct Stores<T: Send + Sync + 'static> {
     pub(crate) clusters: Vec<(ClusterId, Held<Snapshot<T>>)>,
+    pub(crate) metered: Vec<Metered>,
 }
 
 impl<T: Send + Sync + 'static> Clone for Stores<T> {
     fn clone(&self) -> Self {
-        Self { clusters: self.clusters.clone() }
+        Self { clusters: self.clusters.clone(), metered: self.metered.clone() }
+    }
+}
+
+impl<T: Send + Sync + 'static> Stores<T> {
+    /// The metrics of a cluster.
+    pub(crate) fn metered(&self, cluster: &ClusterId) -> Option<&Metered> {
+        self.metered.iter().find(|metered| metered.cluster == *cluster)
     }
 }
 
@@ -66,6 +77,8 @@ pub(crate) struct ClusterMark {
     pub(crate) color: Color32,
     /// Set for a cluster whose store is not live: since when its rows are old.
     pub(crate) old: Option<String>,
+    /// The lists of the metrics of the cluster that fail, for the CPU and memory cells.
+    pub(crate) problems: Problems,
 }
 
 /// What a cell needs at its paint that is not in its row.
@@ -88,6 +101,11 @@ impl RowScene {
     pub(crate) fn color(&self, cluster: &ClusterId) -> Color32 {
         self.marks.get(cluster).map_or(self.palette.text_faint, |mark| mark.color)
     }
+
+    /// The problem of the list of the metrics of a kind in a cluster, when it is not ok.
+    pub(crate) fn problem(&self, cluster: &ClusterId, kind: Kind) -> Option<&str> {
+        self.marks.get(cluster).and_then(|mark| mark.problems.of_kind(kind))
+    }
 }
 
 /// What a kind gives to its page: the model of its table, its nouns and the object of a
@@ -96,6 +114,9 @@ pub(crate) trait ObjectModel:
     Model<Data = Stores<Self::Object>, Filter = ObjectFilter, Summary = Namespaces, Scene = RowScene>
 {
     type Object: Describe;
+    /// True for a table with the CPU and memory columns: it reads the metrics of each
+    /// cluster, and a new poll gives it new rows.
+    const METERED: bool = has_columns(<Self::Object as Describe>::ID);
 
     fn nouns(&self) -> Nouns;
 

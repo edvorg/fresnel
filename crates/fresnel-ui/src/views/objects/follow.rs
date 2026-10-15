@@ -1,7 +1,8 @@
-//! Follows the stores of one kind of the selected clusters from frame to frame.
+//! Follows the stores of one kind of the selected clusters from frame to frame, and the
+//! metrics of a kind with the CPU and memory columns.
 //!
-//! The page asks its worker for new rows only when the objects changed, and it must drop
-//! each deleted object from its selection. The differences between the snapshot of the last
+//! The page asks its worker for new rows only when the objects or the metrics changed, and
+//! it must drop each deleted object from its selection. The differences between the snapshot of the last
 //! frame and the snapshot of this one give the two answers. Their cost follows the count
 //! of the changes: two frames with the same objects cost one comparison of two pointers.
 
@@ -13,6 +14,7 @@ use fresnel_core::published::Held;
 use fresnel_core::store::{Change, Snapshot};
 
 use super::{Stores, uid};
+use crate::views::metrics::read::Metered;
 use crate::widgets::table::model::ObjectId;
 
 /// The objects that went away from one frame to the next.
@@ -34,26 +36,31 @@ impl Gone {
     }
 }
 
-/// The snapshots of the last frame, and a number that grows when the objects change.
+/// The snapshots and the metrics of the last frame, and a number that grows when they
+/// change.
 ///
 /// A snapshot that this value held goes to the thread that frees old snapshots: the UI
 /// thread never frees one (plan section 7.3).
 pub(super) struct Follower<T: Object> {
     seen: Vec<(ClusterId, Held<Snapshot<T>>)>,
+    metered: Vec<Metered>,
     serial: u64,
 }
 
 impl<T: Object> Default for Follower<T> {
     fn default() -> Self {
-        Self { seen: Vec::new(), serial: 0 }
+        Self { seen: Vec::new(), metered: Vec::new(), serial: 0 }
     }
 }
 
 impl<T: Object> Follower<T> {
-    /// Takes the snapshots of this frame and gives the objects that went away.
-    pub(super) fn step(&mut self, now: Vec<(ClusterId, Held<Snapshot<T>>)>) -> Gone {
+    /// Takes the snapshots and the metrics of this frame and gives the objects that went
+    /// away. A new poll of the metrics is a change: the rows have its values.
+    pub(super) fn step(&mut self, now: Vec<(ClusterId, Held<Snapshot<T>>)>, metered: Vec<Metered>) -> Gone {
         let mut gone = Gone::default();
-        let mut changed = now.len() != self.seen.len();
+        let same_polls = metered.len() == self.metered.len()
+            && metered.iter().zip(&self.metered).all(|(now, before)| now.is_same(before));
+        let mut changed = now.len() != self.seen.len() || !same_polls;
         for (cluster, before) in &self.seen {
             let Some((_, after)) = now.iter().find(|(id, _)| id == cluster) else {
                 gone.clusters.push(cluster.clone());
@@ -74,7 +81,7 @@ impl<T: Object> Follower<T> {
                 }
             }
         }
-        self.seen = now;
+        (self.seen, self.metered) = (now, metered);
         self.serial += u64::from(changed);
         gone
     }
@@ -83,8 +90,9 @@ impl<T: Object> Follower<T> {
     /// number: the number is a part of the identity of a request for rows, and the objects
     /// after a rest are not the objects before it.
     pub(super) fn rest(&mut self) {
-        if !self.seen.is_empty() {
+        if !self.seen.is_empty() || !self.metered.is_empty() {
             self.seen.clear();
+            self.metered.clear();
             self.serial += 1;
         }
     }
@@ -96,7 +104,7 @@ impl<T: Object> Follower<T> {
 
     /// The snapshots of the last step, for a request to the worker.
     pub(super) fn data(&self) -> Stores<T> {
-        Stores { clusters: self.seen.clone() }
+        Stores { clusters: self.seen.clone(), metered: self.metered.clone() }
     }
 
     /// The snapshot of one cluster at the last step.
@@ -118,7 +126,7 @@ mod tests {
     fn step(bed: &TestTasks, follower: &mut Follower<Pod>, clusters: &[(&str, &[Arc<Pod>])]) -> Gone {
         let held =
             |(name, pods): &(&str, &[Arc<Pod>])| (ClusterId::new(*name), bed.held(snapshot(pods, StoreState::Live)));
-        follower.step(clusters.iter().map(held).collect())
+        follower.step(clusters.iter().map(held).collect(), Vec::new())
     }
 
     fn id(cluster: &str, pod: &Pod) -> ObjectId {

@@ -1,7 +1,8 @@
 //! The rows of the Pod table: which pods pass the filters, their sequence and their cells.
 //!
 //! The columns Ready, Status, Restarts and Last restart have the values of
-//! `kubectl get pods` (plan section 11.2). A sort value comes from the pod alone: the age
+//! `kubectl get pods` (plan section 11.2), CPU and Memory those of the last poll of the
+//! metrics (`views/metrics`). A sort value comes from the pod and the poll alone: the age
 //! sorts by the creation time, so no row moves because time passes.
 
 use std::cmp::{Ordering, Reverse};
@@ -9,12 +10,14 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use fresnel_core::cluster::ClusterId;
-use fresnel_core::kinds::{ObjectHealth, PodStatus};
+use fresnel_core::kinds::{Kind, ObjectHealth, PodStatus};
 use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 
 use crate::format::{self, Clock};
+use crate::views::metrics;
+use crate::views::metrics::gauge::{Resource, Usage};
 use crate::views::objects::{NamespaceSet, Namespaces, Nouns, ObjectFilter, ObjectModel, RowScene, Stores, uid};
 use crate::widgets::table::model::{Cell, Column, Computed, Lead, Model, ObjectId, contains_ignore_case};
 use crate::widgets::tone::Tone;
@@ -32,9 +35,10 @@ enum Field {
     LastRestart,
     Node,
     Age,
+    Usage(Resource),
 }
 
-const FIELDS: [Field; 9] = [
+const FIELDS: [Field; 11] = [
     Field::Name,
     Field::Namespace,
     Field::Cluster,
@@ -44,9 +48,11 @@ const FIELDS: [Field; 9] = [
     Field::LastRestart,
     Field::Node,
     Field::Age,
+    Field::Usage(Resource::Cpu),
+    Field::Usage(Resource::Memory),
 ];
 
-const COLUMNS: [Column; 9] = [
+const COLUMNS: [Column; 11] = [
     Column::new("Name", 220.0),
     Column::new("Namespace", 120.0),
     Column::new("Cluster", 120.0),
@@ -56,6 +62,8 @@ const COLUMNS: [Column; 9] = [
     Column::new("Last restart", 100.0),
     Column::new("Node", 130.0),
     Column::new("Age", 84.0).numeric(),
+    Resource::Cpu.column(),
+    Resource::Memory.column(),
 ];
 
 /// The text of a cell with no value.
@@ -63,11 +71,13 @@ const NONE: &str = "–";
 /// The count of pods between two reads of the cancel mark.
 const CANCEL_STEP: usize = 1024;
 
-/// One row: a pod with its identity and the state that `kubectl get pods` prints.
+/// One row: a pod with its identity, the state that `kubectl get pods` prints and its
+/// metrics.
 pub(crate) struct PodRow {
     pub(crate) id: ObjectId,
     pub(crate) pod: Arc<Pod>,
     pub(crate) status: PodStatus,
+    pub(crate) usage: Option<Usage>,
 }
 
 impl PodRow {
@@ -117,6 +127,7 @@ impl Model for PodModel {
         let (mut rows, mut total, mut namespaces) = (Vec::new(), 0, NamespaceSet::default());
         for (cluster, snapshot) in &data.clusters {
             total += snapshot.items.len();
+            let metered = data.metered(cluster);
             for (count, (key, pod)) in snapshot.items.iter().enumerate() {
                 if count.is_multiple_of(CANCEL_STEP) && cancel.is_set() {
                     return None;
@@ -131,7 +142,8 @@ impl Model for PodModel {
                     continue;
                 }
                 let id = ObjectId { cluster: cluster.clone(), key: key.clone(), uid: uid(&pod.metadata).into() };
-                rows.push(PodRow { id, pod: Arc::clone(pod), status });
+                let usage = metered.and_then(|metered| metered.usage(key, &**pod));
+                rows.push(PodRow { id, pod: Arc::clone(pod), status, usage });
             }
         }
         Some(Computed { rows, total, summary: namespaces.done() })
@@ -147,6 +159,7 @@ impl Model for PodModel {
             Some(Field::Restarts) => a.status.restarts.cmp(&b.status.restarts),
             Some(Field::LastRestart) => a.status.last_restart.cmp(&b.status.last_restart),
             Some(Field::Node) => a.node().cmp(&b.node()),
+            Some(Field::Usage(resource)) => metrics::cells::compare(a.usage.as_ref(), b.usage.as_ref(), *resource),
             // A small age is a late creation time.
             Some(Field::Age) => Reverse(a.created()).cmp(&Reverse(b.created())),
             None => Ordering::Equal,
@@ -190,6 +203,10 @@ impl Model for PodModel {
                 None => Cell::new(NONE).tone(Tone::Faint),
             },
             Some(Field::Node) => Cell::new(row.node().unwrap_or(NONE)).tone(Tone::Muted),
+            Some(Field::Usage(resource)) => {
+                let problem = scene.problem(&row.id.cluster, Kind::Pod);
+                metrics::cells::cell(row.usage.as_ref(), *resource, problem, &scene.clock)
+            }
             Some(Field::Age) => {
                 let text = row.created().map_or_else(|| NONE.to_owned(), |time| age(&scene.clock, time));
                 Cell::new(text).tone(Tone::Muted)
@@ -197,7 +214,7 @@ impl Model for PodModel {
             None => Cell::new(""),
         };
         // An old row has no color that tells a state of now.
-        if old.is_some() { cell.tone(Tone::Faint) } else { cell }
+        if old.is_some() { cell.faint() } else { cell }
     }
 }
 

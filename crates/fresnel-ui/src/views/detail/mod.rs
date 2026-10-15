@@ -1,5 +1,6 @@
 //! The detail panel of one object (plan section 11.2): a header with the kind, the name,
-//! the state and the cluster of the object, and the tabs Overview and Manifest. Overview
+//! the state and the cluster of the object, and the tabs Overview, Manifest, and Metrics
+//! for a kind with metrics (`views/metrics`). Overview
 //! has the metadata with the owners as links, the sections of the kind, the conditions,
 //! the related objects with links from the indexes, and the Events. A Secret and a ConfigMap
 //! have the section of their keys (`views/keys`) after the metadata.
@@ -10,6 +11,7 @@
 //! with a complete list shows as deleted, with its last state.
 //!
 //! - `fields`: the parts of a section. `lines`: the lines, tables and texts of a kind.
+//! - `metadata`: the first section of each kind.
 //! - `sections`: the sections of a kind.
 //! - `conditions`, `related`, `events`: the sections of each kind. `manifest`: the tab.
 //! - `status`: the JSON of the status of an object, for its conditions.
@@ -21,31 +23,32 @@ mod events;
 pub(crate) mod fields;
 pub(crate) mod lines;
 mod manifest;
+mod metadata;
 pub(crate) mod related;
 pub(crate) mod sections;
 mod status;
 
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use egui::{Align, Button, Frame, Label, Layout, Margin, RichText, ScrollArea, Ui};
 use fresnel_core::app::{ClusterRow, CoreView, ManifestRequest};
 use fresnel_core::keys::{self, KeyKind};
-use fresnel_core::kinds::{Action, Describe, Kind, Object};
+use fresnel_core::kinds::{Action, Describe, Object};
 use fresnel_core::ops::{Outcome, Target};
-use fresnel_core::store::{ObjectKey, Snapshot};
+use fresnel_core::store::Snapshot;
 
 use self::conditions::Condition;
-use self::fields::{NONE, VALUE_LIMIT, chips, field, heading, text_field};
+use self::fields::VALUE_LIMIT;
 use self::manifest::ManifestTab;
 use self::sections::{Context, Pick};
-use crate::format::{self, short};
+use crate::format::short;
 use crate::shell::Scene;
 use crate::theme::{self, Palette, SMALL};
 use crate::views::act::{Ask, Facts, Gate, Permits, Subject, facts};
 use crate::views::keys::KeyPanel;
+use crate::views::metrics::has_columns;
+use crate::views::metrics::tab::MetricsTab;
 use crate::views::objects::{Link, Nouns, old_since, uid};
-use crate::views::pod_spec;
 use crate::widgets::table::cells::ring;
 use crate::widgets::table::model::ObjectId;
 use crate::widgets::tone::Tone;
@@ -65,6 +68,7 @@ pub(crate) enum Act {
 enum Tab {
     Overview,
     Manifest,
+    Metrics,
 }
 
 /// What the store of the cluster knows of the object of the panel.
@@ -87,6 +91,7 @@ pub(crate) struct DetailPanel<K: Describe> {
     conditions: (Vec<Condition>, usize),
     tab: Tab,
     manifest: ManifestTab,
+    metrics: MetricsTab,
     /// The keys of a Secret or a ConfigMap. `None` for each other kind.
     keys: Option<KeyPanel>,
     /// What the actions read of the version of the object.
@@ -103,8 +108,8 @@ impl<K: Describe> DetailPanel<K> {
             let (cluster, key, uid) = (id.cluster.clone(), id.key.clone(), Arc::clone(&id.uid));
             KeyPanel::new(keys::Target { cluster, kind, key, uid })
         });
-        let tab = Tab::Overview;
-        Self { id, object, presence: Presence::Present, conditions, tab, manifest, keys, facts, permits }
+        let (tab, metrics) = (Tab::Overview, MetricsTab::default());
+        Self { id, object, presence: Presence::Present, conditions, tab, manifest, metrics, keys, facts, permits }
     }
 
     pub(crate) fn id(&self) -> &ObjectId {
@@ -230,6 +235,9 @@ impl<K: Describe> DetailPanel<K> {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.tab, Tab::Overview, "Overview");
                 ui.selectable_value(&mut self.tab, Tab::Manifest, "Manifest");
+                if has_columns(K::ID) {
+                    ui.selectable_value(&mut self.tab, Tab::Metrics, "Metrics");
+                }
             });
         });
         let line = ui.available_rect_before_wrap();
@@ -247,6 +255,13 @@ impl<K: Describe> DetailPanel<K> {
             }
             Tab::Manifest => {
                 Frame::new().inner_margin(inner).show(ui, |ui| self.manifest_tab(ui, palette, scene));
+            }
+            Tab::Metrics => {
+                let data = cluster.and_then(|row| row.data.as_ref());
+                let cx = Context { palette, view: scene.view, clock: scene.clock, id: &self.id, data };
+                ScrollArea::vertical().id_salt("metrics").auto_shrink(false).show(ui, |ui| {
+                    Frame::new().inner_margin(inner).show(ui, |ui| self.metrics.show(ui, &cx, &*self.object));
+                });
             }
         }
         act
@@ -299,7 +314,7 @@ impl<K: Describe> DetailPanel<K> {
         cluster: Option<&ClusterRow>,
     ) -> Option<Pick> {
         let data = cluster.and_then(|row| row.data.as_ref());
-        let mut picked = self.metadata(ui, palette, scene).map(Pick::Open);
+        let mut picked = metadata::show(ui, palette, scene.clock, &self.id, &*self.object).map(Pick::Open);
         ui.add_space(14.0);
         if self.keys.is_some() {
             // The keys pass the gate of each action of the panel.
@@ -319,54 +334,6 @@ impl<K: Describe> DetailPanel<K> {
         picked = sections::parts(ui, &cx, &*self.object).or(picked);
         events::show(ui, palette, scene.clock, &events::Source { kind: K::ID, id: &self.id, data });
         picked
-    }
-
-    /// The metadata, with each owner as a link. Gives the owner that the user clicked.
-    fn metadata(&self, ui: &mut Ui, palette: &Palette, scene: &Scene<'_>) -> Option<Link> {
-        let meta = self.object.meta();
-        heading(ui, palette, "METADATA");
-        if K::ID.info().namespaced {
-            text_field(ui, palette, "Namespace", &self.id.key.namespace);
-        }
-        text_field(ui, palette, "Cluster", self.id.cluster.as_str());
-        text_field(ui, palette, "UID", &self.id.uid);
-        let created = meta.creation_timestamp.as_ref().map(|time| {
-            let at = SystemTime::from(time.0);
-            format!("{} ({} ago)", scene.clock.date_time(at), format::span(scene.clock.since(at)))
-        });
-        text_field(ui, palette, "Created", created.as_deref().unwrap_or(NONE));
-        // An object that stays in its delete waits for its finalizers (research 08 section 4.8).
-        if let Some(time) = &meta.deletion_timestamp {
-            text_field(ui, palette, "Deleting since", &pod_spec::texts::at(time, scene.clock));
-            let finalizers = meta.finalizers.as_deref().unwrap_or_default();
-            let text = if finalizers.is_empty() { NONE.to_owned() } else { finalizers.join(", ") };
-            text_field(ui, palette, "Finalizers", &text);
-        }
-        let mut clicked = None;
-        field(ui, palette, "Controlled by", |ui| {
-            let owners = meta.owner_references.iter().flatten();
-            if meta.owner_references.as_ref().is_none_or(Vec::is_empty) {
-                ui.label(RichText::new(NONE).color(palette.text_faint));
-            }
-            ui.horizontal_wrapped(|ui| {
-                related::links_only(ui);
-                for owner in owners.take(fields::ITEM_LIMIT) {
-                    let text = short(&format!("{} {}", owner.kind, owner.name), VALUE_LIMIT).into_owned();
-                    let Some(kind) = Kind::named(&owner.kind) else {
-                        ui.label(text);
-                        continue;
-                    };
-                    if ui.link(text).clicked() {
-                        let namespace = if kind.info().namespaced { &*self.id.key.namespace } else { "" };
-                        let key = ObjectKey::new(namespace, &owner.name);
-                        clicked = Some(Link { cluster: self.id.cluster.clone(), kind, key });
-                    }
-                }
-            });
-        });
-        field(ui, palette, "Labels", |ui| chips(ui, palette, meta.labels.as_ref()));
-        field(ui, palette, "Annotations", |ui| chips(ui, palette, meta.annotations.as_ref()));
-        clicked
     }
 
     fn manifest_tab(&mut self, ui: &mut Ui, palette: &Palette, scene: &mut Scene<'_>) {

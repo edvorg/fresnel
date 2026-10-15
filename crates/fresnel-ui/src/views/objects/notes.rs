@@ -13,6 +13,7 @@ use fresnel_core::cluster::{ClusterId, LinkState};
 use fresnel_core::store::{Snapshot, StoreState, Wait};
 
 use super::Nouns;
+use super::filter::ObjectFilter;
 use crate::format::{self, Clock};
 use crate::shell::Scene;
 use crate::theme::{Palette, ROW_HEIGHT};
@@ -36,6 +37,29 @@ pub(crate) fn old_text(last_contact: Option<SystemTime>, clock: &Clock) -> Strin
     match last_contact {
         Some(time) => format!("old since {}", clock.time_of_day(time)),
         None => "old: the server gave no answer yet".to_owned(),
+    }
+}
+
+/// Why the table has no row. Only a store with a complete list knows that a cluster has no
+/// object, so the text never says "none" for a list that did not arrive (design rule 5).
+pub(super) fn empty_text<'a, T: 'a>(
+    scene: &Scene<'_>,
+    filter: &ObjectFilter,
+    nouns: &Nouns,
+    store: impl Fn(&ClusterId) -> Option<&'a Snapshot<T>>,
+) -> String {
+    let Nouns { one, many, .. } = *nouns;
+    let selected: Vec<&ClusterRow> = scene.view.clusters.iter().filter(|row| row.selected).collect();
+    let total: usize = selected.iter().map(|row| store(&row.id).map_or(0, |snapshot| snapshot.items.len())).sum();
+    let loaded = selected.iter().all(|row| store(&row.id).is_some_and(|snapshot| snapshot.listed));
+    if selected.is_empty() {
+        "No cluster is selected. Select a cluster in the top bar.".to_owned()
+    } else if total > 0 && *filter != ObjectFilter::default() {
+        format!("No {one} passes the filters. The selected clusters have {}.", nouns.count(total as u64))
+    } else if loaded {
+        format!("The selected clusters have no {one}.")
+    } else {
+        format!("The {many} are not loaded. The notes above give the state of each cluster.")
     }
 }
 

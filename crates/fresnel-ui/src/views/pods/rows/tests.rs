@@ -7,6 +7,7 @@ use fresnel_core::store::StoreState;
 use super::*;
 use crate::testing::{TestTasks, fixture_pods, snapshot};
 use crate::theme::DARK;
+use crate::views::metrics::Problems;
 use crate::views::objects::ClusterMark;
 
 /// The rows of the fixture pods in the clusters `ams` and `fra`, for this filter.
@@ -14,7 +15,8 @@ fn rows(bed: &TestTasks, filter: &ObjectFilter) -> Computed<PodRow, Namespaces> 
     let pods = fixture_pods();
     let clusters = ["ams", "fra"].map(|name| (ClusterId::new(name), bed.held(snapshot(&pods, StoreState::Live))));
     let never = AtomicU64::new(0);
-    PodModel.rows(&Stores { clusters: clusters.to_vec() }, filter, &Cancel::new(&never, 0)).expect("no cancel")
+    let data = Stores { clusters: clusters.to_vec(), metered: Vec::new() };
+    PodModel.rows(&data, filter, &Cancel::new(&never, 0)).expect("no cancel")
 }
 
 fn names(rows: &[PodRow]) -> Vec<String> {
@@ -70,8 +72,8 @@ fn each_filter_selects_pods_of_each_cluster_and_the_count_is_of_all_pods() {
 #[test]
 fn a_cancel_ends_the_computation_with_no_rows() {
     let bed = TestTasks::new();
-    let data =
-        Stores { clusters: vec![(ClusterId::new("ams"), bed.held(snapshot(&fixture_pods(), StoreState::Live)))] };
+    let clusters = vec![(ClusterId::new("ams"), bed.held(snapshot(&fixture_pods(), StoreState::Live)))];
+    let data = Stores { clusters, metered: Vec::new() };
     let newest = AtomicU64::new(2);
     assert!(PodModel.rows(&data, &ObjectFilter::default(), &Cancel::new(&newest, 1)).is_none());
 }
@@ -85,6 +87,7 @@ fn the_data_has_the_pod_of_a_row_by_its_cluster_its_name_and_its_uid() {
     let crash = row(&all, "ams", "crash");
     let data = |cluster: &str, pods: &[Arc<Pod>]| Stores {
         clusters: vec![(ClusterId::new(cluster), bed.held(snapshot(pods, StoreState::Live)))],
+        metered: Vec::new(),
     };
     assert!(PodModel.has(&data("ams", &fixture_pods()), crash));
     assert!(!PodModel.has(&data("fra", &fixture_pods()), crash), "the cluster of the row left the data");
@@ -135,8 +138,15 @@ fn a_row_of_a_store_that_is_not_live_has_the_mark_and_no_state_color() {
     let bed = TestTasks::new();
     let all = rows(&bed, &ObjectFilter::default()).rows;
     let marks = [
-        (ClusterId::new("ams"), ClusterMark { color: DARK.clusters[0], old: None }),
-        (ClusterId::new("fra"), ClusterMark { color: DARK.clusters[1], old: Some("old since 07:59:12".to_owned()) }),
+        (ClusterId::new("ams"), ClusterMark { color: DARK.clusters[0], old: None, problems: Problems::default() }),
+        (
+            ClusterId::new("fra"),
+            ClusterMark {
+                color: DARK.clusters[1],
+                old: Some("old since 07:59:12".to_owned()),
+                problems: Problems::default(),
+            },
+        ),
     ];
     let clock = Clock::fixed(SystemTime::UNIX_EPOCH);
     let mut scene = RowScene { palette: &DARK, clock, marks: marks.into() };
@@ -144,7 +154,7 @@ fn a_row_of_a_store_that_is_not_live_has_the_mark_and_no_state_color() {
         let cell = |column| PodModel.cell(row, column, scene);
         (0..COLUMNS.len())
             .map(|column| {
-                let Cell { text, tone, lead } = cell(column);
+                let Cell { text, tone, lead, .. } = cell(column);
                 let lead = match lead {
                     Lead::Old(_) => Lead::Old("old"),
                     Lead::Dot(color) => Lead::Dot(color),

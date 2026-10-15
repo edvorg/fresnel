@@ -68,7 +68,7 @@ fn joined(texts: &[Cow<'static, str>]) -> String {
 
 /// An old row has no color that tells a state of now.
 pub(super) fn of_old_row<'a>(cell: Cell<'a>, old: Option<&str>) -> Cell<'a> {
-    if old.is_some() { cell.tone(Tone::Faint) } else { cell }
+    if old.is_some() { cell.faint() } else { cell }
 }
 
 #[cfg(test)]

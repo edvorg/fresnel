@@ -1,5 +1,6 @@
 //! The table of each kind (plan sections 11.2 and 11.4): the columns of the description of
-//! the kind in `fresnel-core`, with the Cluster column after the name and the namespace.
+//! the kind in `fresnel-core`, with the Cluster column after the name and the namespace,
+//! and the CPU and memory columns after the age for a kind with metrics (`views/metrics`).
 //! The Pods have a model of their own (`views/pods`), with the status of each pod.
 //!
 //! The worker computes the value of each column of a row one time, so a sort compares
@@ -16,6 +17,8 @@ use std::sync::Arc;
 use fresnel_core::kinds::{self, Describe, Kind, Object, ObjectHealth, Value, Visit};
 use fresnel_core::net::task::Tasks;
 
+use crate::views::metrics::gauge::{Resource, Usage};
+use crate::views::metrics::{self, has_columns};
 use crate::views::objects::{
     NamespaceSet, Namespaces, Nouns, ObjectFilter, ObjectModel, ObjectPage, Page, RowScene, Stores, uid,
 };
@@ -56,15 +59,17 @@ enum Field {
     Cluster,
     /// The column of the description of the kind at this place.
     Value(usize),
+    Usage(Resource),
 }
 
-/// One row: an object with its identity, its health value and the value of each column
-/// of its kind.
+/// One row: an object with its identity, its health value, the value of each column of its
+/// kind and its metrics.
 pub(crate) struct KindRow<K> {
     id: ObjectId,
     object: Arc<K>,
     health: ObjectHealth,
     values: Vec<Value<'static>>,
+    usage: Option<Usage>,
 }
 
 pub(crate) struct KindModel<K: Describe> {
@@ -89,6 +94,10 @@ impl<K: Describe> KindModel<K> {
             shown = if column.numeric { shown.numeric() } else { shown };
             columns.push(if column.shown { shown } else { shown.hidden() });
             fields.push(Field::Value(index));
+        }
+        if has_columns(K::ID) {
+            columns.extend(Resource::BOTH.map(Resource::column));
+            fields.extend(Resource::BOTH.map(Field::Usage));
         }
         Self { columns, fields, of_kind, kind: PhantomData }
     }
@@ -127,6 +136,7 @@ impl<K: Describe> Model for KindModel<K> {
         let (mut rows, mut total, mut namespaces) = (Vec::new(), 0, NamespaceSet::default());
         for (cluster, snapshot) in &data.clusters {
             total += snapshot.items.len();
+            let metered = data.metered(cluster);
             for (count, (key, object)) in snapshot.items.iter().enumerate() {
                 if count.is_multiple_of(CANCEL_STEP) && cancel.is_set() {
                     return None;
@@ -138,7 +148,8 @@ impl<K: Describe> Model for KindModel<K> {
                 }
                 let values = self.of_kind.iter().map(|column| (column.read)(object).into_owned()).collect();
                 let id = ObjectId { cluster: cluster.clone(), key: key.clone(), uid: uid(object.meta()).into() };
-                let row = KindRow { id, object: Arc::clone(object), health, values };
+                let usage = metered.and_then(|metered| metered.usage(key, &**object));
+                let row = KindRow { id, object: Arc::clone(object), health, values, usage };
                 if Self::matches(&row, &needle) {
                     rows.push(row);
                 }
@@ -151,6 +162,7 @@ impl<K: Describe> Model for KindModel<K> {
         match self.fields.get(column) {
             Some(Field::Cluster) => a.id.cluster.cmp(&b.id.cluster),
             Some(Field::Value(index)) => a.values.get(*index).cmp(&b.values.get(*index)),
+            Some(Field::Usage(resource)) => metrics::cells::compare(a.usage.as_ref(), b.usage.as_ref(), *resource),
             None => Ordering::Equal,
         }
     }
@@ -175,6 +187,10 @@ impl<K: Describe> Model for KindModel<K> {
             Some(Field::Value(index)) => {
                 let namespace = *index == 1 && K::ID.info().namespaced;
                 cells::value(row.values.get(*index).unwrap_or(&Value::None), namespace, &scene.clock)
+            }
+            Some(Field::Usage(resource)) => {
+                let problem = scene.problem(&row.id.cluster, K::ID);
+                metrics::cells::cell(row.usage.as_ref(), *resource, problem, &scene.clock)
             }
             None => Cell::new(""),
         };

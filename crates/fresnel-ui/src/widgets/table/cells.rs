@@ -2,7 +2,7 @@
 
 use egui::{Align, Align2, FontId, Label, Layout, Response, RichText, Sense, Shape, Ui, WidgetInfo, WidgetType};
 
-use super::model::{Cell, Column, Lead};
+use super::model::{Bar, Cell, Column, Lead};
 use crate::format;
 use crate::theme::{Palette, SMALL};
 use crate::widgets::dot;
@@ -17,6 +17,8 @@ pub(crate) const TEXT_LIMIT: usize = 400;
 
 /// The place of the sort arrow beside a title.
 const ARROW: f32 = 13.0;
+/// The size of the bar of a cell.
+const BAR: egui::Vec2 = egui::vec2(32.0, 6.0);
 
 /// True for a cell that the scroll regions of `egui_table` cut away. The table lays out
 /// such a cell too; a skip saves the time and one more node in the accessibility tree.
@@ -106,6 +108,9 @@ pub(super) fn cell(ui: &mut Ui, palette: &Palette, column: &Column, cell: &Cell<
             Lead::Dot(color) => dot(ui, color),
             Lead::Old(since) => old_mark(ui, palette, since),
         }
+        if let Some(bar) = &cell.bar {
+            gauge(ui, palette, bar);
+        }
         let text = format::short(&cell.text, TEXT_LIMIT);
         // The row takes the click, so the text must not take it.
         let label = Label::new(RichText::new(text).color(color)).selectable(false);
@@ -115,9 +120,29 @@ pub(super) fn cell(ui: &mut Ui, palette: &Palette, column: &Column, cell: &Cell<
             ui.add(label.extend());
             ui.add_space(PAD - GAP);
         } else {
-            ui.add(label.truncate());
+            let response = ui.add(label.truncate());
+            if let Some(hint) = &cell.hint {
+                response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, hint.as_ref()));
+                response.on_hover_text(hint.as_ref());
+            }
         }
     });
+}
+
+/// The bar of a cell. The mark is a line across the bar. The hint of the cell gives the
+/// values in words.
+fn gauge(ui: &mut Ui, palette: &Palette, bar: &Bar) {
+    let (rect, _) = ui.allocate_exact_size(BAR, Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, 3.0, palette.bg_raised);
+    // A part that is not a number fills nothing.
+    let part = |part: f32| if part.is_nan() { 0.0 } else { part.clamp(0.0, 1.0) };
+    let filled = rect.with_max_x(rect.left() + rect.width() * part(bar.part));
+    painter.rect_filled(filled, 3.0, bar.tone.color(palette));
+    if let Some(mark) = bar.mark {
+        let x = rect.left() + rect.width() * part(mark);
+        painter.vline(x, rect.y_range().expand(2.0), (1.5, palette.text_muted));
+    }
 }
 
 /// The freshness mark: an open ring in the warning color. A row with it is from a store

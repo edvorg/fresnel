@@ -22,6 +22,8 @@ use crate::shell::Scene;
 use crate::theme::{self, Palette};
 use crate::views::act::{Ask, Gate, Subject};
 use crate::views::detail::{self, DetailPanel, actions};
+use crate::views::metrics::Problems;
+use crate::views::metrics::read::Metered;
 use crate::widgets::table::model::ObjectId;
 use crate::widgets::table::{Act, Table};
 use crate::widgets::tone::Tone;
@@ -74,9 +76,10 @@ impl<M: ObjectModel> ObjectPage<M> {
     /// that went away from the selection. The number of the snapshots grows when the
     /// objects changed, so the table asks its worker for new rows then.
     fn read_stores(&mut self, scene: &Scene<'_>) {
-        let selected = scene.view.clusters.iter().filter(|row| row.selected);
-        let now = selected.filter_map(|row| Some((row.id.clone(), row.data.as_ref()?.snapshot()?))).collect();
-        let gone = self.follower.step(now);
+        let selected = || scene.view.clusters.iter().filter(|row| row.selected);
+        let now = selected().filter_map(|row| Some((row.id.clone(), row.data.as_ref()?.snapshot()?))).collect();
+        let data = selected().filter_map(|row| Some((&row.id, row.data.as_ref()?))).filter(|_| M::METERED);
+        let gone = self.follower.step(now, data.map(|(id, data)| Metered::of(id, data)).collect());
         if !gone.is_empty() {
             self.table.forget(|id| gone.has(id));
         }
@@ -197,7 +200,8 @@ impl<M: ObjectModel> ObjectPage<M> {
         }
     }
 
-    /// What the cells show of each selected cluster: its color and how old its rows are.
+    /// What the cells show of each selected cluster: its color, how old its rows are and
+    /// the lists of its metrics that fail.
     fn row_scene(&self, scene: &Scene<'_>, palette: &'static Palette) -> RowScene {
         let mark = |row: &ClusterRow| {
             let old = match (&row.data, self.follower.snapshot(&row.id)) {
@@ -205,29 +209,12 @@ impl<M: ObjectModel> ObjectPage<M> {
                 (Some(_), None) => Some("old: the store of the full objects starts".to_owned()),
                 (None, _) => Some("old: the cluster is not connected".to_owned()),
             };
-            (row.id.clone(), ClusterMark { color: scene.colors.color(&row.id, palette), old })
+            let metrics = row.data.as_ref().filter(|_| M::METERED).map(|data| &data.metrics);
+            let problems = metrics.map(|metrics| Problems::of(metrics, scene.clock)).unwrap_or_default();
+            (row.id.clone(), ClusterMark { color: scene.colors.color(&row.id, palette), old, problems })
         };
         let marks = scene.view.clusters.iter().filter(|row| row.selected).map(mark).collect();
         RowScene { palette, clock: scene.clock.clone(), marks }
-    }
-}
-
-/// Why the table has no row. Only a store with a complete list knows that a cluster has no
-/// object, so the text never says "none" for a list that did not arrive (design rule 5).
-fn empty_text<T: Object>(scene: &Scene<'_>, filter: &ObjectFilter, nouns: &Nouns, follower: &Follower<T>) -> String {
-    let Nouns { one, many, .. } = *nouns;
-    let selected: Vec<&ClusterRow> = scene.view.clusters.iter().filter(|row| row.selected).collect();
-    let store = |row: &&ClusterRow| follower.snapshot(&row.id);
-    let total: usize = selected.iter().map(|row| store(row).map_or(0, |snapshot| snapshot.items.len())).sum();
-    let loaded = selected.iter().all(|row| store(row).is_some_and(|snapshot| snapshot.listed));
-    if selected.is_empty() {
-        "No cluster is selected. Select a cluster in the top bar.".to_owned()
-    } else if total > 0 && *filter != ObjectFilter::default() {
-        format!("No {one} passes the filters. The selected clusters have {}.", nouns.count(total as u64))
-    } else if loaded {
-        format!("The selected clusters have no {one}.")
-    } else {
-        format!("The {many} are not loaded. The notes above give the state of each cluster.")
     }
 }
 
@@ -288,7 +275,7 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
             }
         };
         let (filter, nouns, follower) = (&self.filter, &self.nouns, &self.follower);
-        let empty = || empty_text(scene, filter, nouns, follower);
+        let empty = || notes::empty_text(scene, filter, nouns, |cluster| follower.snapshot(cluster));
         let acted = CentralPanel::no_frame().show(ui, |ui| self.table.show(ui, &cells, empty, &mut menu));
         scene.commands.extend(asks);
         scene.commands.extend(self.table.save_layout(ui));

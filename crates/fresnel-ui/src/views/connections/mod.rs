@@ -1,12 +1,14 @@
 //! The Connections view: one card for each selected cluster (plan section 8.14).
 //!
 //! A card shows the one state of the cluster, the time since its last answer, its
-//! credential and each channel. "Retry now" sends a command; the view does no work itself.
+//! credential, each channel and the sampler of its metrics. "Retry now" sends a command; the view does no work itself.
 //!
 //! - `credential`: the lines of the credential. `channels`: the table of the channels.
+//! - `sampler`: the lines of the sampler of the metrics.
 
 mod channels;
 mod credential;
+mod sampler;
 
 use std::time::Duration;
 
@@ -116,6 +118,9 @@ fn card(ui: &mut Ui, palette: &Palette, row: &ClusterRow, scene: &mut Scene<'_>)
                 ui.label(RichText::new(text).color(palette.error));
             }
             LinkState::On(status) => connected(ui, palette, status, scene.clock),
+        }
+        if let Some(data) = &row.data {
+            sampler::show(ui, palette, &data.metrics, scene.clock);
         }
     });
 }

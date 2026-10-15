@@ -7,12 +7,13 @@ use std::time::SystemTime;
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::store::StoreState;
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::{Namespace, Node};
+use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Node};
 
 use super::*;
 use crate::format::Clock;
 use crate::testing::{TestTasks, fixture, snapshot};
 use crate::theme::DARK;
+use crate::views::metrics::Problems;
 use crate::views::objects::ClusterMark;
 use crate::widgets::table::model::Lead;
 use crate::widgets::tone::Tone;
@@ -26,7 +27,7 @@ fn rows<K: Describe>(bed: &TestTasks, filter: &ObjectFilter) -> Computed<KindRow
     let objects = fixture::<K>();
     let clusters = ["ams", "fra"].map(|name| (ClusterId::new(name), bed.held(snapshot(&objects, StoreState::Live))));
     let never = AtomicU64::new(0);
-    let data = Stores { clusters: clusters.to_vec() };
+    let data = Stores { clusters: clusters.to_vec(), metered: Vec::new() };
     KindModel::<K>::new().rows(&data, filter, &Cancel::new(&never, 0)).expect("no cancel")
 }
 
@@ -38,8 +39,9 @@ fn names<K>(rows: &[KindRow<K>]) -> Vec<String> {
 fn the_cluster_column_follows_the_name_and_the_namespace_and_the_labels_wait_for_a_choice() {
     let deployments = titles::<Deployment>();
     assert_eq!(deployments[..4], ["Name", "Namespace", "Cluster", "Ready"]);
-    assert_eq!(deployments.last(), Some(&"Age"));
+    assert_eq!(deployments[deployments.len() - 3..], ["Age", "CPU", "Memory"], "the metrics after the age");
     assert_eq!(titles::<Node>()[..3], ["Name", "Cluster", "Status"], "a kind with no namespace");
+    assert!(!titles::<ConfigMap>().contains(&"CPU"), "a kind with no metrics");
     let model = KindModel::<Deployment>::new();
     let shown = |title: &str| model.columns().iter().find(|column| column.title == title).map(|column| column.shown);
     assert_eq!((shown("Labels"), shown("Images"), shown("Desired")), (Some(false), Some(true), Some(false)));
@@ -93,8 +95,15 @@ fn the_cells_show_each_value_and_an_old_row_has_its_mark_and_no_state_color() {
     let bed = TestTasks::new();
     let all = rows::<Deployment>(&bed, &ObjectFilter::default()).rows;
     let marks = [
-        (ClusterId::new("ams"), ClusterMark { color: DARK.clusters[0], old: None }),
-        (ClusterId::new("fra"), ClusterMark { color: DARK.clusters[1], old: Some("old since 07:59:12".to_owned()) }),
+        (ClusterId::new("ams"), ClusterMark { color: DARK.clusters[0], old: None, problems: Problems::default() }),
+        (
+            ClusterId::new("fra"),
+            ClusterMark {
+                color: DARK.clusters[1],
+                old: Some("old since 07:59:12".to_owned()),
+                problems: Problems::default(),
+            },
+        ),
     ];
     let scene = RowScene { palette: &DARK, clock: Clock::fixed(SystemTime::now()), marks: HashMap::from(marks) };
     let model = KindModel::<Deployment>::new();
