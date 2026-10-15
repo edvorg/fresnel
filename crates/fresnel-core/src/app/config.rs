@@ -44,7 +44,7 @@ impl Inner {
     }
 
     /// Writes the changes of the settings view into the file. The caller reads it again.
-    pub(super) async fn edit_config(&self, edits: Vec<Edit>) -> Result<(), CoreError> {
+    pub(super) async fn edit_config(&self, edits: Vec<Edit>) {
         let number = {
             let mut state = self.state();
             let number = state.config_file.save.as_ref().map_or(1, |save| save.number + 1);
@@ -53,7 +53,11 @@ impl Inner {
         };
         self.repaint.request();
         let path = self.config_file.clone();
-        let written = self.off_worker(move || config::edit::write(&path, &edits)).await?;
+        // A write that did not end is a result too: the view waits for one.
+        let written = match self.off_worker(move || config::edit::write(&path, &edits)).await {
+            Ok(written) => written,
+            Err(error) => Err(error.to_string()),
+        };
         let file = self.config_file.display();
         match &written {
             Ok(()) => self.journal.info(APP, format!("{file}: saved by the settings view")),
@@ -61,7 +65,6 @@ impl Inner {
         }
         Arc::make_mut(&mut self.state().config_file).save = Some(SaveState { number, result: Some(written) });
         self.repaint.request();
-        Ok(())
     }
 
     /// Reads the settings file and the kubeconfig files again, after a change of one of
@@ -101,9 +104,12 @@ impl Inner {
             Arc::make_mut(&mut state.config_file).read = read;
             Arc::clone(&state.config)
         };
-        if config.set(Setting::JournalEntries).is_some() {
-            self.journal.set_limit(usize::try_from(config.number(Setting::JournalEntries)).unwrap_or(usize::MAX));
-        }
+        // The limits act at once. A file with no limit gives the limit of the program again.
+        let limit = config.set(Setting::JournalEntries).map(|_| config.number(Setting::JournalEntries));
+        self.journal.set_limit(limit.map(|limit| usize::try_from(limit).unwrap_or(usize::MAX)));
+        let repaints = config.set(Setting::RepaintLimit).map(|_| config.number(Setting::RepaintLimit));
+        let repaints = repaints.map_or(self.settings.repaints_per_second, |n| u32::try_from(n).unwrap_or(u32::MAX));
+        self.repaint.set_limit(repaints);
         self.repaint.request();
         Ok(Config::clone(&config))
     }
@@ -143,5 +149,43 @@ impl Inner {
     /// The home folder of the user, for a path of the settings that starts with `~/`.
     pub(super) fn home(&self) -> Option<PathBuf> {
         self.base_env.get("HOME").filter(|home| !home.is_empty()).map(PathBuf::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fresnel_net::WallClock;
+    use fresnel_testkit::Home;
+    use tokio::runtime::Handle;
+
+    use super::super::{Core, CoreParts, CoreSettings};
+    use crate::journal::Journal;
+
+    /// The limits of the journal and of the repaints in the file act at once, and a file with
+    /// no limit gives the limit of the program again.
+    #[tokio::test]
+    async fn the_limits_of_the_file_act_at_once_and_after_them_the_limits_of_the_program() {
+        let home = Home::new("limits", &[]).expect("a home folder");
+        let text = "version = 1\n[diagnostics]\njournal_entries = 1000\n[appearance]\nrepaints_per_second = 10\n";
+        home.write("state/config.toml", text).expect("the file");
+        let journal = Journal::new(2000, WallClock::system());
+        let core = Core::new(CoreParts {
+            runtime: Handle::current(),
+            base_env: home.finder_env(),
+            journal: journal.clone(),
+            state_file: home.path("state/state.json"),
+            config_file: home.path("state/config.toml"),
+            downloads: home.path("Downloads"),
+            detectors: Vec::new(),
+            settings: CoreSettings::default(),
+        });
+        let fill = || (0..3000).for_each(|number| journal.info("test", number.to_string()));
+        core.inner.load_config().await.expect("the read");
+        fill();
+        assert_eq!((journal.view().entries.len(), core.inner.repaint.limit()), (1000, 10), "the limits of the file");
+        home.write("state/config.toml", "version = 1\n").expect("a file with no limit");
+        core.inner.reload_config().await.expect("the read");
+        fill();
+        assert_eq!((journal.view().entries.len(), core.inner.repaint.limit()), (2000, 60), "of the program");
     }
 }

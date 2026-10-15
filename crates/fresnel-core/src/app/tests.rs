@@ -1,5 +1,7 @@
 //! The tests of the core itself: its journal and its queue of commands.
 
+use std::time::Duration;
+
 use fresnel_net::WallClock;
 use tokio::time::sleep;
 

@@ -321,6 +321,7 @@ mod tests {
         let metrics = Publisher::new(polls(), disposal.bin(), of_metrics.clone());
 
         let repaint = Repaint::new();
+        repaint.set_limit(1000);
         let wakes = Arc::new(AtomicU32::new(0));
         let count = Arc::clone(&wakes);
         repaint.set_wake(Arc::new(move || {
@@ -329,7 +330,7 @@ mod tests {
         let always = Restart::Always(Backoff::default());
         let _notifier = tasks.start(TaskName::new("repaint notifier"), always, {
             let repaint = repaint.clone();
-            move || repaint.clone().run(Duration::from_millis(1))
+            move || repaint.clone().run()
         });
         let _watch = tasks.start(TaskName::new("data watch"), always, {
             move || follow(vec![of_stores.changes(), of_indexes.changes(), of_metrics.changes()], repaint.clone())

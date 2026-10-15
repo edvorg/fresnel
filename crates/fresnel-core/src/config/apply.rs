@@ -133,6 +133,8 @@ mod tests {
             config.values.insert(spec.id, value);
         }
         assert_eq!(format!("{:?}", apply(&config, &base, None)), format!("{base:?}"));
+        // The core gives the repaint limit to its notifier itself, as it changes at once.
+        assert_eq!(config.number(S::RepaintLimit), u64::from(base.repaints_per_second));
     }
 
     #[test]

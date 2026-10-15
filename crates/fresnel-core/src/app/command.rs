@@ -107,7 +107,7 @@ impl Inner {
             Command::RetryNow(cluster) => self.retry(registry, &cluster).await?,
             Command::ReloadFiles => self.reload_files(registry).await?,
             Command::EditSettings(edits) => {
-                self.edit_config(edits).await?;
+                self.edit_config(edits).await;
                 self.reload_files(registry).await?;
             }
             other => {

@@ -93,6 +93,8 @@ struct Ring {
 }
 
 struct Shared {
+    /// The limit of `new`, which a file with no limit of its own gives back.
+    limit: usize,
     clock: WallClock,
     ring: Mutex<Ring>,
     /// Its lock also puts the entries of two tasks into one sequence. It is not the lock
@@ -111,7 +113,7 @@ impl Journal {
     pub fn new(limit: usize, clock: WallClock) -> Self {
         let limit = limit.max(1);
         let ring = Ring { entries: VecDeque::new(), limit, total: 0, warnings: 0, errors: 0, view: None };
-        let shared = Shared { clock, ring: Mutex::new(ring), sink: Mutex::new(None) };
+        let shared = Shared { limit, clock, ring: Mutex::new(ring), sink: Mutex::new(None) };
         Self { shared: Arc::new(shared) }
     }
 
@@ -146,11 +148,12 @@ impl Journal {
         self.push(Level::Error, source, text);
     }
 
-    /// Changes the limit of the list: the settings file can give one after the start. A
-    /// smaller limit drops the oldest entries at once; the log file keeps them.
-    pub fn set_limit(&self, limit: usize) {
+    /// Changes the limit of the list: the settings file can give one after the start, and
+    /// `None` gives the limit of `new` again. A smaller limit drops the oldest entries at
+    /// once; the log file keeps them.
+    pub fn set_limit(&self, limit: Option<usize>) {
         let mut ring = lock(&self.shared.ring);
-        ring.limit = limit.max(1);
+        ring.limit = limit.unwrap_or(self.shared.limit).max(1);
         while ring.entries.len() > ring.limit {
             ring.entries.pop_front();
             ring.view = None;
@@ -332,15 +335,17 @@ mod tests {
         assert!(!Arc::ptr_eq(&first, &third));
         assert_eq!((third.entries.len(), third.total, third.dropped()), (1, 2, 1), "a limit of 0 keeps one entry");
 
-        journal.set_limit(3);
+        journal.set_limit(Some(3));
         for text in ["three", "four", "five"] {
             journal.info("app", text);
         }
         assert_eq!(journal.view().entries.len(), 3, "a larger limit keeps more");
-        journal.set_limit(2);
+        journal.set_limit(Some(2));
         let view = journal.view();
         let texts: Vec<&str> = view.entries.iter().map(|entry| entry.text.as_str()).collect();
         assert_eq!((texts, view.total), (vec!["four", "five"], 5), "a smaller limit drops the oldest at once");
+        journal.set_limit(None);
+        assert_eq!(journal.view().entries.len(), 1, "the limit of the start again");
     }
 
     #[test]

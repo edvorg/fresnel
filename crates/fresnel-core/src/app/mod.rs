@@ -42,7 +42,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
-use std::time::Duration;
 
 use fresnel_net::detect::{Detector, Monitor};
 use fresnel_net::env::ProcessEnv;
@@ -208,6 +207,7 @@ impl Core {
     pub fn new(parts: CoreParts) -> Self {
         let CoreParts { runtime, base_env, journal, state_file, config_file, downloads, detectors, settings } = parts;
         let repaint = Repaint::new();
+        repaint.set_limit(settings.repaints_per_second);
         let tasks = Tasks::new(runtime.clone(), repaint::reporter(journal.clone(), repaint.clone()));
         let state = State {
             phase: Phase::Idle,
@@ -271,11 +271,10 @@ impl Core {
             state.phase = Phase::Running;
         }
         inner.repaint.set_wake(Arc::new(wake));
-        let period = Duration::from_secs(1) / inner.settings.repaints_per_second.max(1);
         let always = Restart::Always(Backoff::default());
         let notifier = inner.tasks.start(TaskName::new("repaint notifier"), always, {
             let repaint = inner.repaint.clone();
-            move || repaint.clone().run(period)
+            move || repaint.clone().run()
         });
         let core = inner.tasks.start(TaskName::new("app core"), always, {
             let inner = Arc::clone(inner);
