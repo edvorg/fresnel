@@ -7,6 +7,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use fresnel_net::ErrorClass;
 use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
 use tokio::sync::Notify;
 
@@ -27,15 +28,18 @@ impl Inner {
             return;
         }
         // A read-only cluster gets no write, also from a dialog that did not close its gate.
-        if let Some(refusal) = state.config.refusal(&secret.cluster) {
-            drop(state);
-            let text = format!("the create of Secret {}/{} did not go: {refusal}", secret.namespace, secret.name);
-            self.journal.warning(secret.cluster.as_str(), text);
-            return;
-        }
+        // The dialog sees the refusal as the state of its create.
+        let refusal = state.config.refusal(&secret.cluster);
+        let (cluster, namespace, name) = (secret.cluster.clone(), &secret.namespace, &secret.name);
+        let note =
+            refusal.as_ref().map(|refusal| format!("the create of Secret {namespace}/{name} did not go: {refusal}"));
         let start = || SecretWriter::start(&self.tasks, registry.clone(), self.repaint.clone());
-        state.creates.get_or_insert_with(start).ask(secret);
+        let refusal = refusal.map(|refusal| CoreError::new(ErrorClass::Forbidden, refusal));
+        state.creates.get_or_insert_with(start).ask(secret, refusal);
         drop(state);
+        if let Some(note) = note {
+            self.journal.warning(cluster.as_str(), note);
+        }
         self.repaint.request();
     }
 }
@@ -100,16 +104,17 @@ impl SecretWriter {
         Self { _task: task, shared, number: 0 }
     }
 
-    /// Gives a create to the task. The view shows it as pending at once, or as not sent
-    /// when too many creates wait.
-    pub(super) fn ask(&mut self, secret: NewSecret) {
+    /// Gives a create to the task. The view shows it as pending at once, or as not sent with
+    /// the `refusal` of the core or when too many creates wait.
+    pub(super) fn ask(&mut self, secret: NewSecret, refusal: Option<CoreError>) {
         self.number += 1;
         let mut job = CreateJob { number: self.number, secret, state: WriteState::Pending };
         let mut queue = self.shared.queue();
-        if queue.waiting.len() < QUEUE_LIMIT {
-            queue.waiting.push_back(job.clone());
-        } else {
-            job.state = WriteState::NotSent(CoreError::invalid(format!("{QUEUE_LIMIT} creates wait for the server")));
+        let full = queue.waiting.len() >= QUEUE_LIMIT;
+        let full = full.then(|| CoreError::invalid(format!("{QUEUE_LIMIT} creates wait for the server")));
+        match refusal.or(full) {
+            Some(error) => job.state = WriteState::NotSent(error),
+            None => queue.waiting.push_back(job.clone()),
         }
         queue.last = Some(Arc::new(job));
         drop(queue);

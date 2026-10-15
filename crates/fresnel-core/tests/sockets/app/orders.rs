@@ -9,7 +9,7 @@ use fresnel_core::app::{AccessView, CheckState, Command, CoreSettings, CoreView,
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::config::{Edit, EditValue};
 use fresnel_core::journal::TASK_SOURCE;
-use fresnel_core::keys::{NewSecret, SecretType};
+use fresnel_core::keys::{Draft, NewSecret, SecretType, WriteState};
 use fresnel_core::kinds::{Action, Kind};
 use fresnel_core::ops::access::{self, Decision};
 use fresnel_core::ops::{JobState, Operation, Order, Outcome, Rollout, Target};
@@ -18,7 +18,7 @@ use fresnel_testkit::FakeApiServer;
 use http::Method;
 use k8s_openapi::api::apps::v1::Deployment;
 
-use super::keys::requests;
+use super::keys::{DB, keys, password, requests, secret, target};
 use super::{App, home, write_kubeconfig};
 
 const DEPLOYMENTS: &str = "/apis/apps/v1/deployments";
@@ -217,11 +217,27 @@ async fn a_read_only_cluster_gets_no_write_and_a_read_and_the_other_cluster_go_o
     assert!(!matches!(job(&view, 3).map(|job| &job.report.state), Some(JobState::NotSent(_))), "a read runs");
     assert_eq!((requests(&ams, &Method::PATCH, SCALE), requests(&fra, &Method::PATCH, SCALE)), (0, 1));
 
-    let secret = NewSecret::new(ClusterId::new("ams"), "shop", "token", SecretType::Opaque);
-    app.core.send(Command::CreateSecret(secret));
+    // A create and a key save end as not sent with the reason, so their dialog and their
+    // view end their wait.
+    let not_sent =
+        |state: Option<&WriteState>| matches!(state, Some(WriteState::NotSent(error)) if error.to_string() == refusal);
+    let token = NewSecret::new(ClusterId::new("ams"), "shop", "token", SecretType::Opaque);
+    app.core.send(Command::CreateSecret(token));
     let texts = app.until_texts("ams", |texts| texts.iter().any(|text| text.contains("did not go"))).await;
     assert!(texts.contains(&format!("the create of Secret shop/token did not go: {refusal}")), "{texts:#?}");
+    let created = app.core.view().create;
+    assert!(not_sent(created.as_ref().map(|job| &job.state)), "the state of the create: {created:?}");
     assert_eq!(requests(&ams, &Method::POST, "/api/v1/namespaces/shop/secrets"), 0);
+    ams.set_body(DB, &secret("db", 7, "YW1z"));
+    app.core.send(Command::ShowKeys(Some(target("ams"))));
+    let open = app.until("the Secret of ams", |view| password(view, "ams").is_some()).await;
+    let mut draft = Draft::new(keys(&open, "ams").and_then(|keys| keys.object.clone()).expect("the object"));
+    draft.set("password", b"new".to_vec()).expect("a change");
+    app.core.send(Command::SaveKeys(draft.save().expect("a save")));
+    let save = |view: &CoreView| keys(view, "ams").and_then(|keys| keys.save.clone()).map(|job| job.state);
+    let saved = app.until("the refused save", |view| save(view).is_some()).await;
+    assert!(not_sent(save(&saved).as_ref()), "the state of the save: {:?}", save(&saved));
+    assert_eq!(requests(&ams, &Method::PATCH, DB), 0);
 
     app.core.send(Command::EditSettings(vec![Edit::new(&["clusters", "ams", "read_only"], EditValue::Flag(false))]));
     app.until("the end of the read-only state", |view| !view.config.read_only(&ClusterId::new("ams"))).await;

@@ -18,6 +18,7 @@ use fresnel_core::store::ObjectKey;
 use super::state;
 use crate::shell::Scene;
 use crate::theme;
+use crate::views::act::TypedName;
 use crate::views::objects::Link;
 use crate::widgets;
 
@@ -41,6 +42,8 @@ pub(crate) struct NewSecretDialog {
     account: String,
     /// The create that the dialog sent; the view of the core has its state.
     sent: Option<Sent>,
+    /// The name of the cluster, for its confirm rule `type-name`.
+    typed: TypedName,
 }
 
 /// A create that the dialog sent.
@@ -63,6 +66,7 @@ impl Default for NewSecretDialog {
             rows: Vec::new(),
             account: String::new(),
             sent: None,
+            typed: TypedName::default(),
         }
     }
 }
@@ -133,7 +137,9 @@ impl NewSecretDialog {
         for hint in secret.as_ref().map(NewSecret::hints).unwrap_or_default().iter().chain(&twice) {
             ui.label(RichText::new(hint).color(palette.warn));
         }
-        let refusal = self.cluster.as_ref().and_then(|cluster| scene.view.config.refusal(cluster));
+        // A read-only cluster, and else the confirm rule of the cluster, keep the create off.
+        let typed = self.typed.show(ui, palette, scene.view, self.cluster.iter());
+        let refusal = self.cluster.as_ref().and_then(|cluster| scene.view.config.refusal(cluster)).or(typed);
         if let Some(refusal) = &refusal {
             ui.label(RichText::new(refusal).color(palette.error));
         }

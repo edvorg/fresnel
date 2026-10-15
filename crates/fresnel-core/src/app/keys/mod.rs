@@ -14,6 +14,7 @@ mod follow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use fresnel_net::ErrorClass;
 use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName};
 use tokio::sync::Notify;
 
@@ -50,14 +51,18 @@ impl Inner {
         state.saves += 1;
         let number = state.saves;
         let target = save.target.clone();
+        let holder = state.connected.get(&target.cluster).and_then(|connected| connected.keys(&target));
         // A read-only cluster gets no write, also from a view that did not close its gate.
+        // The view sees the refusal as the state of its save.
         if let Some(refusal) = state.config.refusal(&target.cluster) {
+            if let Some(holder) = holder {
+                holder.refuse(number, save, CoreError::new(ErrorClass::Forbidden, refusal.clone()));
+            }
             drop(state);
             self.journal.warning(target.cluster.as_str(), format!("{} did not go: {refusal}", save_of(&target)));
             self.repaint.request();
             return;
         }
-        let holder = state.connected.get(&target.cluster).and_then(|connected| connected.keys(&target));
         let Some(holder) = holder else {
             drop(state);
             let text = format!("{} did not go: its key view is not open", save_of(&target));
@@ -210,6 +215,16 @@ impl KeysHolder {
             view.save = Some(SaveJob { number, save, state: WriteState::Pending });
         });
         self.saved.notify_one();
+    }
+
+    /// Shows a save that the core refused as not sent. A save that waits or runs keeps its
+    /// place: its end is the news of the view, and the journal has the refusal.
+    fn refuse(&self, number: u64, save: Save, error: CoreError) {
+        change(&self.slot, |view| {
+            if view.save.as_ref().is_none_or(|job| job.state != WriteState::Pending) {
+                view.save = Some(SaveJob { number, save, state: WriteState::NotSent(error) });
+            }
+        });
     }
 
     fn is_saving(&self) -> bool {

@@ -337,7 +337,7 @@ impl KeyPanel {
             return;
         };
         let color = scene.colors.color(&self.target.cluster, palette);
-        match confirm.show(ui.ctx(), color, secret, refusal) {
+        match confirm.show(ui.ctx(), (color, secret), refusal, scene.view) {
             Some(Answer::Save) => {
                 scene.commands.push(Command::SaveKeys(confirm.save().clone()));
                 self.confirm = None;

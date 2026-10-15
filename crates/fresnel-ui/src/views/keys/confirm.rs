@@ -5,15 +5,18 @@
 //!
 //! The dialog holds the save that it shows, so the save that goes is the one that the user
 //! saw: a new read during the dialog does not change it, and the server refuses it as a
-//! conflict when the object changed.
+//! conflict when the object changed. The confirm rule `type-name` of the cluster asks for
+//! its name, as before each other change.
 
 use egui::{Align, Context, Frame, Id, Key, Layout, Margin, Modal, RichText, ScrollArea, Ui};
+use fresnel_core::app::CoreView;
 use fresnel_core::keys::{KeyObject, KeyWrite, Place, Save, Value};
 
 use super::diff::{self, Line, Mark};
 use super::text;
 use crate::format::{self, short};
 use crate::theme::{self, Palette};
+use crate::views::act::TypedName;
 use crate::widgets::tone::Tone;
 use crate::widgets::{self, dot};
 
@@ -41,13 +44,14 @@ pub(super) struct Confirm {
     save: Save,
     keys: Vec<KeyDiff>,
     show_values: bool,
+    typed: TypedName,
 }
 
 impl Confirm {
     /// The dialog of a save of a draft on `base`, the read that the save names.
     pub(super) fn new(save: Save, base: &KeyObject) -> Self {
         let keys = save.writes.iter().map(|write| key_diff(write, base.value(&write.key))).collect();
-        Self { save, keys, show_values: false }
+        Self { save, keys, show_values: false, typed: TypedName::default() }
     }
 
     /// The save of the dialog.
@@ -57,23 +61,29 @@ impl Confirm {
 
     /// Draws the dialog. `color` is the color of the cluster, `secret` true for a Secret.
     /// `refusal` tells why the save cannot go now: its button is off, and the dialog stays
-    /// for a cancel.
+    /// for a cancel. `view` gives the confirm rule of the cluster.
     pub(super) fn show(
         &mut self,
         ctx: &Context,
-        color: egui::Color32,
-        secret: bool,
+        (color, secret): (egui::Color32, bool),
         refusal: Option<&str>,
+        view: &CoreView,
     ) -> Option<Answer> {
         let modal = Modal::new(Id::new("save keys")).show(ctx, |ui| {
             ui.set_width(WIDTH);
-            self.contents(ui, color, secret, refusal)
+            self.contents(ui, (color, secret), refusal, view)
         });
         let escape = ctx.input(|input| input.key_pressed(Key::Escape));
         modal.inner.or(escape.then_some(Answer::Cancel))
     }
 
-    fn contents(&mut self, ui: &mut Ui, color: egui::Color32, secret: bool, refusal: Option<&str>) -> Option<Answer> {
+    fn contents(
+        &mut self,
+        ui: &mut Ui,
+        (color, secret): (egui::Color32, bool),
+        refusal: Option<&str>,
+        view: &CoreView,
+    ) -> Option<Answer> {
         let palette = theme::palette(ui);
         let target = &self.save.target;
         let (kind, key) = (target.kind.kind().info().name, &target.key);
@@ -105,7 +115,10 @@ impl Confirm {
             }
         });
         ui.add_space(8.0);
-        if let Some(reason) = refusal {
+        let cluster = self.save.target.cluster.clone();
+        let typed = self.typed.show(ui, palette, view, std::iter::once(&cluster));
+        let refusal = refusal.map(str::to_owned).or(typed);
+        if let Some(reason) = &refusal {
             ui.label(RichText::new(reason).color(palette.warn));
         }
         let mut answer = None;
