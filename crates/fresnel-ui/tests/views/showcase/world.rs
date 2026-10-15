@@ -1,7 +1,7 @@
 //! The world of the showcase: one shop with three clusters, each name made up.
 //!
 //! prod-eu and staging are live. prod-us lost its connection 48 s ago, so each of its stores
-//! keeps its objects as old ones. A drain of the node general-7x2kw of prod-eu runs: it
+//! keeps its objects as old ones. A drain of the node general-bw9fd of prod-eu runs: it
 //! evicted the pods of cart, grafana and coredns there, whose new pods run on the other
 //! nodes or wait for one, and a disruption budget holds postgres-1. On staging, a release
 //! candidate of checkout-api crashes.
@@ -12,10 +12,12 @@ use k8s_openapi::api::core::v1::Pod;
 
 use super::objects::{App, DAY, HOUR, MINUTE, Owner, PodPlan, State, hash, object, pod, suffix, uid};
 
+/// The hash of the template of the release of checkout-api that prod runs.
+const RELEASE: &str = "7d9c5b8f6";
 pub(super) const CHECKOUT: App = App {
     namespace: "shop",
     name: "checkout-api",
-    owner: Owner::Deployment("7d9c5b8f6", 7),
+    owner: Owner::Deployment(RELEASE, 7),
     image: "shop/checkout-api:1.42.3",
     requests: ["200m", "256Mi"],
     limits: [Some("500m"), Some("512Mi")],
@@ -26,6 +28,10 @@ pub(super) const CHECKOUT: App = App {
 pub(super) const RC_REVISION: u32 = 8;
 /// The age of the rollout of that release candidate.
 pub(super) const RC_ROLLOUT: u64 = 52 * MINUTE;
+/// The ages of the revisions 6 and 7 on staging, and the hash and the image of revision 7.
+pub(super) const RELEASE_AGE: u64 = 3 * DAY + 2 * HOUR + 41 * MINUTE;
+pub(super) const CANDIDATE_AGE: u64 = DAY + 5 * HOUR + 9 * MINUTE;
+pub(super) const CANDIDATE: (&str, &str) = ("8b5d7c9f4", "shop/checkout-api:1.43.0-rc.0");
 /// That release candidate: a new image with the resources of the release.
 pub(super) const CHECKOUT_NEXT: App =
     App { owner: Owner::Deployment("59f7c4d8b", RC_REVISION), image: "shop/checkout-api:1.43.0-rc.1", ..CHECKOUT };
@@ -155,7 +161,7 @@ pub(super) const PROD_EU: Site = Site {
     age: 92 * DAY,
     node_age: 64 * DAY,
     network: 0,
-    nodes: &["general-7x2kp", "general-7x2kr", DRAINED],
+    nodes: &["general-7x2kp", "general-m4tqz", DRAINED],
     apps: &[
         (&CHECKOUT, 3, 2 * DAY + 4 * HOUR),
         (&CART, 3, 6 * DAY + HOUR),
@@ -179,7 +185,7 @@ pub(super) const PROD_US: Site = Site {
     age: 80 * DAY,
     node_age: 59 * DAY,
     network: 1,
-    nodes: &["general-q4m8d", "general-q4m8f"],
+    nodes: &["general-q4m8d", "general-hz62c"],
     apps: &[
         (&CHECKOUT, 3, 2 * DAY + 3 * HOUR),
         (&CART, 2, 6 * DAY),
@@ -215,8 +221,10 @@ pub(super) const STAGING: Site = Site {
     live: true,
 };
 
-/// The node of prod-eu that the drain empties.
-pub(super) const DRAINED: &str = "general-7x2kw";
+/// The node of prod-eu that the drain empties, and the seconds since the drain cordoned it:
+/// the new pods of its evicted ones are younger.
+pub(super) const DRAINED: &str = "general-bw9fd";
+pub(super) const CORDONED: u64 = 84;
 /// The Job of the CronJob of today, at 02:00: its name has the minute of its start.
 pub(super) const REPORT_JOB: &str = "nightly-report-29999640";
 /// Why the scheduler finds no node for the new pod of cart.
@@ -276,6 +284,34 @@ pub(super) fn rollout(site: &Site, app: &App, age: u64) -> u64 {
         Owner::CronJob => age,
         _ => aged(age, &[site.name, app.name, "rollout"]),
     }
+}
+
+/// An earlier ReplicaSet of a Deployment: the hash of its template, its image, its revision
+/// and its age. A Deployment keeps it with no pod, for a rollback.
+pub(super) struct Earlier {
+    pub(super) hash: String,
+    pub(super) image: &'static str,
+    pub(super) revision: u32,
+    pub(super) age: u64,
+}
+
+/// The earlier ReplicaSets of an app, the oldest first: the release and the first candidate
+/// before the release candidate of staging, and the revision before for each other
+/// Deployment. `created` and `rollout` are the ages of the workload and its last rollout.
+pub(super) fn earlier(app: &App, rollout: u64, created: u64) -> Vec<Earlier> {
+    let Owner::Deployment(_, revision) = app.owner else {
+        return Vec::new();
+    };
+    let earlier = |hash: &str, image, revision, age| Earlier { hash: hash.to_owned(), image, revision, age };
+    if app.image == CHECKOUT_NEXT.image {
+        let (hash, image) = CANDIDATE;
+        return vec![
+            earlier(RELEASE, CHECKOUT.image, RC_REVISION - 2, RELEASE_AGE),
+            earlier(hash, image, RC_REVISION - 1, CANDIDATE_AGE),
+        ];
+    }
+    let hash = suffix(&[app.name, "earlier"], 9);
+    (revision > 1).then(|| earlier(&hash, app.image, revision - 1, (created + rollout) / 2)).into_iter().collect()
 }
 
 /// The pods of a rollout start this many seconds apart, the first one when it starts.

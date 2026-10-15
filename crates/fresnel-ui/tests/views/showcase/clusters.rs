@@ -100,6 +100,7 @@ fn data(site: &Site, stores: &Stores) -> ClusterData {
     holder.hold(site, &stores.replica_sets);
     holder.hold(site, &stores.stateful_sets);
     holder.hold(site, &stores.daemon_sets);
+    holder.hold(site, &stores.budgets);
     holder.hold(site, &stores.jobs);
     holder.hold(site, &stores.cron_jobs);
     holder.hold(site, &stores.services);

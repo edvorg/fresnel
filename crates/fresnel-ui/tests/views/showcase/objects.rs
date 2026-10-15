@@ -208,7 +208,10 @@ pub(super) fn workload(cluster: &str, app: &App, kind: &str, (replicas, ready): 
     workload["metadata"]["labels"] = json!({"app": app.name});
     if let ("Deployment", Owner::Deployment(_, revision)) = (kind, app.owner) {
         workload["metadata"]["annotations"] = json!({"deployment.kubernetes.io/revision": revision.to_string()});
-        workload["spec"]["strategy"] = json!({"type": "RollingUpdate"});
+        // The nodes have no room for an extra pod: a rollout stops an old pod first. So the
+        // release candidate that crashes on staging left no pod of the earlier one.
+        let rolling = json!({"maxSurge": 0, "maxUnavailable": 1});
+        workload["spec"]["strategy"] = json!({"type": "RollingUpdate", "rollingUpdate": rolling});
     }
     if kind == "DaemonSet" {
         workload["status"] = json!({"desiredNumberScheduled": replicas, "currentNumberScheduled": replicas,
@@ -233,13 +236,20 @@ pub(super) fn conditions(complete: bool, age: u64) -> Value {
     json!([condition("Available", available), condition("Progressing", progress)])
 }
 
-/// The ReplicaSet of a Deployment: the controller of its pods.
-pub(super) fn replica_set(cluster: &str, app: &App, deployment: &Value, hash: &str, pods: (u32, u32)) -> Value {
+/// A ReplicaSet of a Deployment, of one revision of its pod template: the hash of the template,
+/// the revision and the age. The ReplicaSet of the newest revision has the pods.
+pub(super) fn replica_set(
+    cluster: &str,
+    app: &App,
+    deployment: &Value,
+    (hash, revision, age): (&str, u32, u64),
+    pods: (u32, u32),
+) -> Value {
     let name = format!("{}-{hash}", app.name);
-    let mut set = workload(cluster, app, "ReplicaSet", pods, 0);
-    set["metadata"] = deployment["metadata"].clone();
-    set["metadata"]["name"] = name.as_str().into();
-    set["metadata"]["uid"] = uid(&[cluster, "ReplicaSet", app.namespace, &name]).into();
+    let mut set = workload(cluster, app, "ReplicaSet", pods, age);
+    set["metadata"] = meta(cluster, "ReplicaSet", app.namespace, &name, age);
+    set["metadata"]["labels"] = json!({"app": app.name, "pod-template-hash": hash});
+    set["metadata"]["annotations"] = json!({"deployment.kubernetes.io/revision": revision.to_string()});
     let owner = deployment["metadata"]["uid"].as_str().unwrap_or_default();
     set["metadata"]["ownerReferences"] = owner_reference("Deployment", app.name, owner);
     set
@@ -294,26 +304,33 @@ pub(super) fn node(cluster: &str, (name, network): (&str, u8), version: &str, ag
     node
 }
 
-/// A warning Event of a pod: its reason and message, its count and the age of the last one.
-pub(super) struct Warning<'a> {
+/// An Event: its type, its reason and message, its count and the age of the last one.
+pub(super) struct Note<'a> {
+    /// "Warning" or "Normal".
+    pub(super) kind: &'a str,
     pub(super) reason: &'a str,
     pub(super) message: &'a str,
     pub(super) count: u32,
     pub(super) last: u64,
 }
 
-/// The Event of a warning about the pod with this metadata.
-pub(super) fn event(cluster: &str, pod: &Value, warning: &Warning<'_>) -> Value {
-    let Warning { reason, message, count, last } = *warning;
-    let (namespace, name) = (pod["namespace"].as_str().unwrap_or_default(), pod["name"].as_str().unwrap_or_default());
-    let event = format!("{name}.{:x}", hash(&[cluster, name, reason]) % 0x1_0000_0000);
-    let source = if reason == "FailedScheduling" { "default-scheduler" } else { "kubelet" };
+/// The Event of a note about an object of a kind, with the metadata of the object. The
+/// component that sends a reason sends it each 30 s while the cause stays.
+pub(super) fn event(cluster: &str, (kind, object): (&str, &Value), note: &Note<'_>) -> Value {
+    let Note { kind: level, reason, message, count, last } = *note;
+    let [namespace, name] = ["namespace", "name"].map(|field| object[field].as_str().unwrap_or_default());
+    let event = format!("{name}.{:x}", hash(&[cluster, name, reason, message]) % 0x1_0000_0000);
+    let source = match reason {
+        "FailedScheduling" => "default-scheduler",
+        "ScalingReplicaSet" => "deployment-controller",
+        _ => "kubelet",
+    };
+    let first = last + u64::from(count.saturating_sub(1)) * 30;
     json!({
-        "metadata": meta(cluster, "Event", namespace, &event, last + u64::from(count) * 30),
-        "involvedObject": {"kind": "Pod", "namespace": namespace, "name": name, "uid": pod["uid"]},
-        "reason": reason, "message": message, "type": "Warning", "count": count,
-        "firstTimestamp": ago(last + u64::from(count) * 30), "lastTimestamp": ago(last),
-        "source": {"component": source},
+        "metadata": meta(cluster, "Event", namespace, &event, first),
+        "involvedObject": {"kind": kind, "namespace": namespace, "name": name, "uid": object["uid"]},
+        "reason": reason, "message": message, "type": level, "count": count,
+        "firstTimestamp": ago(first), "lastTimestamp": ago(last), "source": {"component": source},
     })
 }
 
