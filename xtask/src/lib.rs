@@ -3,12 +3,16 @@
 //! - [`sizes`]: the size limits of the documents and the source files.
 //! - [`borders`]: what a crate of the workspace must not depend on.
 //! - [`install`]: the macOS bundle and its install.
+//! - [`version`]: the version of a build. `program`: its build. `icon`: the icon of the app.
 //! - [`soak`]: the soak with k3s, faults and `fresnel-cli soak`.
 
 pub mod borders;
+mod icon;
 pub mod install;
+mod program;
 pub mod sizes;
 pub mod soak;
+pub mod version;
 
 use std::ffi::OsString;
 use std::path::PathBuf;

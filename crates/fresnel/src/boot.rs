@@ -22,9 +22,8 @@ use crate::folders::{Build, Folders};
 use crate::lock::{LockError, ProcessLock};
 use crate::log_file::{LogFile, Rotation};
 use crate::panic_report::{self, Reports};
-use crate::platform;
+use crate::{VERSION, platform};
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The source of the journal entries of the program.
 const APP: &str = "app";
 /// The count of entries that the journal keeps in memory. The log file keeps all.

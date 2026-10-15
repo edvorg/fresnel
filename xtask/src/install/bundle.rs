@@ -3,8 +3,9 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::icon;
 use super::tool::run;
+use crate::icon;
+use crate::version::Version;
 
 /// The name of the bundle folder.
 pub const APP: &str = "Fresnel.app";
@@ -17,7 +18,7 @@ const OLDEST_SYSTEM: &str = "11.0";
 
 /// Makes the bundle in `folder` from a built program. Returns the path of the bundle.
 /// The icon needs `iconutil`, a tool of macOS.
-pub fn assemble(program: &Path, version: &str, folder: &Path) -> io::Result<PathBuf> {
+pub fn assemble(program: &Path, version: &Version, folder: &Path) -> io::Result<PathBuf> {
     let app = folder.join(APP);
     let contents = app.join("Contents");
     let (programs, resources) = (contents.join("MacOS"), contents.join("Resources"));
@@ -53,8 +54,12 @@ fn make_program(_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// The text of `Info.plist` for a version of the app.
-pub fn info_plist(version: &str) -> String {
+/// The text of `Info.plist` for a version of the app. Finder shows "0.1.0 (57)": the workspace
+/// version and the build number, which macOS wants as numbers and dots, so not as `0.1.0+build.57`.
+/// A build outside the release workflow has the workspace version in both places.
+pub fn info_plist(version: &Version) -> String {
+    let release = version.release_text();
+    let build = version.build.map_or_else(|| release.clone(), |build| build.to_string());
     let entries = [
         ("CFBundleDevelopmentRegion", "en"),
         ("CFBundleDisplayName", "Fresnel"),
@@ -64,8 +69,8 @@ pub fn info_plist(version: &str) -> String {
         ("CFBundleInfoDictionaryVersion", "6.0"),
         ("CFBundleName", "Fresnel"),
         ("CFBundlePackageType", "APPL"),
-        ("CFBundleShortVersionString", version),
-        ("CFBundleVersion", version),
+        ("CFBundleShortVersionString", release.as_str()),
+        ("CFBundleVersion", build.as_str()),
         ("LSApplicationCategoryType", "public.app-category.developer-tools"),
         ("LSMinimumSystemVersion", OLDEST_SYSTEM),
         ("NSPrincipalClass", "NSApplication"),
@@ -111,11 +116,12 @@ mod tests {
 
     #[test]
     fn the_plist_has_the_version_the_program_and_the_identifier() {
-        let plist = info_plist("1.2.3 <test & more>");
+        let plist = info_plist(&Version { release: [1, 2, 3], build: Some(57) });
         for entry in [
             "\t<key>CFBundleExecutable</key>\n\t<string>fresnel</string>\n",
             "\t<key>CFBundleIdentifier</key>\n\t<string>io.github.edvorg.fresnel</string>\n",
-            "\t<key>CFBundleShortVersionString</key>\n\t<string>1.2.3 &lt;test &amp; more&gt;</string>\n",
+            "\t<key>CFBundleShortVersionString</key>\n\t<string>1.2.3</string>\n",
+            "\t<key>CFBundleVersion</key>\n\t<string>57</string>\n",
             "\t<key>CFBundleIconFile</key>\n\t<string>AppIcon</string>\n",
             "\t<key>NSHighResolutionCapable</key>\n\t<true/>\n",
         ] {
@@ -123,5 +129,9 @@ mod tests {
         }
         assert!(plist.starts_with("<?xml version=\"1.0\"") && plist.ends_with("</dict>\n</plist>\n"), "{plist}");
         assert_eq!(plist.matches("<key>").count(), 15);
+
+        let local = info_plist(&Version { release: [1, 2, 3], build: None });
+        assert!(local.contains("\t<key>CFBundleVersion</key>\n\t<string>1.2.3</string>\n"), "{local}");
+        assert_eq!(escape("<a & b>"), "&lt;a &amp; b&gt;");
     }
 }

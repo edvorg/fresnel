@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use xtask::version::Version;
 use xtask::{borders, install, sizes, soak};
 
 const USAGE: &str = "\
@@ -17,7 +18,10 @@ commands:
                          <folder>; the earlier bundle stays as Fresnel.app.prev
   soak --hours <number> [--label <text>] [--report <folder>] [--seed <number>]
                          run the app core for some hours on k3s in Docker with changes
-                         and random faults, and write a report of each minute";
+                         and random faults, and write a report of each minute
+
+The variable FRESNEL_BUILD of install is the build number of a release: the version is
+then 0.1.0+build.<number>.";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
@@ -68,10 +72,16 @@ fn check_borders() -> ExitCode {
     }
 }
 
+/// The version of the build, from the variable `FRESNEL_BUILD`. A wrong value stops the command.
+fn version(command: &str) -> Option<Version> {
+    Version::of_environment().map_err(|problem| eprintln!("{command}: {problem}")).ok()
+}
+
 fn install(destination: &Path) -> ExitCode {
-    match install::run(&root(), destination) {
+    let Some(version) = version("install") else { return ExitCode::FAILURE };
+    match install::run(&root(), destination, &version) {
         Ok(installed) => {
-            println!("install: {} is the new version", installed.app.display());
+            println!("install: {} is the new version, {version}", installed.app.display());
             if let Some(fallback) = installed.fallback {
                 println!("install: the earlier version is {}", fallback.display());
             }
