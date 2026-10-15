@@ -1,5 +1,6 @@
 //! The jobs and the permissions in the core: `Command::Run` starts a job in the cluster of
-//! each order, `Command::Cancel` ends a wait of a job, and `Command::ReadRules` and
+//! each order (a download writes into the folder of downloads of the core),
+//! `Command::Cancel` ends a wait of a job, and `Command::ReadRules` and
 //! `Command::CheckAccess` give the permissions that a view decides with. The cluster test
 //! `k3s_app` sends the same commands to k3s; these run in each check, with no Docker.
 
@@ -12,7 +13,7 @@ use fresnel_core::journal::TASK_SOURCE;
 use fresnel_core::keys::{Draft, NewSecret, SecretType, WriteState};
 use fresnel_core::kinds::{Action, Kind};
 use fresnel_core::ops::access::{self, Decision};
-use fresnel_core::ops::{JobState, Operation, Order, Outcome, Rollout, Target};
+use fresnel_core::ops::{JobState, Operation, Order, Outcome, Rollout, StepState, Target};
 use fresnel_core::store::ObjectKey;
 use fresnel_testkit::FakeApiServer;
 use http::Method;
@@ -22,6 +23,7 @@ use super::keys::{DB, keys, password, requests, secret, target};
 use super::{App, home, write_kubeconfig};
 
 const DEPLOYMENTS: &str = "/apis/apps/v1/deployments";
+const WEB: &str = "/apis/apps/v1/namespaces/shop/deployments/web";
 const SCALE: &str = "/apis/apps/v1/namespaces/shop/deployments/web/scale";
 const RULES: &str = "/apis/authorization.k8s.io/v1/selfsubjectrulesreviews";
 const ACCESS: &str = "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews";
@@ -107,6 +109,43 @@ async fn an_order_runs_as_a_job_of_its_cluster_and_a_cancel_ends_its_wait() {
     // A job is a task that runs one time: the journal has the end of each one.
     let ends = app.until_texts(TASK_SOURCE, |texts| texts.len() == 2).await;
     assert!(ends.iter().all(|text| text == "task job [ams] ended; no restart"), "{ends:?}");
+    app.expected_task_ends = 2;
+}
+
+/// Plan section 10 through the core: a download is a job of the cluster of its order, and its
+/// file goes into the folder of downloads of the core. A folder that cannot be made fails
+/// the job with the reason, and the next download works.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_download_reads_its_cluster_and_writes_a_new_file_into_the_folder_of_downloads() {
+    let (mut app, ams, fra, home) = started("download").await;
+    fra.set_body(WEB, &web(12));
+    let ended = |number| move |view: &CoreView| job(view, number).is_some_and(|job| job.report.state.is_final());
+    home.write("Downloads", "a file in the place of the folder").expect("the file");
+    app.core.send(Command::Run(vec![order("fra", Operation::Download)]));
+    let failed = app.until("the download into a file", ended(1)).await;
+    let state = job(&failed, 1).map(|job| &job.report.state);
+    let reason = match state {
+        Some(JobState::Failed(error)) => error.to_string(),
+        other => panic!("a failed download: {other:?}"),
+    };
+    assert!(reason.contains("the file cannot be written"), "{reason}");
+
+    std::fs::remove_file(home.path("Downloads")).expect("the file goes");
+    app.core.send(Command::Run(vec![order("fra", Operation::Download)]));
+    let done = app.until("the second download", ended(2)).await;
+    let report = &job(&done, 2).expect("the job").report;
+    let saved = match report.steps.last().map(|step| &step.state) {
+        Some(StepState::Done(text)) => text.strip_prefix("saved as ").map(std::path::PathBuf::from),
+        _ => None,
+    };
+    let saved = saved.unwrap_or_else(|| panic!("the path of the file: {report:#?}"));
+    assert_eq!((&report.state, saved.parent()), (&JobState::Done, Some(home.path("Downloads").as_path())));
+    let text = std::fs::read_to_string(&saved).expect("the file");
+    assert!(text.contains("name: web") && text.contains("resourceVersion: \"12\""), "{text}");
+    assert_eq!((requests(&ams, &Method::GET, WEB), requests(&fra, &Method::GET, WEB)), (0, 2));
+
+    let ends = app.until_texts(TASK_SOURCE, |texts| texts.len() == 2).await;
+    assert!(ends.iter().all(|text| text == "task job [fra] ended; no restart"), "{ends:?}");
     app.expected_task_ends = 2;
 }
 

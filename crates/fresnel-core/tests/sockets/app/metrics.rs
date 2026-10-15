@@ -1,14 +1,15 @@
 //! The metrics of the selected clusters in the view of the core: the core starts a sampler
 //! with the stores of each cluster, gives its metrics in the data of the cluster, wakes the
-//! UI for each poll, and stops the sampler with the disconnect.
+//! UI for each poll, ends the long pause of a cluster with no metrics API at "Retry now", and
+//! stops the sampler with the disconnect.
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-use fresnel_core::app::{CoreSettings, CoreView};
+use fresnel_core::app::{Command, CoreSettings, CoreView};
 use fresnel_core::cluster::ClusterId;
-use fresnel_core::metrics::{Latest, Metrics, MetricsSettings, PollState, SeriesKey};
+use fresnel_core::metrics::{ABSENT_PAUSE, Latest, Metrics, MetricsSettings, PollState, SeriesKey};
 use fresnel_testkit::{FakeApiServer, Fault};
 use tokio::time::timeout;
 
@@ -99,4 +100,31 @@ async fn each_cluster_has_its_own_metrics_and_one_with_no_metrics_api_changes_no
     // Only a check that nothing occurs waits a fixed time: five periods.
     tokio::time::sleep(PERIOD * 5).await;
     assert_eq!(reads(), before, "no poll after the disconnect");
+}
+
+/// Research 11 section 4.6 through the core: a cluster with no metrics API gets no poll in
+/// the period, and "Retry now" of the Connections tab ends its long pause at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn retry_now_ends_the_long_pause_of_a_cluster_with_no_metrics_api() {
+    let ams = FakeApiServer::start().await.expect("a server");
+    ams.add_fault(Fault::not_found().on_path(PODS));
+    ams.add_fault(Fault::not_found().on_path(NODES));
+    let home = home("metrics-absent");
+    write_kubeconfig(&home, "ams", &[("ams", ams.addr(), &ams, false)]);
+    let settings = MetricsSettings { period: PERIOD, ..MetricsSettings::default() };
+    let app = App::started(&home, CoreSettings { metrics: settings, ..CoreSettings::default() });
+
+    let absent = app.until("no metrics API in ams", |view| metrics(view, "ams").is_some_and(Metrics::is_absent)).await;
+    let first = metrics(&absent, "ams").map(|ams| (ams.pause(), ams.next));
+    assert_eq!(first.map(|(pause, _)| pause), Some(ABSENT_PAUSE));
+    let polls = || ams.requests().iter().filter(|seen| seen.uri.path() == NODES).count();
+    let before = polls();
+    // Only a check that nothing occurs waits a fixed time: five periods.
+    tokio::time::sleep(PERIOD * 5).await;
+    assert_eq!(polls(), before, "no poll in the period of a cluster with metrics");
+
+    app.core.send(Command::RetryNow(ClusterId::new("ams")));
+    let next = first.and_then(|(_, next)| next);
+    app.until("a poll after retry now", |view| metrics(view, "ams").is_some_and(|ams| ams.next != next)).await;
+    assert_eq!(polls(), before + 1, "one poll, then the long pause again");
 }
