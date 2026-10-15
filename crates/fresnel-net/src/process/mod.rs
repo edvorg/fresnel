@@ -237,6 +237,9 @@ pub(crate) fn tail(bytes: &[u8], characters: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::AssertUnwindSafe;
+
+    use futures_util::FutureExt as _;
     use tokio::task::JoinSet;
 
     use super::*;
@@ -329,6 +332,29 @@ mod tests {
     #[test]
     fn the_drop_of_a_run_leaves_no_process_that_a_member_starts_at_that_moment() {
         no_hook_stays(drop_with_exit_hook);
+    }
+
+    /// A panic in the task of a run drops the run. The group ends, and the child is collected
+    /// with no later child: no zombie keeps its id.
+    #[tokio::test]
+    async fn a_panic_during_a_run_ends_its_group_and_leaves_no_zombie() {
+        let (shell, limits, mut ids) =
+            (program("sleep 30 & echo $$ $!; wait"), RunLimits { time: LONG, output_bytes: 1024 }, Vec::<i32>::new());
+        let run = run(&shell, limits, |out| {
+            if out.ends_with(b"\n") {
+                ids = String::from_utf8_lossy(out).split_whitespace().map(|id| id.parse().expect("an id")).collect();
+                panic!("a panic in the task of the run");
+            }
+            false
+        });
+        assert!(AssertUnwindSafe(run).catch_unwind().await.is_err(), "the run ended with the panic");
+        assert_eq!(ids.len(), 2, "the ids of the shell and of its child: {ids:?}");
+        let gone = async {
+            while ids.iter().any(|id| nix::sys::signal::kill(Pid::from_raw(*id), None).is_ok()) {
+                sleep(Duration::from_millis(10)).await;
+            }
+        };
+        timeout(Duration::from_secs(10), gone).await.expect("the shell and its child are gone and collected");
     }
 
     /// Runs the shell with the hook many times at once and asserts that no hook stayed.
