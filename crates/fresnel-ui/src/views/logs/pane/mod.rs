@@ -35,10 +35,10 @@ use crate::theme;
 
 /// The columns of the time: "08:00:00.123" and a space.
 const TIME_COLUMNS: f32 = 13.0;
-/// The most columns of the source of a view with more than one source: the end of the name
-/// of a pod and a container, as `rct9x/checkout-api`. The column is as wide as its longest
-/// name, so the end of a name alone leaves no gap before the text.
-const SOURCE_COLUMNS: usize = 20;
+/// The most columns of the name of a source, for a view with more than one source: the full
+/// name of a pod of a Deployment has some 26 characters. The gutter is as wide as its widest
+/// name and a space (`draw::source_columns`), so short names leave no gap before the text.
+const SOURCE_COLUMNS: usize = 32;
 /// The space between the text and the edges of the pane.
 const MARGIN: f32 = 6.0;
 
@@ -107,8 +107,8 @@ struct Metrics {
     /// The left edge of the time and of the source.
     time: f32,
     source: f32,
-    /// The name of each source, for a view with more than one source: each line names its
-    /// source. None for a view with one source.
+    /// The name of each source in the gutter, for a view with more than one source. Empty
+    /// for a view with one source: no line names its source.
     names: Vec<String>,
     /// Where the text goes.
     text: Rect,
@@ -237,8 +237,7 @@ impl Metrics {
         let time = rect.left() + MARGIN;
         let source = if input.times { time + TIME_COLUMNS * column } else { time };
         let names = if input.view.sources.len() > 1 { draw::source_names(input.view) } else { Vec::new() };
-        let widest = names.iter().map(|name| name.chars().count()).max().map(|widest| widest.min(SOURCE_COLUMNS));
-        let text_left = widest.map_or(source, |widest| source + (widest as f32 + 1.0) * column);
+        let text_left = draw::source_columns(&names).map_or(source, |columns| source + columns as f32 * column);
         let bottom = horizontal.map_or(rect.bottom(), |bar| bar.top());
         let text = Rect::from_min_max(pos2(text_left, rect.top() + 2.0), pos2(vertical.left() - MARGIN, bottom));
         let columns = ((text.width() / column).floor() as usize).max(8);

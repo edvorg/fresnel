@@ -92,14 +92,45 @@ pub(crate) fn short(text: &str, limit: usize) -> Cow<'_, str> {
     }
 }
 
-/// The short name of a pod of an owner: the random end of its name, as `gn8jp` for
-/// `checkout-api-7d9c5b8f6-gn8jp` of `checkout-api`. The view names the owner, and the end
-/// tells its pods apart: a legend or a log line with the full names has no room for more.
-/// The number of a pod of a StatefulSet alone would read as a value, so it keeps its name.
-pub(crate) fn pod_end<'a>(pod: &'a str, owner: &str) -> &'a str {
-    let own = pod.strip_prefix(owner).and_then(|rest| rest.strip_prefix('-'));
-    let end = own.and_then(|rest| rest.rsplit('-').next());
-    end.filter(|end| !end.is_empty() && !end.bytes().all(|byte| byte.is_ascii_digit())).unwrap_or(pod)
+/// The last `limit` characters of a text, after a mark for the part that does not show: the
+/// names of the pods of one owner differ at their end.
+pub(crate) fn short_start(text: &str, limit: usize) -> Cow<'_, str> {
+    match text.chars().count().checked_sub(limit).filter(|cut| *cut > 0) {
+        Some(cut) => {
+            let start = text.char_indices().nth(cut).map_or(text.len(), |(start, _)| start);
+            Cow::Owned(format!("…{}", text.get(start..).unwrap_or_default()))
+        }
+        None => Cow::Borrowed(text),
+    }
+}
+
+/// The short names of the pods of one owner: each name without the start that all of them
+/// share, up to a dash. The pods of one ReplicaSet are `gn8jp` and `k8q55`; in a rollout they
+/// keep the hash of their ReplicaSet, as `7d9c5b8f6-gn8jp`, and the pods of an Indexed Job
+/// their index, as `0-x7k2p`. The view names the owner, and a legend or a log line with the
+/// full names has no room for more. The number of a pod of a StatefulSet alone would read
+/// as a value, so such a pod keeps its full name.
+pub(crate) struct PodNames {
+    shared: String,
+}
+
+impl PodNames {
+    pub(crate) fn of<'a>(pods: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut pods = pods.into_iter();
+        let first = pods.next().unwrap_or_default();
+        let mut same = first.len();
+        for pod in pods {
+            same = first.bytes().zip(pod.bytes()).take(same).take_while(|(a, b)| a == b).count();
+        }
+        let dash = first.get(..same).and_then(|start| start.rfind('-'));
+        Self { shared: dash.and_then(|dash| first.get(..=dash)).unwrap_or_default().to_owned() }
+    }
+
+    /// The short name of a pod of the owner. Any other name stays as it is.
+    pub(crate) fn short<'a>(&self, pod: &'a str) -> &'a str {
+        let rest = pod.strip_prefix(self.shared.as_str());
+        rest.filter(|rest| !rest.is_empty() && !rest.bytes().all(|byte| byte.is_ascii_digit())).unwrap_or(pod)
+    }
 }
 
 /// The text of a time of day that the calendar cannot show.
@@ -235,14 +266,37 @@ mod tests {
     }
 
     #[test]
-    fn a_pod_has_the_end_of_its_name_as_its_short_name() {
-        assert_eq!(pod_end("checkout-api-7d9c5b8f6-gn8jp", "checkout-api"), "gn8jp");
-        assert_eq!(pod_end("node-exporter-x7k2p", "node-exporter"), "x7k2p");
-        assert_eq!(pod_end("report-29999640-k2x7p", "report"), "k2x7p", "a pod of a Job of a CronJob");
-        assert_eq!(pod_end("postgres-1", "postgres"), "postgres-1", "a number alone reads as a value");
-        assert_eq!(pod_end("all pods", "web"), "all pods");
-        assert_eq!(pod_end("web", "web"), "web");
-        assert_eq!(pod_end("webhook-1a", "web"), "webhook-1a", "an other name with the same start");
+    fn a_long_text_shows_its_end_with_a_mark_before_it() {
+        assert_eq!(short_start("postgres-0", 10), "postgres-0");
+        assert_eq!(short_start("elasticsearch-master-0", 15), "…search-master-0");
+        assert_eq!(short_start("größer", 3), "…ßer", "a limit counts characters, not bytes");
+        assert_eq!((short_start("", 0), short_start("a", 0)), ("".into(), "…".into()));
+    }
+
+    #[test]
+    fn a_pod_has_the_rest_of_its_name_after_the_start_that_the_pods_of_its_owner_share() {
+        let shorts = |pods: &[&str]| {
+            let names = PodNames::of(pods.iter().copied());
+            pods.iter().map(|pod| names.short(pod).to_owned()).collect::<Vec<String>>()
+        };
+        let set = ["checkout-api-7d9c5b8f6-gn8jp", "checkout-api-7d9c5b8f6-k8q55"];
+        assert_eq!(shorts(&set), ["gn8jp", "k8q55"], "the pods of one ReplicaSet");
+        assert_eq!(shorts(&set[..1]), ["gn8jp"], "one pod");
+        assert_eq!(
+            shorts(&["checkout-api-7d9c5b8f6-gn8jp", "checkout-api-7f6b7c8d9-ab12c"]),
+            ["7d9c5b8f6-gn8jp", "7f6b7c8d9-ab12c"],
+            "a rollout keeps the hash of each ReplicaSet, though the hashes start alike"
+        );
+        assert_eq!(shorts(&["train-0-x7k2p", "train-1-q9z4m"]), ["0-x7k2p", "1-q9z4m"], "an Indexed Job");
+        assert_eq!(shorts(&["report-29999640-k2x7p"]), ["k2x7p"], "a pod of a Job of a CronJob");
+        assert_eq!(
+            shorts(&["postgres-0", "postgres-1"]),
+            ["postgres-0", "postgres-1"],
+            "a number alone reads as a value"
+        );
+        assert_eq!(shorts(&["web", "api"]), ["web", "api"]);
+        let names = PodNames::of(set);
+        assert_eq!((names.short("all pods"), PodNames::of([]).short("web")), ("all pods", "web"), "an other name");
     }
 
     #[test]

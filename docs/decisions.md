@@ -1568,3 +1568,10 @@ samples, and the lines ran through its names. The legend is now a row beside the
 chart, with a dash for each fixed line. Each entry acts as before: a click hides its line, which
 leaves the bounds of the value axis and the tooltip, an Alt+click shows it alone, and the pointer
 draws it thicker.
+
+## A pod of an owner shows by the rest of its name
+
+The legend of a chart and the gutter of a log view name the pods of one owner without the start
+that all their names share, up to a dash: `gn8jp`, `7d9c5b8f6-gn8jp` in a rollout, `0-x7k2p` in
+an Indexed Job. The view names the owner. A pod of a StatefulSet keeps its full name: a number
+alone reads as a value. A gutter name that is too long shows its end, where the names differ.

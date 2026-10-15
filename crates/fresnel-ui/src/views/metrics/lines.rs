@@ -17,7 +17,7 @@ use k8s_openapi::api::core::v1::Node;
 
 use super::gauge::{Resource, Usage, Whole};
 use super::read::Metered;
-use crate::format;
+use crate::format::{self, PodNames};
 use crate::theme::Palette;
 use crate::views::objects::uid;
 use crate::widgets::chart::{Line, MOST_LINES, Mark};
@@ -42,6 +42,8 @@ struct Named<'a> {
     parts: Vec<(String, &'a Series)>,
     /// The noun of a part, for the note of the parts with no line. A node has no parts.
     noun: &'static str,
+    /// The short names of the parts that are pods, for the legend: the end of each name.
+    pods: Option<PodNames>,
 }
 
 /// The lines of each resource of an object with the samples from `from`, in seconds on the
@@ -69,8 +71,8 @@ pub(crate) fn of<K: Describe>(
         let shown = named.whole.into_iter().chain(parts.iter().map(|(name, series)| (name.as_str(), *series)));
         let lines = shown.enumerate().map(|(number, (name, series))| {
             let color = if number == 0 { palette.text } else { color(palette, number - 1) };
-            Line::new(name.to_owned(), color, points(series, from, period, resource))
-                .with_legend(format::pod_end(name, &id.key.name))
+            let legend = named.pods.as_ref().map_or(name, |pods| pods.short(name));
+            Line::new(name.to_owned(), color, points(series, from, period, resource)).with_legend(legend)
         });
         let hidden = named.parts.len() - parts.len();
         let more = (hidden > 0).then(|| {
@@ -94,18 +96,21 @@ fn named<'a, K: Describe>(metered: &'a Metered, id: &'a ObjectId, object: &K) ->
             let parts: Vec<(String, &Series)> =
                 metrics.containers(cluster, &id.key).map(|(name, series)| (name.to_owned(), series)).collect();
             let whole = (parts.len() != 1).then(|| series(SeriesKey::Pod(id.key.clone()))).flatten();
-            Named { whole: whole.map(|series| ("pod", series)), parts, noun: "more container" }
+            Named { whole: whole.map(|series| ("pod", series)), parts, noun: "more container", pods: None }
         }
         Kind::Node => {
             let whole = series(SeriesKey::Node(id.key.name.clone())).map(|series| ("node", series));
-            Named { whole, parts: Vec::new(), noun: "" }
+            Named { whole, parts: Vec::new(), noun: "", pods: None }
         }
         kind => {
             let whole = series(SeriesKey::Workload(kind, id.key.clone())).map(|series| ("all pods", series));
             let owned = metered.owners.pods_of(kind, uid(object.meta())).found;
-            let parts =
-                owned.into_iter().filter_map(|pod| Some((pod.key.name.to_string(), series(SeriesKey::Pod(pod.key))?)));
-            Named { whole, parts: parts.collect(), noun: "more pod" }
+            let parts: Vec<(String, &Series)> = owned
+                .into_iter()
+                .filter_map(|pod| Some((pod.key.name.to_string(), series(SeriesKey::Pod(pod.key))?)))
+                .collect();
+            let pods = PodNames::of(parts.iter().map(|(name, _)| name.as_str()));
+            Named { whole, parts, noun: "more pod", pods: Some(pods) }
         }
     }
 }
