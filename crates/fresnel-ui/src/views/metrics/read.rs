@@ -1,5 +1,6 @@
 //! What the CPU and memory columns of a table read of one cluster: the last value of each
-//! object with its request and its limit, or with the allocatable part of a node.
+//! object with its request and its limit, or with the allocatable part of a node. The
+//! cluster overview reads the sum of the nodes of a cluster in the same way.
 //!
 //! The worker thread of a table reads it for each row, so a sort compares the values of
 //! one poll. The usage of a workload is the sum of its pods at each poll in the core; its
@@ -95,6 +96,18 @@ impl Metered {
         let most = Resource::BOTH.map(|resource| resource.read(allocatable));
         Some(of(latest, Whole::Allocatable, requests.unwrap_or_default(), most))
     }
+}
+
+/// A cluster: the sum of its nodes at the last poll, against the requests on its nodes and
+/// the sum of their allocatable parts (research 11 section 6).
+pub(crate) fn of_cluster(
+    metrics: &Metrics,
+    cluster: &ClusterId,
+    requests: Amount,
+    most: [Option<u64>; 2],
+) -> Option<Usage> {
+    let latest = metrics.latest(cluster, &SeriesKey::Cluster)?;
+    Some(of(latest, Whole::Allocatable, requests, most))
 }
 
 /// The usage of a sample against these requests and the most of CPU and of memory. A

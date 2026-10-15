@@ -68,6 +68,10 @@ pub(crate) trait Page {
     /// Puts the focus into the text filter in the next frame.
     fn focus_filter(&mut self);
 
+    /// Shows the rows of a count of an overview: no text filter, and only the objects that
+    /// are not healthy when `problems` is set. The namespace filter is the one of each page.
+    fn show_problems(&mut self, problems: bool);
+
     /// The namespaces of the objects of the page, for the namespace filter.
     fn namespaces(&self) -> &[Arc<str>];
 

@@ -3,7 +3,8 @@
 //!
 //! [`Shell`] draws one frame from a copy of the state of the core and gives back what the
 //! user asked for. It holds no handle to the core, so a view can start no network work.
-//! It holds the page of the open kind only: a page that is not painted holds no rows.
+//! It holds the page of the open kind only, and the overviews: a page that is not painted
+//! holds no rows and no counts.
 //!
 //! The shell runs the commands of the command table (plan section 11.5): their keys, the
 //! quick search, the history of the visited objects for Back and Forward, and the dialog of
@@ -45,6 +46,7 @@ use crate::views::keys::new_secret::NewSecretDialog;
 use crate::views::logs::LogTabs;
 use crate::views::objects::{self, Link};
 use crate::views::operations::OperationsTab;
+use crate::views::overview::{Jump, OverviewPage};
 use crate::views::search::{Choice, QuickSearch};
 use crate::views::{connections, kinds};
 use crate::widgets::worker::Wake;
@@ -58,8 +60,9 @@ pub struct Shell {
     journal: JournalTab,
     operations: OperationsTab,
     logs: LogTabs,
-    /// The page of the kind that the sidebar opened last. The Connections page keeps it.
+    /// The page of the kind that the sidebar opened last. The other pages keep it.
     open: Box<dyn objects::Page>,
+    overview: OverviewPage,
     /// The kinds whose full objects the core holds for the views, as far as the shell knows.
     shown: BTreeSet<Kind>,
     /// The namespaces whose objects each view shows. Empty: each namespace.
@@ -108,6 +111,7 @@ impl Shell {
             operations: OperationsTab::default(),
             logs: LogTabs::new(tasks, Arc::clone(&wake)),
             open: kinds::page(Kind::Pod, tasks, Arc::clone(&wake)),
+            overview: OverviewPage::new(tasks, Arc::clone(&wake)),
             shown: BTreeSet::new(),
             namespaces: BTreeSet::new(),
             search: QuickSearch::new(tasks, Arc::clone(&wake)),
@@ -188,11 +192,19 @@ impl Shell {
         {
             self.tab = Tab::Journal;
         }
-        let link =
+        let jump =
             CentralPanel::default().frame(Frame::new().fill(palette.bg_surface)).show(ui, |ui| match self.page {
-                Page::Kind(_) => self.open.show(ui, &mut scene),
+                Page::Kind(_) => {
+                    self.overview.rest();
+                    self.open.show(ui, &mut scene).map(Jump::Object)
+                }
+                Page::Overview(overview) => {
+                    self.open.rest();
+                    self.overview.show(ui, &scene, overview)
+                }
                 Page::Connections => {
                     self.open.rest();
+                    self.overview.rest();
                     connections::show(ui, &mut scene);
                     None
                 }
@@ -207,8 +219,15 @@ impl Shell {
         if let Some(visited) = self.open.opened() {
             self.history.visit(visited);
         }
-        if let Some(link) = link.inner {
-            self.follow_link(link);
+        if let Some(jump) = jump.inner {
+            match jump {
+                Jump::Object(link) => self.follow_link(link),
+                Jump::Table { kind, problems } => {
+                    self.page = Page::Kind(kind);
+                    follow_page(&mut self.open, self.page, &self.tasks, &self.wake);
+                    self.open.show_problems(problems);
+                }
+            }
             ui.ctx().request_repaint();
         }
         match chosen {
@@ -261,14 +280,15 @@ impl Shell {
         self.open.open(link);
     }
 
-    /// The command that names the kind of the open page to the core, when it changed. The
-    /// core holds the store of its full objects and of the kinds that its panel reads too;
-    /// the Pods need none. The Connections page keeps the stores of the page before it,
-    /// which shows again at once.
+    /// The command that names the kinds of the open page to the core, when they changed.
+    /// The core holds the store of their full objects: the kind of a table and the kinds
+    /// that its panel reads, or the kinds that an overview counts; the Pods need none. The
+    /// Connections page keeps the stores of the page before it, which shows again at once.
     fn show_kinds(&mut self) -> Option<Command> {
         let wanted = match self.page {
             Page::Kind(Kind::Pod) => BTreeSet::new(),
             Page::Kind(kind) => std::iter::once(kind).chain(sections::also_shown(kind).iter().copied()).collect(),
+            Page::Overview(overview) => overview.kinds().iter().copied().collect(),
             Page::Connections => return None,
         };
         if wanted == self.shown {

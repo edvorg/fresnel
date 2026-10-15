@@ -199,7 +199,9 @@ impl Usage {
         lines.push(format!("sample of {}, {age} ago", clock.time_of_day(self.at)));
         let Cover { sampled, of } = self.cover;
         if of > 1 || sampled < of {
-            lines.push(format!("sum of {sampled} of {of} pods"));
+            // A node is one sample; the sum against an allocatable part is of a cluster.
+            let parts = if self.whole == Whole::Allocatable { "nodes" } else { "pods" };
+            lines.push(format!("sum of {sampled} of {of} {parts}"));
         }
         lines.join("\n")
     }
@@ -263,6 +265,11 @@ mod tests {
         assert_eq!(
             node.hint(Resource::Memory, &clock),
             "Memory 64Mi\nrequests of its pods 128Mi (50% of allocatable)\nallocatable 256Mi (25%)\nsample of 07:59:55, 5 s ago"
+        );
+        let cluster = Usage { cover: Cover { sampled: 2, of: 3 }, ..node };
+        assert!(
+            cluster.hint(Resource::Memory, &clock).ends_with("5 s ago\nsum of 2 of 3 nodes"),
+            "a node had no sample"
         );
     }
 }

@@ -57,7 +57,7 @@ impl<T> Snapshot<T> {
     }
 
     /// The facts of the store with no object.
-    pub(crate) fn status(&self, kind: Kind) -> StoreStatus {
+    pub fn status(&self, kind: Kind) -> StoreStatus {
         StoreStatus {
             kind,
             state: self.state.clone(),

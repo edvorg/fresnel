@@ -1,5 +1,6 @@
 //! The sidebar: the pages of the center of the window. The kinds come in the groups of
-//! plan section 11.3, each with the count of its objects in the selected clusters.
+//! plan section 11.3, each with the count of its objects in the selected clusters, after
+//! the overview of the group when it has one.
 //!
 //! A count comes from the facts of the stores that the core gives each frame, so the
 //! sidebar holds no objects. A kind with no store that is always on (tier C) has a count
@@ -16,6 +17,7 @@ use fresnel_core::kinds::{Kind, Sidebar};
 
 use crate::format;
 use crate::theme::{self, Palette, ROW_HEIGHT, SMALL};
+use crate::views::overview::Overview;
 
 pub(super) const WIDTH: f32 = 196.0;
 
@@ -24,6 +26,7 @@ pub(super) const WIDTH: f32 = 196.0;
 pub(crate) enum Page {
     /// The table of one kind.
     Kind(Kind),
+    Overview(Overview),
     Connections,
 }
 
@@ -32,7 +35,7 @@ pub(super) fn show(ui: &mut Ui, view: &CoreView, open: &mut Page) {
     let palette = theme::palette(ui);
     ui.add_space(8.0);
     ui.spacing_mut().item_spacing.y = 1.0;
-    if entry(ui, palette, "Connections", None, *open == Page::Connections).clicked() {
+    if entry(ui, palette, ("Connections", "Connections"), None, *open == Page::Connections).clicked() {
         *open = Page::Connections;
     }
     ScrollArea::vertical().id_salt("sidebar").auto_shrink(false).show(ui, |ui| {
@@ -44,8 +47,15 @@ pub(super) fn show(ui: &mut Ui, view: &CoreView, open: &mut Page) {
                 ui.add(Label::new(title).selectable(false));
             });
             ui.add_space(2.0);
+            if let Some(overview) = Overview::of(group) {
+                let page = Page::Overview(overview);
+                if entry(ui, palette, ("Overview", overview.title()), None, *open == page).clicked() {
+                    *open = page;
+                }
+            }
             for kind in group.kinds() {
-                if entry(ui, palette, kind.info().title, count(view, kind), *open == Page::Kind(kind)).clicked() {
+                let title = kind.info().title;
+                if entry(ui, palette, (title, title), count(view, kind), *open == Page::Kind(kind)).clicked() {
                     *open = Page::Kind(kind);
                 }
             }
@@ -80,11 +90,19 @@ fn count(view: &CoreView, kind: Kind) -> Option<Count> {
     Some(Count { objects, current })
 }
 
-/// One entry. The entries are one choice of many, so a screen reader gets a radio button.
-/// A title that is too long for the sidebar is cut, and shows in full at the pointer.
-fn entry(ui: &mut Ui, palette: &Palette, title: &str, count: Option<Count>, selected: bool) -> egui::Response {
+/// One entry with its title and its name for a screen reader: the overview of a group has
+/// the title "Overview" and the name of its group. The entries are one choice of many, so a
+/// screen reader gets a radio button. A title that is too long for the sidebar is cut, and
+/// shows in full at the pointer.
+fn entry(
+    ui: &mut Ui,
+    palette: &Palette,
+    (title, name): (&str, &str),
+    count: Option<Count>,
+    selected: bool,
+) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
-    response.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, true, selected, title));
+    response.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, true, selected, name));
     let texts = count.map(Count::texts);
     if let Some((_, value)) = &texts {
         // A screen reader reads the count as the value of the entry.

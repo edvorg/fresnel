@@ -12,7 +12,7 @@
 //! - `metrics`: the CPU and memory columns, the Metrics tab and the sampler (M6).
 //! - `logs`: the log views: the tab, the pane, the search, the copy and the saves (M9).
 //! - `details`: the views of the kinds of the Cluster, Config, Network and Access control
-//!   groups (M7).
+//!   groups (M7). `overview`: the overviews of the Cluster and the Workloads groups (M7).
 //! - `frame_time`: the time of a frame with 10,000 pods. Its limit holds in a release build.
 //! - `snapshots`: PNG files of the views, for a look by a person.
 
@@ -29,6 +29,7 @@ mod kinds;
 mod logs;
 mod metrics;
 mod navigation;
+mod overview;
 mod pods;
 mod search;
 mod shell;

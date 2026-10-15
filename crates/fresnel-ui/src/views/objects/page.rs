@@ -350,6 +350,10 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
         self.focus = true;
     }
 
+    fn show_problems(&mut self, problems: bool) {
+        (self.filter.text, self.filter.problems) = (String::new(), problems);
+    }
+
     fn namespaces(&self) -> &[Arc<str>] {
         self.table.rows().map(|rows| rows.summary.names.as_slice()).unwrap_or_default()
     }
