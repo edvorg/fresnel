@@ -1691,6 +1691,13 @@ latest release. It checks each zip file and makes the release, with the commits 
 before; the 20 newest stay. A newer run cancels older builds; the job that publishes has its own
 group, so a release that has begun ends.
 
+## Only a run on master publishes a release
+
+A manual run of `release` on an other branch, as the test of a workflow change on a `ci/*`
+branch, builds and checks the zip files and makes no release. Its release would be the newest:
+`gh release download` would get it as "Latest", and it would push a release of master out of
+the 20 that stay. A release that is not "Latest" would still take one of the 20 places.
+
 ## The version of a release has the run number of its workflow
 
 A release is `0.1.0+build.N`: the workspace version and the run number of the workflow, which grows

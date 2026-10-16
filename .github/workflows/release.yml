@@ -4,7 +4,8 @@ name: release
 # silicon and the program for Windows x64 of that commit. Its version is the workspace version
 # and the run number of this workflow, as in 0.1.0+build.7, and its tag is v0.1.0-build.7. A
 # commit with a failed test never becomes the latest release. GitHub reads the trigger
-# workflow_run from the file on master only; a manual run builds the commit of its branch.
+# workflow_run from the file on master only; a manual run builds the commit of its branch, and
+# only a run on master publishes.
 on:
   workflow_run:
     workflows: [ci]
@@ -148,9 +149,14 @@ jobs:
           retention-days: 1
           compression-level: 0
 
+  # Only master publishes. A manual run on an other branch, as the test of a change of this
+  # file on a ci/* branch, builds and checks the zip files and makes no release: as the newest
+  # one it would be the "Latest" release, which `gh release download` gets, and it would push a
+  # release of master out of the 20 that stay. A workflow_run has the ref of master.
   publish:
     name: release
     needs: [macos, windows]
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     concurrency:
