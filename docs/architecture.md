@@ -33,7 +33,7 @@ fresnel-testkit ------------------------------------------------> fresnel-net
 
 - `fresnel-net` (no kube): connections, the credential plugin, the time limits, the task start.
 - `fresnel-core`: the domain: clusters, watch loop, stores, indexes, kinds, search, commands, jobs,
-  metrics, logs, terminals, settings, journal. No egui; the crates above name `fresnel_core::net`.
+  metrics, logs, terminals, forwards, settings, journal. No egui; others name `fresnel_core::net`.
 - `fresnel-ui`: the egui widgets and views. It uses the types of `k8s-openapi`, never of kube.
 - `fresnel`: the desktop program. The folders, the lock of the process, the log file, the panic
   hook, the runtime and the core, which starts after the window opens; the quit stops its tasks.
@@ -49,7 +49,8 @@ fresnel-testkit ------------------------------------------------> fresnel-net
 - Each library crate has one error type with a class: auth, forbidden, conflict, timeout,
   network, server, invalid. An item is private to its crate unless `lib.rs` lists it.
 - The `platform` module of a crate holds each difference of macOS and Windows: the environment,
-  the process tree of a child, the time asleep, folders, the lock, App Nap, notices, fonts.
+  the process tree of a child, the time asleep, the bind and the reset of a local port, folders,
+  the lock, App Nap, notices, fonts and the browser.
 
 ## Background tasks
 
@@ -74,6 +75,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Hedged connect**: one more attempt after 1.5 connect times; the first one wins. **Upgrade
   client**: exec, attach and port forward on warm connections with a test, each a **socket** that
   pings after 10 s and breaks with no answer in 5 s, unless its peer reads nothing (`socket`).
+  **Local port** (`local`): the listener of a forward binds alone; a reset ends a broken client.
 - **Credential**: one task runs the plugin. After a second HTTP 401, a request proves the token.
 - **Signal**: a wake, a network change and "retry now" end each retry delay, and each channel and
   socket tests its connection in 3 s. **Outage**: after a minute with no connect, one attempt each
@@ -96,6 +98,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   new stream starts at the second of its latest line with a marker; `SaveLog` writes a new file.
 - **Terminal** (`terminal`): the screen of `alacritty_terminal` behind a fair lock and a guard of
   its parser; a session (`remote`) runs its exec or attach, and ends its shell at a close or a quit.
+- **Forwards** (`forward`): a task for each rule with its listener and a tunnel for each client;
+  the stores choose the pod, the channels tell the path. A forward keeps its cluster connected.
 - **Operations** (`ops`): a function builds each request of plan section 10, with a unit test of
   its URL and body. An `Order` is a job in its own task, with steps and a state, not two at once;
   the jobs of a text run in turn. A write goes out one time; an unknown result gets a read. A
@@ -103,9 +107,9 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   result**: `Snapshot::is_pending`. **Permissions**: rules or a review, dropped by HTTP 403.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. One task reads the
   settings, the environment and the kubeconfig files, connects each selected cluster and runs each
-  command; one gives the notices of a failed job and of a lost cluster to `set_notifier`.
+  command; one gives the notices of a failed job or forward and a lost cluster to `set_notifier`.
 - **Files**: `state.json` keeps the selection and the table layouts; `config.toml` the settings of
-  `config::table`, with bounds. A look reads both again after a change. **Journal**: 10,000 entries.
+  `config::table` and the saved forwards. A look reads both after a change. **Journal**: 10,000.
 
 ## Stores, indexes, search and commands
 
@@ -115,9 +119,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   each kind implements `Describe`: sidebar group, tier, columns with the text of `kubectl get`,
   search text, health value and actions. A tier B store has the metadata only, tier C none.
 - **Watch loop**: one task for each store. It reads a list in pages, 4 lists of a cluster at a
-  time, then follows a watch with bookmarks, which the server ends after 60 to 90 s; the next one
-  starts after the last version, and HTTP 410 gives a list. A failure gives a pause up to 3 s,
-  which the signal ends. No request goes while the channel is not live: it counts the loss.
+  time, then a watch with bookmarks, which the server ends after 60 to 90 s; HTTP 410 gives a list.
+  A failure gives a pause up to 3 s, which the signal ends. A lost channel counts its loss.
 - **States**: waiting (for a channel, a credential, a list slot or its watch), list in progress,
   live, attempt, pause, throttled, forbidden, not supported, internal error and stopped.
 - **Snapshot**: published each 30 ms at most; its generation grows only when an object changes.
@@ -125,25 +128,22 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **On demand**: `ClusterStores::demand` gives a view the full objects of any kind. The store of
   a tier B or C kind starts with its first holder and stops 60 s after the last one.
 - **Indexes**: `index::ClusterIndexes` has one task for each index, which applies the differences
-  of two snapshots: the owner index (also in a loop, and the pods of a Service), the reference
-  index (the pods that use an object) and the Event index of each object. Each answer is current,
-  old (a store is not live), not loaded (no complete list) or not followed (the task stopped).
+  of two snapshots: the owners (also in a loop, and the pods of a Service), the pods that use an
+  object, the Events of an object. An answer is current, old, not loaded or not followed.
 - **Metrics**: one `metrics::Sampler` for each cluster reads PodMetrics and NodeMetrics each 15 s
-  (one read each, no retry; each 5 minutes with no metrics API, and the APIService after a 503);
-  each list is a poll store with a state. A series of a container, pod, workload, node, namespace
-  or cluster keeps 1 h of samples and 24 h of minutes in a memory limit.
+  (no retry; each 5 minutes with no metrics API), each list a poll store with a state. A series of
+  a container, pod, workload, node, namespace or cluster keeps 1 h and 24 h in a memory limit.
 - **Quick search**: `search::run` reads the snapshot of each store of each selected cluster and
-  sends no request: the full objects of tier A and of a shown kind, else the metadata of tier B.
-  A fuzzy match on the name, a text match on the other fields; cluster and kind are filters.
-  A hit has the mark of a store that is not live, and each store that it did not read is a note.
+  sends no request. A fuzzy match on the name, a text match on the other fields; cluster and kind
+  are filters. A hit has the mark of a store that is not live; a store that it did not read, a note.
 - **Command table**: `commands::TABLE` gives each command its identifier, label, default key,
   kinds and confirm rule. `Keys` is the key of each command after the settings.
 
 ## Contract between the UI and the core
 
-1. **State.** `Core::view` gives a copy of each state, with no lock: the clusters, their links and
-   the data of each connected one (`ClusterData`: stores, indexes, objects of `ShowKinds`, keys,
-   access, metrics, version, logs); settings, manifest, editors, create, jobs, terminals, journal.
+1. **State.** `Core::view` copies each state, with no lock: the clusters, their links and the data
+   of each connected one (`ClusterData`: stores, indexes, objects of `ShowKinds`, keys, access,
+   metrics, version, logs); settings, manifest, editors, create, jobs, terminals, forwards, journal.
 2. **Commands.** A view returns a `Command`, and the task of the core runs it. **Workers**: below.
 3. **Repaint.** A new snapshot, index, poll or log view asks for a repaint. One notifier limits
    them to 60 in one second, a setting. The core does not know egui: the window gives the wake.
@@ -152,7 +152,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 ## Window
 
 `fresnel_ui::Shell` draws a frame from a `CoreView`: top bar, sidebar, a page of the sidebar, the
-dock (Operations, Journal, Connections, a tab for each log view, editor, terminal) and status bar.
+dock (Operations, Forwards, Journal, Connections, a tab of each log, editor, terminal), status bar.
 
 - **Table**: `widgets/table.rs` wraps `egui_table`. A kind gives a `Model`: columns, rows, sequence,
   cells. Cursor and selection hold objects; the table owns widths, shown columns, edge handles.
@@ -160,17 +160,15 @@ dock (Operations, Journal, Connections, a tab for each log view, editor, termina
   mailbox has one request and one result. New data does not stop a computation; a new query
   does. After a panic, the thread starts again with the request that waits; the view tells why.
 - **Object page** (`views/objects`): the objects of one kind in each selected cluster and the
-  panel: metadata, the sections of the kind (a folder of `views` for each sidebar group, and
-  `sections::also_shown` for the other kinds that they read), conditions, related objects as
-  links, Events and the Manifest. An object that left its store shows as deleted.
+  panel: metadata, the sections of the kind (a folder of `views` for each sidebar group), its
+  conditions, related objects as links, Events and the Manifest. A deleted object shows as such.
 - **Actions** (`views/act`): the panel, the menus, a key and the quick search ask for an action
   of the command table. A gate closes it with the reason: a later milestone, the state of the
   object, the rules, a read-only cluster. A change asks in a dialog: an order for each object.
 - **Quick search**: a dialog; its cursor holds a row by identity. A hit opens its object, with a
   note while its store lists, or "Show it" when a filter hides its row. One namespace filter.
 - **Keys** (`views/keys`): the panel of a Secret or a ConfigMap names its object (`ShowKeys`) and
-  edits a `Draft` behind the gate of "Edit keys": a hidden value until "Show", add, remove, the
-  diff in a dialog before a save, a choice for each conflict. The New Secret dialog is `new-secret`.
+  edits a `Draft`: a hidden value until "Show", add, remove, a diff before a save, a conflict.
 - **Metrics** (`views/metrics`): CPU and Memory columns with bars, a tab with `egui_plot` charts.
   **Overviews** (`views/overview`): a worker counts; `cluster/version.rs` reads each server version.
 - **Logs**, **Editor** (`views/logs`, `views/editor`): a tab for each view with a search and its own
@@ -181,6 +179,8 @@ dock (Operations, Journal, Connections, a tab for each log view, editor, termina
   terminal. `views/terminal`: a tab for each terminal; Shell, Attach, Debug, Node shell open one.
 - **Settings** (`views/settings`): a control for each entry of `config::table`, cluster and key; a
   draft goes to `EditSettings`. `shell/focus` moves the keys between four areas; `?` lists them.
+- **Forwards** (`views/forwards`): the tab with the state of each forward and its buttons, the
+  dialog of the Forward button of each port, the counts of the status bar, the question at a close.
 
 ## Tests
 
@@ -196,5 +196,5 @@ freezes, delays, resets or silences connections; `K3s` is k3s in Docker, with ag
 - **Program tests** start `fresnel-cli` and `fresnel` (no window) as from Finder, in a test home.
 - **Cluster tests** (`#[ignore]`) use k3s in Docker, mostly behind the fault proxy: a store test
   asserts a recovery time and "store equal to the API" after a fault, the others match kubectl.
-- **Soak**: `fresnel-cli soak` checks each store of the core against the API; `fresnel-soak` adds k3s.
+- **Soak**: `fresnel-cli soak` checks the stores against the API and a forward; `fresnel-soak`: k3s.
 - CI runs each check on macOS, Linux and Windows at each push, and the cluster tests on Linux.

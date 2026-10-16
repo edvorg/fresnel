@@ -22,9 +22,9 @@ The cluster overview in the light theme, and the connections of prod-us, which t
 
 ## Status
 
-Milestones M0 to M4 and M6 to M11 are complete; M5, the forwards, is the one left. The core
-has the kubeconfig, gateway, journal, settings, 41 kinds, stores, indexes, search, commands, jobs,
-metrics, logs, terminals, editors and notices, and the window a view of each with its actions.
+Milestones M0 to M11 are complete. The core has the kubeconfig, gateway, journal, settings, 41
+kinds, stores, indexes, search, commands, jobs, metrics, logs, terminals, editors, forwards and
+notices, and the window a view of each with its actions.
 
 ## The app
 
@@ -44,7 +44,9 @@ The first start selects the current kubeconfig context, and `state.json` keeps i
 - Settings folder: `~/Library/Application Support/fresnel`. A debug build uses `fresnel-debug`.
   Cmd+, opens the settings view, which edits `config.toml` and keeps its comments. The app reads
   it again after each change; the journal tells each problem with its line and column.
-- A failed operation, and a cluster that stays lost while the window is hidden, give a notification.
+- The Forward button of a port (Cmd+Shift+P) starts a forward that recovers after each break;
+  the Forwards tab (Cmd+Shift+F) shows its state. A failed operation or forward, and a cluster
+  that stays lost while the window is hidden, give a notification.
 - Log folder: `~/Library/Logs/fresnel` (`fresnel.log`, panic reports). Saved logs and manifests:
   `~/Downloads`. Only one process runs; `cargo run --package fresnel` starts a debug build too.
 - On Windows, Cmd is Ctrl, the folders are `%APPDATA%\fresnel` and `%LOCALAPPDATA%\fresnel\logs`,
@@ -83,15 +85,13 @@ cargo run --package fresnel-cli -- watch --context <name>    # the stores of one
 - `watch` reads the objects of each kind, as the app does: of a Secret, only the metadata.
   Each 5 seconds, it prints the state and the object count of each store.
 - `soak` runs the app core on one cluster and compares each store with the API: a store that shows
-  "live" and is behind for more than 20 s, a store or a log view that does not recover, or a heap
-  that grows fails it. `cargo xtask soak` adds k3s, faults and a report into `target/release/soak/`.
+  "live" and is behind for more than 20 s, a store, log view or forward that does not recover, or a
+  heap that grows fails it. `cargo xtask soak` adds k3s, faults and a report: `target/release/soak/`.
 
 ## Layout and documents
 
 `crates/` has `fresnel-net` (connections, credential plugin, task start), `fresnel-core` (the
 domain), `fresnel-ui` (the views), the programs `fresnel` and `fresnel-cli`, and `fresnel-testkit`
 (fault proxy, k3s in Docker, fake API server, soak harness). `xtask` has the repository tasks.
-
-- [docs/architecture.md](docs/architecture.md): the design rules, the crates and their borders.
-- [docs/decisions.md](docs/decisions.md): each decision with its reason.
-- [CONTRIBUTING.md](CONTRIBUTING.md): the rules for a change.
+[Architecture](docs/architecture.md): the design rules and the crates. [Decisions](docs/decisions.md):
+each decision with its reason. [CONTRIBUTING.md](CONTRIBUTING.md): the rules for a change.
