@@ -7,14 +7,18 @@
 //!   attach.
 //! - `made`: a debug container and a node shell, which the app makes and ends.
 //! - `silence`: a silent connection, and the close of the tab of its failed session.
+//! - `leave`: a cluster that leaves the selection, and the quit.
 
 // k3s in Docker: the cluster job of CI runs on Linux.
 #![cfg(unix)]
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
 mod bed;
+#[path = "../common/mod.rs"]
+mod common;
 #[path = "../common/contexts.rs"]
 mod contexts;
+mod leave;
 mod made;
 mod screen;
 mod shell;
@@ -34,7 +38,10 @@ async fn the_terminal_runs_vi_and_top_takes_a_paste_and_leaves_no_process_after_
     shell::an_attach_reaches_the_main_process_and_its_close_leaves_it(&bed).await;
     shell::an_attach_to_a_container_with_no_input_refuses_the_keys(&bed).await;
     made::a_debug_container_sees_the_processes_of_its_target_and_ends_with_its_tab(&bed).await;
+    made::a_debug_container_whose_attach_fails_ends_its_shell_with_its_tab(&bed).await;
     made::a_node_shell_runs_on_the_node_and_its_pod_goes_with_its_tab(&bed).await;
-    // The silence comes last: it breaks each connection of the cluster.
+    leave::a_cluster_that_leaves_the_selection_ends_the_shells_of_its_terminals(&bed).await;
+    // The silence breaks each connection of the cluster, and the quit stops the core.
     silence::a_silent_exec_connection_fails_in_20_s_and_its_close_ends_the_shell(&bed).await;
+    leave::the_quit_ends_each_shell_and_deletes_each_node_shell_pod(&bed).await;
 }

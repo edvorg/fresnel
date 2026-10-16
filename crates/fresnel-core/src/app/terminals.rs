@@ -5,17 +5,23 @@
 //! the user closes it: the end of a shell is no reason to lose its output. A closed tab leaves
 //! the list at once; its session ends its remote program in the background and drops after
 //! that work. A cluster that leaves the selection closes the sessions of its terminals, and
-//! their tabs stay with the final state.
+//! their tabs stay with the final state. The quit closes each session and waits for their
+//! ends, with a limit.
 
 use std::sync::Arc;
+use std::time::Duration;
 
-use super::{Inner, Phase};
+use super::{Core, Inner, Phase};
 use crate::cluster::ClusterId;
 use crate::config::Config;
 use crate::config::table::Setting;
 use crate::terminal::{
     Launch, Options, Program, RemoteSession, SessionParts, SessionState, Terminal, TerminalRequest, TerminalView,
 };
+
+/// The longest wait of the quit for the ends of the remote programs: Ctrl-D with its wait of
+/// 1 s, the close of the stream, and the second exec, whose hangup waits 1 s for its kill.
+const QUIT_LIMIT: Duration = Duration::from_secs(5);
 
 /// The terminals and their sessions.
 #[derive(Default)]
@@ -37,6 +43,16 @@ impl Terminals {
     pub(super) fn stop(&mut self) -> Vec<RemoteSession> {
         let shown = self.shown.iter_mut().filter_map(|(_, session)| session.take());
         shown.chain(self.closing.drain(..)).collect()
+    }
+
+    /// Closes each session, of a tab and of a closed tab, and gives the wait for each end.
+    fn close_all(&self) -> Vec<impl Future<Output = ()> + use<>> {
+        let shown = self.shown.iter().filter_map(|(_, session)| session.as_ref());
+        let close = |session: &RemoteSession| {
+            session.close();
+            session.ended()
+        };
+        shown.chain(&self.closing).map(close).collect()
     }
 
     /// Closes the sessions of the terminals of these clusters. Their tabs stay.
@@ -135,6 +151,22 @@ impl Inner {
         for view in terminals.iter() {
             view.terminal.set_scrollback(lines);
         }
+    }
+}
+
+impl Core {
+    /// Closes each terminal and waits for the end of its remote program, 5 s at most: a shell
+    /// gets Ctrl-D and a hangup, and the pod of a node shell goes. The quit sequence runs it
+    /// before [`Core::stop`], whose stop of each task would leave them in the cluster. False
+    /// when a session did not end in time.
+    pub async fn close_terminals(&self) -> bool {
+        let ends = self.inner.state().terminals.close_all();
+        let all = async {
+            for end in ends {
+                end.await;
+            }
+        };
+        tokio::time::timeout(QUIT_LIMIT, all).await.is_ok()
     }
 }
 

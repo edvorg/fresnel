@@ -19,6 +19,7 @@
 //! - `selection`: the selection of one run is the selection of the next run.
 //! - `faults`: a login shell that hangs, and a panic of the task of the core.
 //! - `slow_disk`: a read of a kubeconfig file or of a certificate file that waits.
+//! - `terminals`: a shell on the exec stream, and the close of a node shell before its start.
 
 mod commands;
 mod config;
@@ -41,6 +42,7 @@ mod selection;
 mod slow_disk;
 #[cfg(unix)]
 mod start;
+mod terminals;
 
 use std::net::SocketAddr;
 use std::sync::Arc;

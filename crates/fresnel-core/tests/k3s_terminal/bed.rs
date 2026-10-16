@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fresnel_core::app::{Command, Core, CoreParts, CoreSettings, CoreView};
-use fresnel_core::cluster::ClusterId;
+use fresnel_core::cluster::{ClusterId, Link, Registry};
 use fresnel_core::journal::{Entry, Journal};
-use fresnel_core::net::WallClock;
+use fresnel_core::net::{NetSettings, WallClock};
 use fresnel_core::store::ObjectKey;
 use fresnel_core::terminal::{Program, Terminal, TerminalRequest, TerminalView};
 use fresnel_testkit::{FaultProxy, Home, K3s};
@@ -17,6 +17,7 @@ use tokio::runtime::Handle;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 
+use crate::common::{TestTasks, connect, registry, until_live};
 use crate::contexts::kubeconfig;
 
 /// The image of each container, as in the other cluster tests.
@@ -33,6 +34,10 @@ pub(crate) struct Bed {
     pub(crate) core: Core,
     woken: Arc<Notify>,
     _home: Home,
+    /// The API with no proxy, for the changes of the test itself that kubectl cannot make.
+    pub(crate) api: Link,
+    _registry: Registry,
+    _tasks: TestTasks,
     pub(crate) proxy: FaultProxy,
     pub(crate) k3s: K3s,
 }
@@ -62,7 +67,11 @@ impl Bed {
             let woken = Arc::clone(&woken);
             move || woken.notify_one()
         });
-        let bed = Self { core, woken, _home: home, proxy, k3s };
+        let tasks = TestTasks::new(&Handle::current());
+        let registry = registry(&tasks, &Handle::current(), &k3s.kubeconfig(), NetSettings::default());
+        let api = connect(&registry, "default");
+        until_live(&api).await;
+        let bed = Self { core, woken, _home: home, api, _registry: registry, _tasks: tasks, proxy, k3s };
         let pod = |name: &'static str| ["run", name, "--image", BUSYBOX, "--restart", "Never"];
         // The PID 1 of `shell` reaps: the orphans of a session that the app signalled reparent
         // to it, so a leaked process shows as a live process, not a zombie that no one reaps.

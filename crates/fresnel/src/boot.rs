@@ -125,14 +125,19 @@ impl Boot {
         &self.folders
     }
 
-    /// The quit sequence (plan section 11.6): the core stops its tasks, closes each
-    /// connection and ends a plugin that runs; the runtime ends; the log file reaches the
-    /// disk. Only the first call does something. The lock of the process stays to the
-    /// end of the process.
+    /// The quit sequence (plan section 11.6): each terminal ends its program in the pod,
+    /// with a limit; the core stops its tasks, closes each connection and ends a plugin that
+    /// runs; the runtime ends; the log file reaches the disk. Only the first call does
+    /// something. The lock of the process stays to the end of the process.
     pub fn quit(&self) {
         let Some(runtime) = self.runtime.lock().unwrap_or_else(PoisonError::into_inner).take() else {
             return;
         };
+        // A stop of the task of a terminal would leave its shell in the pod, and the
+        // privileged pod of a node shell on its node.
+        if !runtime.block_on(self.core.close_terminals()) {
+            self.journal.warning(APP, "quit: a terminal did not end its program in the pod in time");
+        }
         self.journal.info(APP, "quit: the tasks stop and the connections close");
         self.core.stop();
         runtime.shutdown_timeout(EXIT_LIMIT);

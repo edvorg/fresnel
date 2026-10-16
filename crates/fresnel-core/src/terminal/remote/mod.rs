@@ -4,8 +4,8 @@
 //! The socket proves the connection with its ping; the line of the tab shows the state of the
 //! session, and the status of the process decides the final state. A close of the owner ends
 //! a program of the app: Ctrl-D, then a hangup through a second exec, and the delete of the
-//! pod of a node shell. A stream that broke leaves its shell in the pod; the close of its tab
-//! then ends it.
+//! pod of a node shell. A stream that broke, and a debug container that no stream reached,
+//! leave their shell in the pod; the close of the tab then ends it.
 //!
 //! - `prepare`: the pod in its store, a new pod of a node shell or a new debug container.
 //! - `pump`: the bytes of an open stream. `end`: the close, the signal, the final state.
@@ -17,7 +17,6 @@ mod pump;
 mod script;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use fresnel_net::task::{Restart, TaskHandle, TaskName, Tasks};
 use k8s_openapi::api::core::v1::Pod;
@@ -62,10 +61,10 @@ pub(crate) struct Parts {
 }
 
 /// One session. Its task stops when this value drops: [`RemoteSession::close`] first ends
-/// the remote program, and [`RemoteSession::is_done`] tells the end of that work.
+/// the remote program, and [`RemoteSession::ended`] waits for the end of that work.
 pub(crate) struct RemoteSession {
     close: watch::Sender<bool>,
-    done: Arc<AtomicBool>,
+    done: watch::Receiver<bool>,
     _task: TaskHandle,
 }
 
@@ -73,9 +72,9 @@ impl RemoteSession {
     /// Starts the session of a terminal. The terminal shows its state.
     pub(crate) fn start(tasks: &Tasks, request: TerminalRequest, terminal: Terminal, parts: Parts) -> Self {
         let (close, closed) = watch::channel(false);
-        let done = Arc::new(AtomicBool::new(false));
+        let (finished, done) = watch::channel(false);
         let name = TaskName::scoped("terminal session", request.cluster.as_str());
-        let mut once = Some((request, terminal, parts, closed, Arc::clone(&done)));
+        let mut once = Some((request, terminal, parts, closed, finished));
         let task = tasks.start(name, Restart::Never, move || {
             let once = once.take();
             async move {
@@ -99,7 +98,20 @@ impl RemoteSession {
 
     /// True after the end of the task, with its clean-up.
     pub(crate) fn is_done(&self) -> bool {
-        self.done.load(Ordering::Acquire)
+        *self.done.borrow()
+    }
+
+    /// Waits for the end of the task, with its clean-up. A task that dropped before its run
+    /// has no work left, so its end counts too.
+    pub(crate) fn ended(&self) -> impl Future<Output = ()> + use<> {
+        let mut done = self.done.clone();
+        async move {
+            while !*done.borrow_and_update() {
+                if done.changed().await.is_err() {
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -107,7 +119,7 @@ impl RemoteSession {
 /// the journal has the report of the task.
 struct Done {
     terminal: Terminal,
-    done: Arc<AtomicBool>,
+    done: watch::Sender<bool>,
     wake: Wake,
 }
 
@@ -117,20 +129,40 @@ impl Drop for Done {
             let reason = "the task of the session stopped; the journal tells why".to_owned();
             self.terminal.set_state(SessionState::Failed { reason });
         }
-        self.done.store(true, Ordering::Release);
+        self.done.send_replace(true);
         (self.wake)();
     }
+}
+
+/// What the session made in the cluster, for its end.
+#[derive(Default)]
+struct Made {
+    /// The pod of a node shell: the end of the session deletes it.
+    pod: Option<Target>,
+    /// A new debug container that runs: its shell waits for input until a stream ends it.
+    debug: Option<String>,
 }
 
 /// The work of a session to its end.
 async fn run(request: &TerminalRequest, terminal: &Terminal, parts: &Parts, mut close: watch::Receiver<bool>) {
     let mark = Mark::new();
-    let mut own_pod = None;
-    let state = match open(request, (terminal, parts), &mark, &mut own_pod).await {
-        Ok(mut opened) => talk(request, (terminal, parts), &mut opened, (&mark, &mut close)).await,
-        Err(error) => SessionState::Failed { reason: error.to_string() },
+    let mut made = Made::default();
+    let state = match open(request, (terminal, parts), (&mark, &mut close), &mut made).await {
+        Ok(Some(mut opened)) => talk(request, (terminal, parts), &mut opened, (&mark, &mut close)).await,
+        Ok(None) => SessionState::Ended { reason: "the app closed the session before its start".to_owned() },
+        Err(error) => {
+            let state = SessionState::Failed { reason: error.to_string() };
+            match &made.debug {
+                // The attach failed, and the shell of the debug container waits in the pod.
+                Some(container) => {
+                    let place = (container.as_str(), &mark);
+                    hang_up(request, (terminal, parts), place, (&mut close, false), state).await
+                }
+                None => state,
+            }
+        }
     };
-    if let Some(pod) = own_pod {
+    if let Some(pod) = made.pod {
         delete(parts, &pod).await;
     }
     terminal.set_state(state);
@@ -144,14 +176,15 @@ struct Opened {
     container: String,
 }
 
-/// Prepares the place of the stream and opens it. The pod of a node shell goes into `own_pod`
-/// as soon as it exists, so that each later failure deletes it.
+/// Prepares the place of the stream and opens it. `None` for a close before the start of a
+/// node shell. What the session makes goes into `made` as soon as it exists, so that each
+/// later failure ends it.
 async fn open(
     request: &TerminalRequest,
     (terminal, parts): (&Terminal, &Parts),
-    mark: &Mark,
-    own_pod: &mut Option<Target>,
-) -> Result<Opened, CoreError> {
+    (mark, close): (&Mark, &mut watch::Receiver<bool>),
+    made: &mut Made,
+) -> Result<Option<Opened>, CoreError> {
     let shells = &parts.launch.shells;
     let both = Streams { tty: true, stdin: true };
     let (exec, streams) = match request.program {
@@ -175,15 +208,20 @@ async fn open(
             prepare::pod_of(parts, request)?;
             let name = crate::ops::shell::debug_name();
             prepare::add_debug(parts, (request, terminal), &name, &script::launch(shells, mark)).await?;
+            made.debug = Some(name.clone());
             (exec(&request.object, &name, None, both), both)
         }
         Program::NodeShell => {
             let pod = prepare::create_node_pod(parts, (request, terminal), &script::on_node(shells, mark)).await?;
             let what = format!("the pod {}/{}", pod.key.namespace, pod.key.name);
-            let key = pod.key.clone();
-            let uid = Arc::clone(&pod.uid);
-            *own_pod = Some(pod);
-            prepare::until_running(parts, terminal, (&key, &uid), "shell", &what).await?;
+            let (key, uid) = (pod.key.clone(), Arc::clone(&pod.uid));
+            made.pod = Some(pod);
+            // A close ends the wait for the start, as the delete of the pod ends its shell. It
+            // does not cut the create: a pod whose answer it cut would stay.
+            tokio::select! {
+                started = prepare::until_running(parts, terminal, (&key, &uid), "shell", &what) => started?,
+                () = until_closed(close) => return Ok(None),
+            }
             (exec(&key, "shell", None, both), both)
         }
     };
@@ -195,7 +233,7 @@ async fn open(
     if matches!(request.program, Program::Debug | Program::NodeShell) {
         terminal.send(b"\r").map_err(|refused| CoreError::invalid(refused.to_string()))?;
     }
-    Ok(Opened { stream, streams, container: exec.container.unwrap_or_default() })
+    Ok(Some(Opened { stream, streams, container: exec.container.unwrap_or_default() }))
 }
 
 fn exec(pod: &crate::store::ObjectKey, container: &str, command: Option<Vec<String>>, streams: Streams) -> Exec {
@@ -203,8 +241,7 @@ fn exec(pod: &crate::store::ObjectKey, container: &str, command: Option<Vec<Stri
 }
 
 /// Runs an open stream to its end, ends the program of the app after a close, and gives the
-/// final state. A stream that broke while its shell ran waits for the close of its tab,
-/// whose signal then ends the shell.
+/// final state.
 async fn talk(
     request: &TerminalRequest,
     (terminal, parts): (&Terminal, &Parts),
@@ -212,47 +249,65 @@ async fn talk(
     (mark, close): (&Mark, &mut watch::Receiver<bool>),
 ) -> SessionState {
     let (stream, streams, wake) = (&mut opened.stream, opened.streams, &parts.wake);
-    let shell = request.program.ends_with_tab();
     let closed = pump::pump(stream, terminal, (streams, wake), close).await == Pumped::Close;
     if closed {
-        end::close(stream, terminal, (streams, wake), shell).await;
+        end::close(stream, terminal, (streams, wake), request.program.ends_with_tab()).await;
     }
     let ended = stream.end();
     let exited = matches!(ended, Some(ExecEnd::Exited(_)));
     let state = end::final_state(ended, closed);
-    // A shell of the app in a container that goes on after it: a shell of the request, or
-    // a debug container whose shell did not end. A node shell goes with the delete of its pod.
-    let signalled = match request.program {
-        Program::Shell => true,
+    if leaves_shell(request.program, closed, exited) {
+        let place = (opened.container.as_str(), mark);
+        return hang_up(request, (terminal, parts), place, (close, closed), state).await;
+    }
+    state
+}
+
+/// True when a shell of the app can still run in its container after the stream: a shell of
+/// the request after a close (its jobs too) or with no exit, and a debug container whose
+/// shell did not exit. A node shell goes with its pod; an attach reaches no program of the app.
+fn leaves_shell(program: Program, closed: bool, exited: bool) -> bool {
+    match program {
+        Program::Shell => closed || !exited,
         Program::Debug => !exited,
         Program::Attach | Program::NodeShell => false,
-    };
-    if !signalled {
-        return state;
     }
+}
+
+/// Ends a shell of the app in `container` with a hangup through a second exec. With no close
+/// of the owner yet (a broken stream, a failed attach), the shell can still be of use: the
+/// line tells it, and the hangup waits for the close of the tab.
+async fn hang_up(
+    request: &TerminalRequest,
+    (terminal, parts): (&Terminal, &Parts),
+    (container, mark): (&str, &Mark),
+    (close, closed): (&mut watch::Receiver<bool>, bool),
+    state: SessionState,
+) -> SessionState {
     if !closed {
-        if exited {
-            return state;
-        }
-        let note = "the shell can still run in the pod: a close of the tab ends it";
-        terminal.set_state(with_note(&state, note));
+        terminal.set_state(with_note(&state, "the shell can still run in the pod: a close of the tab ends it"));
         (parts.wake)();
-        while !*close.borrow_and_update() {
-            if close.changed().await.is_err() {
-                return state;
-            }
-        }
+        until_closed(close).await;
     }
     let what = format!("the shell in pod {}/{}", request.object.namespace, request.object.name);
     let source = request.cluster.as_str();
-    match end::signal(parts, &request.object, &opened.container, mark).await {
-        Ok(count) => parts.journal.info(source, format!("{what}: a hangup went to {count} processes")),
+    match end::signal(parts, &request.object, container, mark).await {
+        Ok(count) => {
+            parts.journal.info(source, format!("{what}: a hangup went to {count} processes"));
+            state
+        }
         Err(error) => {
             parts.journal.warning(source, format!("{what} can still run: the signal did not go: {error}"));
-            return with_note(&state, &format!("the shell can still run in the pod: the signal did not go: {error}"));
+            with_note(&state, &format!("the shell can still run in the pod: the signal did not go: {error}"))
         }
     }
-    state
+}
+
+/// Waits for the close of the owner. An owner that dropped stops the task, so the wait goes on.
+async fn until_closed(close: &mut watch::Receiver<bool>) {
+    if close.wait_for(|closed| *closed).await.is_err() {
+        std::future::pending::<()>().await;
+    }
 }
 
 /// A state with a note on what can still run in the pod.
@@ -270,5 +325,24 @@ async fn delete(parts: &Parts, pod: &Target) {
     match end::delete_pod(parts, pod).await {
         Ok(()) => parts.journal.info(pod.cluster.as_str(), format!("{what} is deleted")),
         Err(error) => parts.journal.warning(pod.cluster.as_str(), format!("{what} stays, delete it: {error}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The hangup goes where a shell of the app can still run (plan section 12.8: a closed tab
+    /// leaves no process): after each close of a shell, which can have jobs, and after each
+    /// end of a shell or a debug container with no exit status.
+    #[test]
+    fn a_hangup_goes_where_a_shell_of_the_app_can_still_run() {
+        let each = |program| {
+            [(true, true), (true, false), (false, true), (false, false)].map(|(c, e)| leaves_shell(program, c, e))
+        };
+        assert_eq!(each(Program::Shell), [true, true, false, true], "closed or with no exit");
+        assert_eq!(each(Program::Debug), [false, true, false, true], "its container ends with its shell");
+        assert_eq!(each(Program::Attach), [false; 4], "the main process is no program of the app");
+        assert_eq!(each(Program::NodeShell), [false; 4], "the delete of its pod ends it");
     }
 }
