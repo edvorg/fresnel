@@ -17,7 +17,7 @@ fn harness(text: &str, limit: usize) -> Harness<'static, TextArea> {
 }
 
 /// The text of each row on the screen, from the top.
-fn rows(harness: &Harness<'_, TextArea>) -> Vec<String> {
+fn rows<State>(harness: &Harness<'_, State>) -> Vec<String> {
     let rows = harness.query_all_by_role(egui::accesskit::Role::ListItem);
     let mut rows: Vec<(f32, String)> =
         rows.map(|row| (row.rect().top(), row.accesskit_node().label().unwrap_or_default())).collect();
@@ -105,4 +105,28 @@ fn a_paste_past_the_line_limit_does_not_go_in_and_the_note_tells_why() {
     harness.run();
     assert_eq!(harness.state().text(), "a: 1\n");
     assert_eq!(harness.state().note(), Some("The editor holds 3 lines at most, so the text did not change."));
+}
+
+/// The list of the marks comes below the text and takes a part of its height: the line of the
+/// cursor stays on the screen.
+#[test]
+fn the_line_of_the_cursor_stays_on_the_screen_when_the_area_gets_lower() {
+    let text: String = (1..=200).map(|number| format!("key{number:03}: value\n")).collect();
+    let state = (TextArea::new(&text, 1000, true), 300.0_f32);
+    let mut harness = Harness::builder().with_size(egui::vec2(600.0, 300.0)).build_ui_state(
+        |ui, (area, height): &mut (TextArea, f32)| {
+            let rect = ui.available_rect_before_wrap().with_max_y(ui.available_rect_before_wrap().top() + *height);
+            ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| area.show(ui, Overlay::default()));
+        },
+        state,
+    );
+    harness.run();
+    harness.get_by_label("key001: value").click();
+    harness.run();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::End);
+    harness.run();
+    assert!(rows(&harness).iter().any(|row| row == "key200: value"));
+    harness.state_mut().1 = 150.0;
+    harness.run();
+    assert!(rows(&harness).iter().any(|row| row == "key200: value"), "the last line in the lower area");
 }

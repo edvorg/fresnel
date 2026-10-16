@@ -73,6 +73,8 @@ pub(crate) struct TextArea {
     note: Option<String>,
     /// True when the area had the focus of the keys in its last frame.
     focused: bool,
+    /// The height of the area in its last frame.
+    height: f32,
 }
 
 impl TextArea {
@@ -89,6 +91,7 @@ impl TextArea {
             focus: false,
             note: None,
             focused: false,
+            height: 0.0,
         }
     }
 
@@ -170,6 +173,10 @@ impl TextArea {
         let palette = crate::theme::palette(ui);
         let rect = ui.available_rect_before_wrap();
         ui.painter().rect_filled(rect, 0.0, palette.bg_sunken);
+        // The list of the marks comes and goes below the area: the cursor stays in view.
+        if self.focused && (rect.height() - std::mem::replace(&mut self.height, rect.height())).abs() > 0.5 {
+            self.reveal = true;
+        }
         let content = vec2(metrics.text_left + (self.widest.1 + 8) as f32 * metrics.column, metrics.height());
         let area = ScrollArea::both().id_salt("editor scroll").auto_shrink(false);
         area.show_viewport(ui, |ui, viewport| {
