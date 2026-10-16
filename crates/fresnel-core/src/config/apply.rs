@@ -26,6 +26,9 @@ pub(crate) fn apply(config: &Config, base: &CoreSettings, home: Option<&Path>) -
         put(&mut lane.stream_budget_percent, number(S::StreamBudget).map(size));
         put(&mut lane.max_connections, number(S::MaxConnections).map(size));
     }
+    // The WebSockets of exec, attach and port forward have the ping of the channels.
+    put(&mut net.upgrade.socket.ping_after, time(S::Keepalive));
+    put(&mut net.upgrade.socket.answer_limit, time(S::PingTimeout));
     for lane in [&mut net.watches, &mut net.logs] {
         put(&mut lane.stream_window, number(S::StreamWindow).map(kib));
         put(&mut lane.connection_window, number(S::ConnectionWindow).map(mib));
@@ -157,6 +160,7 @@ mod tests {
         let settings = apply(&config, &CoreSettings::default(), Some(Path::new("/Users/tester")));
         let lanes = [&settings.net.watches, &settings.net.requests, &settings.net.logs];
         assert!(lanes.iter().all(|lane| lane.keepalive_interval == Duration::from_secs(20)));
+        assert_eq!(settings.net.upgrade.socket.ping_after, Duration::from_secs(20), "a socket pings as a channel");
         assert_eq!((settings.net.watches.connection_window, settings.net.logs.connection_window), (64 << 20, 64 << 20));
         assert_eq!(settings.net.requests.connection_window, 1 << 30, "the reads keep their own window");
         assert_eq!(settings.net.connect.hedge_min, Duration::from_millis(300));

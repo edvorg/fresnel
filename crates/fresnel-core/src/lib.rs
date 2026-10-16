@@ -7,7 +7,8 @@
 //!   a cluster, which the watch loop keeps current. [`index`]: the relations between them.
 //! - [`manifest`]: the YAML of one object, read from the server. [`search`]: the quick
 //!   search in the stores. [`keys`]: the keys and values of a Secret or a ConfigMap.
-//! - [`logs`]: the log streams of pods and workloads.
+//! - [`logs`]: the log streams of pods and workloads. [`stream`]: exec, attach and the
+//!   tunnels of a port forward, each on a WebSocket.
 //! - [`ops`]: the operations on objects, as jobs, and the permissions of the user.
 //! - [`metrics`]: the sampler of each cluster and the history of its CPU and memory.
 //! - [`published`]: the one type that publishes a state to its readers.
@@ -39,6 +40,7 @@ pub mod published;
 pub mod search;
 pub mod state_file;
 pub mod store;
+pub mod stream;
 mod watch;
 
 pub use error::CoreError;

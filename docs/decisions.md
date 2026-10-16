@@ -238,6 +238,55 @@ connections each failed after 10 seconds. Now a warm connection answers a light 
 before its use, with a limit of 1 second. One failed test drops the full warm set, and the
 request uses a new connection. A wake and a network change also drop the set.
 
+## A WebSocket of exec, attach and port forward has a loop of fresnel-net
+
+The socket of kube-rs pings each 60 s, reads no answer and has no limit for a read; its port
+forward lost the answer of a client that ended its output. Both stalled with no signal. A socket
+of `fresnel-net` runs on tungstenite in its own loop: a ping after 10 s with no frame, a break
+with no answer in 5 s, a bounded queue in each direction and a state with its end.
+
+## A peer that reads nothing is no break while a channel of its cluster is live
+
+Plan section 12.3: a write that waits for a slow pod is not a break. A ping behind a waiting write
+gets no answer, so one live channel of the cluster decides: the API server answers, the socket
+waits and shows it, and a change of the channels decides again at once. A connection that alone
+went silent during an upload thus waits too, with the state of a wait, until the user closes it.
+
+## A ping counts the data bytes before it
+
+A pod that reads no input answers no ping, even when buffers took it: k3s took 64 MiB of input
+for `sleep` and answered no ping. So a ping carries the count of the data bytes before it, and its
+answer gives it back. A ping with no answer behind 64 KiB that no answer confirmed asks the path;
+below that its silence is a break: a process that reads nothing first fills its pipe of 64 KiB.
+
+## The gateway sends the handshake of an upgrade itself
+
+The WebSocket call of kube drops the body of a refused upgrade, so the error of a container that
+does not exist had the status only (terminal review, attack A4). The gateway sends the request
+with the headers of `fresnel_net::Offer` and reads a refusal as each other answer, with the
+message of the server. `fresnel-net` checks the answer HTTP 101 and its subprotocol.
+
+## The status decides the end of an exec
+
+A key that the user types after `exit` breaks the write, and the prototype then lost the exit
+code that the server had sent (terminal review, attack A2). A failed write now stops the writes,
+and the read goes on for the limit of an answer, so the status still arrives. The status on the
+error channel is the end of the session, also when its socket breaks after it.
+
+## The end of a socket is no end of a task
+
+Each local connection of a port forward is a socket with a task, and the start function gives the
+journal an entry for each end of a task. The task of a socket waits after its end until its owner
+drops the socket: its state tells the end, and its report gives the journal an entry for an
+abnormal end only. A panic still ends the task, with the report of the start function.
+
+## A port forward over a WebSocket has the subprotocol v4
+
+The WebSocket form of the port forward has only `v4.channel.k8s.io`: for each port a data and an
+error channel, each with the port at its start. A tunnel has one port, so one local connection is
+one socket, as in the prototype; the multiplexed SPDY tunnel is a later option of plan section
+12.3. Exec and attach ask for v5, which can end the input, and take v4 from a server before 1.30.
+
 ## The login shell starts from the process environment
 
 The login shell runs one time, with the environment of the process as its start. Its profile

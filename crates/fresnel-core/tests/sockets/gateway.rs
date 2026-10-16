@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use fresnel_core::CoreError;
 use fresnel_core::cluster::{Fate, WatchEvent};
-use fresnel_core::net::{ErrorClass, Limits, NetSettings};
+use fresnel_core::net::{ErrorClass, Limits, NetSettings, SocketSpec, SocketState};
 use fresnel_testkit::{FakeApiServer, Fault, FaultProxy};
 use http::header::{SEC_WEBSOCKET_PROTOCOL, UPGRADE};
 use http::{Method, Version};
@@ -24,6 +24,11 @@ const EXEC: &str = "/api/v1/namespaces/default/pods/web/exec?command=sh&stdout=t
 const TWO_NAMESPACES: &str = r#"{"kind":"NamespaceList","apiVersion":"v1",
     "metadata":{"resourceVersion":"7","continue":"next"},
     "items":[{"metadata":{"name":"default"}},{"metadata":{"name":"kube-system"}}]}"#;
+
+/// A socket of the test, with the subprotocols of an exec.
+fn spec() -> SocketSpec {
+    SocketSpec { role: "test socket", protocols: &["v5.channel.k8s.io", "v4.channel.k8s.io"], on_end: None }
+}
 
 fn paths(server: &FakeApiServer, method: &Method) -> Vec<String> {
     let of_method = server.requests().into_iter().filter(|seen| seen.method == *method);
@@ -97,7 +102,7 @@ async fn each_function_fails_at_the_time_limit_of_its_kind_on_the_connections_of
             async { timed(gateway.get::<Info>(get(&path("get"))).await.map(drop)) },
             async { timed(gateway.watch_stream::<Namespace>(get(&path("watch?watch=true"))).await.map(drop)) },
             async { timed(gateway.log_stream(get(&path("log"))).await.map(drop)) },
-            async { timed(gateway.upgrade(get(&path("exec"))).await.map(drop)) },
+            async { timed(gateway.upgrade(get(&path("exec")), spec()).await.map(drop)) },
             async { timed(gateway.list_page::<Info>(get(&path("list"))).await.map(drop)) },
             async {
                 let error = gateway.send::<Info>(post(&path("write"), "{}")).await.expect_err("no answer");
@@ -167,7 +172,7 @@ async fn a_request_in_the_incorrect_function_does_not_go_out() {
         gateway.list_page::<Namespace>(write()).await.expect_err("a write").to_string(),
         gateway.watch_stream::<Namespace>(write()).await.expect_err("a write").to_string(),
         gateway.log_stream(write()).await.expect_err("a write").to_string(),
-        gateway.upgrade(write()).await.map(drop).expect_err("a write").to_string(),
+        gateway.upgrade(write(), spec()).await.map(drop).expect_err("a write").to_string(),
     ];
     let expected = ["get", "list_page", "watch_stream", "log_stream"]
         .map(|function| format!("`{function}` sends a read, and the request has the method POST"));
@@ -226,14 +231,13 @@ async fn a_write_with_a_broken_answer_has_an_unknown_fate_and_goes_out_one_time(
     assert_eq!(proxy.task_failures(), Vec::<String>::new());
 }
 
-/// The fake server answers HTTP 101 with no WebSocket key, so the upgrade itself fails. The
-/// request shows that the gateway used an HTTP/1.1 connection and the WebSocket headers.
+/// An upgrade goes out on an HTTP/1.1 connection with the headers of a WebSocket, and its
+/// answer is a socket with the subprotocol that the server selected.
 #[tokio::test]
-async fn an_upgrade_goes_out_on_its_own_http1_connection_as_a_websocket_request() {
+async fn an_upgrade_goes_out_on_its_own_http1_connection_and_gives_a_socket() {
     let bed = Bed::start(NetSettings::default()).await;
-    let error = bed.link.gateway.upgrade(get(EXEC)).await.map(drop).expect_err("the fake server has no WebSocket");
-    assert_eq!(error.class(), ErrorClass::Server);
-    assert_eq!(error.to_string(), "the answer to the upgrade is not a WebSocket: Sec-WebSocket-Accept key mismatched");
+    let socket = bed.link.gateway.upgrade(get(EXEC), spec()).await.expect("a socket");
+    assert_eq!((socket.protocol(), socket.state()), ("v5.channel.k8s.io", SocketState::Open));
 
     let requests = bed.server.requests();
     let seen = requests.iter().find(|seen| seen.uri.path().ends_with("/exec")).expect("the upgrade request");
@@ -241,11 +245,19 @@ async fn an_upgrade_goes_out_on_its_own_http1_connection_as_a_websocket_request(
     assert_eq!(seen.headers[UPGRADE], "websocket");
     assert_eq!(seen.headers[SEC_WEBSOCKET_PROTOCOL], "v5.channel.k8s.io, v4.channel.k8s.io");
     assert_eq!((bed.server.counters().upgrades, bed.link.net.status().upgrade.opened), (1, 1));
+    assert_eq!(bed.link.net.status().upgrade.sockets.open, 1);
+}
 
-    bed.server.add_fault(Fault::unauthorized().on_path("/api/v1/namespaces/default/pods/web/exec"));
-    let error = bed.link.gateway.upgrade(get(EXEC)).await.map(drop).expect_err("refused");
-    assert_eq!((error.class(), error.status()), (ErrorClass::Auth, Some(401)));
-    assert_eq!(error.to_string(), "the server refused the upgrade (HTTP 401)");
+/// kube-rs drops the body of a refused upgrade, so its error had the status only (review
+/// attack A4 of the terminal prototype). The gateway gives the message of the server.
+#[tokio::test]
+async fn a_refused_upgrade_gives_the_message_of_the_server() {
+    let bed = Bed::start(NetSettings::default()).await;
+    bed.server.add_fault(Fault::forbidden().on_path("/api/v1/namespaces/default/pods/web/exec"));
+    let error = bed.link.gateway.upgrade(get(EXEC), spec()).await.map(drop).expect_err("refused");
+    assert_eq!((error.class(), error.status()), (ErrorClass::Forbidden, Some(403)));
+    assert_eq!(error.to_string(), "forbidden: the user of the test cannot read this path (HTTP 403)");
+    assert_eq!(bed.link.net.status().upgrade.sockets.opened, 0);
 }
 
 /// Design rule 8: a request reaches the cluster of its gateway and no other one.

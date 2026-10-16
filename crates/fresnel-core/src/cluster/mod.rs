@@ -13,7 +13,7 @@ mod version;
 use std::fmt::{self, Display};
 use std::sync::Arc;
 
-pub use gateway::{Fate, Gateway, LogStream, Upgraded, WatchEvent, WatchStream, WriteError};
+pub use gateway::{Fate, Gateway, LogStream, WatchEvent, WatchStream, WriteError};
 pub use registry::{ClusterView, Link, LinkState, Registry};
 pub use version::{ClusterVersion, ServerVersion, VersionState};
 

@@ -12,6 +12,7 @@
 //!   `demand`: the stores on demand.
 //! - `indexes`: the indexes of a cluster on its stores.
 //! - `metrics`: the reads of the metrics sampler and the state of each refusal.
+//! - `stream`: exec, attach and the tunnels of a port forward, with faults of their sockets.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
@@ -32,3 +33,4 @@ mod run_again;
 mod store_bed;
 mod store_faults;
 mod stores;
+mod stream;

@@ -10,9 +10,8 @@ mod common;
 use std::time::{Duration, Instant};
 
 use fresnel_core::cluster::{Fate, Gateway, WatchEvent};
-use fresnel_core::net::{ErrorClass, NetSettings};
+use fresnel_core::net::{ErrorClass, NetSettings, SocketSpec, SocketState};
 use fresnel_testkit::{FaultProxy, K3s};
-use futures_util::StreamExt as _;
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 use k8s_openapi::apimachinery::pkg::version::Info;
 use kube::core::params::{DeleteParams, GetParams, ListParams, Patch, PatchParams, PostParams, WatchParams};
@@ -176,11 +175,12 @@ async fn the_six_functions_work_on_a_real_kube_apiserver_through_the_fault_proxy
     drop(log);
 
     let exec = system_pods().exec(&pod, ["/coredns", "-version"], &AttachParams::default()).expect("a request");
-    let mut socket = gateway.upgrade(exec).await.expect("the WebSocket of the exec").into_stream();
+    let spec = SocketSpec { role: "exec socket", protocols: &["v5.channel.k8s.io", "v4.channel.k8s.io"], on_end: None };
+    let mut socket = gateway.upgrade(exec, spec).await.expect("the WebSocket of the exec");
+    assert_eq!(socket.protocol(), "v5.channel.k8s.io");
     let mut output = Vec::new();
     // The server ends the connection after the end of the program, with or with no close message.
-    while let Some(Ok(message)) = in_time("the output of the program", socket.next()).await {
-        let data = message.into_data();
+    while let Some(data) = in_time("the output of the program", socket.recv()).await {
         // The first byte is the channel: 1 is the standard output.
         if data.first() == Some(&1) {
             output.extend_from_slice(&data[1..]);
@@ -188,6 +188,10 @@ async fn the_six_functions_work_on_a_real_kube_apiserver_through_the_fault_proxy
     }
     let output = String::from_utf8_lossy(&output);
     assert!(output.starts_with("CoreDNS-"), "the output of `/coredns -version`: {output}");
+    match socket.state() {
+        SocketState::Ended(end) => assert!(end.is_clean(), "{end}"),
+        other => panic!("the socket ended: {other:?}"),
+    }
     assert_eq!(link.net.status().upgrade.opened, 1, "the exec used one upgrade connection");
     assert_eq!(proxy.task_failures(), Vec::<String>::new());
 }

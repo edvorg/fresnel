@@ -21,7 +21,8 @@ imbl.workspace = true
 # such database, so the program has a copy there (`tzdb-bundle-platform`).
 jiff = { workspace = true, features = ["tzdb-bundle-platform", "tzdb-zoneinfo"] }
 k8s-openapi.workspace = true
-# `ws`: the WebSocket handshake of exec, attach and port forward.
+# `ws`: the requests of exec, attach and port forward. The gateway sends the WebSocket
+# handshake itself, and `fresnel-net` runs the socket.
 kube = { workspace = true, features = ["ws"] }
 rustls.workspace = true
 serde.workspace = true

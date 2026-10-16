@@ -9,7 +9,7 @@
 //! - `list_page`: 15 s with no data, 120 s in total.
 //! - `watch_stream` and `log_stream`: 10 s for the start. The stream has no limit.
 //! - `send`: 15 s for the full answer. A write goes out one time (design rule 6).
-//! - `upgrade`: 10 s for the answer of the server.
+//! - `upgrade`: 10 s for the answer of the server. The WebSocket then has its own ping.
 //!
 //! A caller builds its request with `kube::core::Request`, with a path and no host.
 //!
@@ -22,14 +22,12 @@ mod bridge;
 mod stream;
 mod write;
 
-use fresnel_net::{ErrorClass, Limits, RequestKind};
-use http::{Method, Request, Response};
-use kube::client::{Body, UpgradeConnectionError};
+use fresnel_net::{ErrorClass, Limits, Offer, RequestKind, Socket, SocketSpec};
+use http::{Method, Request, Response, StatusCode};
+use kube::client::Body;
 use serde::de::DeserializeOwned;
 use tokio::runtime::Handle;
 
-/// The WebSocket of an upgraded connection: exec, attach or port forward.
-pub use kube::client::Connection as Upgraded;
 pub use kube::core::WatchEvent;
 pub use stream::{LogStream, WatchStream};
 pub use write::{Fate, WriteError};
@@ -42,6 +40,8 @@ use crate::error::CoreError;
 pub struct Gateway {
     cluster: ClusterId,
     client: kube::Client,
+    /// The connection layer, which turns the answer to an upgrade into a socket.
+    net: fresnel_net::Cluster,
     limits: Limits,
 }
 
@@ -50,8 +50,8 @@ impl Gateway {
     pub(super) fn new(cluster: ClusterId, net: fresnel_net::Cluster, limits: Limits, runtime: &Handle) -> Self {
         let _context = runtime.enter();
         // The gateway gives a full path to each request, so the namespace is not in use.
-        let client = kube::Client::new(bridge::Bridge::new(net), "default");
-        Self { cluster, client, limits }
+        let client = kube::Client::new(bridge::Bridge::new(net.clone()), "default");
+        Self { cluster, client, net, limits }
     }
 
     /// The cluster of this gateway.
@@ -95,23 +95,25 @@ impl Gateway {
         answer::json(response).await.map_err(WriteError::after_acceptance)
     }
 
-    /// Changes a new connection to a WebSocket: exec, attach or port forward.
-    pub async fn upgrade(&self, mut request: Request<Vec<u8>>) -> Result<Upgraded, CoreError> {
+    /// Changes a warm or a new connection to a WebSocket of one of the subprotocols of `spec`:
+    /// exec, attach or port forward. The socket has the ping of the connection layer.
+    ///
+    /// The gateway sends the handshake itself, not with the WebSocket call of kube, which
+    /// drops the body of a refusal: the message of the server, for example of a container
+    /// that does not exist, is the text of the error.
+    pub async fn upgrade(&self, mut request: Request<Vec<u8>>, spec: SocketSpec) -> Result<Socket, CoreError> {
         if !is_read(request.method()) {
             return Err(wrong_method("upgrade", "an upgrade", &request));
         }
-        request.extensions_mut().insert(RequestKind::Upgrade);
-        self.client.connect(request).await.map_err(|error| match error {
-            // kube does not read the body of this answer, so the text has the status only.
-            kube::Error::UpgradeConnection(UpgradeConnectionError::ProtocolSwitch(status)) => {
-                let code = status.as_u16();
-                CoreError::answered(code, format!("the server refused the upgrade (HTTP {code})"))
-            }
-            kube::Error::UpgradeConnection(other) => {
-                CoreError::new(ErrorClass::Server, format!("the answer to the upgrade is not a WebSocket: {other}"))
-            }
-            other => answer::transport(other),
-        })
+        let offer = Offer::new(spec.protocols);
+        offer.apply(request.headers_mut())?;
+        let response = self.exchange(RequestKind::Upgrade, request).await?;
+        if response.status() != StatusCode::SWITCHING_PROTOCOLS {
+            let code = response.status().as_u16();
+            let text = format!("the server answered the upgrade with HTTP {code}, not with a WebSocket");
+            return Err(CoreError::new(ErrorClass::Server, text));
+        }
+        Ok(self.net.open_socket(response, &offer, spec).await?)
     }
 
     /// Sends a read of one kind. The answer comes back after the check of its status.
@@ -127,11 +129,12 @@ impl Gateway {
         self.exchange(kind, request).await
     }
 
-    /// Sends one request with its kind. An answer with an error status is an error.
+    /// Sends one request with its kind. An answer with an error status is an error. HTTP 101
+    /// is the success of an upgrade.
     async fn exchange(&self, kind: RequestKind, mut request: Request<Vec<u8>>) -> Result<Response<Body>, CoreError> {
         request.extensions_mut().insert(kind);
         let response = self.client.send(request.map(Body::from)).await.map_err(answer::transport)?;
-        if response.status().is_success() {
+        if response.status().is_success() || response.status() == StatusCode::SWITCHING_PROTOCOLS {
             return Ok(response);
         }
         Err(answer::refusal(response, self.limits.get).await)

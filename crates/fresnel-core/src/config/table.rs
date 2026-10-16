@@ -242,7 +242,7 @@ pub const CONFIRM_RULES: &[&str] = &["dialog", "type-name"];
 /// Each setting of the fixed groups. The defaults are the values that plan section 16 and
 /// the measurements of M0 give; `apply` tests hold them equal to the defaults of the code.
 pub const TABLE: &[Spec] = &[
-    time(S::Keepalive, Network, "keepalive_secs", [10, 1, 60], Seconds, "Ping of a quiet channel after"),
+    time(S::Keepalive, Network, "keepalive_secs", [10, 1, 60], Seconds, "Ping of a quiet connection after"),
     time(S::PingTimeout, Network, "keepalive_timeout_secs", [5, 1, 60], Seconds, "Close with no answer to a ping in"),
     time(S::LightRequest, Network, "light_request_secs", [30, 5, 85], Seconds, "Light request of an idle channel each"),
     num(S::StreamBudget, Network, "stream_budget_percent", [70, 10, 95], Percent, "Streams of the server limit"),

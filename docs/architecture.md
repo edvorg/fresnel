@@ -70,17 +70,16 @@ lane: watches | requests | logs  (HTTP/2 channels)      upgrade (HTTP/1.1, warm 
 new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 ```
 
-- **Channel**: one HTTP/2 connection with its own task. The task connects at the start and
-  after each loss, sends a ping each 10 s, and sends a light request each 30 s when no stream
-  is open. With a plugin and no token, it sends nothing. Live means: a request got an answer.
-- **Group**: the channels of one purpose. At 70 percent of the stream limit of the server,
-  one more connection opens, to a maximum of 3. Then a request waits, with a visible state.
+- **Channel**: one HTTP/2 connection whose task connects at the start and after each loss, pings
+  each 10 s and, with no open stream and a token, sends a light request each 30 s. Live: an answer.
+  A **group** of a purpose adds one at 70 percent of the stream limit, to 3; then a request waits.
 - **Hedged connect**: one more attempt after 1.5 connect times; the first one wins. **Upgrade
-  client**: exec, attach and port forward, on warm connections with a test.
+  client**: exec, attach and port forward on warm connections with a test, each a **socket** that
+  pings after 10 s and breaks with no answer in 5 s, unless its peer reads nothing (`socket`).
 - **Credential**: one task runs the plugin. After a second HTTP 401, a request proves the token.
-- **Signal**: a wake, a network change and "retry now" end each retry delay of a cluster, and
-  each channel tests its connection in 3 s. **Outage**: after a minute with no connect, a cluster
-  gets one attempt each 5 s. `Cluster::status` gives a copy of each state, `changes` a change.
+- **Signal**: a wake, a network change and "retry now" end each retry delay, and each channel and
+  socket tests its connection in 3 s. **Outage**: after a minute with no connect, one attempt each
+  5 s. `Cluster::status` gives a copy of each state, `changes` a change.
 
 ## Clusters
 
@@ -89,7 +88,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Kubeconfig**: `kubeconfig::load` reads each file of `KUBECONFIG`, then `.kube/config` of the
   home folder and the files of the settings. The first file wins a name.
 - **Registry**: one entry for each context. **Gateway**: get, list page, watch stream, log stream,
-  send and upgrade. A failed write tells its fate, and each read has a size limit.
+  send and upgrade. A failed write tells its fate, and each read has a size limit. **Streams**
+  (`stream`): exec, attach and the tunnel of a port forward, each on a socket of `upgrade`.
 - **Manifest**: `manifest` reads the YAML of an object, and checks, saves and merges an editor.
 - **Keys** (`keys`): one Secret or ConfigMap with each value, as text or as size and type. A
   `Draft` saves a merge patch of its changed keys with the version of its read, so no other key
@@ -185,7 +185,7 @@ dock (Operations, Journal, Connections, a tab for each log view and editor) and 
 
 `fresnel-testkit` runs in the test process, and each part stops at its drop: `FaultProxy` holds,
 freezes, delays, resets or silences connections; `K3s` is k3s in Docker, with agents as nodes;
-`FakeApiServer` has TLS, HTTP/2, HTTP/1.1, watch and log streams, the HTTP 101 upgrade and faults.
+`FakeApiServer` has TLS, HTTP/2, HTTP/1.1, watch and log streams, a WebSocket pod and faults.
 
 - **Unit tests** run with no network and with paused time: `fresnel-net` on an HTTP/2 server in
   memory, the watch loop on a script, the indexes, health values and columns on two k3s scenes.
