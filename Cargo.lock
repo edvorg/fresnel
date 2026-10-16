@@ -1496,6 +1496,7 @@ dependencies = [
  "socket2",
  "tokio",
  "tokio-rustls",
+ "tokio-tungstenite",
 ]
 
 [[package]]

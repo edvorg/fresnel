@@ -11,7 +11,7 @@ repository.workspace = true
 bytes.workspace = true
 fastrand.workspace = true
 fresnel-net.workspace = true
-futures-util.workspace = true
+futures-util = { workspace = true, features = ["sink"] }
 http.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["http1", "http2", "server"] }
@@ -23,6 +23,8 @@ socket2.workspace = true
 # hours and ends its cluster after Ctrl+C.
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-rustls.workspace = true
+# The WebSocket peer of the fake server, with the version of the app.
+tokio-tungstenite.workspace = true
 
 # The size of the send buffer of a socket, for the reset of the fault proxy.
 [target.'cfg(target_vendor = "apple")'.dependencies]

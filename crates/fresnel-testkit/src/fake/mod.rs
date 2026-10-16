@@ -7,11 +7,13 @@
 //! - A request with `watch=true`, or a log with `follow=true`, gives a stream. The test
 //!   sends each line.
 //! - An HTTP/1.1 request with the header `Upgrade` gets HTTP 101, and then each byte back.
+//!   A WebSocket request gets a WebSocket of a pod with a shell and ports (`pod`).
 //! - Each other request gets the body that the test set for its path, or an empty list.
 //!
 //! A [`Fault`] replaces these answers. For a network fault, put a `FaultProxy` before the server.
 
 mod answer;
+mod pod;
 mod script;
 mod seen;
 mod serve;
@@ -127,6 +129,18 @@ impl FakeApiServer {
     /// Removes all faults.
     pub fn clear_faults(&self) {
         self.shared.clear_faults();
+    }
+
+    /// From now on, an exec or an attach can select only `v4.channel.k8s.io`, as on a
+    /// server before Kubernetes 1.30.
+    pub fn exec_with_v4_only(&self) {
+        self.shared.set_exec_protocols(&[pod::V4]);
+    }
+
+    /// While `held` is true, the WebSocket peers read nothing: a pod that reads no input,
+    /// whose buffers are full, so that its writes wait and no ping gets an answer.
+    pub fn hold_streams(&self, held: bool) {
+        self.shared.hold_streams(held);
     }
 
     /// Sends GOAWAY on each open HTTP/2 connection. Such a connection takes no new stream

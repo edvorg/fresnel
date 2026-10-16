@@ -12,6 +12,7 @@ use tokio::time::Instant;
 use tokio_rustls::TlsAcceptor;
 
 use super::FakeCounters;
+use super::pod;
 use super::script::Fault;
 use super::seen::SeenRequest;
 use super::watch::{FEED_EVENTS, Feed};
@@ -31,6 +32,10 @@ pub(super) struct Shared {
     /// True: an HTTP/2 connection ends after the answer to a request that the token check
     /// of the server does not pass.
     pub(super) ends_unauthenticated: AtomicBool,
+    /// The subprotocols of exec and attach that the fake pod speaks.
+    exec_protocols: Mutex<&'static [&'static str]>,
+    /// True while the WebSocket peers read nothing.
+    streams_held: watch::Sender<bool>,
     script: Mutex<Script>,
 }
 
@@ -68,7 +73,37 @@ impl Shared {
             feed: broadcast::Sender::new(FEED_EVENTS),
             go_away: watch::Sender::new(0),
             ends_unauthenticated: AtomicBool::new(false),
+            exec_protocols: Mutex::new(&[pod::V5, pod::V4]),
+            streams_held: watch::Sender::new(false),
             script: Mutex::new(Script::default()),
+        }
+    }
+
+    pub(super) fn exec_protocols(&self) -> &'static [&'static str] {
+        *self.exec_protocols.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(super) fn set_exec_protocols(&self, protocols: &'static [&'static str]) {
+        *self.exec_protocols.lock().unwrap_or_else(PoisonError::into_inner) = protocols;
+    }
+
+    pub(super) fn hold_streams(&self, held: bool) {
+        self.streams_held.send_replace(held);
+    }
+
+    /// Waits until the streams flow. The sender lives in `self`, so the wait cannot fail.
+    pub(super) async fn until_streams_flow(&self) {
+        let mut held = self.streams_held.subscribe();
+        if held.wait_for(|held| !held).await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+
+    /// Waits until the test holds the streams.
+    pub(super) async fn until_streams_held(&self) {
+        let mut held = self.streams_held.subscribe();
+        if held.wait_for(|held| *held).await.is_err() {
+            std::future::pending::<()>().await;
         }
     }
 

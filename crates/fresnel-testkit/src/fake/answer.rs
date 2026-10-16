@@ -5,11 +5,16 @@ use std::future::pending;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use http::header::{CONNECTION, CONTENT_TYPE, RETRY_AFTER, UPGRADE};
+use http::header::{
+    CONNECTION, CONTENT_TYPE, RETRY_AFTER, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_PROTOCOL, UPGRADE,
+};
 use http::{HeaderValue, Request, Response, StatusCode, Version};
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Empty, Full};
 
+use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
+
+use super::pod::Peer;
 use super::script::FaultAnswer;
 use super::seen::SeenRequest;
 use super::state::Shared;
@@ -61,19 +66,29 @@ pub(super) async fn answer<B>(shared: &Arc<Shared>, connection: u64, request: Re
 fn normal_answer(shared: &Arc<Shared>, request: &SeenRequest) -> Response<Body> {
     let path = request.uri.path();
     match request.headers.get(UPGRADE) {
-        Some(protocol) if request.version == Version::HTTP_11 => switching_protocols(protocol.clone()),
+        Some(protocol) if request.version == Version::HTTP_11 => switching_protocols(shared, request, protocol.clone()),
         _ if request.is_watch() => json_body(StatusCode::OK, watch::body(shared, path)),
         _ if path == "/version" => json(StatusCode::OK, shared.body(path).unwrap_or_else(|| VERSION.into())),
         _ => json(StatusCode::OK, shared.body(path).unwrap_or_else(|| EMPTY_LIST.into())),
     }
 }
 
-/// The answer that changes an HTTP/1.1 connection to a raw stream.
-fn switching_protocols(protocol: HeaderValue) -> Response<Body> {
+/// The answer that changes an HTTP/1.1 connection to a raw stream. A request with a
+/// WebSocket key gets its accept key and the subprotocol of the fake pod, if it offers one.
+fn switching_protocols(shared: &Shared, request: &SeenRequest, protocol: HeaderValue) -> Response<Body> {
     let mut response = Response::new(Empty::new().boxed_unsync());
     *response.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
-    response.headers_mut().insert(CONNECTION, HeaderValue::from_static("Upgrade"));
-    response.headers_mut().insert(UPGRADE, protocol);
+    let headers = response.headers_mut();
+    headers.insert(CONNECTION, HeaderValue::from_static("Upgrade"));
+    headers.insert(UPGRADE, protocol);
+    if let Some(key) = request.headers.get(SEC_WEBSOCKET_KEY)
+        && let Ok(accept) = HeaderValue::from_str(&derive_accept_key(key.as_bytes()))
+    {
+        headers.insert(SEC_WEBSOCKET_ACCEPT, accept);
+        if let Some(peer) = Peer::select(shared, &request.uri, &request.headers) {
+            headers.insert(SEC_WEBSOCKET_PROTOCOL, HeaderValue::from_static(peer.protocol()));
+        }
+    }
     response
 }
 

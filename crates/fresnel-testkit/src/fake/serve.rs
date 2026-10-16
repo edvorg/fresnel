@@ -8,6 +8,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
+use http::header::SEC_WEBSOCKET_KEY;
 use http::{Request, StatusCode};
 use hyper::body::Incoming;
 use hyper::server::conn::{http1, http2};
@@ -22,6 +23,7 @@ use tokio::task::JoinSet;
 use tokio_rustls::server::TlsStream;
 
 use super::answer::answer;
+use super::pod::Peer;
 use super::state::{Connection, Shared};
 use crate::background::connection_end;
 
@@ -129,27 +131,33 @@ async fn serve_http1(shared: &Arc<Shared>, io: Io, number: u64) -> io::Result<()
     let upgrade = Mutex::new(None);
     let service = service_fn(|mut request: Request<Incoming>| {
         let on_upgrade = hyper::upgrade::on(&mut request);
+        let websocket = request.headers().contains_key(SEC_WEBSOCKET_KEY);
+        let peer = websocket.then(|| Peer::select(shared, request.uri(), request.headers()));
         let (shared, upgrade) = (Arc::clone(shared), &upgrade);
         async move {
             let (response, _ends) = answer(&shared, number, request).await;
             if response.status() == StatusCode::SWITCHING_PROTOCOLS {
-                *upgrade.lock().unwrap_or_else(PoisonError::into_inner) = Some(on_upgrade);
+                *upgrade.lock().unwrap_or_else(PoisonError::into_inner) = Some((on_upgrade, peer));
             }
             Ok::<_, Infallible>(response)
         }
     });
     http1::Builder::new().serve_connection(io, service).with_upgrades().await.map_err(io::Error::other)?;
-    let on_upgrade = upgrade.lock().unwrap_or_else(PoisonError::into_inner).take();
-    match on_upgrade {
-        Some(on_upgrade) => echo(shared, on_upgrade.await.map_err(io::Error::other)?).await,
-        None => Ok(()),
+    let upgraded = upgrade.lock().unwrap_or_else(PoisonError::into_inner).take();
+    let Some((on_upgrade, peer)) = upgraded else { return Ok(()) };
+    let upgraded = on_upgrade.await.map_err(io::Error::other)?;
+    shared.count(|counters| counters.upgrades += 1);
+    match peer {
+        None => echo(upgraded).await,
+        Some(Some(peer)) => peer.run(Arc::clone(shared), upgraded).await.map_err(io::Error::other),
+        // The pod speaks none of the subprotocols, and the client refuses the answer.
+        Some(None) => Ok(()),
     }
 }
 
-/// After the upgrade, the connection is a raw stream. The server sends each byte back, so
-/// that a test can see that the stream works in the two directions.
-async fn echo(shared: &Shared, upgraded: Upgraded) -> io::Result<()> {
-    shared.count(|counters| counters.upgrades += 1);
+/// After an upgrade with no WebSocket, the connection is a raw stream. The server sends each
+/// byte back, so that a test can see that the stream works in the two directions.
+async fn echo(upgraded: Upgraded) -> io::Result<()> {
     let (mut read, mut write) = tokio::io::split(TokioIo::new(upgraded));
     tokio::io::copy(&mut read, &mut write).await?;
     write.shutdown().await
