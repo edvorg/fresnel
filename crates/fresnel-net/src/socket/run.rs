@@ -50,11 +50,14 @@ pub(super) struct Run<S> {
     changes: Changes,
     board: Board,
     live: Liveness,
-    /// The messages for the sink, in their sequence: one message of the caller at most, and
-    /// a ping or the close.
+    /// The messages for the sink, in their sequence: one message of the caller at most, one
+    /// ping at most and the close.
     queue: VecDeque<Message>,
     /// The sink holds bytes that are not out yet.
     unflushed: bool,
+    /// A ping waits in the queue or in the sink. A second one would carry the same count, and
+    /// with each wake while a write waits, the queue and the buffer of the sink would grow.
+    ping_waits: bool,
     /// Since when bytes wait to go out. `None` while each byte is out.
     blocked: Option<Instant>,
     /// A message of the server that waits for room in the queue of the caller.
@@ -99,6 +102,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Run<S> {
             live,
             queue: VecDeque::new(),
             unflushed: false,
+            ping_waits: false,
             blocked: None,
             held: None,
             closing: None,
@@ -239,11 +243,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Run<S> {
         match written {
             Ok(()) => {
                 self.blocked = None;
+                self.ping_waits = false;
                 self.live.written(now);
             }
             Err(error) => {
                 self.queue.clear();
                 self.unflushed = false;
+                self.ping_waits = false;
                 self.blocked = None;
                 self.behind = false;
                 // Each writer gets an error at once.
@@ -285,6 +291,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Run<S> {
     /// A wake or a network change: a test of the connection with the short limit.
     fn on_signal(&mut self) {
         if self.checks_liveness() && self.live.test(Instant::now(), self.settings.test_limit) {
+            self.ping();
+        }
+    }
+
+    /// Queues a ping with the count of the data bytes before it, unless one waits. That one
+    /// has the same count: a message of the caller goes in only after each byte before it is out.
+    fn ping(&mut self) {
+        if !self.ping_waits {
+            self.ping_waits = true;
             self.push(wire::ping(self.sent));
         }
     }
@@ -305,7 +320,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Run<S> {
         match self.live.due(now)? {
             Due::Ping => {
                 self.live.ping_queued(now);
-                self.push(wire::ping(self.sent));
+                self.ping();
                 None
             }
             Due::Silent if self.sent.saturating_sub(self.confirmed) < UNREAD => Some(self.silent(now)),

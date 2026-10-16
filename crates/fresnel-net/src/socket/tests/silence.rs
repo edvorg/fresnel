@@ -116,3 +116,37 @@ async fn a_wake_tests_the_connection_with_its_short_limit() {
     bed.signal.raise(Cause::Wake);
     assert_eq!(bed.end(woke).await, (silent(7 * SECOND), 3 * SECOND));
 }
+
+/// Design rule 12: the queue of the socket has a bound. Each wake while a write waits gives
+/// the ping that waits in the queue the short limit, and no second ping goes in behind it.
+#[tokio::test(start_paused = true)]
+async fn wakes_while_a_write_waits_add_no_ping_to_the_queue() {
+    let mut bed = Bed::start().await;
+    let (piece, pieces) = (Bytes::from(vec![7_u8; 32 * 1024]), 40);
+    let writer = bed.socket.writer();
+    let write = async {
+        for _ in 0..pieces {
+            writer.send(piece.clone()).await.expect("a send");
+        }
+    };
+    tokio::pin!(write);
+    // The first ping waits behind the write from 10 s on.
+    assert!(timeout(12 * SECOND, &mut write).await.is_err(), "the writer waits for the peer");
+    for _ in 0..50 {
+        bed.signal.raise(Cause::Wake);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let read = async {
+        let (mut bytes, mut pings) = (0, 0);
+        while bytes < pieces * piece.len() {
+            match timeout(600 * SECOND, bed.peer.next()).await.expect("a message in time") {
+                Some(Ok(Message::Binary(data))) => bytes += data.len(),
+                Some(Ok(Message::Ping(_))) => pings += 1,
+                other => panic!("a piece or a ping: {other:?}"),
+            }
+        }
+        pings
+    };
+    let ((), pings) = tokio::join!(write, read);
+    assert_eq!(pings, 1, "one ping waited behind the write");
+}
