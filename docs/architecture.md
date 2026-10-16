@@ -2,11 +2,9 @@
 
 [decisions.md](decisions.md) gives the reasons, [CONTRIBUTING.md](../CONTRIBUTING.md) the rules.
 
-## Terms
-
-**Cluster**: one kubeconfig context. **Channel**: one HTTP/2 connection to a cluster. **Watch**:
-one stream of changes of one kind in one cluster. **Store**: the objects of one kind of a cluster
-in memory. **Snapshot**: a fixed view of a store. **Task**: a background job with a visible state.
+Terms. **Cluster**: one kubeconfig context. **Channel**: one HTTP/2 connection to a cluster.
+**Watch**: one stream of changes of one kind in one cluster. **Store**: the objects of one kind of
+a cluster in memory. **Snapshot**: a fixed view of a store. **Task**: a background job with a state.
 
 ## Design rules (they have priority over features)
 
@@ -34,8 +32,8 @@ fresnel-testkit ------------------------------------------------> fresnel-net
 ```
 
 - `fresnel-net` (no kube): connections, the credential plugin, the time limits, the task start.
-- `fresnel-core`: the domain: clusters, the watch loop, stores, indexes, kinds, search, commands,
-  operations, metrics, logs, settings, journal. No egui; the crates above name `fresnel_core::net`.
+- `fresnel-core`: the domain: clusters, watch loop, stores, indexes, kinds, search, commands, jobs,
+  metrics, logs, terminals, settings, journal. No egui; the crates above name `fresnel_core::net`.
 - `fresnel-ui`: the egui widgets and views. It uses the types of `k8s-openapi`, never of kube.
 - `fresnel`: the desktop program. The folders, the lock of the process, the log file, the panic
   hook, the runtime and the core, which starts after the window opens; the quit stops its tasks.
@@ -46,12 +44,12 @@ fresnel-testkit ------------------------------------------------> fresnel-net
 ## Borders in the code
 
 - Only `cluster/gateway.rs` of `fresnel-core` holds kube clients. Each of its functions applies
-  its time limit and the rule for writes. Only four modules use `imbl`.
+  its time limit and the rule for writes. Only four modules use `imbl`, only `terminal` alacritty.
 - One module wraps each outside UI crate: `widgets/table.rs` and `widgets/chart.rs`.
 - Each library crate has one error type with a class: auth, forbidden, conflict, timeout,
   network, server, invalid. An item is private to its crate unless `lib.rs` lists it.
 - The `platform` module of a crate holds each difference of macOS and Windows: the environment,
-  the process tree of a child, the time asleep, the folders, the lock, App Nap, the notifications.
+  the process tree of a child, the time asleep, folders, the lock, App Nap, notices, fonts.
 
 ## Background tasks
 
@@ -96,6 +94,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   changes, and HTTP 409 is a conflict. The core follows the object of the open key view.
 - **Logs** (`logs`): a session for each view of `ShowLogs` runs a source for each container, whose
   new stream starts at the second of its latest line with a marker; `SaveLog` writes a new file.
+- **Terminal** (`terminal`): the screen of `alacritty_terminal` behind a fair lock and a guard of
+  its parser, the input in pieces of 16 KiB and the size, for a session that feeds the output.
 - **Operations** (`ops`): a function builds each request of plan section 10, with a unit test of
   its URL and body. An `Order` is a job in its own task, with steps and a state, not two at once;
   the jobs of a text run in turn. A write goes out one time; an unknown result gets a read. A
@@ -141,10 +141,9 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 ## Contract between the UI and the core
 
-1. **State.** `Core::view` gives a copy of each state, with no lock: the clusters and their
-   connections; of each connected cluster the Pods, the indexes, the snapshots, the full objects
-   of the kinds of `ShowKinds`, the key view, the permissions, the metrics, the server version, the
-   logs and saves; the settings, the manifest, the editors and saves, a Secret create, jobs, journal.
+1. **State.** `Core::view` gives a copy of each state, with no lock: the clusters, their links and
+   the data of each connected one (`ClusterData`: stores, indexes, objects of `ShowKinds`, keys,
+   access, metrics, version, logs); settings, manifest, editors, create, jobs, terminals, journal.
 2. **Commands.** A view returns a `Command`, and the task of the core runs it. **Workers**: below.
 3. **Repaint.** A new snapshot, index, poll or log view asks for a repaint. One notifier limits
    them to 60 in one second, a setting. The core does not know egui: the window gives the wake.
@@ -153,11 +152,10 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 ## Window
 
 `fresnel_ui::Shell` draws a frame from a `CoreView`: top bar, sidebar, a page of the sidebar, the
-dock (Operations, Journal, Connections, a tab for each log view and editor) and status bar.
+dock (Operations, Journal, Connections, a tab for each log view, editor, terminal) and status bar.
 
-- **Table**: `widgets/table.rs` wraps `egui_table`. A kind gives a `Model`: columns, rows,
-  their sequence and cells. The cursor and the selection hold objects (cluster, name, UID).
-  The table owns the widths, the columns that show and a handle on each edge.
+- **Table**: `widgets/table.rs` wraps `egui_table`. A kind gives a `Model`: columns, rows, sequence,
+  cells. Cursor and selection hold objects; the table owns widths, shown columns, edge handles.
 - **Worker** (`widgets/worker.rs`): one thread for each table and for the quick search. Its
   mailbox has one request and one result. New data does not stop a computation; a new query
   does. After a panic, the thread starts again with the request that waits; the view tells why.
@@ -178,6 +176,9 @@ dock (Operations, Journal, Connections, a tab for each log view and editor) and 
 - **Logs**, **Editor** (`views/logs`, `views/editor`): a tab for each view with a search and its own
   rows (`pane`, `text`); a worker filters a log (`ShowLogs`) and checks a text (`ShowEditors`). A
   save shows the diff of its dry run (`SaveEditor`); a YAML tab sends documents (`RunInTurn`).
+- **Terminal** (`widgets/terminal`): copies the rows of a `Terminal` under its lock and paints the
+  copy: runs of a style, box characters as shapes, the cursor; keys, paste, pointer and size go to
+  the terminal. `views/terminal`: a tab for each terminal of the core, with the line of its session.
 - **Settings** (`views/settings`): a control for each entry of `config::table`, cluster and key; a
   draft goes to `EditSettings`. `shell/focus` moves the keys between four areas; `?` lists them.
 
@@ -193,8 +194,7 @@ freezes, delays, resets or silences connections; `K3s` is k3s in Docker, with ag
 - **UI tests**: `egui_kittest` with no window, on a fake core; a table test holds its worker at a
   gate. The program tests `live`, `settings` and `k3s_*` draw the real core. Time: release build.
 - **Program tests** start `fresnel-cli` and `fresnel` (no window) as from Finder, in a test home.
-- **Cluster tests** use k3s in Docker, mostly through the fault proxy (`#[ignore]`). After a fault,
-  a store test asserts a recovery time and "store equal to the API". The tests of the indexes,
-  the kinds, the keys, the operations, the core commands, the metrics and the logs match kubectl.
+- **Cluster tests** (`#[ignore]`) use k3s in Docker, mostly behind the fault proxy: a store test
+  asserts a recovery time and "store equal to the API" after a fault, the others match kubectl.
 - **Soak**: `fresnel-cli soak` checks each store of the core against the API; `fresnel-soak` adds k3s.
 - CI runs each check on macOS, Linux and Windows at each push, and the cluster tests on Linux.

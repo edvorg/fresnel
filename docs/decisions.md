@@ -1874,3 +1874,67 @@ A pasted file of many documents needs the colors, the search, the marks and the 
 editor, and the jobs of its run need a place that stays. Cmd+Shift+I opens the tab, I for
 in; the quick search has the command too. The check of its text gives its documents on the
 worker of the checks, so a frame parses nothing.
+
+## The screen of a terminal is alacritty_terminal behind one fair lock
+
+The model of a terminal is `alacritty_terminal`, pinned, with no PTY. The session parses the
+output in chunks of 4 KiB under the fair lock of the screen, so a hidden tab takes its output
+too. A frame copies the rows on the screen under the lock, after a change only, and paints the
+copy with no lock: a frame waits one chunk at most, 0.6 to 1.6 ms in the spike. A copy for
+each chunk costs more.
+
+## The core holds the terminals of the dock
+
+`CoreView::terminals` lists each terminal, and the dock has a tab for each one, next to the
+log tabs, with the line of the state of its session. A terminal stays after the end of its
+session, with its screen and its final state, until the user closes its tab: the end of a shell
+is no reason to lose its output. A close is a command to the core, which ends the session.
+
+## The widget gives the keys and the size to the terminal itself
+
+The keys, a paste and a new size go into the handle of the terminal, and the session takes them
+from there; the command queue of the core would add its wait to each key. The handle is shared
+data with a limit, not a handle to the core: a full queue refuses input with a note. The
+session gets the newest size only, so a drag of the dock sends no stream of sizes.
+
+## A guard in front of the parser limits what the remote program controls
+
+`vte` keeps an OSC sequence with no limit: 200 MiB after `ESC ] 0 ;` took 198 MiB. The guard
+passes 4 KiB of each OSC sequence, so the stack of 4,096 titles holds 16 MiB at most, and 16
+marks of zero width in a row, which the model would add to one cell with no limit. A title
+keeps 200 characters with no control character, and OSC 52 cannot read or write the clipboard.
+
+## Input goes in pieces of 16 KiB, and a paste above 64 KiB asks first
+
+In the spike, a paste of 1 MiB in one frame made the API server lose the end of a shell; in
+pieces of 16 KiB with a pause it arrived whole. The terminal gives the session its input in
+pieces of 16 KiB, with a limit of 8 MiB. A paste above 64 KiB waits for a choice of the user:
+pasted text runs as typed keys. The line of the tab shows the input that waits.
+
+## Box drawing, block elements and braille are shapes
+
+The characters from U+2500 to U+259F and the braille patterns are rectangles, curves and dots,
+not glyphs: a glyph of Hack was small and left a gap between two rows at one pixel for each
+point. A cell has whole pixels, so the lines of two rows and two columns join, and each stroke
+of a double line turns into its own corner. The segments of each character come from its name.
+
+## The terminal takes the bold face and a CJK font of the system
+
+egui has no bold flag and no CJK glyph. The window adds Menlo Bold, which has the advance of
+Hack, and Hiragino Sans GB on macOS, Microsoft YaHei on Windows, read in a few milliseconds at
+its start; the platform module of `fresnel-ui` names the files. With no bold face, as in a view
+test or on Windows, a bold run is painted two times one pixel apart.
+
+## A terminal with the focus takes each key but those with Cmd
+
+Ctrl+K deletes to the end of a line in a shell, `?` is text, and F6 is a key of `mc`. While a
+terminal has the focus, the app keys act only with the Cmd key of macOS; on Windows, whose app
+keys use Ctrl, the terminal takes them all. egui-winit turns Ctrl+C on Windows into a copy: with
+no selection the terminal sends the byte of Ctrl+C, as Windows Terminal does.
+
+## The tests of the terminal feed recordings of busybox
+
+`fixtures/terminal` of `fresnel-core` holds the output of `vi`, `top` and `ash` of busybox
+1.36.1, the version of the test pods, recorded from `alpine:3.20` in a TTY of 80 x 24. The tests
+feed it with no cluster and read the rows. A recording keeps each byte: `.gitattributes` marks
+`*.bin` as binary, so no carriage return becomes a line end.
