@@ -1758,3 +1758,69 @@ A paste of a line of megabytes, such as a minified file, passes the line limit, 
 press copies the full text and checks it on the worker. A change that would make a text larger
 than 8 MiB does not go in, and a larger text can get smaller. The API server takes a request of
 3 MiB at most, so a larger text has no save.
+
+## A save of an editor is a dry run, a diff and a replace with the version of the read
+
+Plan section 12.9 asks for a dry run and a replace. The dry run gives the object as the server
+would store it, so the diff before the save shows what changes, and the dialog holds that
+text: the save that goes is the one that the user saw. The replace names the version of the
+read in place of the one in the text, so a save never writes over a change that the user did
+not see.
+
+## A save checks each field strictly, as kubectl edit does
+
+With `fieldValidation=Strict`, the server refuses a field that it does not know or that the text
+has two times, where it would drop it with no word. The refusal comes in the dry run, with the
+words of the server, and the text stays. The parser refuses only YAML that it cannot read, and
+a hint refuses nothing, so a value such as `0700` goes as kubectl reads it: as the number 448.
+
+## A conflict merges the lines of the two edits
+
+After HTTP 409 the save reads the object again and merges the text of the user and the new
+text of the server on the text of the read, line by line, as diff3 does: the texts have one
+form, so a line is a field. Changes of the same lines are a conflict with three versions, and
+so is a change that touches an insertion of the other side. The merge goes into the editor
+for a new save.
+
+## The line diff is Myers' algorithm with a limit of 1,000 changed lines
+
+The app has no diff crate. Myers' algorithm gives the fewest changed lines, after the lines
+that the texts share at the start and at the end. Its time and memory grow with the square of
+the count of changes, so past 1,000 the lines from the first to the last change are one change:
+the diff then shows a new text, and a merge with such a text is a conflict.
+
+## The text of an editor waits for the answer of its save
+
+The answer of a save is the new read and the new text, with the version of the server. An
+edit during the save would be lost there, so the text takes no change from the click on Save
+to the end of the save, and the dialog in between is modal. After a save whose result is not
+known, the save reads the object and merges it, as after a conflict (design rule 6).
+
+## Create and apply send the documents of a text in turn
+
+kubectl sends the documents of a file in their sequence, so a Namespace exists before the
+objects in it. Each document is a job of the Operations tab, and each job waits for the end of
+the one before it; a failed job does not stop the next one, as in kubectl. A cancel ends a
+wait. The tab lists the state of the job of each document.
+
+## A document goes to the target namespace, and one of an other namespace does not go
+
+The tab has a target cluster and namespace, as `kubectl --namespace`. A document with no
+namespace goes to the target; a document of an other namespace does not go, with the reason, as
+kubectl refuses it: no object goes to a namespace that the user did not choose. The app creates
+the kinds of its sidebar, which give the path and the scope of a request; a document of an
+other kind does not go.
+
+## An apply is a server-side apply of the field manager fresnel, and a force asks first
+
+kubectl apply on the client side needs the copy of the last apply in an annotation. A
+server-side apply needs none: the server merges the fields of the document and names each
+field that an other manager set in a conflict. The tab lists those fields with their managers,
+and "Apply with force" asks with a dialog of its own before it takes them.
+
+## Create or apply YAML is a tab of the dock with the text widget of the editor
+
+A pasted file of many documents needs the colors, the search, the marks and the undo of the
+editor, and the jobs of its run need a place that stays. Cmd+Shift+I opens the tab, I for
+in; the quick search has the command too. The check of its text gives its documents on the
+worker of the checks, so a frame parses nothing.

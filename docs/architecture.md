@@ -90,18 +90,17 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   home folder and the files of the settings. The first file wins a name.
 - **Registry**: one entry for each context. **Gateway**: get, list page, watch stream, log stream,
   send and upgrade. A failed write tells its fate, and each read has a size limit.
-- **Manifest**: `manifest::fetch` gives the YAML of an object; `read_for_edit` and `check` an editor.
+- **Manifest**: `manifest` reads the YAML of an object, and checks, saves and merges an editor.
 - **Keys** (`keys`): one Secret or ConfigMap with each value, as text or as size and type. A
   `Draft` saves a merge patch of its changed keys with the version of its read, so no other key
   changes, and HTTP 409 is a conflict. The core follows the object of the open key view.
 - **Logs** (`logs`): a session for each view of `ShowLogs` runs a source for each container, whose
   new stream starts at the second of its latest line with a marker; `SaveLog` writes a new file.
-- **Operations** (`ops`): a function builds each request of plan section 10, with a unit test
-  of its URL and body. An `Order` is a job in its own task, with steps and a state, not two at
-  once. A write goes out one time; an unknown result gets a read of the object. A cancel or a
-  store that follows nothing ends a wait. A drain has a task for each pod (`ops/drain`); a
-  download writes the manifest to a new file of the folder of downloads (`downloads.rs`).
-  **Permissions**: rules or a review, dropped by HTTP 403. **Write result**: `Snapshot::is_pending`.
+- **Operations** (`ops`): a function builds each request of plan section 10, with a unit test of
+  its URL and body. An `Order` is a job in its own task, with steps and a state, not two at once;
+  the jobs of a text run in turn. A write goes out one time; an unknown result gets a read. A
+  cancel or a store that follows nothing ends a wait. A drain has a task for each pod. **Write
+  result**: `Snapshot::is_pending`. **Permissions**: rules or a review, dropped by HTTP 403.
 - **App core**: `app::Core` owns the registry, the tasks and the journal. One task reads the
   settings, the environment and the kubeconfig files, connects each selected cluster and runs each
   command; one gives the notices of a failed job and of a lost cluster to `set_notifier`.
@@ -144,8 +143,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 
 1. **State.** `Core::view` gives a copy of each state, with no lock: the clusters and their
    connections; of each connected cluster the Pods, the indexes, the snapshots, the full objects
-   of the kinds of `ShowKinds`, the key view, the permissions, the metrics, the server version,
-   the logs and saves; the settings, the manifest and editor reads, a Secret create, jobs, journal.
+   of the kinds of `ShowKinds`, the key view, the permissions, the metrics, the server version, the
+   logs and saves; the settings, the manifest, the editors and saves, a Secret create, jobs, journal.
 2. **Commands.** A view returns a `Command`, and the task of the core runs it. **Workers**: below.
 3. **Repaint.** A new snapshot, index, poll or log view asks for a repaint. One notifier limits
    them to 60 in one second, a setting. The core does not know egui: the window gives the wake.
@@ -177,7 +176,8 @@ dock (Operations, Journal, Connections, a tab for each log view and editor) and 
 - **Metrics** (`views/metrics`): CPU and Memory columns with bars, a tab with `egui_plot` charts.
   **Overviews** (`views/overview`): a worker counts; `cluster/version.rs` reads each server version.
 - **Logs**, **Editor** (`views/logs`, `views/editor`): a tab for each view with a search and its own
-  rows (`pane`, `text`); a worker filters a log (`ShowLogs`) and checks a text (`ShowEditors`).
+  rows (`pane`, `text`); a worker filters a log (`ShowLogs`) and checks a text (`ShowEditors`). A
+  save shows the diff of its dry run (`SaveEditor`); a YAML tab sends documents (`RunInTurn`).
 - **Settings** (`views/settings`): a control for each entry of `config::table`, cluster and key; a
   draft goes to `EditSettings`. `shell/focus` moves the keys between four areas; `?` lists them.
 
