@@ -68,10 +68,24 @@ async fn a_wildcard_listener_of_an_other_program_makes_the_port_in_use() {
     assert_eq!(refused, BindError::InUse(SocketAddr::new(V4[0], port)));
 }
 
-/// A forward that stops and starts again gets its fixed port back at once.
+/// A listener on a free port below the ports that a system gives for port 0 and for the
+/// source of a connect: from 32768 on Linux, from 49152 on macOS and Windows. No other test
+/// takes such a port with a bind to port 0, and no connect gets it as its own source.
+async fn below_the_free_ports() -> LocalListener {
+    for _ in 0..100 {
+        if let Ok(listener) = LocalListener::bind(&V4, fastrand::u16(20_000..30_000)).await {
+            return listener;
+        }
+    }
+    panic!("no free port from 20000 to 29999");
+}
+
+/// A forward that stops and starts again gets its fixed port back at once. With a port that
+/// a system gives for port 0, an other test once took it in time-wait, and the bind found
+/// that listener: "in use".
 #[tokio::test]
 async fn a_port_with_only_old_connections_in_time_wait_binds_again() {
-    let listener = LocalListener::bind(&V4, 0).await.expect("a free port");
+    let listener = below_the_free_ports().await;
     let address = listener.addresses()[0];
     let mut client = TcpStream::connect(address).await.expect("a connect");
     // The app closes first, so its side of the connection goes to time-wait.
