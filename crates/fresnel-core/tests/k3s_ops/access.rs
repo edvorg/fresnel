@@ -43,7 +43,7 @@ pub(crate) async fn a_forbidden_action_is_denied_with_its_reason_and_its_request
     assert!(!rules.is_incomplete(), "RBAC lists each rule");
     let decide = |action, name: &str| {
         let key = ObjectKey::new(APP, name);
-        Decision::all(access::needs(action, Kind::Deployment, &key).iter().map(|request| rules.decide(request)))
+        Decision::all(access::needs(action, Kind::Deployment, &key, "").iter().map(|request| rules.decide(request)))
     };
     assert_eq!(decide(Action::Scale, "web"), Decision::Allowed);
     assert_eq!(decide(Action::ViewManifest, "paused"), Decision::Allowed);

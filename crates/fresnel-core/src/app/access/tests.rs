@@ -1,6 +1,8 @@
 use k8s_openapi::api::authorization::v1::{ResourceRule, SelfSubjectRulesReview, SubjectRulesReviewStatus};
 
 use super::*;
+use crate::kinds::{Action, Kind};
+use crate::store::ObjectKey;
 
 fn rules(namespace: &str, verbs: &[&str]) -> Arc<Rules> {
     let rule = ResourceRule {
@@ -19,21 +21,22 @@ fn rules(namespace: &str, verbs: &[&str]) -> Arc<Rules> {
 fn an_action_is_decided_by_the_answer_of_a_review_first_and_then_by_the_rules_of_its_namespace() {
     let web = ObjectKey::new("shop", "web");
     let mut view = AccessView::default();
-    let unread = view.decide(Action::Scale, Kind::Deployment, &web);
+    let decide = |view: &AccessView, action| view.decide(&access::needs(action, Kind::Deployment, &web, ""));
+    let unread = decide(&view, Action::Scale);
     assert_eq!(unread, Decision::Unknown("the rules are not read yet".into()));
 
     view.rules.insert("shop".into(), RulesState::Read(rules("shop", &["get", "list"])));
-    let denied = view.decide(Action::Scale, Kind::Deployment, &web);
+    let denied = decide(&view, Action::Scale);
     assert_eq!(denied, Decision::Denied("no rule lets you patch deployments/scale (apps) web in shop".into()));
-    assert_eq!(view.decide(Action::ViewManifest, Kind::Deployment, &web), Decision::Allowed);
-    assert_eq!(view.decide(Action::CopyName, Kind::Deployment, &web), Decision::Allowed, "no request");
+    assert_eq!(decide(&view, Action::ViewManifest), Decision::Allowed);
+    assert_eq!(decide(&view, Action::CopyName), Decision::Allowed, "no request");
 
-    let scale = access::needs(Action::Scale, Kind::Deployment, &web).remove(0);
+    let scale = access::needs(Action::Scale, Kind::Deployment, &web, "").remove(0);
     view.checks.insert(scale, CheckState::Answered(Decision::Allowed));
-    assert_eq!(view.decide(Action::Scale, Kind::Deployment, &web), Decision::Allowed, "the server said yes");
+    assert_eq!(decide(&view, Action::Scale), Decision::Allowed, "the server said yes");
 
     view.rules.insert("shop".into(), RulesState::Failed(CoreError::invalid("no answer")));
-    let failed = view.decide(Action::Delete, Kind::Deployment, &web);
+    let failed = decide(&view, Action::Delete);
     assert_eq!(failed, Decision::Unknown("the read of the rules failed: no answer".into()));
 }
 

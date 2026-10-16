@@ -157,7 +157,6 @@ impl Acts {
     }
 
     /// The gate of each bulk action of `kind` on the `count` selected objects: closed when
-    /// The gate of each bulk action of `kind` on the `count` selected objects: closed when
     /// the gate of one of them is closed, with its object in the reason, and for more objects
     /// than the jobs that the app can start now. `selected` gives them: up to that room, the
     /// work of a frame for each one stays small.

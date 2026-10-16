@@ -48,7 +48,7 @@ fn a_user_who_cannot_patch_the_secret_sees_why_and_cannot_change_a_value() {
     let mut row = with_secrets("ams-prod", &secrets);
     let key = target("ams-prod", KeyKind::Secret, "db").key;
     let mut access = AccessView::default();
-    for request in needs(Action::EditKeys, Kind::Secret, &key) {
+    for request in needs(Action::EditKeys, Kind::Secret, &key, "") {
         let decision = match request.verb {
             "patch" => Decision::Denied("no rule allows patch secrets in scene".to_owned()),
             _ => Decision::Allowed,

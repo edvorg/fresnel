@@ -56,7 +56,7 @@ pub(crate) async fn the_rules_and_the_reviews_of_each_context_decide_its_actions
         |view: &CoreView| CONTEXTS.iter().all(|cluster| matches!(rules(view, cluster), Some(RulesState::Read(_))));
     let view = bed.until("the rules of app for each context of b", read).await;
     let web = ObjectKey::new(APP, "web");
-    let decide = |cluster, action| of(&view, cluster).decide(action, Kind::Deployment, &web);
+    let decide = |cluster, action| of(&view, cluster).decide(&access::needs(action, Kind::Deployment, &web, ""));
     assert_eq!(decide("b", Action::Scale), Decision::Allowed);
     let off = "no rule lets you patch deployments/scale (apps) web in app";
     assert_eq!(decide("viewer", Action::Scale), Decision::Denied(off.into()), "the scale is off with its reason");
@@ -70,7 +70,7 @@ pub(crate) async fn the_rules_and_the_reviews_of_each_context_decide_its_actions
     // about each request of the action.
     let node = kubectl(&bed.b, &["get", "nodes", "--output", "jsonpath={.items[0].metadata.name}"]).await;
     let key = ObjectKey::new("", &node);
-    let cordon = access::needs(Action::Cordon, Kind::Node, &key);
+    let cordon = access::needs(Action::Cordon, Kind::Node, &key, "");
     for cluster in CONTEXTS {
         for attributes in &cordon {
             bed.core.send(Command::CheckAccess { cluster: ClusterId::new(cluster), attributes: attributes.clone() });
@@ -83,8 +83,8 @@ pub(crate) async fn the_rules_and_the_reviews_of_each_context_decide_its_actions
         CONTEXTS.iter().all(|cluster| answered(cluster))
     };
     let view = bed.until("the answers of the access reviews", answered).await;
-    assert_eq!(of(&view, "b").decide(Action::Cordon, Kind::Node, &key), Decision::Allowed);
-    let Decision::Denied(reason) = of(&view, "viewer").decide(Action::Cordon, Kind::Node, &key) else {
+    assert_eq!(of(&view, "b").decide(&cordon), Decision::Allowed);
+    let Decision::Denied(reason) = of(&view, "viewer").decide(&cordon) else {
         panic!("the server denies the cordon of the viewer: {:#?}", of(&view, "viewer"))
     };
     let start = format!("the server does not let you get nodes {node} in the cluster");

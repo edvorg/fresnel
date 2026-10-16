@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use fresnel_core::app::{AccessView, CheckState, Command, CoreView, RulesState};
 use fresnel_core::cluster::ClusterId;
+use fresnel_core::config::table::Setting;
 use fresnel_core::kinds::Action;
 use fresnel_core::ops::Target;
 use fresnel_core::ops::access::{self, Attributes, Decision};
@@ -36,10 +37,12 @@ impl Permits {
         let Some(access) = row.and_then(|row| row.data.as_ref()).map(|data| &data.access) else {
             return Decision::Unknown(format!("{} is not connected", target.cluster));
         };
-        for attributes in access::needs(action, target.kind, &target.key) {
-            self.ask(&target.cluster, access, attributes, commands);
+        let node_shells = view.config.text(Setting::NodeShellNamespace);
+        let requests = access::needs(action, target.kind, &target.key, node_shells);
+        for attributes in &requests {
+            self.ask(&target.cluster, access, attributes.clone(), commands);
         }
-        access.decide(action, target.kind, &target.key)
+        access.decide(&requests)
     }
 
     /// Asks for the rules of the namespace of one request, or for an access review when

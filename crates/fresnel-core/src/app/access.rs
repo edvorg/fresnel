@@ -17,9 +17,7 @@ use super::Inner;
 use super::repaint::Repaint;
 use crate::cluster::{ClusterId, Gateway};
 use crate::error::CoreError;
-use crate::kinds::{Action, Kind};
 use crate::ops::access::{self, Attributes, Decision, Rules};
-use crate::store::ObjectKey;
 
 /// How long an answer of the server stays. Research 08 section 11.3: "some minutes".
 const KEEP: Duration = Duration::from_secs(300);
@@ -74,10 +72,10 @@ pub struct AccessView {
 }
 
 impl AccessView {
-    /// The decision for an action on an object: each request of the action must be allowed.
-    /// The answer of a review counts before the rules of the namespace.
-    pub fn decide(&self, action: Action, kind: Kind, key: &ObjectKey) -> Decision {
-        Decision::all(access::needs(action, kind, key).iter().map(|request| self.decide_one(request)))
+    /// The decision for the requests of an action (`access::needs`): each one must be
+    /// allowed. The answer of a review counts before the rules of the namespace.
+    pub fn decide(&self, requests: &[Attributes]) -> Decision {
+        Decision::all(requests.iter().map(|request| self.decide_one(request)))
     }
 
     fn decide_one(&self, request: &Attributes) -> Decision {

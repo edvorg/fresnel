@@ -190,8 +190,9 @@ async fn the_rules_and_the_reviews_of_each_cluster_decide_its_actions() {
     };
     let view = app.until("the rules of shop in each cluster", read).await;
     let web = ObjectKey::new("shop", "web");
-    let decide =
-        |cluster, action| access_of(&view, cluster).map(|access| access.decide(action, Kind::Deployment, &web));
+    let decide = |cluster, action| {
+        access_of(&view, cluster).map(|access| access.decide(&access::needs(action, Kind::Deployment, &web, "")))
+    };
     let off = "no rule lets you patch deployments/scale (apps) web in shop";
     assert_eq!(decide("ams", Action::Scale), Some(Decision::Denied(off.into())), "the scale is off with its reason");
     assert_eq!(decide("ams", Action::ViewManifest), Some(Decision::Allowed));
@@ -199,7 +200,7 @@ async fn the_rules_and_the_reviews_of_each_cluster_decide_its_actions() {
 
     // A Node has no namespace: a view asks the server about each request of the action.
     let node = ObjectKey::new("", "n1");
-    let cordon = access::needs(Action::Cordon, Kind::Node, &node);
+    let cordon = access::needs(Action::Cordon, Kind::Node, &node, "");
     for cluster in ["ams", "fra"] {
         for attributes in &cordon {
             app.core.send(Command::CheckAccess { cluster: ClusterId::new(cluster), attributes: attributes.clone() });
@@ -215,7 +216,7 @@ async fn the_rules_and_the_reviews_of_each_cluster_decide_its_actions() {
         answered("ams") && answered("fra")
     };
     let view = app.until("the answers of the reviews", answered).await;
-    let decide = |cluster| access_of(&view, cluster).map(|access| access.decide(Action::Cordon, Kind::Node, &node));
+    let decide = |cluster| access_of(&view, cluster).map(|access| access.decide(&cordon));
     let denied = "the server does not let you get nodes n1 in the cluster: no binding";
     assert_eq!(decide("ams"), Some(Decision::Denied(denied.into())));
     assert_eq!(decide("fra"), Some(Decision::Allowed));
