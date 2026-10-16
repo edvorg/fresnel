@@ -18,7 +18,10 @@ pub(crate) enum Input {
 pub(crate) fn of(event: &Event, mac: bool) -> Option<Input> {
     let act = match event {
         Event::Text(text) if !text.chars().any(char::is_control) => Act::Type(text.clone()),
-        Event::Ime(ImeEvent::Commit(text)) if !text.is_empty() => Act::Type(text.clone()),
+        // Enter ends a composition with a line feed on some systems, and its key gives the line.
+        Event::Ime(ImeEvent::Commit(text)) if !text.is_empty() && !text.chars().any(char::is_control) => {
+            Act::Type(text.clone())
+        }
         Event::Paste(text) => Act::Insert(text.clone()),
         Event::Copy => return Some(Input::Copy),
         Event::Cut => return Some(Input::Cut),
@@ -85,6 +88,8 @@ mod tests {
         assert_eq!(key(Key::Tab, Modifiers::SHIFT, false), act(Act::Unindent));
         assert_eq!(key(Key::K, Modifiers::COMMAND, true), None, "a command of the app");
         assert_eq!(of(&Event::Text("\u{7f}".to_owned()), true), None, "no control character");
+        assert_eq!(of(&Event::Ime(ImeEvent::Commit("é".to_owned())), true), act(Act::Type("é".to_owned())));
+        assert_eq!(of(&Event::Ime(ImeEvent::Commit("\n".to_owned())), true), None, "the Enter key gives the line");
         assert_eq!(of(&Event::Cut, false), Some(Input::Cut));
     }
 }
