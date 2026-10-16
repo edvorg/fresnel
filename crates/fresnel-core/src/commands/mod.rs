@@ -32,6 +32,8 @@ pub enum CommandId {
     FromYaml,
     /// Opens the settings view (plan section 12.5).
     Settings,
+    /// Opens the Forwards tab of the dock (plan section 12.3).
+    Forwards,
     /// Shows the keys of each command over the window.
     Help,
     /// Puts the focus into one area of the window: the sidebar, the table, the panel or the
@@ -102,6 +104,7 @@ impl Entry {
             | CommandId::NewSecret
             | CommandId::FromYaml
             | CommandId::Settings
+            | CommandId::Forwards
             | CommandId::Help
             | CommandId::Focus(_)
             | CommandId::NextArea
@@ -125,6 +128,7 @@ pub const TABLE: &[Entry] = &[
     Entry::app(CommandId::NewSecret, "new-secret", "New Secret", Shortcut::command("N").shift()),
     Entry::app(CommandId::FromYaml, "from-yaml", "Create or apply YAML", Shortcut::command("I").shift()),
     Entry::app(CommandId::Settings, "settings", "Settings", Shortcut::command("Comma")),
+    Entry::app(CommandId::Forwards, "forwards", "Port forwards", Shortcut::command("F").shift()),
     Entry::app(CommandId::Help, "help", "Keys", Shortcut::plain("Questionmark")),
     Entry::app(CommandId::Focus(Area::Sidebar), "focus-sidebar", "Focus the sidebar", Shortcut::command("1")),
     Entry::app(CommandId::Focus(Area::Table), "focus-table", "Focus the table", Shortcut::command("2")),
@@ -141,7 +145,7 @@ pub const TABLE: &[Entry] = &[
     Entry::object(Action::Terminal, "terminal", Some(Shortcut::command("T").shift()), Never),
     Entry::object(Action::Attach, "attach", Some(Shortcut::command("A").shift()), Never),
     Entry::object(Action::DebugContainer, "debug-container", Some(Shortcut::command("G").alt()), Always),
-    Entry::object(Action::Forward, "forward-port", None, Never),
+    Entry::object(Action::Forward, "forward-port", Some(Shortcut::command("P").shift()), Never),
     Entry::object(Action::Scale, "scale", Some(Shortcut::command("S").shift()), Always),
     Entry::object(Action::Restart, "restart", Some(Shortcut::command("R").shift()), Always),
     Entry::object(Action::RolloutStatus, "rollout-status", Some(Shortcut::command("U").shift()), Never),
@@ -192,7 +196,8 @@ mod tests {
             CommandId::FromYaml,
         ];
         wanted.extend(app);
-        wanted.extend([CommandId::Settings, CommandId::Help, CommandId::NextArea, CommandId::PreviousArea]);
+        wanted.extend([CommandId::Settings, CommandId::Forwards, CommandId::Help]);
+        wanted.extend([CommandId::NextArea, CommandId::PreviousArea]);
         wanted.extend(Area::ALL.map(CommandId::Focus));
         let ids: Vec<CommandId> = TABLE.iter().map(|entry| entry.id).collect();
         assert_eq!(ids.iter().copied().collect::<BTreeSet<_>>(), wanted, "each command, and no other one");

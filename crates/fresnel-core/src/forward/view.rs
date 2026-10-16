@@ -2,7 +2,7 @@
 //! the state, the last error, the time of the next attempt, the connections, the bytes and
 //! the age of the data of the target.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::SystemTime;
 
 use super::resolve::TargetPod;
@@ -76,9 +76,41 @@ impl ForwardView {
         }
     }
 
-    /// The address that a user copies or opens: the first one, as `127.0.0.1:8080`. `None`
-    /// with no listener.
+    /// The address that a user copies or opens: the first one, as `127.0.0.1:8080`, and the
+    /// loopback address of its family for a listener on each address. `None` with no listener.
     pub fn address(&self) -> Option<SocketAddr> {
-        self.addresses.first().copied()
+        let mut address = self.addresses.first().copied()?;
+        match address.ip() {
+            IpAddr::V4(ip) if ip.is_unspecified() => address.set_ip(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+            IpAddr::V6(ip) if ip.is_unspecified() => address.set_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)),
+            IpAddr::V4(_) | IpAddr::V6(_) => {}
+        }
+        Some(address)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cluster::ClusterId;
+    use crate::forward::{Bind, LocalPort};
+    use crate::store::ObjectKey;
+
+    #[test]
+    fn the_address_of_a_listener_on_each_address_is_the_loopback_address() {
+        let rule = ForwardRule {
+            cluster: ClusterId::new("ams"),
+            kind: Kind::Pod,
+            key: ObjectKey::new("shop", "web-1"),
+            port: 80,
+            local: LocalPort::Fixed(8080),
+            bind: Bind::Everywhere,
+        };
+        let mut view = ForwardView::new(rule, ForwardState::Active, SystemTime::UNIX_EPOCH);
+        assert_eq!(view.address(), None);
+        view.addresses = vec!["0.0.0.0:8080".parse().expect("an address"), "[::]:8080".parse().expect("an address")];
+        assert_eq!(view.address(), Some("127.0.0.1:8080".parse().expect("an address")));
+        view.addresses = vec!["[::]:8080".parse().expect("an address")];
+        assert_eq!(view.address(), Some("[::1]:8080".parse().expect("an address")));
     }
 }

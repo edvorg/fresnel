@@ -23,7 +23,7 @@ fn jobs(jobs: Vec<Arc<JobView>>) -> JobsView {
 
 fn look(jobs: &JobsView, health: Health, hidden: bool, now: Instant) -> Look<'_> {
     let reason = Some("watches: connect: Connection refused (os error 61)".to_owned());
-    Look { jobs, clusters: vec![(ClusterId::new("ams"), health, reason)], hidden, now }
+    Look { jobs, clusters: vec![(ClusterId::new("ams"), health, reason)], failed_forwards: Vec::new(), hidden, now }
 }
 
 #[test]
@@ -81,4 +81,33 @@ fn the_settings_turn_each_notice_off_and_give_the_time_of_a_loss() {
     let mut quiet = Notices::default();
     assert_eq!(quiet.step(&config, look(&failed, Health::NoConnection, true, start)), []);
     assert_eq!(quiet.step(&config, look(&failed, Health::NoConnection, true, start + 100 * SECOND)), []);
+}
+
+/// Plan section 11.6: a failed forward gives a notice, also with the window open, one for
+/// each failure. A forward that reconnects gives none: it recovers by itself.
+#[test]
+fn each_failure_of_a_forward_gives_one_notice() {
+    let (mut config, now, none) = (Config::default(), Instant::now(), jobs(Vec::new()));
+    let rule = ForwardRule {
+        cluster: ClusterId::new("ams"),
+        kind: Kind::Service,
+        key: ObjectKey::new("shop", "web"),
+        port: 80,
+        local: crate::forward::LocalPort::Fixed(8080),
+        bind: crate::forward::Bind::Localhost,
+    };
+    let in_use = "the local port 8080 is in use: an other program listens on 127.0.0.1:8080".to_owned();
+    let failed = |failed: Vec<(u64, ForwardRule, String)>| Look {
+        failed_forwards: failed,
+        ..look(&none, Health::Live, false, now)
+    };
+    let notice =
+        Notice { title: "A forward failed in ams".to_owned(), body: format!("Service shop/web port 80: {in_use}") };
+    let mut notices = Notices::default();
+    assert_eq!(notices.step(&config, failed(vec![(1, rule.clone(), in_use.clone())])), std::slice::from_ref(&notice));
+    assert_eq!(notices.step(&config, failed(vec![(1, rule.clone(), in_use.clone())])), [], "one notice for a failure");
+    assert_eq!(notices.step(&config, failed(Vec::new())), [], "it started again");
+    assert_eq!(notices.step(&config, failed(vec![(1, rule.clone(), in_use.clone())])), [notice], "a new failure");
+    config.values.insert(Setting::NotifyForward, Value::Flag(false));
+    assert_eq!(Notices::default().step(&config, failed(vec![(2, rule, in_use)])), [], "the setting turns it off");
 }

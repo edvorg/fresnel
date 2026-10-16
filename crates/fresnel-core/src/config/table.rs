@@ -148,6 +148,7 @@ pub enum Setting {
     NotifyFailed,
     NotifyLost,
     LostAfter,
+    NotifyForward,
     StartSaved,
     ForwardWait,
 }
@@ -323,6 +324,7 @@ pub const TABLE: &[Spec] = &[
     other(S::NotifyFailed, Notifications, "failed_operations", "A failed operation", Form::Flag(true)),
     other(S::NotifyLost, Notifications, "lost_clusters", "A cluster that stays lost", Form::Flag(true)),
     time(S::LostAfter, Notifications, "lost_after_secs", [60, 10, 3600], Seconds, "Lost while hidden for"),
+    other(S::NotifyForward, Notifications, "failed_forwards", "A failed port forward", Form::Flag(true)),
     other(S::StartSaved, Forwards, "start_saved", "Start the saved forwards with the app", Form::Flag(true)),
     time(S::ForwardWait, Forwards, "wait_secs", [5, 1, 60], Seconds, "Wait of a local connection in a break"),
 ];

@@ -1,10 +1,11 @@
-//! The notices of the system (plan section 11.6): a failed operation, and a cluster that
-//! stays lost while the window is hidden. The core decides when a notice goes; the program
+//! The notices of the system (plan section 11.6): a failed operation, a failed forward, and a
+//! cluster that stays lost while the window is hidden. The core decides when a notice goes; the program
 //! shows it as a macOS notification through the function of `Core::set_notifier`.
 //!
 //! A user who looks at the window sees each state there, so a lost cluster gives a notice
 //! only while the window is hidden, and one notice for each loss. A failed operation gives
-//! a notice in each case: macOS shows no banner over the window that has the focus.
+//! a notice in each case: macOS shows no banner over the window that has the focus. So does a
+//! forward that failed: it waits for the user, while a forward that reconnects gives none.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::Ordering;
@@ -20,6 +21,7 @@ use crate::cluster::{ClusterId, Registry};
 use crate::config::Config;
 use crate::config::table::Setting;
 use crate::error::CoreError;
+use crate::forward::{ForwardRule, ForwardState};
 
 /// The time between two looks at the jobs and the clusters.
 pub(super) const PERIOD: Duration = Duration::from_secs(1);
@@ -42,6 +44,8 @@ pub(super) struct Notices {
     told: BTreeSet<u64>,
     /// Each lost cluster with the start of its loss, and true after its notice.
     lost: BTreeMap<ClusterId, (Instant, bool)>,
+    /// The forwards that failed and gave their notice. A forward that starts again leaves it.
+    failed_forwards: BTreeSet<u64>,
 }
 
 /// One look of the core: its jobs, the health of each selected cluster with its reason,
@@ -49,6 +53,8 @@ pub(super) struct Notices {
 pub(super) struct Look<'a> {
     pub(super) jobs: &'a JobsView,
     pub(super) clusters: Vec<(ClusterId, Health, Option<String>)>,
+    /// Each forward that failed: its number, its rule and why.
+    pub(super) failed_forwards: Vec<(u64, ForwardRule, String)>,
     pub(super) hidden: bool,
     pub(super) now: Instant,
 }
@@ -74,6 +80,13 @@ impl Notices {
             }
         }
         self.told = numbers;
+        for (id, rule, reason) in &look.failed_forwards {
+            if !self.failed_forwards.contains(id) && config.flag(Setting::NotifyForward) {
+                let title = format!("A forward failed in {}", rule.cluster);
+                notices.push(Notice { title, body: format!("{}: {reason}", rule.target()) });
+            }
+        }
+        self.failed_forwards = look.failed_forwards.iter().map(|(id, _, _)| *id).collect();
         self.lost.retain(|id, _| look.clusters.iter().any(|(cluster, health, _)| cluster == id && is_lost(*health)));
         let after = config.duration(Setting::LostAfter);
         for (id, health, reason) in look.clusters.iter().filter(|(_, health, _)| is_lost(*health)) {
@@ -101,17 +114,22 @@ fn is_lost(health: Health) -> bool {
 pub(super) async fn run(inner: Arc<Inner>, memory: Arc<Mutex<Notices>>) -> Result<(), CoreError> {
     loop {
         tokio::time::sleep(PERIOD).await;
-        let (config, jobs, selected) = {
+        let (config, jobs, selected, forwards) = {
             let state = inner.state();
-            (Arc::clone(&state.config), state.jobs.view(), state.selected.clone())
+            (Arc::clone(&state.config), state.jobs.view(), state.selected.clone(), state.forwards.rows())
         };
+        let failed_forwards = forwards.iter().filter_map(|row| match &row.view.state {
+            ForwardState::Failed(reason) => Some((row.id, row.view.rule.clone(), reason.clone())),
+            _ => None,
+        });
         let clusters = inner.registry.get().map(Registry::snapshot).unwrap_or_default();
         let clusters = clusters.into_iter().filter(|cluster| selected.contains(&cluster.id)).map(|cluster| {
             let row = ClusterRow::new(cluster, true, None);
             (row.id.clone(), row.health(), row.reason())
         });
         let hidden = inner.hidden.load(Ordering::Relaxed);
-        let look = Look { jobs: &jobs, clusters: clusters.collect(), hidden, now: Instant::now() };
+        let (clusters, failed_forwards) = (clusters.collect(), failed_forwards.collect());
+        let look = Look { jobs: &jobs, clusters, failed_forwards, hidden, now: Instant::now() };
         let found = memory.lock().unwrap_or_else(PoisonError::into_inner).step(&config, look);
         let notifier = inner.notifier.lock().unwrap_or_else(PoisonError::into_inner).clone();
         for notice in found {

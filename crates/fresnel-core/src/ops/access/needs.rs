@@ -8,9 +8,8 @@ use crate::kinds::{Action, Kind};
 use crate::store::ObjectKey;
 
 /// The requests of an action on an object. Empty for an action that reads only the stores
-/// of the app or that sends nothing, such as "copy name". The verbs of the actions of
-/// later milestones (the port forward) come with them. `node_shells` is the namespace of the
-/// pod of a node shell, a setting.
+/// of the app or that sends nothing, such as "copy name". `node_shells` is the namespace of
+/// the pod of a node shell, a setting.
 pub fn needs(action: Action, kind: Kind, key: &ObjectKey, node_shells: &str) -> Vec<Attributes> {
     let at = |verb: &'static str, kind: Kind, subresource: &'static str, namespace: Arc<str>, name: &Arc<str>| {
         let info = kind.info();
@@ -62,7 +61,9 @@ pub fn needs(action: Action, kind: Kind, key: &ObjectKey, node_shells: &str) -> 
             let pods = |verb, subresource| at(verb, Kind::Pod, subresource, node_shells.into(), none);
             vec![pods("create", ""), pods("create", "attach"), pods("delete", "")]
         }
-        Action::CopyName | Action::CopyCommand | Action::RolloutStatus | Action::Forward => Vec::new(),
+        // A forward to a Service or a workload opens its tunnels to the pods that come.
+        Action::Forward => vec![on("create", Kind::Pod, "portforward", if kind == Kind::Pod { this } else { none })],
+        Action::CopyName | Action::CopyCommand | Action::RolloutStatus => Vec::new(),
     }
 }
 
@@ -83,6 +84,8 @@ mod tests {
         assert_eq!(texts(Action::Scale, Kind::Deployment, &web), ["patch deployments/scale (apps) web in shop"]);
         assert_eq!(texts(Action::Delete, Kind::Pod, &web), ["delete pods web in shop"]);
         assert_eq!(texts(Action::Evict, Kind::Pod, &web), ["create pods/eviction web in shop"]);
+        assert_eq!(texts(Action::Forward, Kind::Pod, &web), ["create pods/portforward web in shop"]);
+        assert_eq!(texts(Action::Forward, Kind::Service, &web), ["create pods/portforward in shop"]);
         assert_eq!(
             texts(Action::Rollback, Kind::StatefulSet, &web),
             [
