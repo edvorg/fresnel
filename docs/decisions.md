@@ -1997,6 +1997,13 @@ the attach, a node shell `create`, `create pods/attach` and `delete` of pods in 
 its setting, which the view gives to `access::needs`. Before, a forbidden terminal showed as
 possible and failed on its tab (terminal review).
 
+## A debug container has the key Cmd+Alt+G
+
+Shift+Cmd+G goes to the hit before in the search of an editor, and the keys of the command table
+act before the widgets, so Debug container took that key from the editor when the terminal and
+the editor met. Debug container has Cmd+Alt+G, next to the other changes that ask first; a node
+shell keeps Cmd+Shift+J.
+
 ## A node shell is a privileged pod with nsenter, deleted at the end
 
 A node shell creates a pod on the node (host PID, IPC and network, a toleration of each taint,

@@ -140,7 +140,7 @@ pub const TABLE: &[Entry] = &[
     Entry::object(Action::Logs, "logs", Some(Shortcut::command("L").shift()), Never),
     Entry::object(Action::Terminal, "terminal", Some(Shortcut::command("T").shift()), Never),
     Entry::object(Action::Attach, "attach", Some(Shortcut::command("A").shift()), Never),
-    Entry::object(Action::DebugContainer, "debug-container", Some(Shortcut::command("G").shift()), Always),
+    Entry::object(Action::DebugContainer, "debug-container", Some(Shortcut::command("G").alt()), Always),
     Entry::object(Action::Forward, "forward-port", None, Never),
     Entry::object(Action::Scale, "scale", Some(Shortcut::command("S").shift()), Always),
     Entry::object(Action::Restart, "restart", Some(Shortcut::command("R").shift()), Always),

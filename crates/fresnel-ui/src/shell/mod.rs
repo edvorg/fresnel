@@ -88,8 +88,6 @@ pub struct Shell {
     colors: ClusterColors,
     appearance: Appearance,
     focus: Focus,
-    /// The highest terminal identity the shell has seen; a higher one opens its tab.
-    last_terminal: Option<u64>,
     /// True while the overlay of the keys shows.
     help: bool,
     tasks: Tasks,
@@ -146,7 +144,6 @@ impl Shell {
             colors: ClusterColors::default(),
             appearance: Appearance::default(),
             focus: Focus::default(),
-            last_terminal: None,
             help: false,
             tasks: tasks.clone(),
             wake,
@@ -205,53 +202,20 @@ impl Shell {
             .frame(chrome.inner_margin(Margin::symmetric(6, 0)))
             .show(ui, |ui| sidebar::show(ui, view, &mut self.page, self.focus.take(Area::Sidebar)));
         follow_page(&mut self.open, self.page, &self.tasks, &self.wake);
-        self.terminals.follow(view);
-        // A terminal the core opens while the app runs gets its tab, like a new log view;
-        // the first frame only sets the baseline, so a tab that paints before its fonts
-        // bind, at the next frame, cannot (the layout would panic).
-        let newest = view.terminals.iter().map(|terminal| terminal.id).max().unwrap_or(0);
-        if self.last_terminal.is_some_and(|last| newest > last) {
-            self.tab = Tab::Terminal(newest);
+        // A terminal that the core opens while the app runs gets its tab, as a new log view.
+        if let Some(id) = self.terminals.follow(view) {
+            self.tab = Tab::Terminal(id);
             ui.ctx().request_repaint();
         }
-        self.last_terminal = Some(self.last_terminal.map_or(newest, |last| last.max(newest)));
-        let mut titles = self.logs.titles(view);
-        titles.extend(self.editors.titles(view));
-        titles.extend(TerminalTabs::titles(view));
-        // A dock with a log view, an editor or a terminal has a height of its own: more rows.
-        let (name, height) = match self.tab {
-            Tab::Logs(_) | Tab::Editor(_) | Tab::Terminal(_) => ("dock with logs", dock::LOG_HEIGHT),
-            _ => ("dock", dock::HEIGHT),
+        let tabs = dock::Tabs {
+            open: &mut self.tab,
+            journal: &mut self.journal,
+            operations: &mut self.operations,
+            logs: &mut self.logs,
+            editors: &mut self.editors,
+            terminals: &mut self.terminals,
         };
-        let dock = Panel::bottom(name).resizable(true).default_size(height).min_size(dock::SMALLEST);
-        dock.frame(Frame::new().fill(palette.bg_sunken)).show(ui, |ui| {
-            let focus = self.focus.take(Area::Dock);
-            match dock::tab_bar(ui, (&mut self.tab, focus), &titles, scene.colors) {
-                Some(Tab::Logs(closed)) => self.logs.close(closed),
-                // An editor with changes asks first, on its tab.
-                Some(Tab::Editor(closed)) if !self.editors.close(closed) => self.tab = Tab::Editor(closed),
-                Some(Tab::Terminal(closed)) => scene.commands.push(Command::CloseTerminal(closed)),
-                _ => {}
-            }
-            // The center can show the same view, so the two have widgets with different identities.
-            ui.push_id("dock", |ui| match self.tab {
-                Tab::Operations => self.operations.show(ui, &mut scene),
-                Tab::Journal => self.journal.show(ui, &view.journal, &self.clock),
-                Tab::Connections => connections::show(ui, &mut scene),
-                Tab::Logs(id) => self.logs.show(id, ui, &mut scene),
-                Tab::Editor(id) => self.editors.show(id, ui, &mut scene),
-                Tab::Terminal(id) => self.terminals.show(id, ui, &mut scene),
-            });
-        });
-        let gone = match self.tab {
-            Tab::Logs(id) => !self.logs.has(id),
-            Tab::Editor(id) => !self.editors.has(id),
-            Tab::Terminal(id) => !view.terminals.iter().any(|terminal| terminal.id == id),
-            _ => false,
-        };
-        if gone {
-            self.tab = Tab::Journal;
-        }
+        dock::show(ui, tabs, &mut scene, self.focus.take(Area::Dock));
         let jump =
             CentralPanel::default().frame(Frame::new().fill(palette.bg_surface)).show(ui, |ui| match self.page {
                 Page::Kind(_) => {

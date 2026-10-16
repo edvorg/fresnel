@@ -84,6 +84,8 @@ struct TerminalTab {
 #[derive(Debug, Default)]
 pub(crate) struct TerminalTabs {
     tabs: Vec<TerminalTab>,
+    /// The newest terminal that the tabs know: a newer one is new in the core.
+    newest: Option<u64>,
 }
 
 impl TerminalTabs {
@@ -97,9 +99,16 @@ impl TerminalTabs {
         view.terminals.iter().map(title).collect()
     }
 
-    /// Keeps the tabs of the terminals that the core has.
-    pub(crate) fn follow(&mut self, view: &CoreView) {
+    /// Keeps the tabs of the terminals that the core has, and gives a terminal that the core
+    /// opened since the last frame, whose tab then opens. The first frame only notes the
+    /// newest one: a tab that paints before the fonts of the terminal bind, in the next frame,
+    /// would make the layout panic.
+    pub(crate) fn follow(&mut self, view: &CoreView) -> Option<u64> {
         self.tabs.retain(|tab| view.terminals.iter().any(|terminal| terminal.id == tab.id));
+        let newest = view.terminals.iter().map(|terminal| terminal.id).max().unwrap_or(0);
+        let opened = self.newest.filter(|known| newest > *known).map(|_| newest);
+        self.newest = Some(self.newest.map_or(newest, |known| known.max(newest)));
+        opened
     }
 
     /// True when the terminal `id` had the focus of the keys in its last frame: it takes each
