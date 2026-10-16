@@ -16,8 +16,9 @@ kube.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # `signal`: the command `watch` runs until Ctrl+C and then stops its tasks. `sync`: the
-# soak shares the copy of the core between its tasks.
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+# soak shares the copy of the core between its tasks. `net` and `io-util`: the check of the
+# forward of the soak fetches a page through its local port.
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 
 [dev-dependencies]
 base64.workspace = true

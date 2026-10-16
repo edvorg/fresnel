@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use super::forward::Target;
+
 pub(super) const USAGE: &str = "\
 usage: fresnel-cli soak --context <name> --kubeconfig <file> --report <folder> [options]
 
@@ -27,7 +29,12 @@ options:
   --memory-limit <MiB>    the most growth of the heap after the warm-up (default 64)
   --warm-up <minutes>     the minutes before the heap that the growth starts from (default 10)
   --faults <file>         a file to which a harness adds one line for each fault that it
-                          makes; each minute of the report lists its new lines";
+                          makes; each minute of the report lists its new lines
+  --forward <namespace/service:port>
+                          a Service whose pods serve a page with the text \"soak-echo\": the
+                          core forwards its port, and a check each minute fetches the page; a
+                          failure that the forward does not show, a closed local port or a
+                          forward that gives no page for 5 minutes is a gap";
 
 const MAX_MINUTES: u64 = 7 * 24 * 60;
 const MAX_MEMORY_LIMIT: u64 = 64 * 1024;
@@ -45,11 +52,13 @@ pub(super) struct Options {
     pub(super) memory_limit_mib: u64,
     pub(super) warm_up: u64,
     pub(super) faults: Option<PathBuf>,
+    /// The Service of the forward of the soak.
+    pub(super) forward: Option<Target>,
 }
 
 /// Reads the options. The error is a text for the user.
 pub(super) fn parse(arguments: &[String]) -> Result<Options, String> {
-    let (mut context, mut report, mut log, mut faults) = (None, None, None, None);
+    let (mut context, mut report, mut log, mut faults, mut forward) = (None, None, None, None, None);
     let (mut kubeconfig, mut compare) = (Vec::new(), Vec::new());
     let (mut minutes, mut memory_limit_mib, mut warm_up) = (60, 64, 10);
     let mut rest = arguments.iter();
@@ -65,6 +74,7 @@ pub(super) fn parse(arguments: &[String]) -> Result<Options, String> {
             "--memory-limit" => memory_limit_mib = number(option, value()?, 1, MAX_MEMORY_LIMIT)?,
             "--warm-up" => warm_up = number(option, value()?, 0, MAX_MINUTES)?,
             "--faults" => faults = Some(PathBuf::from(value()?)),
+            "--forward" => forward = Some(Target::parse(value()?)?),
             other => return Err(format!("`{other}` is not an option of the command")),
         }
     }
@@ -73,7 +83,7 @@ pub(super) fn parse(arguments: &[String]) -> Result<Options, String> {
     if kubeconfig.is_empty() {
         return Err("the soak needs --kubeconfig: it never reads the profile of the user".to_owned());
     }
-    Ok(Options { context, kubeconfig, compare, report, minutes, log, memory_limit_mib, warm_up, faults })
+    Ok(Options { context, kubeconfig, compare, report, minutes, log, memory_limit_mib, warm_up, faults, forward })
 }
 
 fn number(option: &str, text: &str, min: u64, max: u64) -> Result<u64, String> {
@@ -103,14 +113,15 @@ mod tests {
         let options = parsed("--context k3s --kubeconfig /k/a --report /r").expect("good options");
         assert_eq!((options.context.as_str(), options.kubeconfig.len(), options.compare.len()), ("k3s", 1, 0));
         assert_eq!((options.minutes, options.memory_limit_mib, options.warm_up), (60, 64, 10));
-        assert_eq!((options.log, options.faults), (None, None));
+        assert_eq!((options.log, options.faults, options.forward), (None, None, None));
 
         let line = "--context k3s --kubeconfig /k/a --compare /k/b --report /r --minutes 5 --log soak/logger \
-                    --memory-limit 32 --warm-up 2 --faults /r/faults";
+                    --memory-limit 32 --warm-up 2 --faults /r/faults --forward soak/soak-echo:80";
         let options = parsed(line).expect("good options");
         assert_eq!((options.minutes, options.memory_limit_mib, options.warm_up), (5, 32, 2));
         assert_eq!(options.log, Some(("soak".to_owned(), "logger".to_owned())));
         assert_eq!((options.compare, options.faults), (vec![PathBuf::from("/k/b")], Some(PathBuf::from("/r/faults"))));
+        assert_eq!(options.forward, Target::parse("soak/soak-echo:80").ok());
     }
 
     #[test]

@@ -4,13 +4,15 @@
 //! - `args`: the options. `app`: the core in the folders of the report. `look`: the copy of
 //!   the core that the tasks read. `api` and `cover`: the lists of the comparison, and the
 //!   test of a store against one. `check`: the task of each kind. `logs`: the numbers of the
-//!   log view. `minute` and `report`: the records and the files.
+//!   log view. `forward`: the forward and its check. `minute` and `report`: the records and
+//!   the files.
 
 mod api;
 mod app;
 mod args;
 mod check;
 mod cover;
+mod forward;
 mod logs;
 mod look;
 mod minute;
@@ -83,7 +85,13 @@ async fn soak(options: &Options, runtime: Handle) -> Result<bool, String> {
     }
     let tally = check::Shared::default();
     let checks = check::start(&tasks, &kinds, &api.gateway(), &looks, &tally);
-    let mut recorder = Recorder::new(journal, options.faults.clone());
+    let forward = options.forward.as_ref().map(|target| {
+        let (rule, checks) = (target.rule(&app.id), forward::Checks::default());
+        app.core.send(Command::StartForward(rule.clone()));
+        (forward::start(&tasks, rule.clone(), &looks, &checks), (rule, checks))
+    });
+    let (forward_task, forward) = forward.unzip();
+    let mut recorder = Recorder::new(journal, options.faults.clone(), forward);
     for number in 1..=options.minutes {
         sleep_until(started + Duration::from_secs(60 * number)).await;
         let tally = std::mem::take(&mut *tally.lock().unwrap_or_else(PoisonError::into_inner));
@@ -96,7 +104,7 @@ async fn soak(options: &Options, runtime: Handle) -> Result<bool, String> {
         report.write(folder)?;
     }
     // The checks stop before the connections of the comparison and the core.
-    drop((checks, look_task));
+    drop((checks, forward_task, look_task));
     app.core.stop();
     print!("\n{}", report.text());
     Ok(report.verdict.passed)

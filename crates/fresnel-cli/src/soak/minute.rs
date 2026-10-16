@@ -5,14 +5,17 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
 use std::path::PathBuf;
+use std::sync::PoisonError;
 use std::time::Duration;
 
 use fresnel_core::app::ClusterRow;
+use fresnel_core::forward::ForwardRule;
 use fresnel_core::journal::JournalView;
 use fresnel_core::net::{ChannelState, ClusterStatus};
 use serde::Serialize;
 
 use super::check::{Gap, Tally};
+use super::forward::{self, Checks};
 use super::logs::{LogCheck, LogCounts};
 use super::look::Look;
 
@@ -48,6 +51,8 @@ pub(super) struct Minute {
     pub(super) log: Option<LogCounts>,
     /// The state of each source of the log view.
     pub(super) log_sources: Vec<String>,
+    /// The forward: its state and the checks that ended in the minute.
+    pub(super) forward: Option<forward::Minute>,
     pub(super) warnings: u64,
     pub(super) errors: u64,
     /// The faults that the harness made in the minute.
@@ -62,12 +67,14 @@ pub(super) struct Recorder {
     counts: (u64, u64),
     faults: Option<(PathBuf, u64)>,
     log: LogCheck,
+    /// The rule of the forward, and the checks that its task adds.
+    forward: Option<(ForwardRule, Checks)>,
 }
 
 impl Recorder {
-    pub(super) fn new(journal: File, faults: Option<PathBuf>) -> Self {
+    pub(super) fn new(journal: File, faults: Option<PathBuf>, forward: Option<(ForwardRule, Checks)>) -> Self {
         let faults = faults.map(|file| (file, 0));
-        Self { journal, next_entry: 0, counts: (0, 0), faults, log: LogCheck::default() }
+        Self { journal, next_entry: 0, counts: (0, 0), faults, log: LogCheck::default(), forward }
     }
 
     /// The record of one minute from a copy of the core and the tally of the checks.
@@ -108,6 +115,10 @@ impl Recorder {
             warnings,
             errors,
             faults: self.new_faults(),
+            forward: self.forward.as_ref().map(|(rule, checks)| {
+                let checks = std::mem::take(&mut *checks.lock().unwrap_or_else(PoisonError::into_inner));
+                forward::Minute::of(look, rule, checks)
+            }),
         }
     }
 

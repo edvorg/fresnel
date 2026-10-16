@@ -1,6 +1,7 @@
 //! The changes of the soak: ConfigMaps, pods and Deployments that come, change and go, one
-//! change each 2 s, so each store of the app has new events at each check. A change that
-//! fails, for example during a restart of the API server, counts and the next one follows.
+//! change each 2 s, so each store of the app has new events at each check. A restart of the
+//! Deployment of the forward moves its tunnels to new pods. A change that fails, for example
+//! during a restart of the API server, counts and the next one follows.
 
 use std::collections::{BTreeSet, VecDeque};
 use std::time::Duration;
@@ -9,7 +10,7 @@ use fresnel_testkit::K3s;
 use tokio::time::sleep;
 
 use super::Never;
-use super::scene::{NAMESPACE, PAUSE, WEB};
+use super::scene::{ECHO, NAMESPACE, PAUSE, WEB};
 
 /// The time between two changes.
 const STEP: Duration = Duration::from_secs(2);
@@ -83,6 +84,7 @@ impl<'a> Churn<'a> {
                 words(&["run", &name, "--image", PAUSE, "--restart", "Never"])
             }
             8..=9 => words(&["scale", "deployment", WEB, &format!("--replicas={}", self.rng.u32(1..=4))]),
+            10 if self.count.is_multiple_of(2) => words(&["rollout", "restart", &format!("deployment/{ECHO}")]),
             10 => words(&["rollout", "restart", &format!("deployment/{WEB}")]),
             _ if self.deployments.len() >= DEPLOYMENTS => {
                 let name = self.deployments.pop_front().unwrap_or_default();

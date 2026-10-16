@@ -7,7 +7,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 
-use fresnel_core::app::{ClusterRow, Core};
+use fresnel_core::app::{ClusterRow, Core, ForwardRow};
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::journal::JournalView;
 use fresnel_core::kinds::Kind;
@@ -29,6 +29,8 @@ pub(super) struct Look {
     /// The cluster of the soak. `None` before the core read the kubeconfig files.
     pub(super) row: Option<ClusterRow>,
     pub(super) journal: Arc<JournalView>,
+    /// The forwards of the core: the one of the soak.
+    pub(super) forwards: Arc<[ForwardRow]>,
 }
 
 /// The store of one kind at one moment.
@@ -88,5 +90,5 @@ async fn copies(
 fn take(core: &Core, id: &ClusterId) -> Look {
     let view = core.view();
     let row = view.clusters.into_iter().find(|row| &row.id == id);
-    Look { at: Instant::now(), row, journal: view.journal }
+    Look { at: Instant::now(), row, journal: view.journal, forwards: view.forwards }
 }

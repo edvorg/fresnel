@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use super::args::Options;
 use super::check::{GIVE_UP, LIMIT};
+use super::forward;
 use super::minute::Minute;
 
 const MIB: f64 = 1024.0 * 1024.0;
@@ -54,6 +55,8 @@ pub(super) struct Verdict {
     /// The most minutes in a row with no line of the log view, after its first line.
     pub(super) log_quiet_minutes: usize,
     pub(super) faults: usize,
+    /// The checks of the forward. `None` for a soak with no forward.
+    pub(super) forward: Option<forward::Verdict>,
 }
 
 impl Report {
@@ -131,6 +134,12 @@ impl Report {
         } else if verdict.log_quiet_minutes >= QUIET {
             reasons.push(format!("the log view gave no line for {} minutes in a row", verdict.log_quiet_minutes));
         }
+        if minutes.iter().any(|minute| minute.forward.is_some()) {
+            let of_minutes: Vec<Option<&forward::Minute>> = minutes.iter().map(|m| m.forward.as_ref()).collect();
+            let (forward, why) = forward::Verdict::of(&of_minutes, QUIET);
+            verdict.forward = Some(forward);
+            reasons.extend(why);
+        }
         reasons.extend(self.problems.iter().cloned());
         verdict.passed = reasons.is_empty();
         self.verdict = verdict;
@@ -187,8 +196,14 @@ impl Report {
                 "log lines that did not come: {}, most minutes in a row with no line: {}",
                 verdict.lost_log_lines, verdict.log_quiet_minutes
             ),
+            verdict.forward.as_ref().map_or_else(String::new, |forward| {
+                format!(
+                    "checks of the forward: {}, failed: {}, with no visible state: {}, closed port: {}",
+                    forward.checks, forward.failed, forward.without_state, forward.port_closed
+                )
+            }),
         ];
-        lines.iter().for_each(|line| text.push_str(&format!("{line}\n")));
+        lines.iter().filter(|line| !line.is_empty()).for_each(|line| text.push_str(&format!("{line}\n")));
         text.push_str("\nminutes with a fault, a gap, a store that is not live or a lost line:\n");
         for minute in self.minutes.iter().filter(|minute| is_notable(minute)) {
             line(&mut text, minute);
@@ -210,7 +225,8 @@ fn longest_quiet(minutes: &[Minute], quiet: impl Fn(&Minute) -> bool) -> usize {
 
 fn is_notable(minute: &Minute) -> bool {
     let lost = minute.log.as_ref().is_some_and(|log| log.lost > 0);
-    !minute.faults.is_empty() || !minute.gaps.is_empty() || !minute.stores_not_live.is_empty() || lost
+    let forward = minute.forward.as_ref().is_some_and(|forward| forward.checks.iter().any(|check| !check.ok));
+    !minute.faults.is_empty() || !minute.gaps.is_empty() || !minute.stores_not_live.is_empty() || lost || forward
 }
 
 /// One line of a minute, and one more line for each gap.
@@ -265,6 +281,7 @@ mod tests {
             memory_limit_mib: 64,
             warm_up,
             faults: None,
+            forward: None,
         };
         Report::new(&options, "2027-01-15T08:00:00Z".to_owned())
     }
@@ -291,6 +308,7 @@ mod tests {
             warnings: 0,
             errors: 0,
             faults: Vec::new(),
+            forward: None,
         }
     }
 
