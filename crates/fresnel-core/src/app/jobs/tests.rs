@@ -147,3 +147,23 @@ async fn a_job_that_stops_before_its_end_has_an_unknown_result_when_it_can_have_
     drop(Shown { slot: Arc::clone(&slot), ends: ends(), ended: Arc::new(watch::channel(false).0) });
     assert_eq!(lock(&slot).report.state, JobState::Done, "a final state stays");
 }
+
+/// A job that ends at once passes on the wait for the job before it: the job of a copy of a
+/// document ends as not sent, and the document after it still waits for the first one.
+#[tokio::test]
+async fn a_job_that_ends_at_once_passes_on_the_wait_for_the_job_before_it() {
+    let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("no task: {report}"));
+    let (mut jobs, ends) = (Jobs::default(), ends());
+    let running = Arc::new(JobView { number: 1, order: order(Operation::Restart), report: Report::default() });
+    jobs.entries.push_back(Entry { slot: Arc::new(Mutex::new(running)), cancel: Cancel::pair().0, _task: None });
+    jobs.number = 1;
+    let (_first, ended) = watch::channel(false);
+    let first = After { number: 1, ended };
+    let next =
+        jobs.start(&tasks, (order(Operation::Restart), not_connected()), Cancel::pair().0, ends.clone(), Some(first));
+    let same = CoreError::invalid("job 1 runs the same operation on the object");
+    assert_eq!(states(&jobs)[1], (2, JobState::NotSent(same)));
+    assert_eq!((next.number, *next.ended.borrow()), (1, false), "the next job waits for job 1");
+    let own = jobs.start(&tasks, (order(Operation::Scale(2)), not_connected()), Cancel::pair().0, ends, None);
+    assert_eq!((own.number, *own.ended.borrow()), (3, true), "with no job before it, its own end");
+}

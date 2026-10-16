@@ -81,30 +81,33 @@ pub(super) type ClusterParts = (Parts, AccessHandle);
 
 impl Jobs {
     /// Starts a job. With an error in place of `cluster`, the cluster of the order is not
-    /// connected or makes no change, and the job ends at once as not sent with it. `cancel` sets the signal of the parts. A list of running
-    /// jobs only takes no new one: the job ends as not sent, and only the journal tells it.
+    /// connected or makes no change, and the job ends at once as not sent with it. `cancel`
+    /// sets the signal of the parts. A list of running jobs only takes no new one: the job
+    /// ends as not sent, and only the journal tells it.
     ///
     /// The same order while its job runs ends at once as not sent, as a fast second click
     /// gives it: a second "roll back to the revision before" would undo the first one, and
     /// a second "run again" would race the first one for the name of the Job.
     ///
-    /// The job waits for the end of `after` first. Gives the end of this job, for a next one.
+    /// The job waits for the end of `after` first. Gives the end that a next job waits for:
+    /// the end of this job, or `after` when this job ended at once, so a document after a
+    /// copy of the one before still waits for that one.
     pub(super) fn start(
         &mut self,
         tasks: &Tasks,
         (order, cluster): (Order, Result<ClusterParts, CoreError>),
         cancel: watch::Sender<bool>,
         ends: Ends,
-        after: Option<After>,
+        mut after: Option<After>,
     ) -> After {
         self.number += 1;
         let report = Report::default();
         let slot: Slot = Arc::new(Mutex::new(Arc::new(JobView { number: self.number, order: order.clone(), report })));
         let (sender, receiver) = watch::channel(false);
-        let (ended, next) = (Arc::new(sender), After { number: self.number, ended: receiver });
+        let (ended, own) = (Arc::new(sender), After { number: self.number, ended: receiver });
         if let Err(error) = self.make_room() {
             end_now(&slot, JobState::NotSent(error), &ends, &ended);
-            return next;
+            return after.unwrap_or(own);
         }
         let task = match (self.running(&order), cluster) {
             (Some(number), _) => {
@@ -113,7 +116,7 @@ impl Jobs {
                 None
             }
             (None, Ok((mut parts, access))) => {
-                parts.after = after;
+                parts.after = after.take();
                 Some(start(tasks, order, (parts, access), (&slot, ends, ended)))
             }
             (None, Err(error)) => {
@@ -122,7 +125,7 @@ impl Jobs {
             }
         };
         self.entries.push_back(Entry { slot, cancel, _task: task });
-        next
+        after.unwrap_or(own)
     }
 
     /// The number of the job that runs this order, if one does.
