@@ -25,7 +25,7 @@ The cluster overview in the light theme, and the connections of prod-us, which t
 Milestones M0 to M4, M6, M7 and M9 are complete; the work is in M8 (settings, keys, notices, soak).
 `fresnel-core` has the kubeconfig, gateway, journal, settings, 41 kinds, stores, indexes, quick
 search, commands, operations as jobs, downloads, metrics, logs and notices. The window has a live
-table and a panel for each kind, actions, keys, the Operations tab, metrics, logs and settings.
+table and a panel for each kind, actions, keys, Operations, metrics, logs, settings, a YAML editor.
 
 ## The app
 

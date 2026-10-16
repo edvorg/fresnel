@@ -90,7 +90,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   home folder and the files of the settings. The first file wins a name.
 - **Registry**: one entry for each context. **Gateway**: get, list page, watch stream, log stream,
   send and upgrade. A failed write tells its fate, and each read has a size limit.
-- **Manifest**: `manifest::fetch` gives the YAML of one object, by default with no `managedFields`.
+- **Manifest**: `manifest::fetch` gives the YAML of an object; `read_for_edit` and `check` an editor.
 - **Keys** (`keys`): one Secret or ConfigMap with each value, as text or as size and type. A
   `Draft` saves a merge patch of its changed keys with the version of its read, so no other key
   changes, and HTTP 409 is a conflict. The core follows the object of the open key view.
@@ -145,7 +145,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 1. **State.** `Core::view` gives a copy of each state, with no lock: the clusters and their
    connections; of each connected cluster the Pods, the indexes, the snapshots, the full objects
    of the kinds of `ShowKinds`, the key view, the permissions, the metrics, the server version,
-   the logs and saves; the settings, the last manifest read and Secret create, jobs and journal.
+   the logs and saves; the settings, the manifest and editor reads, a Secret create, jobs, journal.
 2. **Commands.** A view returns a `Command`, and the task of the core runs it. **Workers**: below.
 3. **Repaint.** A new snapshot, index, poll or log view asks for a repaint. One notifier limits
    them to 60 in one second, a setting. The core does not know egui: the window gives the wake.
@@ -154,7 +154,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 ## Window
 
 `fresnel_ui::Shell` draws a frame from a `CoreView`: top bar, sidebar, a page of the sidebar, the
-dock (Operations, Journal, Connections, a tab for each log view) and status bar.
+dock (Operations, Journal, Connections, a tab for each log view and editor) and status bar.
 
 - **Table**: `widgets/table.rs` wraps `egui_table`. A kind gives a `Model`: columns, rows,
   their sequence and cells. The cursor and the selection hold objects (cluster, name, UID).
@@ -176,8 +176,8 @@ dock (Operations, Journal, Connections, a tab for each log view) and status bar.
   diff in a dialog before a save, a choice for each conflict. The New Secret dialog is `new-secret`.
 - **Metrics** (`views/metrics`): CPU and Memory columns with bars, a tab with `egui_plot` charts.
   **Overviews** (`views/overview`): a worker counts; `cluster/version.rs` reads each server version.
-- **Logs** (`views/logs`): the tab of a view (`ShowLogs`), its options, the state of each source,
-  a search and a filter on a worker; the pane has its own rows, scroll and selection (`pane`).
+- **Logs**, **Editor** (`views/logs`, `views/editor`): a tab for each view with a search and its own
+  rows (`pane`, `text`); a worker filters a log (`ShowLogs`) and checks a text (`ShowEditors`).
 - **Settings** (`views/settings`): a control for each entry of `config::table`, cluster and key; a
   draft goes to `EditSettings`. `shell/focus` moves the keys between four areas; `?` lists them.
 

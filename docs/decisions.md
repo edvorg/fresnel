@@ -1701,3 +1701,53 @@ restores the newest entry of the job, and before a save the action removes the w
 and those that left the lock, so an entry stays small. Before, each new lock missed, and a job
 that its time limit ended saved nothing, so the next run missed too. A branch restores the
 entries of master and saves none: the repository has 10 GB of cache.
+
+## The manifest editor is a widget with its own rows
+
+The text widget of egui lays out its full text in each frame and builds a node of the
+accessibility tree for each row. With 8,000 lines, a frame took 8 to 11 ms with no input and up
+to 47 ms after a key press. The editor has its own rows: a frame lays out the lines on the
+screen, and egui keeps the galley of a line that did not change. A key press takes 2.3 ms.
+
+## The undo of the editor keeps changes, not copies of the text
+
+The undo of the text widget of egui keeps a copy of the full text for each step: 100 steps of a
+manifest of 300 KB are 30 MB. A step of the editor keeps the text of its change, and characters
+typed in one place with less than a second between them are one step. The history keeps 1,000
+steps and 16 MiB at most.
+
+## A binary value of a Secret in the editor has the tag !!binary
+
+The editor shows each value of a Secret that is text, by the rule of the key view, decoded. A
+value that a text editor cannot hold stays base64 with the YAML tag `!!binary`, which
+serde-saphyr writes for bytes. The parser reads a tagged value as its base64, so a save can send
+it as it is and encode the others. `stringData` would keep a key that the user removed.
+
+## The check of an edited text runs on a worker, and a hint refuses nothing
+
+serde-saphyr parses each change with the scalar rules of kubectl and gives the line and column of
+an error. The events of its parser give hints: a value that reads as a boolean or a number, a
+plain key that kubectl changes, an other kind, name or namespace, a bad `!!binary` value. Only
+the parser and the server refuse a text. A parse of 8,000 lines takes some milliseconds, so it
+runs on a worker thread.
+
+## The editor reads its object with a request of its own
+
+An editor needs one read of its object, also while the panel shows an other object, and the
+read of the Manifest tab ends for each new object. One task of the core reads the object of each
+new editor, all at the same time, so a cluster that does not answer holds no other editor. The
+text then belongs to the editor; a closed editor drops its read.
+
+## An editor keeps the keys that are text, and Cmd+F finds in it
+
+The shell runs the command of a key before the widgets. While an editor has the focus, a key
+that is text, such as `?`, goes into the text, as in a text field, and Cmd+F opens the search of
+the editor in place of the filter of the table. Edit manifest has the key Cmd+Shift+Y, for YAML:
+Cmd+Shift+E edits keys. Its gate closes it in a read-only cluster.
+
+## A text of more than 8,000 lines is read-only, and a long line shows a part
+
+Plan section 12.9 sets the limit. A larger manifest opens read-only in the same widget, with its
+colors, search and copy, and a paste that would pass the limit does not go in. A value of
+megabytes on one line would cost seconds for its galley, so a line of more than 2,000 bytes lays
+out the columns around the screen, and the lexer reads its first 4 KB.
