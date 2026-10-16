@@ -6,10 +6,12 @@
 //!
 //! - `edit`: the text of the editor of one object. `secret`: the values of a Secret in it.
 //! - `check`: the check of an edited text: the errors of the YAML parser, and hints.
+//! - `yaml`: the YAML writer of a manifest.
 
 pub mod check;
 mod edit;
 mod secret;
+mod yaml;
 
 pub use edit::{Decoded, EditText, LINE_LIMIT, read_for_edit};
 
@@ -72,8 +74,7 @@ pub async fn fetch(
         remove_managed_fields(&mut object);
     }
     let version = version(&object);
-    // The text of a YAML error can hold a value of the object, so the error has none.
-    let text = serde_saphyr::to_string(&object).map_err(|_| CoreError::invalid("the object has no YAML form"))?;
+    let text = yaml::write(&yaml::Json(&object))?;
     Ok(Manifest { text, version, managed_fields })
 }
 

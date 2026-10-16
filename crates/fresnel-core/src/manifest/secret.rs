@@ -13,6 +13,7 @@ use serde::ser::{Serialize, SerializeMap, Serializer};
 use serde_json::{Map, Value};
 
 use super::Decoded;
+use super::yaml::{self, Json};
 use crate::error::CoreError;
 use crate::keys::{Form, Value as KeyValue};
 
@@ -38,8 +39,7 @@ pub(super) fn yaml(object: &Value) -> Result<(String, Decoded), CoreError> {
         };
         values.push((key.as_str(), shown));
     }
-    let secret = Secret { fields, values: &values };
-    let text = serde_saphyr::to_string(&secret).map_err(|_| CoreError::invalid("the object has no YAML form"))?;
+    let text = yaml::write(&Secret { fields, values: &values })?;
     Ok((text, decoded))
 }
 
@@ -63,7 +63,7 @@ impl Serialize for Secret<'_> {
             if key == "data" && value.is_object() {
                 map.serialize_entry(key, &Data(self.values))?;
             } else {
-                map.serialize_entry(key, value)?;
+                map.serialize_entry(key, &Json(value))?;
             }
         }
         map.end()
@@ -88,10 +88,10 @@ impl Serialize for Shown<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
             Self::Decoded(value) => match value.text() {
-                Some(text) => serializer.serialize_str(text),
+                Some(text) => yaml::text(text, serializer),
                 None => serializer.serialize_bytes(value.bytes()),
             },
-            Self::Other(value) => value.serialize(serializer),
+            Self::Other(value) => Json(value).serialize(serializer),
         }
     }
 }
@@ -130,7 +130,13 @@ mod tests {
     /// the base64 that the save sends as it is.
     #[test]
     fn the_parser_reads_a_decoded_text_as_the_text_and_a_binary_value_as_its_base64() {
-        let values = [b"a\r\nb".to_vec(), b"  lead and tail  \n\n".to_vec(), b"yes".to_vec(), vec![0, 1, 2, 255]];
+        let values = [
+            b"a\r\nb".to_vec(),
+            b"  lead and tail  \n\n".to_vec(),
+            b"yes".to_vec(),
+            b"\n".to_vec(),
+            vec![0, 1, 2, 255],
+        ];
         let data: Map<String, Value> =
             values.iter().enumerate().map(|(index, bytes)| (format!("k{index}"), base64(bytes).into())).collect();
         let (text, _) = yaml(&json!({"kind": "Secret", "data": data})).expect("a text");

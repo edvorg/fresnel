@@ -85,7 +85,7 @@ pub fn check(text: &str, identity: &Identity) -> Check {
 
 /// Reads a text as the save will read it: with the scalar rules of kubectl, and a value with
 /// the tag `!!binary` as its base64, which the save of a Secret sends as it is.
-fn parse(text: &str) -> Result<Value, serde_saphyr::Error> {
+pub(super) fn parse(text: &str) -> Result<Value, serde_saphyr::Error> {
     let options = serde_saphyr::options! { legacy_octal_numbers: true, ignore_binary_tag_for_string: true };
     serde_saphyr::from_str_with_options(text, options)
 }

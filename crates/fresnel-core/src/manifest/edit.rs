@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use super::{read, remove_managed_fields, secret, version};
+use super::{read, remove_managed_fields, secret, version, yaml};
 use crate::cluster::Gateway;
 use crate::error::CoreError;
 use crate::kinds::Kind;
@@ -65,13 +65,11 @@ pub async fn read_for_edit(gateway: &Gateway, kind: Kind, key: &ObjectKey, uid: 
 pub(super) fn text_of(mut object: Value, kind: Kind) -> Result<EditText, CoreError> {
     remove_managed_fields(&mut object);
     let version = version(&object);
-    // The text of a YAML error can hold a value of the object, so the error has none.
-    let unwritten = |_| CoreError::invalid("the object has no YAML form");
     let (text, decoded) = if kind == Kind::Secret {
         let (text, decoded) = secret::yaml(&object)?;
         (text, Some(decoded))
     } else {
-        (serde_saphyr::to_string(&object).map_err(unwritten)?, None)
+        (yaml::write(&yaml::Json(&object))?, None)
     };
     Ok(EditText { lines: text.lines().count(), text: text.into(), version, decoded })
 }
