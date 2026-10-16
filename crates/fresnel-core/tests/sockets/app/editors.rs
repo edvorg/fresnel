@@ -1,13 +1,16 @@
 //! The reads and the saves of the editors (plan section 12.9): the text of each editor of
-//! the UI, and a save that does not go.
+//! the UI, a save that does not go, and a replace with no answer.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use fresnel_core::app::{Command, CoreSettings, CoreView, EditRequest, EditSave, EditState, Health, SaveState, Stage};
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::config::{Edit, EditValue};
 use fresnel_core::kinds::Kind;
 use fresnel_core::manifest::Decoded;
+use fresnel_core::manifest::merge::Side;
+use fresnel_core::net::{Limits, NetSettings};
 use fresnel_core::ops::Target;
 use fresnel_core::store::ObjectKey;
 use fresnel_testkit::{FakeApiServer, Fault};
@@ -152,4 +155,59 @@ async fn a_save_in_a_read_only_cluster_and_of_a_closed_editor_does_not_go() {
     let put = ams.requests().into_iter().find(|seen| seen.method == Method::PUT).expect("the PUT of the dry run");
     let query = put.uri.query().unwrap_or_default().to_owned();
     assert_eq!((put.uri.path(), query.as_str()), (SECRET, "&dryRun=All&fieldManager=fresnel&fieldValidation=Strict"));
+}
+
+/// A replace with no answer ends as not known and goes one time only (design rule 6). The
+/// save reads the object after it: with that read, the text of the user merges with the
+/// object; with no read, the state tells why the read failed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_replace_with_no_answer_is_not_known_and_reads_the_object_again() {
+    let ams = FakeApiServer::start().await.expect("a server");
+    let secret = r#"{"apiVersion":"v1","kind":"Secret","metadata":{"name":"db","namespace":"shop","uid":"u-db",
+        "resourceVersion":"7"},"data":{"password":"aHVudGVyMg=="}}"#;
+    ams.set_body(SECRET, secret);
+    let home = home("editors-unknown");
+    write_kubeconfig(&home, "ams", &[("ams", ams.addr(), &ams, false)]);
+    let limits = Limits { write: Duration::from_secs(2), get: Duration::from_secs(2), ..Limits::default() };
+    let app = App::started(
+        &home,
+        CoreSettings { net: NetSettings { limits, ..NetSettings::default() }, ..CoreSettings::default() },
+    );
+    app.until_health("ams", Health::Live).await;
+    app.core.send(Command::ShowEditors(vec![request(1, "ams")]));
+    let view = app.until("the text", |view| read(view, 1).is_some_and(|state| state.is_some())).await;
+    let Some(EditState::Done(base)) = view.edits.first().map(|read| read.state.clone()) else { panic!("a text") };
+    let mine = base.text.replace("hunter2", "hunter3");
+    let save = |number: u64| EditSave {
+        editor: request(1, "ams"),
+        number,
+        base: Arc::clone(&base),
+        text: mine.as_str().into(),
+        stage: Stage::Send,
+    };
+    let state = |view: &CoreView| view.edits.first().and_then(|read| read.save.clone()).map(|view| view.state);
+    let ended = |number: u64| {
+        move |view: &CoreView| {
+            let save = view.edits.first().and_then(|read| read.save.clone());
+            save.is_some_and(|save| save.save.number == number && save.state != SaveState::Pending)
+        }
+    };
+    let puts = || ams.requests().into_iter().filter(|seen| seen.method == Method::PUT).count();
+
+    // The replace and the read after it get no answer.
+    ams.add_fault(Fault::no_answer().on_path(SECRET));
+    app.core.send(Command::SaveEditor(save(1)));
+    let view = app.until("the end of the save", ended(1)).await;
+    let Some(SaveState::Unknown(error, None)) = state(&view) else { panic!("not known: {:?}", state(&view)) };
+    assert!(error.to_string().contains(", and the read after it failed: "), "{error}");
+    assert_eq!(puts(), 1, "the replace went one time");
+
+    // The fault ends during the replace, before the read after it.
+    ams.clear_faults();
+    ams.add_fault(Fault::no_answer().on_path(SECRET).for_time(Duration::from_secs(1)));
+    app.core.send(Command::SaveEditor(save(2)));
+    let view = app.until("the end of the save", ended(2)).await;
+    let Some(SaveState::Unknown(_, Some(remote))) = state(&view) else { panic!("a read: {:?}", state(&view)) };
+    assert!(remote.merge.is_clean() && remote.merge.text(|_| Side::Ours) == mine, "{:?}", remote.merge);
+    assert_eq!(puts(), 2, "each replace went one time");
 }

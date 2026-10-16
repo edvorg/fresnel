@@ -100,7 +100,7 @@ pub enum SaveState {
     /// The request did not go to the server.
     NotSent(CoreError),
     /// The replace went out and no answer came back: it can be in effect. The read after
-    /// it and its merge, when that read worked.
+    /// it and its merge, when that read worked; else the error has the error of the read.
     Unknown(CoreError, Option<Arc<Remote>>),
 }
 
@@ -172,7 +172,14 @@ async fn send(gateway: &Gateway, save: &EditSave) -> SaveState {
         Err(WriteError { fate: Fate::NotSent, error }) => SaveState::NotSent(error),
         // A dry run stores nothing, so its result is known.
         Err(WriteError { fate: Fate::Unknown, error }) if check => SaveState::Failed(error),
-        Err(WriteError { fate: Fate::Unknown, error }) => SaveState::Unknown(error, remote(gateway, save).await.ok()),
+        Err(WriteError { fate: Fate::Unknown, error }) => match remote(gateway, save).await {
+            Ok(remote) => SaveState::Unknown(error, Some(remote)),
+            // The view shows no merge then, and the error tells why.
+            Err(read) => {
+                let words = format!("{error}, and the read after it failed: {read}");
+                SaveState::Unknown(CoreError::new(error.class(), words), None)
+            }
+        },
     }
 }
 
