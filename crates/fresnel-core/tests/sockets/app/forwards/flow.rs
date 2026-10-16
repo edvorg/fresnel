@@ -128,3 +128,30 @@ async fn an_upload_to_a_pod_that_reads_in_bursts_completes_through_the_forward()
     let view = bed.until(&pod, "the counts", |view| view.bytes.received == sent.len() as u64).await;
     assert_eq!((view.view.state.name(), view.view.connections.reset), ("active", 0));
 }
+
+/// The protocol has no half close: after the end of the local input, the tunnel stays while
+/// the pod sends, and closes after the pod is silent for the linger time. The linger time
+/// starts at the end of the input. A client that was quiet longer than that time, then sends
+/// its request and ends its input, gets the answer.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_that_ends_its_input_after_a_quiet_time_gets_the_answer() {
+    let bed = Bed::start("forward-half-close").await;
+    let pod = rule(Kind::Pod, "web-1", 8080);
+    bed.start_forward(&pod);
+    let address = bed.active(&pod).await;
+    let mut client = TcpStream::connect(address).await.expect("a connect");
+    in_time("the tunnel of the client", async {
+        while tunnels(&bed.server).is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    // The client is quiet for twice the linger time, as a user who types a request.
+    tokio::time::sleep(2 * SECOND).await;
+    client.write_all(b"the request").await.expect("the request");
+    client.shutdown().await.expect("the end of the input");
+    let mut back = Vec::new();
+    let read = timeout(10 * SECOND, client.read_to_end(&mut back)).await;
+    assert!(matches!(read, Ok(Ok(_))), "{read:?}");
+    assert_eq!(String::from_utf8_lossy(&back), "the request", "the answer of the pod");
+}

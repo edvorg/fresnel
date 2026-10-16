@@ -16,7 +16,7 @@ use fresnel_net::local::LocalStream;
 use fresnel_net::{SocketEnd, SocketFailure};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::watch;
-use tokio::time::{Instant, sleep, timeout_at};
+use tokio::time::{Instant, sleep_until, timeout_at};
 
 use super::shared::{Gate, Outcome, Shared};
 use crate::stream::{Tunnel, TunnelEnd};
@@ -123,13 +123,14 @@ async fn carry(local: &mut LocalStream, tunnel: &mut Tunnel, shared: &Shared) ->
         return Down::Client;
     };
     let sender = tunnel.writer();
-    let (input_ended, mut ended) = watch::channel(false);
+    // The time of the end of the local input, once it ended.
+    let (input_ended, mut ended) = watch::channel(None);
     let up = async {
         let mut buffer = vec![0_u8; READ_SIZE];
         loop {
             let read = match reader.read(&mut buffer).await {
                 Ok(0) => {
-                    input_ended.send_replace(true);
+                    input_ended.send_replace(Some(Instant::now()));
                     return Up::End;
                 }
                 Ok(read) => read,
@@ -146,11 +147,14 @@ async fn carry(local: &mut LocalStream, tunnel: &mut Tunnel, shared: &Shared) ->
         let mut last = Instant::now();
         loop {
             let quiet = async {
-                // The linger time starts after the end of the input and after each message.
-                if ended.wait_for(|ended| *ended).await.is_err() {
-                    std::future::pending::<()>().await;
+                // The linger time starts after the end of the input and after each message:
+                // a client that was quiet for a time, then sent its request and ended its
+                // input, still gets the answer.
+                let end = ended.wait_for(Option::is_some).await.ok().and_then(|end| *end);
+                match end {
+                    Some(end) => sleep_until(end.max(last) + shared.linger).await,
+                    None => std::future::pending::<()>().await,
                 }
-                sleep((last + shared.linger).saturating_duration_since(Instant::now())).await;
             };
             let data = tokio::select! {
                 data = tunnel.next() => data,
