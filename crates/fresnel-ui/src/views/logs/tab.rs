@@ -18,8 +18,8 @@ use super::find::Find;
 use super::full;
 use super::pane::select::Columns;
 use super::pane::{Input, Pane};
-use super::{Title, sources, title_text};
-use crate::shell::Scene;
+use super::{sources, title_text};
+use crate::shell::{Scene, Tab, Title};
 use crate::theme::{self, PAD};
 use crate::widgets::tone::Tone;
 use crate::widgets::worker::Wake;
@@ -66,7 +66,7 @@ impl LogTab {
     pub(super) fn title(&self, view: &CoreView) -> Title {
         let found = data(view, &self.request.cluster).and_then(|data| log_view(data, &self.request));
         let tone = found.map_or(Tone::Faint, |view| sources::tone(&view.sources));
-        Title { id: self.id, text: title_text(&self.request), cluster: self.request.cluster.clone(), tone }
+        Title { tab: Tab::Logs(self.id), text: title_text(&self.request), cluster: self.request.cluster.clone(), tone }
     }
 
     pub(super) fn show(&mut self, ui: &mut Ui, scene: &mut Scene<'_>, threads: &Threads<'_>) {

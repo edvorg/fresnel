@@ -272,7 +272,9 @@ impl<K: Describe> DetailPanel<K> {
                 });
             }
             Tab::Manifest => {
-                Frame::new().inner_margin(inner).show(ui, |ui| self.manifest_tab(ui, palette, scene));
+                if Frame::new().inner_margin(inner).show(ui, |ui| self.manifest_tab(ui, palette, scene)).inner {
+                    act = Act::Ask(Ask { action: Action::EditManifest, revision: None });
+                }
             }
             Tab::Metrics => {
                 let data = cluster.and_then(|row| row.data.as_ref());
@@ -354,7 +356,8 @@ impl<K: Describe> DetailPanel<K> {
         picked
     }
 
-    fn manifest_tab(&mut self, ui: &mut Ui, palette: &Palette, scene: &mut Scene<'_>) {
+    /// The tab Manifest. Gives true for a click on Edit.
+    fn manifest_tab(&mut self, ui: &mut Ui, palette: &Palette, scene: &mut Scene<'_>) -> bool {
         // The UID keeps the manifest of a new object with the same name out of this panel.
         let request = ManifestRequest {
             cluster: self.id.cluster.clone(),
@@ -364,8 +367,9 @@ impl<K: Describe> DetailPanel<K> {
             managed_fields: self.manifest.managed_fields(),
         };
         let present = self.presence == Presence::Present;
+        let edit = self.gate(Action::EditManifest, scene);
         let version = present.then(|| self.object.meta().resource_version.as_deref().unwrap_or_default());
-        self.manifest.show(ui, palette, scene, manifest::Target { request, version });
+        self.manifest.show(ui, palette, scene, manifest::Target { request, version, edit })
     }
 }
 

@@ -132,7 +132,7 @@ pub const TABLE: &[Entry] = &[
     Entry::object(Action::CopyName, "copy-name", Some(Shortcut::command("C").shift()), Never),
     Entry::object(Action::CopyCommand, "copy-command", Some(Shortcut::command("K").shift()), Never),
     Entry::object(Action::Download, "download", Some(Shortcut::command("D").shift()), Never),
-    Entry::object(Action::EditManifest, "edit-manifest", None, Always),
+    Entry::object(Action::EditManifest, "edit-manifest", Some(Shortcut::command("Y").shift()), Always),
     Entry::object(Action::Logs, "logs", Some(Shortcut::command("L").shift()), Never),
     Entry::object(Action::Terminal, "terminal", None, Never),
     Entry::object(Action::Attach, "attach", None, Never),

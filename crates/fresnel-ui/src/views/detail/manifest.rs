@@ -1,5 +1,6 @@
 //! The tab Manifest of the panel (plan section 12.9): the YAML of the object as its server
-//! gives it, read-only, with no `managedFields` until the user asks for them.
+//! gives it, read-only, with no `managedFields` until the user asks for them. Its button Edit
+//! opens the editor of the object (`views/editor`).
 //!
 //! The core reads the manifest, and the tab asks for it with a command: one time for each
 //! version of the object in its store, so the text follows the object. A deleted object
@@ -17,6 +18,7 @@ use super::fields::note;
 use crate::format::short;
 use crate::shell::Scene;
 use crate::theme::{self, Palette, SMALL};
+use crate::views::act::Gate;
 use crate::widgets;
 
 /// The most characters of one line that the tab lays out. A value of a ConfigMap can be
@@ -24,10 +26,12 @@ use crate::widgets;
 const LINE_LIMIT: usize = 2000;
 
 /// The object of the tab: its request, and its version in the store. `None` as the version
-/// of an object that left its store: the tab asks for it no more.
+/// of an object that left its store: the tab asks for it no more. `edit` is the gate of the
+/// editor of the object.
 pub(super) struct Target<'a> {
     pub(super) request: ManifestRequest,
     pub(super) version: Option<&'a str>,
+    pub(super) edit: Gate,
 }
 
 #[derive(Default)]
@@ -45,11 +49,18 @@ impl ManifestTab {
         self.managed_fields
     }
 
-    pub(super) fn show(&mut self, ui: &mut Ui, palette: &Palette, scene: &mut Scene<'_>, target: Target<'_>) {
-        let Target { request, version } = target;
+    /// Draws the tab. Gives true for a click on Edit.
+    pub(super) fn show(&mut self, ui: &mut Ui, palette: &Palette, scene: &mut Scene<'_>, target: Target<'_>) -> bool {
+        let Target { request, version, edit } = target;
         let wanted = (request.clone(), version.map(str::to_owned));
-        let mut again = false;
+        let (mut again, mut edited) = (false, false);
         ui.horizontal(|ui| {
+            let mut button = ui.add_enabled(!edit.is_closed(), egui::Button::new(RichText::new("Edit…").size(SMALL)));
+            if let Some(hint) = edit.hint() {
+                button = button.on_hover_text(&hint).on_disabled_hover_text(hint);
+            }
+            widgets::name(&button, "Edit the manifest");
+            edited = button.clicked();
             let mut kept = self.managed_fields == ManagedFields::Kept;
             if ui.checkbox(&mut kept, "managedFields").on_hover_text("Shows which client wrote each field").changed() {
                 self.managed_fields = if kept { ManagedFields::Kept } else { ManagedFields::Removed };
@@ -84,6 +95,7 @@ impl ManifestTab {
             note(ui, palette.warn, "The object left its store. The tab shows the last manifest that it read.");
         }
         self.lines(ui, palette, &request);
+        edited
     }
 
     /// True when the last request of the tab was for this object in this form.

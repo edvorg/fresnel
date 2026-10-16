@@ -7,14 +7,14 @@
 //!
 //! - `tab`: one view. `bar`: its options, its search and its saves. `sources`: the state of
 //!   each source and the notes of the view. `pane`: the rows of the lines.
-//! - `find`, `needle`: the search and the filter on a worker thread. `copy`: a copy of the
-//!   selection. `full`: the window of a long line.
+//! - `find`, `needle`: the search and the filter on a worker thread; the editor finds with
+//!   `needle` too. `copy`: a copy of the selection. `full`: the window of a long line.
 
 mod bar;
 mod copy;
 mod find;
 mod full;
-mod needle;
+pub(crate) mod needle;
 mod pane;
 mod sources;
 mod tab;
@@ -23,14 +23,12 @@ use std::sync::Arc;
 
 use egui::Ui;
 use fresnel_core::app::{Command, CoreView};
-use fresnel_core::cluster::ClusterId;
 use fresnel_core::kinds::Kind;
 use fresnel_core::logs::{Containers, LogOptions, LogRequest};
 use fresnel_core::net::task::Tasks;
 use fresnel_core::ops::Target;
 
-use crate::shell::Scene;
-use crate::widgets::tone::Tone;
+use crate::shell::{Scene, Title};
 use crate::widgets::worker::Wake;
 use tab::{LogTab, Threads};
 
@@ -59,16 +57,6 @@ impl LogAsk {
             options: LogOptions { containers, previous: self.previous, ..LogOptions::default() },
         }
     }
-}
-
-/// The title of a tab of logs in the tab bar of the dock.
-#[derive(Clone, Debug)]
-pub(crate) struct Title {
-    pub(crate) id: u64,
-    pub(crate) text: String,
-    pub(crate) cluster: ClusterId,
-    /// The state of its sources in one tone.
-    pub(crate) tone: Tone,
 }
 
 /// The tabs of logs.

@@ -19,10 +19,9 @@ pub(crate) fn text(ctx: &Context, keys: &Keys, id: CommandId) -> Option<String> 
 
 /// The command of a key that the user pressed in this frame, if any, with the count of
 /// the presses: a slow frame gets each press since the frame before. The input loses that
-/// key, so no widget gets it too. A text field with the focus keeps a key that is text,
-/// such as `?`.
-pub(super) fn pressed(ctx: &Context, keys: &Keys) -> Option<(CommandId, usize)> {
-    let typing = ctx.text_edit_focused();
+/// key, so no widget gets it too. While the user types (`typing`), a text field keeps a key
+/// that is text, such as `?`.
+pub(super) fn pressed(ctx: &Context, keys: &Keys, typing: bool) -> Option<(CommandId, usize)> {
     let mut shortcuts: Vec<(CommandId, KeyboardShortcut)> = keys
         .iter()
         .filter(|(_, shortcut)| !(typing && shortcut.is_text()))
@@ -69,7 +68,8 @@ mod tests {
                 egui::Event::Key { key: egui::Key::K, physical_key: None, pressed: true, repeat: false, modifiers };
             let input = egui::RawInput { events: vec![event], ..egui::RawInput::default() };
             let mut command = None;
-            ctx.run_ui(input, |ui| command = pressed(ui.ctx(), &keys).map(|(id, _)| id)).drop_without_applying_deltas();
+            ctx.run_ui(input, |ui| command = pressed(ui.ctx(), &keys, false).map(|(id, _)| id))
+                .drop_without_applying_deltas();
             command
         };
         let copy_command = CommandId::Object(fresnel_core::kinds::Action::CopyCommand);

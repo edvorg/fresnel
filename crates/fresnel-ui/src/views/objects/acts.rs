@@ -94,6 +94,11 @@ impl Acts {
             scene.logs = Some(self.logs.take().unwrap_or_default().request(&subject.target));
             return None;
         }
+        // The editor asks before a change: its save shows the diff.
+        if action == Action::EditManifest {
+            scene.edit = Some(subject.target);
+            return None;
+        }
         if asks_first_on(action, subject.target.kind) {
             self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(action, vec![subject], ask.revision)));
             return None;

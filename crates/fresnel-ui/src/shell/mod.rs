@@ -36,9 +36,10 @@ use fresnel_core::keys::Target;
 use fresnel_core::kinds::Kind;
 use fresnel_core::logs::LogRequest;
 use fresnel_core::net::task::Tasks;
+use fresnel_core::ops;
 
 use appearance::Appearance;
-pub(crate) use dock::Tab;
+pub(crate) use dock::{Tab, Title};
 use focus::Focus;
 use history::History;
 use sidebar::Page;
@@ -46,6 +47,7 @@ use sidebar::Page;
 use crate::format::Clock;
 use crate::theme::{self, ClusterColors};
 use crate::views::detail::sections;
+use crate::views::editor::EditorTabs;
 use crate::views::help;
 use crate::views::journal::JournalTab;
 use crate::views::keys::new_secret::NewSecretDialog;
@@ -67,6 +69,7 @@ pub struct Shell {
     journal: JournalTab,
     operations: OperationsTab,
     logs: LogTabs,
+    editors: EditorTabs,
     /// The page of the kind that the sidebar opened last. The other pages keep it.
     open: Box<dyn objects::Page>,
     overview: OverviewPage,
@@ -103,6 +106,8 @@ pub(crate) struct Scene<'a> {
     pub(crate) asked: Option<CommandId>,
     /// A log view that a view asks for. The shell opens its tab after the frame.
     pub(crate) logs: Option<LogRequest>,
+    /// The object of an editor that a view asks for. The shell opens its tab after the frame.
+    pub(crate) edit: Option<ops::Target>,
 }
 
 impl Shell {
@@ -122,6 +127,7 @@ impl Shell {
             journal: JournalTab::default(),
             operations: OperationsTab::default(),
             logs: LogTabs::new(tasks, Arc::clone(&wake)),
+            editors: EditorTabs::new(tasks, Arc::clone(&wake)),
             open: kinds::page(Kind::Pod, tasks, Arc::clone(&wake)),
             overview: OverviewPage::new(tasks, Arc::clone(&wake)),
             settings: SettingsPage::default(),
@@ -146,12 +152,13 @@ impl Shell {
         self.appearance.apply(ui.ctx(), view, (&mut self.clock, &mut self.colors, &mut self.namespaces));
         // The keys act before the widgets of the frame, which would take them. Back and
         // Forward take one step for each press; each other command acts one time.
-        // A dialog takes the keys of the user.
+        // A dialog takes the keys of the user, and an editor keeps the keys that are text.
+        let typing = ui.ctx().text_edit_focused() || self.editors.focused(self.tab).is_some();
         if !self.search.is_open()
             && !self.new_secret.is_open()
             && !self.open.has_dialog()
             && !self.help
-            && let Some((command, presses)) = keys::pressed(ui.ctx(), &view.config.keys)
+            && let Some((command, presses)) = keys::pressed(ui.ctx(), &view.config.keys, typing)
         {
             let times = if matches!(command, CommandId::Back | CommandId::Forward) { presses } else { 1 };
             for _ in 0..times {
@@ -168,6 +175,7 @@ impl Shell {
             commands: &mut commands,
             asked: None,
             logs: None,
+            edit: None,
         };
         let palette = theme::palette(ui);
 
@@ -186,17 +194,21 @@ impl Shell {
             .frame(chrome.inner_margin(Margin::symmetric(6, 0)))
             .show(ui, |ui| sidebar::show(ui, view, &mut self.page, self.focus.take(Area::Sidebar)));
         follow_page(&mut self.open, self.page, &self.tasks, &self.wake);
-        let titles = self.logs.titles(view);
-        // A dock with a log view has a height of its own: a log needs more rows.
+        let mut titles = self.logs.titles(view);
+        titles.extend(self.editors.titles(view));
+        // A dock with a log view or an editor has a height of its own: they need more rows.
         let (name, height) = match self.tab {
-            Tab::Logs(_) => ("dock with logs", dock::LOG_HEIGHT),
+            Tab::Logs(_) | Tab::Editor(_) => ("dock with logs", dock::LOG_HEIGHT),
             _ => ("dock", dock::HEIGHT),
         };
         let dock = Panel::bottom(name).resizable(true).default_size(height).min_size(dock::SMALLEST);
         dock.frame(Frame::new().fill(palette.bg_sunken)).show(ui, |ui| {
             let focus = self.focus.take(Area::Dock);
-            if let Some(closed) = dock::tab_bar(ui, (&mut self.tab, focus), &titles, scene.colors) {
-                self.logs.close(closed);
+            match dock::tab_bar(ui, (&mut self.tab, focus), &titles, scene.colors) {
+                Some(Tab::Logs(closed)) => self.logs.close(closed),
+                // An editor with changes asks first, on its tab.
+                Some(Tab::Editor(closed)) if !self.editors.close(closed) => self.tab = Tab::Editor(closed),
+                _ => {}
             }
             // The center can show the same view, so the two have widgets with different identities.
             ui.push_id("dock", |ui| match self.tab {
@@ -204,10 +216,11 @@ impl Shell {
                 Tab::Journal => self.journal.show(ui, &view.journal, &self.clock),
                 Tab::Connections => connections::show(ui, &mut scene),
                 Tab::Logs(id) => self.logs.show(id, ui, &mut scene),
+                Tab::Editor(id) => self.editors.show(id, ui, &mut scene),
             });
         });
-        if let Tab::Logs(id) = self.tab
-            && !self.logs.has(id)
+        if matches!(self.tab, Tab::Logs(id) if !self.logs.has(id))
+            || matches!(self.tab, Tab::Editor(id) if !self.editors.has(id))
         {
             self.tab = Tab::Journal;
         }
@@ -242,6 +255,10 @@ impl Shell {
             self.tab = Tab::Logs(self.logs.open(request));
             ui.ctx().request_repaint();
         }
+        if let Some(id) = scene.edit.take().and_then(|target| self.editors.open(target)) {
+            self.tab = Tab::Editor(id);
+            ui.ctx().request_repaint();
+        }
         if let Some(visited) = self.open.opened() {
             self.history.visit(visited);
         }
@@ -271,6 +288,7 @@ impl Shell {
         commands.extend(self.show_kinds());
         commands.extend(self.show_keys());
         commands.extend(self.logs.command());
+        commands.extend(self.editors.command());
         // A job that the user started shows its steps in the Operations tab.
         if commands.iter().any(|command| matches!(command, Command::Run(_))) {
             self.tab = Tab::Operations;
@@ -292,7 +310,11 @@ impl Shell {
                     self.follow_link(link);
                 }
             }
-            CommandId::Filter => self.open.focus_filter(),
+            // Cmd+F in an editor finds in its text.
+            CommandId::Filter => match self.editors.focused(self.tab) {
+                Some(id) => self.editors.find(id),
+                None => self.open.focus_filter(),
+            },
             CommandId::NewSecret => self.new_secret.open(),
             CommandId::Settings => self.page = Page::Settings,
             CommandId::Help => self.help = !self.help,

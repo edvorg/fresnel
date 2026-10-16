@@ -21,6 +21,7 @@ pub(crate) fn can_run(action: Action) -> bool {
     matches!(
         action,
         Action::ViewManifest
+            | Action::EditManifest
             | Action::Download
             | Action::CopyName
             | Action::CopyCommand
@@ -57,11 +58,13 @@ pub(crate) fn works_on_gone(action: Action) -> bool {
 }
 
 /// True for an action with a button of its own in the header: an operation of a job. A copy,
-/// the manifest and its download are in the menu and in the tabs, the keys in the key view.
+/// the manifest, its editor and its download are in the menu and in the tabs, the keys in the
+/// key view.
 fn on_header(action: Action) -> bool {
     let elsewhere = matches!(
         action,
         Action::ViewManifest
+            | Action::EditManifest
             | Action::Download
             | Action::CopyName
             | Action::CopyCommand

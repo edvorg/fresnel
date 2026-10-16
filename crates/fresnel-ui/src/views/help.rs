@@ -1,6 +1,6 @@
 //! The overlay of the keys (plan section 11.5): each command of the command table with its
-//! key after the settings, and the keys of the table, the sidebar and the dock. `?` opens
-//! it, and Escape or `?` closes it.
+//! key after the settings, and the keys of the table, the sidebar, the dock and an editor.
+//! `?` opens it, and Escape or `?` closes it.
 
 use egui::{Context, Grid, Id, Modal, RichText, ScrollArea, Ui};
 use fresnel_core::commands::{CommandId, Keys, TABLE};
@@ -18,6 +18,9 @@ const AREA_KEYS: &[(&str, &str)] = &[
     ("Up, Down, Left, Right", "Move the focus in the sidebar, the tabs of the panel and the dock"),
     ("Space, Enter", "Open the entry or the tab of the focus"),
     ("Tab, Shift+Tab", "Move the focus to the next field or button, or the one before"),
+    ("Cmd+F, Cmd+G, Shift+Cmd+G", "Find in an editor, and go to the next hit or the one before"),
+    ("F8, Shift+F8", "Go to the next mark of the check of an editor, or the one before"),
+    ("Cmd+Z, Shift+Cmd+Z", "Undo and redo in an editor, where Tab indents and Shift+Tab unindents"),
 ];
 
 /// Draws the overlay while `open` is true. Escape and a click beside it close it.
