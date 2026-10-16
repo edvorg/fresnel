@@ -9,6 +9,8 @@ use k8s_openapi::api::core::v1::{
     ResourceRequirements, VolumeMount,
 };
 
+use fresnel_core::terminal::Program;
+
 use super::texts::{self, EnvValue};
 use super::{Place, section};
 use crate::format::short;
@@ -17,6 +19,7 @@ use crate::views::detail::fields::{ITEM_LIMIT, VALUE_LIMIT, field, more, text_fi
 use crate::views::detail::sections::Pick;
 use crate::views::logs::LogAsk;
 use crate::views::objects::Link;
+use crate::views::terminal::TerminalAsk;
 use crate::widgets::{self, dot};
 
 /// What a block shows of one container. A container and an ephemeral container are two
@@ -129,7 +132,7 @@ fn block(ui: &mut Ui, place: &Place<'_>, shown: &Shown<'_>, status: Option<Optio
             ui.label(RichText::new(short(shown.name, VALUE_LIMIT)).strong());
             ui.label(RichText::new(shown.role).size(SMALL).color(palette.text_faint));
             if let Some(status) = status {
-                picked = logs(ui, shown.name, status);
+                picked = actions(ui, shown.name, shown.role, status);
             }
         });
         if let Some(status) = status {
@@ -154,23 +157,38 @@ fn block(ui: &mut Ui, place: &Place<'_>, shown: &Shown<'_>, status: Option<Optio
     picked.or(clicked.map(Pick::Open))
 }
 
-/// The buttons of the logs of a container of a pod: its log, and the log of its instance
-/// before the last restart when it has one.
-fn logs(ui: &mut Ui, name: &str, status: Option<&ContainerStatus>) -> Option<Pick> {
+/// The buttons of a container of a pod: its logs, the logs of its instance before the last
+/// restart, a shell and an attach into it, and a debug container that targets it. An init
+/// container and an ephemeral container get the logs only: the terminal targets a container
+/// of the pod, not one that ran once or is itself a debug container.
+fn actions(ui: &mut Ui, name: &str, role: &str, status: Option<&ContainerStatus>) -> Option<Pick> {
     let restarted = status.is_some_and(|status| {
         status.restart_count > 0 && status.last_state.as_ref().is_some_and(|last| last.terminated.is_some())
     });
     let mut picked = None;
-    for (text, previous) in [("Logs", false), ("Previous logs", true)] {
-        if previous && !restarted {
-            continue;
-        }
+    let button = |ui: &mut Ui, text: &str| {
         // The block has the fill of a button, so the button has a line around it.
         let border = egui::Stroke::new(1.0, crate::theme::palette(ui).border);
         let button = ui.add(Button::new(RichText::new(text).size(SMALL)).small().stroke(border));
         widgets::name(&button, &format!("{text} of {name}"));
-        if button.clicked() {
-            picked = Some(Pick::Logs(LogAsk { container: Some(name.into()), previous }));
+        button.clicked()
+    };
+    if button(ui, "Logs") {
+        picked = Some(Pick::Logs(LogAsk { container: Some(name.into()), previous: false }));
+    }
+    if restarted && button(ui, "Previous logs") {
+        picked = Some(Pick::Logs(LogAsk { container: Some(name.into()), previous: true }));
+    }
+    if role == "container" {
+        let terminal = |program| Pick::Terminal(TerminalAsk { program, container: Some(name.into()) });
+        if button(ui, "Shell") {
+            picked = Some(terminal(Program::Shell));
+        }
+        if button(ui, "Attach") {
+            picked = Some(terminal(Program::Attach));
+        }
+        if button(ui, "Debug") {
+            picked = Some(terminal(Program::Debug));
         }
     }
     picked

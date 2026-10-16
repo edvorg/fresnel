@@ -17,6 +17,7 @@ mod dialog;
 mod drain;
 pub(crate) mod facts;
 mod permits;
+mod terminal;
 mod typed;
 
 use std::sync::Arc;
@@ -34,6 +35,7 @@ pub(crate) use dialog::{Close, Dialog};
 pub(crate) use drain::DrainDialog;
 pub(crate) use facts::Facts;
 pub(crate) use permits::Permits;
+pub(crate) use terminal::TerminalConfirm;
 pub(crate) use typed::TypedName;
 
 use crate::views::detail::actions::{can_run, later};
@@ -217,7 +219,7 @@ mod tests {
     fn a_gate_closes_for_a_later_milestone_a_state_and_a_denial_and_stays_open_when_unknown() {
         let facts = Facts { paused: true, suspended: Some(false), ..Facts::default() };
         let gate = |action| Gate::of(action, &facts, || Decision::Allowed);
-        assert!(matches!(gate(Action::Terminal), Gate::Closed(reason) if reason.contains("later milestone")));
+        assert!(matches!(gate(Action::EditManifest), Gate::Closed(reason) if reason.contains("later milestone")));
         assert_eq!(
             gate(Action::Restart),
             Gate::Closed("can't restart paused deployment (run rollout resume first)".to_owned())

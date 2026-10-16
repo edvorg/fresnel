@@ -50,6 +50,7 @@ use crate::views::logs::LogAsk;
 use crate::views::metrics::has_columns;
 use crate::views::metrics::tab::MetricsTab;
 use crate::views::objects::{Link, Nouns, old_since, uid};
+use crate::views::terminal::TerminalAsk;
 use crate::widgets::table::cells::ring;
 use crate::widgets::table::model::ObjectId;
 use crate::widgets::tone::Tone;
@@ -65,6 +66,8 @@ pub(crate) enum Act {
     Ask(Ask),
     /// A click on the logs of a container.
     Logs(LogAsk),
+    /// A click on a terminal of a container.
+    Terminal(TerminalAsk),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -267,6 +270,7 @@ impl<K: Describe> DetailPanel<K> {
                         Some(Pick::Open(link)) => act = Act::Open(link),
                         Some(Pick::Ask(ask)) => act = Act::Ask(ask),
                         Some(Pick::Logs(logs)) => act = Act::Logs(logs),
+                        Some(Pick::Terminal(ask)) => act = Act::Terminal(ask),
                         None => {}
                     });
                 });

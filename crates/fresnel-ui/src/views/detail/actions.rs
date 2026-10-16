@@ -44,6 +44,10 @@ pub(crate) fn can_run(action: Action) -> bool {
             | Action::Uncordon
             | Action::Drain
             | Action::Logs
+            | Action::Terminal
+            | Action::Attach
+            | Action::DebugContainer
+            | Action::NodeShell
     )
 }
 
@@ -72,6 +76,12 @@ fn on_header(action: Action) -> bool {
             | Action::EditKeys
             | Action::AddKey
             | Action::RemoveKey
+            // A terminal opens from the menu and the container section, not the header: the
+            // header of a pod would wrap to a second row, which the arrow keys cross wrongly.
+            | Action::Terminal
+            | Action::Attach
+            | Action::DebugContainer
+            | Action::NodeShell
     );
     can_run(action) && !elsewhere
 }

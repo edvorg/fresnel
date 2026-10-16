@@ -88,6 +88,8 @@ pub struct Shell {
     colors: ClusterColors,
     appearance: Appearance,
     focus: Focus,
+    /// The highest terminal identity the shell has seen; a higher one opens its tab.
+    last_terminal: Option<u64>,
     /// True while the overlay of the keys shows.
     help: bool,
     tasks: Tasks,
@@ -144,6 +146,7 @@ impl Shell {
             colors: ClusterColors::default(),
             appearance: Appearance::default(),
             focus: Focus::default(),
+            last_terminal: None,
             help: false,
             tasks: tasks.clone(),
             wake,
@@ -203,6 +206,15 @@ impl Shell {
             .show(ui, |ui| sidebar::show(ui, view, &mut self.page, self.focus.take(Area::Sidebar)));
         follow_page(&mut self.open, self.page, &self.tasks, &self.wake);
         self.terminals.follow(view);
+        // A terminal the core opens while the app runs gets its tab, like a new log view;
+        // the first frame only sets the baseline, so a tab that paints before its fonts
+        // bind, at the next frame, cannot (the layout would panic).
+        let newest = view.terminals.iter().map(|terminal| terminal.id).max().unwrap_or(0);
+        if self.last_terminal.is_some_and(|last| newest > last) {
+            self.tab = Tab::Terminal(newest);
+            ui.ctx().request_repaint();
+        }
+        self.last_terminal = Some(self.last_terminal.map_or(newest, |last| last.max(newest)));
         let mut titles = self.logs.titles(view);
         titles.extend(self.editors.titles(view));
         titles.extend(TerminalTabs::titles(view));

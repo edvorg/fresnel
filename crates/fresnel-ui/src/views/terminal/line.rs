@@ -16,10 +16,10 @@ const TITLE: usize = 80;
 /// The tone of a state, also for the title of its tab.
 pub(super) fn tone(state: &SessionState) -> Tone {
     match state {
-        SessionState::Connecting => Tone::Info,
+        SessionState::Starting { .. } | SessionState::Connecting | SessionState::Closing => Tone::Info,
         SessionState::Open => Tone::Ok,
-        SessionState::Exited { code: 0 } => Tone::Muted,
-        SessionState::Quiet { .. } | SessionState::Exited { .. } => Tone::Warn,
+        SessionState::Exited { code: 0 } | SessionState::Ended { .. } => Tone::Muted,
+        SessionState::InputWaits { .. } | SessionState::Exited { .. } => Tone::Warn,
         SessionState::Failed { .. } => Tone::Error,
     }
 }
@@ -27,13 +27,16 @@ pub(super) fn tone(state: &SessionState) -> Tone {
 /// A state in words.
 pub(super) fn words(state: &SessionState, clock: &Clock) -> String {
     match state {
+        SessionState::Starting { step } => format!("Starting: {step}"),
         SessionState::Connecting => "Connecting".to_owned(),
         SessionState::Open => "Open".to_owned(),
-        SessionState::Quiet { since } => {
-            format!("No data for {}: the connection can be lost", format::span(clock.since(*since)))
+        SessionState::InputWaits { since } => {
+            format!("The program reads no input since {}", format::span(clock.since(*since)))
         }
+        SessionState::Closing => "Closing: the terminal ends its program in the pod".to_owned(),
         SessionState::Exited { code } => format!("Ended with exit code {code}"),
-        SessionState::Failed { reason } => format!("Failed: {reason}. The program can still run in the pod."),
+        SessionState::Ended { reason } => format!("Ended: {reason}"),
+        SessionState::Failed { reason } => format!("Failed: {reason}"),
     }
 }
 
@@ -107,16 +110,23 @@ mod tests {
     fn each_state_has_its_tone_and_its_words() {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
         let clock = Clock::fixed(now);
-        let quiet = SessionState::Quiet { since: now - Duration::from_secs(12) };
+        let waits = SessionState::InputWaits { since: now - Duration::from_secs(12) };
         assert_eq!(
-            (tone(&quiet), words(&quiet, &clock).as_str()),
-            (Tone::Warn, "No data for 12 s: the connection can be lost")
+            (tone(&waits), words(&waits, &clock).as_str()),
+            (Tone::Warn, "The program reads no input since 12 s")
+        );
+        let starting = SessionState::Starting { step: "the pod kube-system/n1 is created".to_owned() };
+        assert_eq!(
+            (tone(&starting), words(&starting, &clock)),
+            (Tone::Info, "Starting: the pod kube-system/n1 is created".to_owned())
         );
         let (ended, normal) = (SessionState::Exited { code: 130 }, SessionState::Exited { code: 0 });
         assert_eq!((tone(&ended), words(&ended, &clock).as_str()), (Tone::Warn, "Ended with exit code 130"));
         assert_eq!(tone(&normal), Tone::Muted, "a normal end");
+        let gone = SessionState::Ended { reason: "the app closed the session".to_owned() };
+        assert_eq!((tone(&gone), words(&gone, &clock).as_str()), (Tone::Muted, "Ended: the app closed the session"));
         let failed = SessionState::Failed { reason: "connection reset".to_owned() };
-        assert_eq!(tone(&failed), Tone::Error);
+        assert_eq!((tone(&failed), words(&failed, &clock).as_str()), (Tone::Error, "Failed: connection reset"));
         assert_eq!((tone(&SessionState::Open), words(&SessionState::Open, &clock).as_str()), (Tone::Ok, "Open"));
     }
 }

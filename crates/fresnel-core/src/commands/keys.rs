@@ -90,7 +90,7 @@ mod tests {
         assert_eq!(keys.of(CommandId::Back), Some(key("Alt+Left")));
         assert_eq!(keys.of(CommandId::Filter), None);
         assert_eq!(keys.of(CommandId::QuickSearch), Some(key("Cmd+K")));
-        assert_eq!(keys.of(CommandId::Object(Action::Terminal)), None, "no default key");
+        assert_eq!(keys.of(CommandId::Object(Action::EditManifest)), None, "no default key");
         assert_eq!(Keys::with_choices::<u8>(&[]).0, Keys::default());
     }
 

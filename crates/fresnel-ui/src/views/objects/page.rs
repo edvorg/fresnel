@@ -245,6 +245,7 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
                 detail::Act::Open(target) => link = Some(target),
                 detail::Act::Ask(ask) => self.acts.ask(ask),
                 detail::Act::Logs(logs) => self.acts.ask_logs(logs),
+                detail::Act::Terminal(ask) => self.acts.ask_terminal(ask),
                 detail::Act::None => {}
             }
         }

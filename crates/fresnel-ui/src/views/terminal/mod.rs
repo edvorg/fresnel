@@ -8,10 +8,14 @@
 
 mod line;
 
+use std::sync::Arc;
+
 use egui::{Button, Frame, Margin, RichText, Ui};
 use fresnel_core::app::CoreView;
 use fresnel_core::config::Config;
 use fresnel_core::config::table::Setting;
+use fresnel_core::kinds::Action;
+use fresnel_core::ops::Target;
 use fresnel_core::terminal::{PIECE, Program, Scroll, TerminalRequest, TerminalView};
 
 use crate::format::{self, short};
@@ -19,6 +23,49 @@ use crate::shell::{Scene, Tab, Title};
 use crate::theme::{self, PAD, SMALL};
 use crate::widgets::terminal::{KeyOptions, Settings, TerminalWidget};
 use line::Asked;
+
+/// What the panel asks for: a program on a container of a pod, or a shell on a node. The
+/// container is `None` for the default container of a pod, and empty for a node.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TerminalAsk {
+    pub(crate) program: Program,
+    pub(crate) container: Option<Arc<str>>,
+}
+
+impl TerminalAsk {
+    /// The ask of an action that the command table names, with no container yet.
+    pub(crate) fn of(action: Action) -> Option<Self> {
+        let program = match action {
+            Action::Terminal => Program::Shell,
+            Action::Attach => Program::Attach,
+            Action::DebugContainer => Program::Debug,
+            Action::NodeShell => Program::NodeShell,
+            _ => return None,
+        };
+        Some(Self { program, container: None })
+    }
+
+    /// The action of the command table for this program.
+    pub(crate) fn action(&self) -> Action {
+        match self.program {
+            Program::Shell => Action::Terminal,
+            Program::Attach => Action::Attach,
+            Program::Debug => Action::DebugContainer,
+            Program::NodeShell => Action::NodeShell,
+        }
+    }
+
+    /// The request of a terminal on the object of `target`: a pod, or a node for a node shell.
+    pub(crate) fn request(&self, target: &Target) -> TerminalRequest {
+        TerminalRequest {
+            cluster: target.cluster.clone(),
+            object: target.key.clone(),
+            uid: Arc::clone(&target.uid),
+            container: self.container.clone().unwrap_or_default(),
+            program: self.program,
+        }
+    }
+}
 
 /// The state of the tab of one terminal.
 #[derive(Debug)]
@@ -138,11 +185,23 @@ fn settings(config: &Config) -> Settings {
     Settings { font_size, keys: KeyOptions { option_as_meta: config.flag(Setting::OptionAsMeta) } }
 }
 
-/// "Shell web-1 · app", "Attach web-1 · app": the words of a title.
+/// The words of a title, for a note and for the tab. Public for the note of a confirm.
+pub(crate) fn title_of(request: &TerminalRequest) -> String {
+    title_text(request)
+}
+
+/// "Shell web-1 · app", "Attach web-1", "Node n1": the words of a title.
 fn title_text(request: &TerminalRequest) -> String {
     let program = match request.program {
         Program::Shell => "Shell",
         Program::Attach => "Attach",
+        Program::Debug => "Debug",
+        Program::NodeShell => "Node",
     };
-    format!("{program} {} · {}", short(&request.pod.name, 40), short(&request.container, 24))
+    let object = short(&request.object.name, 40);
+    if request.container.is_empty() {
+        format!("{program} {object}")
+    } else {
+        format!("{program} {object} · {}", short(&request.container, 24))
+    }
 }

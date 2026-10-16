@@ -4,7 +4,9 @@
 use egui::{Id, Modal, RichText, Ui};
 use fresnel_core::ops::{Order, Target};
 
-use super::{Commands, ConfirmDialog, DrainDialog, Found};
+use fresnel_core::terminal::TerminalRequest;
+
+use super::{Commands, ConfirmDialog, DrainDialog, Found, TerminalConfirm};
 use crate::shell::Scene;
 use crate::theme::Palette;
 
@@ -19,6 +21,8 @@ pub(crate) enum Dialog {
     Drain(DrainDialog),
     /// The `kubectl` commands of an object, each one with a copy button.
     Commands(Commands),
+    /// Asks before a terminal that changes the cluster: a debug container or a node shell.
+    Terminal(TerminalConfirm),
 }
 
 /// How a dialog ended in a frame.
@@ -32,6 +36,8 @@ pub(crate) enum Close {
     Run { orders: Vec<Order>, note: String },
     /// The user copied this command.
     Copied(String),
+    /// The user confirmed a terminal that changes the cluster.
+    Terminal(TerminalRequest),
 }
 
 impl Dialog {
@@ -48,6 +54,7 @@ impl Dialog {
                 Self::Confirm(confirm) => confirm.show(ui, scene, look),
                 Self::Drain(drain) => drain.show(ui, scene, look),
                 Self::Commands(commands) => commands.show(ui),
+                Self::Terminal(terminal) => terminal.show(ui, scene),
             }
         });
         match modal.inner {

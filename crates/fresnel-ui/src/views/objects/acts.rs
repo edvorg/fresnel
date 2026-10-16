@@ -8,17 +8,19 @@
 use fresnel_core::app::{Command, CoreView};
 use fresnel_core::kinds::{Action, Describe, Kind, Object};
 use fresnel_core::ops::{Order, Target};
+use fresnel_core::terminal::Program;
 
 use super::follow::Follower;
 use super::uid;
 use crate::shell::Scene;
 use crate::views::act::{
-    Ask, Close, Commands, ConfirmDialog, Dialog, DrainDialog, Found, Gate, Permits, Subject, asks_first_on, facts,
-    operation, over_room,
+    Ask, Close, Commands, ConfirmDialog, Dialog, DrainDialog, Found, Gate, Permits, Subject, TerminalConfirm,
+    asks_first_on, facts, operation, over_room,
 };
 use crate::views::detail::DetailPanel;
 use crate::views::detail::actions::{later, of_kind};
 use crate::views::logs::LogAsk;
+use crate::views::terminal::TerminalAsk;
 use crate::widgets::tone::Tone;
 
 /// A note of the page: its tone and its text.
@@ -33,6 +35,8 @@ pub(super) struct Acts {
     asked: Option<Ask>,
     /// The choice of a log view in the panel, with an ask of `Action::Logs`.
     logs: Option<LogAsk>,
+    /// The choice of a terminal in the panel: its program and its container.
+    terminal: Option<TerminalAsk>,
     dialog: Option<Dialog>,
     permits: Permits,
 }
@@ -40,12 +44,19 @@ pub(super) struct Acts {
 impl Acts {
     /// The user asked for an action on the object of the panel. It starts in the frame.
     pub(super) fn ask(&mut self, ask: Ask) {
-        (self.asked, self.logs) = (Some(ask), None);
+        (self.asked, self.logs, self.terminal) = (Some(ask), None, None);
     }
 
     /// The user asked for the logs of a container of the object of the panel.
     pub(super) fn ask_logs(&mut self, logs: LogAsk) {
-        (self.asked, self.logs) = (Some(Ask { action: Action::Logs, revision: None }), Some(logs));
+        let ask = Ask { action: Action::Logs, revision: None };
+        (self.asked, self.logs, self.terminal) = (Some(ask), Some(logs), None);
+    }
+
+    /// The user asked for a terminal of a container of the object of the panel.
+    pub(super) fn ask_terminal(&mut self, terminal: TerminalAsk) {
+        let ask = Ask { action: terminal.action(), revision: None };
+        (self.asked, self.logs, self.terminal) = (Some(ask), None, Some(terminal));
     }
 
     pub(super) fn has_dialog(&self) -> bool {
@@ -54,7 +65,7 @@ impl Acts {
 
     /// Drops the action and the dialog of a page that is not painted.
     pub(super) fn rest(&mut self) {
-        (self.asked, self.logs, self.dialog) = (None, None, None);
+        (self.asked, self.logs, self.terminal, self.dialog) = (None, None, None, None);
     }
 
     /// The gate of an action on the object of a row, for the menu of the row.
@@ -99,6 +110,9 @@ impl Acts {
             scene.edit = Some(subject.target);
             return None;
         }
+        if let Some(ask) = self.terminal.take().or_else(|| TerminalAsk::of(action)) {
+            return self.begin_terminal(ask, &subject, scene);
+        }
         if asks_first_on(action, subject.target.kind) {
             self.dialog = Some(Dialog::Confirm(ConfirmDialog::new(action, vec![subject], ask.revision)));
             return None;
@@ -119,6 +133,30 @@ impl Acts {
         }
     }
 
+    /// Starts a terminal of the object of the panel. A shell and an attach open at once; a
+    /// debug container and a node shell change the cluster and open the confirm dialog. The
+    /// container is the one of a button, or the first container of a pod.
+    fn begin_terminal(&mut self, mut ask: TerminalAsk, subject: &Subject, scene: &mut Scene<'_>) -> Option<Note> {
+        let action = ask.action();
+        if ask.program == Program::NodeShell {
+            ask.container = None;
+        } else if ask.container.is_none() {
+            let Some(container) = subject.facts.containers.first() else {
+                return Some((Tone::Warn, format!("{} has no container.", subject.text())));
+            };
+            ask.container = Some(container.as_str().into());
+        }
+        let request = ask.request(&subject.target);
+        if asks_first_on(action, subject.target.kind) {
+            self.dialog = Some(Dialog::Terminal(TerminalConfirm::new(subject.clone(), request)));
+            return None;
+        }
+        let note = format!("Opened a terminal of {}. The dock shows its tab.", subject.text());
+        scene.commands.push(Command::OpenTerminal(request));
+        Some((Tone::Info, note))
+    }
+
+    /// The gate of each bulk action of `kind` on the `count` selected objects: closed when
     /// The gate of each bulk action of `kind` on the `count` selected objects: closed when
     /// the gate of one of them is closed, with its object in the reason, and for more objects
     /// than the jobs that the app can start now. `selected` gives them: up to that room, the
@@ -175,6 +213,11 @@ impl Acts {
                 Some((Tone::Info, note))
             }
             Close::Copied(command) => Some((Tone::Info, format!("Copied: {command}"))),
+            Close::Terminal(request) => {
+                let note = format!("Opened {}. The dock shows its tab.", crate::views::terminal::title_of(&request));
+                scene.commands.push(Command::OpenTerminal(request));
+                Some((Tone::Info, note))
+            }
         };
         self.dialog = None;
         ctx.request_repaint();

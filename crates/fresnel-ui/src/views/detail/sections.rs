@@ -25,6 +25,7 @@ use crate::views::act::Ask;
 use crate::views::logs::LogAsk;
 use crate::views::objects::Link;
 use crate::views::pod_spec::Place;
+use crate::views::terminal::TerminalAsk;
 use crate::views::{access, cluster, config, network, pods, workloads};
 use crate::widgets::table::model::ObjectId;
 
@@ -76,6 +77,8 @@ pub(crate) enum Pick {
     Ask(Ask),
     /// A click on the logs of a container of a pod.
     Logs(LogAsk),
+    /// A click on a terminal of a container of a pod (a shell, an attach or a debug container).
+    Terminal(TerminalAsk),
 }
 
 impl From<Link> for Pick {
