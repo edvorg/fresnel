@@ -70,9 +70,10 @@ impl CreateTab {
         self.cluster.as_ref()
     }
 
-    /// True when the text has a line: a close drops it.
+    /// True when the text has a character: a close drops it. The title asks in each frame,
+    /// so this reads no copy of the text.
     pub(super) fn is_changed(&self) -> bool {
-        !self.text.text().trim().is_empty()
+        self.text.lines() > 1 || !self.text.line(0).is_empty()
     }
 
     pub(super) fn has_dialog(&self) -> bool {

@@ -1,14 +1,17 @@
-//! The fates of the writes of the operations on the fake API server (design rule 6).
+//! The fates of the writes of the operations on the fake API server (design rule 6), and
+//! the wait of a job of a document for the job before it.
 
 use std::time::Duration;
 
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::kinds::Kind;
+use fresnel_core::manifest::documents::documents;
 use fresnel_core::net::{Limits, NetSettings};
-use fresnel_core::ops::{self, Cancel, JobState, Operation, Order, Parts, Progress, Report, StepState, Target};
+use fresnel_core::ops::{self, After, Cancel, JobState, Operation, Order, Parts, Progress, Report, StepState, Target};
 use fresnel_core::store::ObjectKey;
 use fresnel_testkit::Fault;
 use http::Method;
+use tokio::sync::watch;
 
 use crate::bed::{Bed, CONTEXT};
 
@@ -122,4 +125,51 @@ async fn a_download_writes_the_manifest_of_the_server_into_a_new_file_of_the_dow
     assert!(!text.contains("managedFields"), "{text}");
     assert_eq!(std::fs::read_to_string(&second).expect("the second file"), text);
     assert_eq!(sent(&bed, &Method::GET, WEB), 2, "one read for each download, and no write");
+}
+
+/// The job of a document waits for the end of the job before it (plan section 12.9): no
+/// request goes during the wait, the end of the job before starts the create, and a cancel
+/// ends a wait with no request.
+#[tokio::test]
+async fn a_job_of_a_document_waits_for_the_job_before_it_and_a_cancel_ends_the_wait() {
+    let bed = Bed::start(NetSettings::default()).await;
+    let text = "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: one}\n";
+    let document = documents(text).expect("valid YAML").remove(0).expect("an object");
+    let key = ObjectKey::new("shop", "one");
+    let target = Target { cluster: ClusterId::new(CONTEXT), kind: Kind::ConfigMap, key, uid: "".into() };
+    let order = Order::new(target, Operation::Create(document)).expect("an order");
+    const CONFIG_MAPS: &str = "/api/v1/namespaces/shop/configmaps";
+
+    let (ended, receiver) = watch::channel(false);
+    // The owner of a job keeps the sender of its cancel: a sender that drops ends a wait too.
+    let (_owner, signal) = Cancel::pair();
+    let waits = Parts { after: Some(After { number: 7, ended: receiver }), cancel: signal, ..parts(&bed) };
+    let mut last = Last::default();
+    let job = ops::run(&order, waits, &mut last);
+    let before = async {
+        // A check that nothing arrives waits a short fixed time.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(sent(&bed, &Method::POST, CONFIG_MAPS), 0, "no create during the wait");
+        ended.send_replace(true);
+    };
+    let (state, ()) = tokio::join!(job, before);
+    assert!(!matches!(state, JobState::Cancelled | JobState::NotSent(_)), "{state:?}");
+    let first = last.0.steps.first().map(|step| (step.text.as_str(), &step.state));
+    assert_eq!(first, Some(("wait for the end of job 7", &StepState::Done("job 7 ended".into()))));
+    assert_eq!(sent(&bed, &Method::POST, CONFIG_MAPS), 1, "the create after the end of job 7");
+
+    let (_never, receiver) = watch::channel(false);
+    let (cancel, signal) = Cancel::pair();
+    let cancelled = Parts { after: Some(After { number: 8, ended: receiver }), cancel: signal, ..parts(&bed) };
+    cancel.send_replace(true);
+    let report = run_with(&order, cancelled).await;
+    assert_eq!(report.state, JobState::Cancelled);
+    assert_eq!(sent(&bed, &Method::POST, CONFIG_MAPS), 1, "no request after the cancel");
+}
+
+async fn run_with(order: &Order, parts: Parts) -> Report {
+    let mut last = Last::default();
+    let state = ops::run(order, parts, &mut last).await;
+    assert_eq!(state, last.0.state);
+    last.0
 }
