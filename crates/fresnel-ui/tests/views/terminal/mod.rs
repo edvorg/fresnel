@@ -11,6 +11,7 @@
 
 mod frame_time;
 mod input;
+mod open;
 mod screen;
 mod snapshots;
 mod tab;
@@ -42,7 +43,7 @@ pub(crate) const SHELL: &[u8] = recording!("shell.bin");
 pub(crate) fn terminal(id: u64, name: &str) -> TerminalView {
     let request = TerminalRequest {
         cluster: ClusterId::new("ams-prod"),
-        pod: ObjectKey::new("shop", name),
+        object: ObjectKey::new("shop", name),
         uid: format!("uid-{name}").into(),
         container: "app".into(),
         program: Program::Shell,
@@ -68,7 +69,7 @@ pub(crate) fn opened(terminals: &[TerminalView]) -> Window {
 
 /// The title of the tab of a terminal.
 pub(crate) fn title(terminal: &TerminalView) -> String {
-    format!("Shell {} · app", terminal.request.pod.name)
+    format!("Shell {} · app", terminal.request.object.name)
 }
 
 /// The text of each row of the terminal on the screen, from the top.

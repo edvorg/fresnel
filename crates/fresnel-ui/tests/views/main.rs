@@ -25,7 +25,7 @@
 
 mod connections;
 mod data;
-mod details;
+pub(crate) mod details;
 mod editor;
 mod fake;
 mod frame_time;

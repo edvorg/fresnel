@@ -219,7 +219,7 @@ mod tests {
     fn a_gate_closes_for_a_later_milestone_a_state_and_a_denial_and_stays_open_when_unknown() {
         let facts = Facts { paused: true, suspended: Some(false), ..Facts::default() };
         let gate = |action| Gate::of(action, &facts, || Decision::Allowed);
-        assert!(matches!(gate(Action::EditManifest), Gate::Closed(reason) if reason.contains("later milestone")));
+        assert!(matches!(gate(Action::Forward), Gate::Closed(reason) if reason.contains("later milestone")));
         assert_eq!(
             gate(Action::Restart),
             Gate::Closed("can't restart paused deployment (run rollout resume first)".to_owned())

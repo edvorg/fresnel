@@ -20,15 +20,9 @@ fn each_terminal_has_a_tab_with_the_state_of_its_session_in_words() {
 
     let states = [
         (SessionState::Open, "Open"),
-        (
-            SessionState::Quiet { since: now() - Duration::from_secs(12) },
-            "No data for 12 s: the connection can be lost",
-        ),
+        (SessionState::InputWaits { since: now() - Duration::from_secs(12) }, "The program reads no input since 12 s"),
         (SessionState::Exited { code: 130 }, "Ended with exit code 130"),
-        (
-            SessionState::Failed { reason: "the connection was reset".to_owned() },
-            "Failed: the connection was reset. The program can still run in the pod.",
-        ),
+        (SessionState::Failed { reason: "the connection was reset".to_owned() }, "Failed: the connection was reset"),
     ];
     for (state, words) in states {
         web.terminal.set_state(state);
@@ -54,4 +48,22 @@ fn a_close_asks_the_core_and_a_terminal_that_left_the_core_takes_its_tab_with_it
     window.run();
     assert!(!shows(&window, &title(&web)));
     assert!(window.query_by_label("Terminal").is_none(), "the dock shows an other tab");
+}
+
+/// A terminal that the core opens while the app runs gets its tab at once, as a new log
+/// view does; a terminal that is already there at the start does not take the focus.
+#[test]
+fn a_terminal_that_appears_while_the_app_runs_opens_its_tab() {
+    let web = terminal(1, "web-1");
+    let mut window = opened(std::slice::from_ref(&web));
+    assert!(shows(&window, "Connecting"), "the dock shows the first terminal, which the test opened");
+
+    let db = terminal(2, "db-0");
+    db.terminal.set_state(SessionState::Open);
+    let view = window.state().view.clone();
+    window.state_mut().view = with_terminals(view, &[web.clone(), db.clone()]);
+    window.run();
+    assert!(shows(&window, &title(&db)), "a tab for the new terminal");
+    // The dock shows the new terminal: its grid paints with no panic over the fonts.
+    assert!(window.query_by_label("Terminal").is_some(), "the new terminal paints in the dock");
 }

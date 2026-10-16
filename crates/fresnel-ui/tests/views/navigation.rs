@@ -121,7 +121,9 @@ fn the_menu_of_a_row_has_the_actions_of_its_kind_and_runs_one() {
     for action in ["View manifest", "Copy name", "Logs", "Terminal", "Evict…", "Delete…"] {
         assert!(window.query_by_label_contains(action).is_some(), "the menu has {action}");
     }
-    assert!(window.get_by_label_contains("Terminal").accesskit_node().is_disabled(), "a later milestone");
+    assert!(window.get_by_label_contains("Forward a port").accesskit_node().is_disabled(), "a later milestone");
+    assert!(!window.get_by_label_contains("Terminal").accesskit_node().is_disabled(), "a terminal runs in M10");
+    assert!(!window.get_by_label_contains("Edit manifest").accesskit_node().is_disabled(), "an editor runs in M11");
     assert!(!window.get_by_label_contains("Logs").accesskit_node().is_disabled(), "the logs run in M9");
     assert!(!window.get_by_label_contains("Delete…").accesskit_node().is_disabled(), "a delete runs in M3");
     window.get_by_label_contains("Copy kubectl command").click();
