@@ -23,6 +23,7 @@ pub mod probe;
 mod process;
 mod request;
 mod signal;
+mod socket;
 pub mod task;
 #[cfg(test)]
 mod testing;
@@ -41,5 +42,8 @@ pub use connect::{ConnectSettings, ConnectStatus, Endpoint};
 pub use error::{ErrorClass, NetError};
 pub use request::{Limits, RequestKind};
 pub use signal::{Cause, Listener, Signal};
+pub use socket::{
+    Offer, OnEnd, Socket, SocketCounts, SocketEnd, SocketFailure, SocketSettings, SocketSpec, SocketState, Writer,
+};
 pub use throttle::{ThrottleSettings, ThrottleStatus};
 pub use upgrade::{UpgradeSettings, UpgradeStatus, WarmGuard};

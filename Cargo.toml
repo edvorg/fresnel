@@ -31,6 +31,9 @@ rustls = { version = "0.23.45", default-features = false, features = ["ring", "s
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 tower-service = "0.3.3"
 socket2 = "0.6.1"
+# The WebSocket of exec, attach and port forward, with a loop of `fresnel-net`. kube uses this
+# version too, so the build has one copy. `handshake`: the key of a request and its check.
+tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["handshake"] }
 
 # The parts of `fresnel-net` around the connections.
 # gzip of list and GET responses, with the Rust backend of flate2.

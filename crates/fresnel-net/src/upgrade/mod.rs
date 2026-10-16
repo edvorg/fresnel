@@ -22,6 +22,7 @@ use crate::body::ResponseBody;
 use crate::channel::Parts;
 use crate::connect::dial::Protocol;
 use crate::error::NetError;
+use crate::socket::{Counts, SocketCounts, SocketSettings};
 use crate::task::{Backoff, Restart, TaskHandle, TaskName};
 use line::Line;
 
@@ -40,6 +41,8 @@ pub struct UpgradeSettings {
     /// The time limit of the test of a warm connection before its use. After this time,
     /// the request uses a new connection.
     pub test_limit: Duration,
+    /// The WebSockets on the upgraded connections.
+    pub socket: SocketSettings,
 }
 
 impl Default for UpgradeSettings {
@@ -50,6 +53,7 @@ impl Default for UpgradeSettings {
             refresh_period: Duration::from_secs(30),
             refresh_limit: Duration::from_secs(10),
             test_limit: Duration::from_secs(1),
+            socket: SocketSettings::default(),
         }
     }
 }
@@ -69,6 +73,8 @@ pub struct UpgradeStatus {
     pub dropped: u64,
     /// Why the last connect for the warm set failed. `None` after a connect that worked.
     pub last_error: Option<String>,
+    /// The WebSockets of exec, attach and port forward.
+    pub sockets: SocketCounts,
 }
 
 struct Shared {
@@ -82,6 +88,7 @@ struct Shared {
     opened: AtomicU64,
     dropped: AtomicU64,
     fill_error: Mutex<Option<String>>,
+    sockets: Arc<Counts>,
 }
 
 /// The upgrade client of one cluster.
@@ -107,6 +114,7 @@ impl UpgradeClient {
     pub(crate) fn start(parts: Parts, settings: UpgradeSettings) -> Self {
         let name = TaskName::scoped("warm upgrade connections", Arc::clone(&parts.cluster));
         let tasks = parts.tasks.clone();
+        let sockets = Arc::new(Counts::new(parts.changed.clone()));
         let shared = Arc::new(Shared {
             settings,
             parts,
@@ -117,6 +125,7 @@ impl UpgradeClient {
             opened: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
             fill_error: Mutex::new(None),
+            sockets,
         });
         let body = {
             let shared = Arc::clone(&shared);
@@ -155,7 +164,13 @@ impl UpgradeClient {
             opened: self.shared.opened.load(Ordering::Relaxed),
             dropped: self.shared.dropped.load(Ordering::Relaxed),
             last_error: self.shared.fill_error.lock().unwrap_or_else(PoisonError::into_inner).clone(),
+            sockets: self.shared.sockets.read(),
         }
+    }
+
+    /// The counters of the sockets of the cluster, which each socket changes.
+    pub(crate) fn socket_counts(&self) -> Arc<Counts> {
+        Arc::clone(&self.shared.sockets)
     }
 }
 

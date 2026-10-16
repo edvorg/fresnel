@@ -11,7 +11,8 @@ repository.workspace = true
 bytes.workspace = true
 fastrand.workspace = true
 flate2.workspace = true
-futures-util.workspace = true
+# `sink`: the two halves of a WebSocket, so that a read goes on while a write waits.
+futures-util = { workspace = true, features = ["sink"] }
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
@@ -23,6 +24,7 @@ serde_json.workspace = true
 socket2.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "signal", "sync", "time"] }
 tokio-rustls.workspace = true
+tokio-tungstenite.workspace = true
 tower-service.workspace = true
 
 [target.'cfg(unix)'.dependencies]

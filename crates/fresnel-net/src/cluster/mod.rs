@@ -7,20 +7,21 @@ mod address;
 mod light;
 mod service;
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use futures_util::FutureExt as _;
 use futures_util::future::BoxFuture;
 use http::{Request, Response};
+use hyper_util::rt::TokioIo;
 use tokio::time::timeout;
 
 use crate::body::ResponseBody;
 use crate::changes::{Changed, Changes};
 use crate::channel::group::{Group, GroupStatus};
 use crate::channel::outage::{Outage, OutageSettings, OutageStatus};
-use crate::channel::{ChannelSettings, Parts, Purpose};
+use crate::channel::{ChannelSettings, ChannelState, Parts, Purpose};
 use crate::clock::WallClock;
 use crate::connect::dial::Protocol;
 use crate::connect::{ConnectSettings, ConnectStatus, Connector, Dial, Endpoint};
@@ -32,6 +33,7 @@ use crate::error::NetError;
 use crate::light::LightRequests;
 use crate::request::Limits;
 use crate::signal::Signal;
+use crate::socket::{Offer, Path, Socket, SocketParts, SocketSpec};
 use crate::task::{Backoff, Restart, TaskHandle, TaskName, Tasks};
 use crate::throttle::{Throttle, ThrottleSettings, ThrottleStatus};
 use crate::upgrade::{UpgradeClient, UpgradeSettings, UpgradeStatus, WarmGuard};
@@ -134,6 +136,7 @@ struct Inner {
     requests: Arc<Group>,
     logs: Arc<Group>,
     upgrade: UpgradeClient,
+    sockets: SocketParts,
     credentials: Option<Credentials>,
     throttle: Throttle,
     signal: Signal,
@@ -190,6 +193,16 @@ impl Cluster {
         let (watches, logs) = (group(Purpose::Watches, settings.watches), group(Purpose::Logs, settings.logs));
         let requests = group(Purpose::Requests, settings.requests);
 
+        let upgrade = UpgradeClient::start(parts, settings.upgrade.clone());
+        let sockets = SocketParts {
+            tasks: tasks.clone(),
+            cluster: Arc::clone(&name),
+            settings: settings.upgrade.socket,
+            signal: signal.clone(),
+            path: Arc::new(ChannelPath([&watches, &requests, &logs].map(Arc::downgrade))),
+            changed: changed.clone(),
+            counts: upgrade.socket_counts(),
+        };
         let credential_task = credentials.clone().zip(source).map(|(credentials, source)| {
             let limit = settings.credential.proof_limit;
             let prover =
@@ -207,7 +220,8 @@ impl Cluster {
             watches,
             requests,
             logs,
-            upgrade: UpgradeClient::start(parts, settings.upgrade),
+            upgrade,
+            sockets,
             credentials,
             throttle: Throttle::new(settings.throttle, clock, changed.clone()),
             signal,
@@ -256,6 +270,34 @@ impl Cluster {
     /// each hold one guard.
     pub fn keep_upgrades_warm(&self) -> WarmGuard {
         self.inner.upgrade.keep_warm()
+    }
+
+    /// Changes the answer HTTP 101 to an upgrade request with the headers of `offer` into a
+    /// WebSocket. Its task has the ping of the cluster settings, and the counters of the
+    /// cluster count it. The caller reads the message of a refusal before this call.
+    pub async fn open_socket<B>(
+        &self,
+        response: Response<B>,
+        offer: &Offer,
+        spec: SocketSpec,
+    ) -> Result<Socket, NetError> {
+        let protocol = offer.accept(&response)?;
+        let upgraded = hyper::upgrade::on(response).await;
+        let upgraded = upgraded.map_err(|error| NetError::because("the upgraded connection", &error))?;
+        Ok(Socket::start(TokioIo::new(upgraded), protocol, &self.inner.sockets, spec).await)
+    }
+}
+
+/// The path of the sockets of a cluster: its channels. A live channel shows that the cluster
+/// answers, so the write of a socket that waits waits for its peer and not for the network.
+/// A socket does not keep the channels of a cluster that is gone: then no path is live.
+struct ChannelPath([Weak<Group>; 3]);
+
+impl Path for ChannelPath {
+    fn live(&self) -> bool {
+        let live =
+            |group: Arc<Group>| group.status().channels.iter().any(|channel| channel.state == ChannelState::Live);
+        self.0.iter().filter_map(Weak::upgrade).any(live)
     }
 }
 
