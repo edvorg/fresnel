@@ -11,12 +11,23 @@ use crate::widgets::dot;
 /// The most rows of the list that show at once; it scrolls for more.
 const ROWS: usize = 4;
 
+/// The height of one row of the list.
+fn row(ui: &Ui) -> f32 {
+    ui.spacing().interact_size.y + ui.spacing().item_spacing.y
+}
+
+/// The height of the list of a check: its rows, at most `ROWS`.
+pub(super) fn height(ui: &Ui, check: &Check) -> f32 {
+    let rows = check.marks.len() + usize::from(check.more > 0);
+    rows.min(ROWS) as f32 * row(ui)
+}
+
 /// Draws the list. Gives the mark that the user clicked.
 pub(super) fn show<'a>(ui: &mut Ui, check: &'a Check) -> Option<&'a Mark> {
     let palette = theme::palette(ui);
     let mut chosen = None;
-    let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
-    let area = ScrollArea::vertical().id_salt("editor marks").max_height(ROWS as f32 * row).auto_shrink([false, true]);
+    // A scroll area is 64 points high at least, more than one row of the list.
+    let area = ScrollArea::vertical().id_salt("editor marks").auto_shrink(false).min_scrolled_height(0.0);
     area.show(ui, |ui| {
         for mark in &check.marks {
             ui.horizontal(|ui| {

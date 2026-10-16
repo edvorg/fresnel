@@ -50,6 +50,7 @@ fn an_error_of_the_parser_shows_with_its_line_and_column_and_a_hint_refuses_noth
     window.run();
     checked(&mut window, "No error, 1 hint");
     window.get_by_label_contains("Line 9, column 11").click();
+    window.run();
     window.event(Event::Text("!".to_owned()));
     window.run();
     assert!(rows(&window).contains(&"  paused: !yes".to_owned()), "{:?}", rows(&window));
@@ -99,4 +100,26 @@ fn the_search_marks_each_hit_and_goes_to_the_next_with_enter_and_cmd_g() {
     window.run();
     assert!(shows(&window, "1 hit"), "the search keeps its text, and the cursor is past its hit");
     assert_eq!(window.query_all_by_role(Role::ListItem).count(), 14, "each line on the screen and the empty last one");
+}
+
+/// The text and the list of the marks take the height of the dock: a tab that took more
+/// would grow the dock in each frame.
+#[test]
+fn the_text_and_the_marks_keep_the_height_of_the_dock() {
+    let mut window = panel();
+    edit(&mut window, text(WEB, None));
+    let top = |window: &crate::fake::Window| window.get_by_label("Operations").rect().top();
+    let before = top(&window);
+    click_row(&mut window, "  replicas: 2");
+    window.key_press(Key::Enter);
+    window.event(Event::Text("paused: yes".to_owned()));
+    window.run();
+    checked(&mut window, "No error, 1 hint");
+    for _ in 0..10 {
+        window.run();
+    }
+    assert_eq!(top(&window), before, "the top of the dock");
+    let (mark, text) =
+        (window.get_by_label_contains("Line 9").rect(), window.get_by_label("The text of the editor").rect());
+    assert!(text.bottom() <= mark.top(), "the list is below the text: {text:?} {mark:?}");
 }

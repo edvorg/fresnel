@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use egui::{CentralPanel, Frame, Margin, Panel, RichText, Ui};
+use egui::{Frame, Margin, RichText, Ui, UiBuilder};
 use fresnel_core::app::{EditRead, EditRequest, EditState};
 use fresnel_core::manifest::check::Identity;
 use fresnel_core::manifest::{EditText, LINE_LIMIT};
@@ -131,20 +131,27 @@ impl EditorTab {
                 marks::go_to(&mut loaded.text, mark);
             }
         }
-        // The marks take the bottom and the text the rest, so the tab is as high as the dock.
-        if let Some(check) = check.as_deref().filter(|check| !check.marks.is_empty()) {
-            let panel = Panel::bottom(ui.id().with("editor marks")).resizable(false);
-            let chosen = panel.frame(Frame::new().inner_margin(margin)).show(ui, |ui| marks::show(ui, check)).inner;
-            if let Some(mark) = chosen {
-                marks::go_to(&mut loaded.text, mark);
-            }
-        }
+        // The marks take the bottom and the text the rest: the tab is as high as the dock, and
+        // a tab that took more would grow the dock in each frame.
+        let rest = ui.available_rect_before_wrap();
+        let list = check.as_deref().filter(|check| !check.marks.is_empty());
+        let margins = f32::from(margin.top + margin.bottom);
+        let list_height = list.map_or(0.0, |check| marks::height(ui, check) + margins);
         let overlay = Overlay {
             marks: check.as_deref().map_or(&[], |check| check.marks.as_slice()),
             hits: self.find.hits(),
             current: self.find.current(),
         };
-        CentralPanel::default().frame(Frame::NONE).show(ui, |ui| loaded.text.show(ui, overlay));
+        let text_rect = rest.with_max_y(rest.max.y - list_height);
+        ui.scope_builder(UiBuilder::new().max_rect(text_rect), |ui| loaded.text.show(ui, overlay));
+        if let Some(check) = list {
+            let place = UiBuilder::new().max_rect(rest.with_min_y(text_rect.max.y));
+            let frame = Frame::new().inner_margin(margin);
+            let chosen = ui.scope_builder(place, |ui| frame.show(ui, |ui| marks::show(ui, check)).inner).inner;
+            if let Some(mark) = chosen {
+                marks::go_to(&mut loaded.text, mark);
+            }
+        }
         let field = ui.memory(|memory| memory.focused().is_some_and(|id| self.find.owns(id)));
         self.focused = loaded.text.has_focus() || field;
         TabAsk::None
