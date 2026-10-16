@@ -13,9 +13,13 @@ use fresnel_core::kinds::Kind;
 use fresnel_core::net::ErrorClass;
 use fresnel_core::ops::{JobState, Operation, Order, Report};
 
+use k8s_openapi::api::apps::v1::Deployment;
+
 use super::checked;
-use crate::fake::{Window, shows};
+use crate::data::scene;
+use crate::fake::{Window, shows, view, window};
 use crate::settings::with_config;
+use crate::workloads::scene::allowed;
 
 /// A ConfigMap and a Deployment with no namespace, and a Secret of an other namespace.
 pub(crate) const TEXT: &str = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: one\ndata:\n  mode: fast\n---\n\
@@ -123,6 +127,51 @@ fn an_apply_with_a_conflict_names_its_fields_and_asks_before_a_force() {
     assert_eq!(force.len(), 1);
     assert_eq!((force[0].target.kind, &*force[0].target.key.name), (Kind::ConfigMap, "one"));
     assert!(matches!(force[0].operation, Operation::Apply { force: true, .. }));
+}
+
+/// A force goes to the target of its run, also when the bar of the tab names an other
+/// cluster now: its dialog names that cluster and asks for its name by its confirm rule.
+#[test]
+fn a_force_goes_to_the_cluster_of_its_run_when_the_bar_names_an_other_one() {
+    let deployments = scene::<Deployment>();
+    let mut window = window(view(vec![allowed("ams-prod", &deployments), allowed("fra-dev", &deployments)]));
+    let settings = "version = 1\n[clusters.ams-prod]\nconfirm = \"type-name\"\n";
+    window.state_mut().view = with_config(window.state().view.clone(), settings);
+    tab(&mut window);
+    window.get_by_label("Apply the documents").click();
+    window.run();
+    type_name(&mut window, "ams-prod");
+    window.get_by_label("Apply 2 objects").click();
+    window.run();
+    let orders = in_turn(&window);
+    let field = r#".data.mode (conflict with "kubectl-create" using v1)"#;
+    let conflict = CoreError::new(ErrorClass::Conflict, "Apply failed with 1 conflict (HTTP 409)")
+        .with_causes(vec![("FieldManagerConflict".to_owned(), field.to_owned())]);
+    jobs(&mut window, vec![(orders[0].clone(), JobState::Failed(conflict)), (orders[1].clone(), JobState::Done)]);
+
+    window.get_by_label("Target cluster of the YAML").click();
+    window.run();
+    window.get_by_label("Target fra-dev").click();
+    window.run();
+    window.get_by_label("Apply with force").click();
+    window.run();
+    assert!(shows(&window, "Apply 1 object with force to ams-prod?"), "the cluster of the run");
+    assert!(window.get_by_label("Apply with force 1 object").accesskit_node().is_disabled(), "the rule of ams-prod");
+    type_name(&mut window, "ams-prod");
+    window.get_by_label("Apply with force 1 object").click();
+    window.run();
+    let force = in_turn(&window);
+    let targets: Vec<(&str, &str)> =
+        force.iter().map(|order| (order.target.cluster.as_str(), &*order.target.key.namespace)).collect();
+    assert_eq!(targets, [("ams-prod", "shop")]);
+}
+
+/// Types the name of a cluster into the field of the confirm rule.
+fn type_name(window: &mut Window, cluster: &str) {
+    window.get_by_label("Name of the cluster").click();
+    window.run();
+    window.get_by_label("Name of the cluster").type_text(cluster);
+    window.run();
 }
 
 #[test]

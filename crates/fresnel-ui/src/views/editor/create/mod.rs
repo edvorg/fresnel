@@ -180,13 +180,13 @@ impl CreateTab {
         }
         let force = self.run.as_ref().and_then(|run| {
             let place = UiBuilder::new().max_rect(rest.with_min_y(rest.max.y - run_height));
-            ui.scope_builder(place, |ui| {
+            let items = ui.scope_builder(place, |ui| {
                 Frame::new().inner_margin(margin).show(ui, |ui| results::show(ui, run, scene.view)).inner
-            })
-            .inner
+            });
+            items.inner.map(|items| Confirm::force(run.target.clone(), items))
         });
-        if let (Some(items), Some(cluster)) = (force, self.cluster.clone()) {
-            self.dialog = Some(Confirm::force((cluster, self.namespace.clone()), items));
+        if let Some(force) = force {
+            self.dialog = Some(force);
         }
         // The tab is as high as the dock: a list of the run that takes less would make the dock
         // lower in each frame.
@@ -207,7 +207,7 @@ impl CreateTab {
             .map_or(theme::palette(ui).text_muted, |cluster| scene.colors.color(&cluster, theme::palette(ui)));
         match dialog.show(ui.ctx(), color, scene.view) {
             Some(confirm::Answer::Run) => {
-                let run = Run::new(dialog.way, dialog.items.clone(), scene.view);
+                let run = Run::new(dialog.way, (dialog.target(), dialog.items.clone()), scene.view);
                 scene.commands.push(Command::RunInTurn(run.orders()));
                 self.run = Some(run);
                 self.dialog = None;

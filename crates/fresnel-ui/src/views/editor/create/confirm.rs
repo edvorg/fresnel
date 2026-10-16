@@ -51,6 +51,11 @@ impl Confirm {
         Self { fields, ..Self::new(Way::Force, target, items) }
     }
 
+    /// The target cluster and namespace of the dialog.
+    pub(super) fn target(&self) -> (ClusterId, String) {
+        (self.cluster.clone(), self.namespace.clone())
+    }
+
     pub(super) fn show(&mut self, ctx: &Context, color: Color32, view: &CoreView) -> Option<Answer> {
         let modal = Modal::new(Id::new("create from yaml")).show(ctx, |ui| {
             ui.set_width(WIDTH);

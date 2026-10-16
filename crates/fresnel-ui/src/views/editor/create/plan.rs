@@ -92,15 +92,18 @@ pub(super) fn label(target: &Target) -> String {
 #[derive(Clone, Debug)]
 pub(super) struct Run {
     pub(super) way: Way,
+    /// The target cluster and namespace of the run. A force of its apply goes there, also
+    /// when the bar of the tab names an other target now.
+    pub(super) target: (ClusterId, String),
     pub(super) items: Vec<Item>,
     /// The number of the last job of the view at the click.
     after: u64,
 }
 
 impl Run {
-    pub(super) fn new(way: Way, items: Vec<Item>, view: &CoreView) -> Self {
+    pub(super) fn new(way: Way, (target, items): ((ClusterId, String), Vec<Item>), view: &CoreView) -> Self {
         let after = view.jobs.jobs.last().map_or(0, |job| job.number);
-        Self { way, items, after }
+        Self { way, target, items, after }
     }
 
     /// The orders of the run.
