@@ -150,6 +150,11 @@ impl TextArea {
         self.focus = true;
     }
 
+    /// Holds the text while a save of it is on its way, or ends the hold.
+    pub(crate) fn hold(&mut self, held: bool) {
+        self.doc.held = held;
+    }
+
     /// Selects a range and shows it: a hit of the search, the place of a mark.
     pub(crate) fn select(&mut self, range: Range<Pos>) {
         self.doc.select(Selection { anchor: range.start, head: range.end });

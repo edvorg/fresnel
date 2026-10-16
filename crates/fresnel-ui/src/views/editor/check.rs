@@ -1,5 +1,6 @@
 //! The check of the text of an editor on a worker thread (plan section 12.9): the parse of
-//! 8,000 lines takes some milliseconds, more than a frame can give at each key press.
+//! 8,000 lines takes some milliseconds, more than a frame can give at each key press. The
+//! text of a create gets its documents too.
 //!
 //! The editors share one worker, which starts with the first check. Only the tab on the
 //! screen asks, and a result carries the identity of its request: a result for a text that
@@ -10,21 +11,31 @@
 
 use std::sync::Arc;
 
+use fresnel_core::CoreError;
 use fresnel_core::manifest::check::{self, Check, Identity};
+use fresnel_core::manifest::documents::{self, Entry};
 use fresnel_core::net::task::{TaskName, Tasks};
 
 use crate::widgets::worker::{RequestId, Wake, Worker};
 
-/// One text to check.
+/// One text to check: of the editor of an object, or of a create with no identity.
 #[derive(Clone)]
 struct Job {
     text: Arc<str>,
-    identity: Identity,
+    identity: Option<Identity>,
+}
+
+/// The check of a text.
+#[derive(Clone, Debug)]
+pub(super) struct Checked {
+    pub(super) check: Arc<Check>,
+    /// The documents of the text of a create, or why the text has none.
+    pub(super) documents: Option<Arc<Result<Vec<Entry>, CoreError>>>,
 }
 
 /// The worker of the checks of the editors.
 pub(super) struct Checker {
-    worker: Option<Worker<Job, Check>>,
+    worker: Option<Worker<Job, Checked>>,
     /// The number of the last request.
     query: u64,
     /// The last request: each one before it has no result.
@@ -38,7 +49,7 @@ pub(super) struct Checker {
 #[derive(Debug, Default)]
 pub(super) struct TabCheck {
     asked: Option<(RequestId, u64)>,
-    pub(super) done: Option<(u64, Arc<Check>)>,
+    pub(super) done: Option<(u64, Checked)>,
 }
 
 impl TabCheck {
@@ -60,17 +71,16 @@ impl Checker {
         &mut self,
         tab: (u64, &mut TabCheck),
         generation: u64,
-        text: impl FnOnce() -> (String, Identity),
+        text: impl FnOnce() -> (String, Option<Identity>),
     ) {
         let (number, check) = tab;
         let worker = self.worker.get_or_insert_with(|| {
-            let compute =
-                |job: &Job, _: &crate::widgets::worker::Cancel<'_>| Some(check::check(&job.text, &job.identity));
+            let compute = |job: &Job, _: &crate::widgets::worker::Cancel<'_>| Some(checked(job));
             Worker::start(&self.tasks, TaskName::new("editor check"), self.wake.clone(), compute)
         });
         if let Some(done) = worker.take() {
             match check.asked {
-                Some((id, asked)) if id == done.id => check.done = Some((asked, Arc::new(done.output))),
+                Some((id, asked)) if id == done.id => check.done = Some((asked, done.output)),
                 _ => worker.discard(done.output),
             }
         }
@@ -90,6 +100,17 @@ impl Checker {
     }
 }
 
+/// The check of one text, and the documents of a text of a create.
+fn checked(job: &Job) -> Checked {
+    match &job.identity {
+        Some(identity) => Checked { check: Arc::new(check::check(&job.text, identity)), documents: None },
+        None => Checked {
+            check: Arc::new(check::check_documents(&job.text)),
+            documents: Some(Arc::new(documents::documents(&job.text))),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc::{Receiver, channel};
@@ -101,7 +122,12 @@ mod tests {
     use crate::testing::{LIMIT, TestTasks};
 
     /// Follows a tab until it has the check of its text.
-    fn checked(checker: &mut Checker, woken: &Receiver<()>, tab: (u64, &mut TabCheck), job: &(String, Identity)) {
+    fn checked(
+        checker: &mut Checker,
+        woken: &Receiver<()>,
+        tab: (u64, &mut TabCheck),
+        job: &(String, Option<Identity>),
+    ) {
         let (number, check) = tab;
         checker.follow((number, &mut *check), 1, || job.clone());
         while check.is_behind(1) {
@@ -119,13 +145,13 @@ mod tests {
         let (sender, woken) = channel();
         let mut checker = Checker::new(&bed.tasks, Arc::new(move || if sender.send(()).is_err() {}));
         let identity = Identity { kind: Kind::Pod, key: ObjectKey::new("shop", "web") };
-        let valid = ("kind: Pod\nmetadata: {name: web, namespace: shop}\n".to_owned(), identity.clone());
-        let invalid = ("kind: [Pod\n".to_owned(), identity);
+        let valid = ("kind: Pod\nmetadata: {name: web, namespace: shop}\n".to_owned(), Some(identity.clone()));
+        let invalid = ("kind: [Pod\n".to_owned(), Some(identity));
         let (mut first, mut second) = (TabCheck::default(), TabCheck::default());
         checker.follow((1, &mut first), 1, || valid.clone());
         checked(&mut checker, &woken, (2, &mut second), &invalid);
         checked(&mut checker, &woken, (1, &mut first), &valid);
-        let errors = |check: &TabCheck| check.done.as_ref().map(|(_, done)| done.has_error());
+        let errors = |check: &TabCheck| check.done.as_ref().map(|(_, done)| done.check.has_error());
         assert_eq!((errors(&first), errors(&second)), (Some(false), Some(true)), "each tab has the check of its text");
     }
 }

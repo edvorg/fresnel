@@ -39,8 +39,9 @@ impl CoreError {
         Self { class: class_of(status), status: Some(status), text: text.into(), causes: None }
     }
 
-    /// The same error with the causes of the `Status` of the server: (reason, message).
-    pub(crate) fn with_causes(self, causes: Vec<(String, String)>) -> Self {
+    /// The same error with the causes of the `Status` of the server: (reason, message). The
+    /// fake core of the tests of the views makes the refusal of a server with it.
+    pub fn with_causes(self, causes: Vec<(String, String)>) -> Self {
         Self { causes: Some(causes).filter(|causes| !causes.is_empty()).map(Into::into), ..self }
     }
 

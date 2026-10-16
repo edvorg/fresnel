@@ -157,6 +157,7 @@ impl Shell {
         if !self.search.is_open()
             && !self.new_secret.is_open()
             && !self.open.has_dialog()
+            && !self.editors.has_dialog()
             && !self.help
             && let Some((command, presses)) = keys::pressed(ui.ctx(), &view.config.keys, typing)
         {
@@ -316,6 +317,7 @@ impl Shell {
                 None => self.open.focus_filter(),
             },
             CommandId::NewSecret => self.new_secret.open(),
+            CommandId::FromYaml => self.tab = Tab::Editor(self.editors.open_create()),
             CommandId::Settings => self.page = Page::Settings,
             CommandId::Help => self.help = !self.help,
             CommandId::Focus(area) => self.focus_area(area),

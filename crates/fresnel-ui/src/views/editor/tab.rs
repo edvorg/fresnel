@@ -1,13 +1,15 @@
 //! One tab of the editor: the read of its object, then its bar, its text and the marks of
-//! the check.
+//! the check, and its saves.
 //!
 //! The text belongs to the tab from its read on: a later version of the object in its store
-//! does not change it. A text of more than 8,000 lines is read-only (plan section 12.9).
+//! does not change it. A save gives the tab a new read: the answer of the server, or the new
+//! version of a conflict with the merge. A text of more than 8,000 lines is read-only (plan
+//! section 12.9).
 
 use std::sync::Arc;
 
 use egui::{Frame, Margin, RichText, Ui, UiBuilder};
-use fresnel_core::app::{EditRead, EditRequest, EditState};
+use fresnel_core::app::{EditRead, EditRequest, EditState, Stage};
 use fresnel_core::manifest::check::Identity;
 use fresnel_core::manifest::{EditText, LINE_LIMIT};
 use fresnel_core::ops::Target;
@@ -16,6 +18,7 @@ use super::bar::{self, Asked};
 use super::check::{Checker, TabCheck};
 use super::find::Find;
 use super::marks;
+use super::saving::{Saving, Taken};
 use super::text::{Act, Overlay, TextArea};
 use crate::shell::Scene;
 use crate::theme::{self, PAD};
@@ -28,6 +31,7 @@ pub(super) struct EditorTab {
     loaded: Option<Loaded>,
     find: Find,
     check: TabCheck,
+    saving: Saving,
     /// True when the text or the field of the search had the focus of the keys in the last frame.
     pub(super) focused: bool,
 }
@@ -35,6 +39,7 @@ pub(super) struct EditorTab {
 /// The text of a tab after its read.
 struct Loaded {
     text: TextArea,
+    /// The read that the text starts from: the first read, or the new read of a save.
     read: Arc<EditText>,
     /// True when the text differs from the read, for a generation of the text.
     changed: (u64, bool),
@@ -50,7 +55,8 @@ pub(super) enum TabAsk {
 
 impl EditorTab {
     pub(super) fn new(id: u64, request: EditRequest) -> Self {
-        Self { id, request, loaded: None, find: Find::default(), check: TabCheck::default(), focused: false }
+        let (find, check, saving) = (Find::default(), TabCheck::default(), Saving::default());
+        Self { id, request, loaded: None, find, check, saving, focused: false }
     }
 
     /// True when the text differs from its read.
@@ -60,7 +66,7 @@ impl EditorTab {
 
     /// True when the last check found an error in the text.
     pub(super) fn has_error(&self) -> bool {
-        self.check.done.as_ref().is_some_and(|(_, check)| check.has_error())
+        self.check.done.as_ref().is_some_and(|(_, done)| done.check.has_error())
     }
 
     /// Opens the search, for Cmd+F.
@@ -68,7 +74,18 @@ impl EditorTab {
         self.find.start();
     }
 
-    pub(super) fn show(&mut self, ui: &mut Ui, scene: &Scene<'_>, checker: &mut Checker, note: Option<&str>) -> TabAsk {
+    /// True while a dialog of a save is open.
+    pub(super) fn has_dialog(&self) -> bool {
+        self.saving.has_dialog()
+    }
+
+    pub(super) fn show(
+        &mut self,
+        ui: &mut Ui,
+        scene: &mut Scene<'_>,
+        checker: &mut Checker,
+        note: Option<&str>,
+    ) -> TabAsk {
         let read = scene.view.edits.iter().find(|read| read.request == self.request);
         if self.loaded.is_none()
             && let Some(EditState::Done(text)) = read.map(|read| &read.state)
@@ -82,17 +99,39 @@ impl EditorTab {
         let Some(loaded) = &mut self.loaded else {
             return Frame::new().inner_margin(margin).show(ui, |ui| reading(ui, &self.request.target, read)).inner;
         };
+        let now = ui.input(|input| input.time);
+        let saved = read.and_then(|read| read.save.as_ref());
+        let color = scene.colors.color(&self.request.target.cluster, theme::palette(ui));
+        let (command, taken) = self.saving.follow(ui.ctx(), (scene.view, saved), color);
+        scene.commands.extend(command);
+        let pending = self.saving.pending();
+        // The answer of a save becomes the text, so the text waits for it: an edit in the
+        // meantime would be lost.
+        loaded.text.hold(pending.is_some());
+        if let Some(taken) = taken {
+            take(loaded, taken, now);
+            // The title of the tab came before this change in the frame.
+            ui.ctx().request_repaint();
+        }
         let generation = loaded.text.generation();
         if loaded.changed.0 != generation {
             loaded.changed = (generation, loaded.text.text().as_str() != &*loaded.read.text);
         }
         if loaded.text.editable() {
             let identity = identity(&self.request.target);
-            checker.follow((self.id, &mut self.check), generation, || (loaded.text.text(), identity));
+            checker.follow((self.id, &mut self.check), generation, || (loaded.text.text(), Some(identity)));
         }
         self.find.update(&loaded.text);
-        let check = self.check.done.as_ref().map(|(_, check)| Arc::clone(check));
+        let check = self.check.done.as_ref().map(|(_, done)| Arc::clone(&done.check));
         let object = object(&self.request.target);
+        let refusal = scene.view.config.refusal(&self.request.target.cluster);
+        let save = match (refusal, pending, check.as_deref().is_some_and(|check| check.has_error())) {
+            (Some(refusal), _, _) => Err(refusal),
+            (None, Some(_), _) => Err("The save is on its way.".to_owned()),
+            (None, None, _) if !loaded.changed.1 => Err("The text has no change to save.".to_owned()),
+            (None, None, true) => Err("The parser refuses the text: correct its error first.".to_owned()),
+            (None, None, false) => Ok(()),
+        };
         let mut parts = bar::Parts {
             object: &object,
             read: &loaded.read,
@@ -103,11 +142,17 @@ impl EditorTab {
             redo: loaded.text.can_redo(),
             check: loaded.text.editable().then(|| state(&self.check, generation, checker.failure())),
             notes: bar::notes(&loaded.read, loaded.text.editable()),
+            save,
         };
         let refusals = loaded.text.note().into_iter().chain(note);
         parts.notes.extend(refusals.map(|note| (Tone::Warn, note.to_owned())));
+        let on_way = match pending {
+            Some(Stage::Check) => Some((Tone::Info, "The server checks the text in a dry run…".to_owned())),
+            Some(Stage::Send) => Some((Tone::Info, "The save is on its way…".to_owned())),
+            None => self.saving.note.clone(),
+        };
+        parts.notes.extend(on_way);
         let asked = Frame::new().inner_margin(margin).show(ui, |ui| bar::show(ui, &parts, &mut self.find)).inner;
-        let now = ui.input(|input| input.time);
         for ask in asked {
             match ask {
                 Asked::Undo => loaded.text.act(Act::Undo, now),
@@ -118,6 +163,7 @@ impl EditorTab {
                 }
                 Asked::Go(forward) => self.find.go(&mut loaded.text, forward),
                 Asked::Text => loaded.text.focus(),
+                Asked::Save => scene.commands.push(self.saving.check(&self.request, &loaded.read, loaded.text.text())),
             }
         }
         if self.focused {
@@ -158,6 +204,22 @@ impl EditorTab {
     }
 }
 
+/// Takes the new read of a save and its text, as one step of the undo, with the cursor in
+/// its place.
+fn take(loaded: &mut Loaded, taken: Taken, now: f64) {
+    let (read, text) = match taken {
+        Taken::Saved(answer) => (Arc::clone(&answer), answer.text.to_string()),
+        Taken::Merged(read, text) => (read, text),
+    };
+    let at = loaded.text.cursor();
+    loaded.text.hold(false);
+    loaded.text.act(Act::SelectAll, now);
+    loaded.text.act(Act::Insert(text), now);
+    loaded.text.select(at..at);
+    loaded.read = read;
+    loaded.changed = (u64::MAX, false);
+}
+
 /// The note of a tab before its text: the read, or why it failed, with a button that reads again.
 fn reading(ui: &mut Ui, target: &Target, read: Option<&Arc<EditRead>>) -> TabAsk {
     let palette = theme::palette(ui);
@@ -182,7 +244,7 @@ fn state(check: &TabCheck, generation: u64, failure: Option<String>) -> (String,
         return (format!("The check stopped: {failure}"), true);
     }
     match &check.done {
-        Some((_, done)) if !check.is_behind(generation) => (marks::summary(done), done.has_error()),
+        Some((_, done)) if !check.is_behind(generation) => (marks::summary(&done.check), done.check.has_error()),
         _ => ("Checking…".to_owned(), false),
     }
 }

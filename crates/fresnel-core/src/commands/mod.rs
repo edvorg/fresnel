@@ -28,6 +28,8 @@ pub enum CommandId {
     Filter,
     /// Opens the dialog of a new Secret, with its cluster and namespace (plan section 12.2).
     NewSecret,
+    /// Opens a tab that creates or applies a text of documents (plan section 12.9).
+    FromYaml,
     /// Opens the settings view (plan section 12.5).
     Settings,
     /// Shows the keys of each command over the window.
@@ -98,6 +100,7 @@ impl Entry {
             | CommandId::Forward
             | CommandId::Filter
             | CommandId::NewSecret
+            | CommandId::FromYaml
             | CommandId::Settings
             | CommandId::Help
             | CommandId::Focus(_)
@@ -120,6 +123,7 @@ pub const TABLE: &[Entry] = &[
     Entry::app(CommandId::Forward, "forward", "Forward", Shortcut::command("CloseBracket")),
     Entry::app(CommandId::Filter, "filter", "Filter the table", Shortcut::command("F")),
     Entry::app(CommandId::NewSecret, "new-secret", "New Secret", Shortcut::command("N").shift()),
+    Entry::app(CommandId::FromYaml, "from-yaml", "Create or apply YAML", Shortcut::command("I").shift()),
     Entry::app(CommandId::Settings, "settings", "Settings", Shortcut::command("Comma")),
     Entry::app(CommandId::Help, "help", "Keys", Shortcut::plain("Questionmark")),
     Entry::app(CommandId::Focus(Area::Sidebar), "focus-sidebar", "Focus the sidebar", Shortcut::command("1")),
@@ -179,8 +183,14 @@ mod tests {
     fn each_action_of_each_kind_and_each_command_of_the_app_has_one_entry() {
         let mut wanted: BTreeSet<CommandId> =
             Kind::ALL.iter().flat_map(|kind| kind.actions()).map(CommandId::Object).collect();
-        let app =
-            [CommandId::QuickSearch, CommandId::Back, CommandId::Forward, CommandId::Filter, CommandId::NewSecret];
+        let app = [
+            CommandId::QuickSearch,
+            CommandId::Back,
+            CommandId::Forward,
+            CommandId::Filter,
+            CommandId::NewSecret,
+            CommandId::FromYaml,
+        ];
         wanted.extend(app);
         wanted.extend([CommandId::Settings, CommandId::Help, CommandId::NextArea, CommandId::PreviousArea]);
         wanted.extend(Area::ALL.map(CommandId::Focus));

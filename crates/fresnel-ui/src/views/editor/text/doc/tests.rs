@@ -85,6 +85,16 @@ fn a_change_past_the_line_limit_and_a_change_of_a_read_only_text_are_refused() {
     assert!(matches!(read_only.act(Act::Type("x".to_owned()), 0.0, 3), Outcome::Refused(_)));
     assert_eq!(read_only.act(Act::SelectAll, 0.0, 3), Outcome::Moved);
     assert_eq!(read_only.selected(), "a: 1\n");
+
+    // A save on its way holds the text, and a move still works.
+    let mut held = Doc::new("a: 1\n", 10, true);
+    held.held = true;
+    let waits = Outcome::Refused("The text waits for the answer of its save.".to_owned());
+    assert_eq!(held.act(Act::Type("x".to_owned()), 0.0, 3), waits);
+    assert_eq!(held.act(Act::Undo, 0.0, 3), waits);
+    assert_eq!(held.act(Act::SelectAll, 0.0, 3), Outcome::Moved);
+    held.held = false;
+    assert_eq!(held.act(Act::Type("x".to_owned()), 0.0, 3), Outcome::Changed);
 }
 
 #[test]

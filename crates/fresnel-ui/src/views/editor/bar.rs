@@ -22,6 +22,8 @@ pub(super) enum Asked {
     Go(bool),
     /// Back to the text from the bar of the search.
     Text,
+    /// The dry run of a save, before its dialog.
+    Save,
 }
 
 /// What the bar shows.
@@ -38,6 +40,8 @@ pub(super) struct Parts<'a> {
     pub(super) check: Option<(String, bool)>,
     /// The notes of the text and of the tabs, each with its tone.
     pub(super) notes: Vec<(Tone, String)>,
+    /// Whether the text can go to a save now, or why not.
+    pub(super) save: Result<(), String>,
 }
 
 pub(super) fn show(ui: &mut Ui, parts: &Parts<'_>, find: &mut Find) -> Vec<Asked> {
@@ -67,9 +71,14 @@ pub(super) fn show(ui: &mut Ui, parts: &Parts<'_>, find: &mut Find) -> Vec<Asked
             if find.open { find.open = false } else { find.start() }
         }
         if parts.editable {
-            let save = Button::new(RichText::new("Save…").size(SMALL));
-            let hint = "The save of a manifest comes with a later milestone of the app.";
-            ui.add_enabled(false, save).on_disabled_hover_text(hint);
+            let save = ui.add_enabled(parts.save.is_ok(), Button::new(RichText::new("Save…").size(SMALL)));
+            widgets::name(&save, "Save the text");
+            if let Err(reason) = &parts.save {
+                save.clone().on_disabled_hover_text(reason);
+            }
+            if save.clicked() {
+                asked.push(Asked::Save);
+            }
         }
         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
             if let Some((state, error)) = &parts.check {
@@ -89,7 +98,7 @@ pub(super) fn show(ui: &mut Ui, parts: &Parts<'_>, find: &mut Find) -> Vec<Asked
 
 /// The field of the search with the count of its hits and its buttons. Enter goes to the
 /// next hit and Shift+Enter to the one before; Escape closes the bar.
-fn find_bar(ui: &mut Ui, find: &mut Find, asked: &mut Vec<Asked>) {
+pub(super) fn find_bar(ui: &mut Ui, find: &mut Find, asked: &mut Vec<Asked>) {
     let palette = theme::palette(ui);
     ui.horizontal(|ui| {
         let field = TextEdit::singleline(&mut find.text).hint_text("Find").desired_width(220.0);

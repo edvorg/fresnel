@@ -68,7 +68,7 @@ pub(super) fn rows(found: Option<&Found>, text: &str, key: impl Fn(CommandId) ->
     // A move of the focus is for the keys: the search itself has the focus.
     let runs = |id: CommandId| match id {
         CommandId::QuickSearch | CommandId::Focus(_) | CommandId::NextArea | CommandId::PreviousArea => false,
-        CommandId::Back | CommandId::Forward | CommandId::Filter | CommandId::NewSecret => true,
+        CommandId::Back | CommandId::Forward | CommandId::Filter | CommandId::NewSecret | CommandId::FromYaml => true,
         CommandId::Settings | CommandId::Help => true,
         CommandId::Object(action) => actions::can_run(action),
     };

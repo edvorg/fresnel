@@ -4,11 +4,15 @@
 //!
 //! - `open`: the Edit action and the tabs. `text`: the check, the marks, the search, the
 //!   buttons. `secret`: the values of a Secret. `limit`: a text past 8,000 lines.
+//! - `save`: the dry run, the diff, the replace and the conflicts of a save.
+//! - `create`: the tab that creates or applies a text of documents.
 //! - `frame_time`: a key press in 8,000 lines in a release build. `snapshots`: PNG files.
 
+mod create;
 mod frame_time;
 mod limit;
 mod open;
+mod save;
 mod secret;
 mod snapshots;
 mod text;

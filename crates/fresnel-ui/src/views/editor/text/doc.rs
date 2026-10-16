@@ -73,12 +73,15 @@ pub(crate) struct Doc {
     /// The most lines of the text.
     limit: usize,
     editable: bool,
+    /// True while a save of the text is on its way: its answer is the next text.
+    pub(crate) held: bool,
 }
 
 impl Doc {
     pub(crate) fn new(text: &str, limit: usize, editable: bool) -> Self {
         let buffer = Buffer::new(text);
-        Self { buffer, selection: Selection::default(), goal: None, history: History::default(), limit, editable }
+        let history = History::default();
+        Self { buffer, selection: Selection::default(), goal: None, history, limit, editable, held: false }
     }
 
     pub(crate) fn editable(&self) -> bool {
@@ -116,6 +119,9 @@ impl Doc {
         let changes = !matches!(act, Act::Move { .. } | Act::SelectAll);
         if changes && !self.editable {
             return Outcome::Refused("The text is read-only.".to_owned());
+        }
+        if changes && self.held {
+            return Outcome::Refused("The text waits for the answer of its save.".to_owned());
         }
         match act {
             Act::Type(text) => self.replace(self.selection.range(), &text, Some(now)),
