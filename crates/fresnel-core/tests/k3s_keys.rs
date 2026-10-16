@@ -1,7 +1,8 @@
 //! The keys of Secrets and ConfigMaps on a real kube-apiserver (plan section 15, M4): an
 //! edit of one key keeps each other key byte for byte, a binary value does not change, a
 //! conflict shows as a conflict, and add key and remove key work. kubectl in the container
-//! reads the state of the cluster.
+//! reads the state of the cluster. The text of the editor of a Secret has its values decoded
+//! (M11).
 //!
 //! An assertion names keys only: a value never goes to the output of a test.
 
@@ -19,6 +20,9 @@ use fresnel_core::cluster::{ClusterId, Gateway};
 use fresnel_core::keys::{
     self, Draft, Form, KeyKind, KeyObject, NewSecret, Refusal, SecretType, Special, Target, Value, WriteState,
 };
+use fresnel_core::kinds::Kind;
+use fresnel_core::manifest::check::{self, Identity};
+use fresnel_core::manifest::{self, Decoded};
 use fresnel_core::net::NetSettings;
 use fresnel_core::store::ObjectKey;
 use fresnel_testkit::K3s;
@@ -185,9 +189,26 @@ async fn an_edit_keeps_each_other_key_byte_for_byte_and_a_conflict_shows_as_a_co
     holds(&sixth, "crlf", b"c\r\n");
     holds(&sixth, "blob", &BLOB);
 
+    the_editor_shows_each_text_value_decoded_and_a_binary_value_as_base64(&k3s, gateway).await;
     immutable_objects_refuse_an_edit(&k3s, gateway).await;
     config_maps_keep_text_and_bytes_in_their_maps(&k3s, gateway).await;
     special_types_give_their_views(gateway).await;
+}
+
+/// The text of the editor of the Secret `db` (plan section 12.9): each text value decoded,
+/// the binary value as the base64 that kubectl reads, with the tag `!!binary`, and a text
+/// that the check of the editor reads with no mark.
+async fn the_editor_shows_each_text_value_decoded_and_a_binary_value_as_base64(k3s: &K3s, gateway: &Gateway) {
+    let (data, _) = stored(k3s, "secret", "db").await;
+    let key = ObjectKey::new(NAMESPACE, "db");
+    let text = manifest::read_for_edit(gateway, Kind::Secret, &key, "").await.expect("the read");
+    assert_eq!(text.decoded, Some(Decoded { texts: 3, binary: 1 }), "user, crlf and api-key are text");
+    let blob = data.get("blob").map(|base64| format!("  blob: !!binary {base64}\n"));
+    assert!(blob.is_some_and(|line| text.text.contains(&line)), "the key blob as kubectl reads it");
+    assert!(text.text.contains("  user: |\n    mine\n"), "the key user decoded");
+    assert!(!text.text.contains("managedFields"));
+    let check = check::check(&text.text, &Identity { kind: Kind::Secret, key });
+    assert!(check.marks.is_empty(), "the check of the text has {} marks", check.marks.len());
 }
 
 /// The draft of an immutable Secret refuses each edit, and the server refuses a save.
