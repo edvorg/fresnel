@@ -75,28 +75,21 @@ pub(super) async fn pump(
                 show(terminal, &states.borrow_and_update());
                 wake();
             }
+            // A close wakes the loop, whose head then ends it.
             Ok(()) = close.changed() => {}
         }
     }
 }
 
-/// Feeds the output of a program to its end, for at most `limit`. True at the end.
-pub(super) async fn drain(
-    stream: &mut ExecSession,
-    terminal: &Terminal,
-    (tty, wake): (bool, &Wake),
-    limit: Duration,
-) -> bool {
+/// Feeds the output of a program to its end, for at most `limit`. The session then reads
+/// how the stream ended: [`ExecSession::end`] has no end yet after the limit.
+pub(super) async fn drain(stream: &mut ExecSession, terminal: &Terminal, (tty, wake): (bool, &Wake), limit: Duration) {
     let deadline = tokio::time::Instant::now() + limit;
-    loop {
-        match tokio::time::timeout_at(deadline, stream.next()).await {
-            Ok(Some(Output::Stdout(data) | Output::Stderr(data))) => {
-                terminal.feed(&lines(&data, tty));
-                wake();
-            }
-            Ok(None) => return true,
-            Err(_) => return false,
-        }
+    while let Ok(Some(Output::Stdout(data) | Output::Stderr(data))) =
+        tokio::time::timeout_at(deadline, stream.next()).await
+    {
+        terminal.feed(&lines(&data, tty));
+        wake();
     }
 }
 
@@ -110,12 +103,9 @@ async fn write(terminal: &Terminal, input: &Input, streams: Streams) -> Result<(
         if let Some(size) = terminal.take_size().filter(|_| streams.tty) {
             input.resize(size.columns, size.rows).await?;
         }
+        // A program with no input gets none: its terminal refuses each key.
         let mut first = true;
         while let Some(piece) = terminal.take_input() {
-            // A program with no input takes no key: the key goes nowhere.
-            if !streams.stdin {
-                continue;
-            }
             if !first {
                 sleep(PASTE_PAUSE).await;
             }

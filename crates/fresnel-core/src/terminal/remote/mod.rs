@@ -165,6 +165,10 @@ async fn open(
             // A pod that the store does not know yet gets each stream; the server decides.
             let flags = pod.and_then(|pod| prepare::spec_flags(&pod, &request.container)).unwrap_or((true, true));
             let streams = Streams { stdin: flags.0, tty: flags.1 };
+            if !streams.stdin {
+                // The keys would go nowhere: the terminal refuses them, and the tab tells why.
+                terminal.refuse_input();
+            }
             (exec(&request.object, &request.container, None, streams), streams)
         }
         Program::Debug => {

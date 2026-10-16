@@ -188,11 +188,26 @@ fn input_waits_in_pieces_up_to_its_limit_and_a_paste_follows_the_mode() {
 
     let full = vec![b'z'; INPUT_LIMIT];
     terminal.send(&full).expect("room for the limit");
-    assert_eq!(terminal.send(b"!"), Err(Refused { bytes: 1, room: 0 }));
+    assert_eq!(terminal.send(b"!"), Err(Refused::Full { bytes: 1, room: 0 }));
     assert_eq!(
         (terminal.waiting_input(), terminal.drop_input(), terminal.waiting_input()),
         (INPUT_LIMIT, INPUT_LIMIT, 0)
     );
+}
+
+/// An attach to a container with no stdin: a key would go nowhere with no sign, so the
+/// terminal refuses each key and paste with the reason, and counts each answer of its parser.
+#[test]
+fn a_program_with_no_input_refuses_each_key_and_counts_each_answer() {
+    let terminal = terminal(20, 3);
+    terminal.send(b"typed before the stream").expect("room");
+    terminal.refuse_input();
+    assert_eq!(terminal.waiting_input(), 0, "the keys before go nowhere either");
+    assert_eq!(terminal.send(b"ls\r"), Err(Refused::NoInput));
+    assert_eq!(terminal.paste("ls\n"), Err(Refused::NoInput));
+    assert_eq!(Refused::NoInput.to_string(), "the program has no input: its container has no stdin in its spec");
+    terminal.feed(b"\x1b[6n");
+    assert_eq!((terminal.waiting_input(), terminal.refused_answers()), (0, 6), "the answer `ESC [1;1R`");
 }
 
 #[test]

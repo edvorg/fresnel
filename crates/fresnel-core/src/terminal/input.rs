@@ -21,22 +21,31 @@ pub const INPUT_LIMIT: usize = 8 * 1024 * 1024;
 /// The most bytes that the session takes at once.
 pub const PIECE: usize = 16 * 1024;
 
-/// Input that did not fit: the queue had room for `room` bytes only.
+/// Input that the terminal refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Refused {
-    pub bytes: usize,
-    pub room: usize,
+pub enum Refused {
+    /// The input did not fit: the queue had room for `room` bytes only.
+    Full { bytes: usize, room: usize },
+    /// The remote program has no input, as an attach to a container with no stdin.
+    NoInput,
 }
 
 impl fmt::Display for Refused {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "the input has {} free bytes of {INPUT_LIMIT}, too few for {}", self.room, self.bytes)
+        match self {
+            Self::Full { bytes, room } => {
+                write!(f, "the input has {room} free bytes of {INPUT_LIMIT}, too few for {bytes}")
+            }
+            Self::NoInput => f.write_str("the program has no input: its container has no stdin in its spec"),
+        }
     }
 }
 
 /// What the two sides of a terminal share besides the screen.
 pub(super) struct Io {
     input: VecDeque<u8>,
+    /// False for a remote program with no input: each key goes nowhere, so it is refused.
+    takes_input: bool,
     /// Bytes of answers of the parser that did not fit.
     refused: u64,
     /// A size that the remote TTY did not get yet.
@@ -53,6 +62,7 @@ impl Io {
     pub(super) fn new(size: GridSize) -> Self {
         Self {
             input: VecDeque::new(),
+            takes_input: true,
             refused: 0,
             size: None,
             window: window(size, (0, 0)),
@@ -75,9 +85,12 @@ impl Io {
     }
 
     fn push(&mut self, bytes: &[u8]) -> Result<(), Refused> {
+        if !self.takes_input {
+            return Err(Refused::NoInput);
+        }
         let room = INPUT_LIMIT.saturating_sub(self.input.len());
         if bytes.len() > room {
-            return Err(Refused { bytes: bytes.len(), room });
+            return Err(Refused::Full { bytes: bytes.len(), room });
         }
         self.input.extend(bytes);
         Ok(())
@@ -129,7 +142,17 @@ impl Terminal {
         count
     }
 
-    /// The bytes of answers of the parser that did not fit since the start.
+    /// The remote program has no input: the session tells it before its stream. The keys
+    /// that wait and each later key and paste are refused, and the answers of the parser
+    /// are counted as lost.
+    pub(crate) fn refuse_input(&self) {
+        let mut io = self.io();
+        io.takes_input = false;
+        io.input.clear();
+    }
+
+    /// The bytes of answers of the parser that did not fit, or that the remote program could
+    /// not take, since the start.
     pub fn refused_answers(&self) -> u64 {
         self.io().refused
     }

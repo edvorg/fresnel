@@ -29,6 +29,9 @@ const CTRL_D_WAIT: Duration = Duration::from_secs(1);
 const CLOSE_WAIT: Duration = Duration::from_secs(30);
 /// The longest second exec, with its connect: a busy node takes some seconds.
 const SIGNAL_LIMIT: Duration = Duration::from_secs(20);
+/// The most bytes of the output of the second exec that the session keeps: the count of the
+/// processes has a few digits, and a container can print with no end.
+const COUNT_BYTES: usize = 32;
 
 /// Closes an open stream: Ctrl-D first to a shell of the app, then the close of the socket.
 /// An attach only closes: the main process of its container is not one of the app.
@@ -68,7 +71,7 @@ pub(super) async fn signal(parts: &Parts, pod: &ObjectKey, container: &str, mark
         let mut printed = Vec::new();
         while let Some(output) = session.next().await {
             if let Output::Stdout(data) = output {
-                printed.extend_from_slice(&data);
+                keep(&mut printed, &data);
             }
         }
         match session.end() {
@@ -84,6 +87,12 @@ pub(super) async fn signal(parts: &Parts, pod: &ObjectKey, container: &str, mark
     };
     let limit = SIGNAL_LIMIT.as_secs();
     timeout(SIGNAL_LIMIT, run).await.unwrap_or_else(|_| Err(CoreError::invalid(format!("no end in {limit} s"))))
+}
+
+/// Adds output of the second exec to `printed`, up to [`COUNT_BYTES`].
+fn keep(printed: &mut Vec<u8>, data: &[u8]) {
+    let room = COUNT_BYTES.saturating_sub(printed.len());
+    printed.extend(data.iter().take(room));
 }
 
 /// Deletes the pod of a node shell. A pod that is gone counts as deleted.
@@ -137,5 +146,15 @@ mod tests {
         let ended = SessionState::Ended { reason: "ended by the server".to_owned() };
         assert_eq!(state(ExecEnd::Socket(SocketEnd::EndedByServer), false), ended);
         assert!(matches!(final_state(None, false), SessionState::Failed { .. }));
+    }
+
+    #[test]
+    fn the_output_of_the_second_exec_has_a_limit() {
+        let mut printed = Vec::new();
+        keep(&mut printed, b"2");
+        keep(&mut printed, b"\n");
+        assert_eq!(printed, b"2\n");
+        keep(&mut printed, &vec![b'x'; 1024 * 1024]);
+        assert_eq!(printed.len(), COUNT_BYTES, "a container that prints with no end");
     }
 }

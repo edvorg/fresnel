@@ -1,10 +1,10 @@
 //! A shell in a container of a pod: `vi` and `top`, a paste of 1 MiB, the close of its tab,
-//! and an attach to the main process of a container.
+//! an exit, and an attach to the main process of a container.
 
 use std::time::Instant;
 
 use fresnel_core::app::Command;
-use fresnel_core::terminal::{Program, TerminalView};
+use fresnel_core::terminal::{Program, Refused, SessionState, TerminalView};
 
 use crate::bed::{Bed, eventually};
 use crate::screen::{alternate, cursor_column, keys, processes};
@@ -96,6 +96,37 @@ pub(crate) async fn a_closed_tab_leaves_no_process_in_the_pod(bed: &Bed) {
     assert!(journal.entries.iter().any(|entry| entry.text.contains("a hangup went to")), "the journal tells it");
 }
 
+/// Plan section 12.8: the exit code decides the final state. A shell that ended itself
+/// gets no hangup: its close sends nothing.
+pub(crate) async fn an_exit_code_decides_the_final_state_and_no_hangup_goes(bed: &Bed) {
+    let hangups = || {
+        let journal = bed.core.view().journal;
+        journal.entries.iter().filter(|entry| entry.text.contains("a hangup went to")).count()
+    };
+    let before = hangups();
+    let view = shell(bed).await;
+    keys(&view.terminal, "exit 3\r");
+    bed.until("the exit code 3", |_| view.terminal.state() == SessionState::Exited { code: 3 }).await;
+    close(bed, &view).await;
+    assert_eq!(hangups(), before, "no second exec for a shell that ended");
+}
+
+/// A close during a paste into a program that reads nothing: the rest of the paste drops,
+/// Ctrl-D waits behind the input of the stream, and the hangup still ends the shell and its
+/// program.
+pub(crate) async fn a_close_during_a_paste_into_a_program_that_reads_nothing_leaves_no_process(bed: &Bed) {
+    let view = shell(bed).await;
+    let terminal = &view.terminal;
+    keys(terminal, "/bin/sleep 1005\r");
+    eventually("sleep runs", || async {
+        processes(bed, "shell", "shell").await.iter().any(|line| line.ends_with("sleep 1005"))
+    })
+    .await;
+    terminal.paste(&"y".repeat(1024 * 1024)).expect("the input has room");
+    close(bed, &view).await;
+    no_session_process(bed, "shell").await;
+}
+
 /// An attach reaches the main process of a container, and the close of its tab leaves it.
 pub(crate) async fn an_attach_reaches_the_main_process_and_its_close_leaves_it(bed: &Bed) {
     let view = bed.open(bed.request(Program::Attach, "main", "main").await).await;
@@ -109,6 +140,14 @@ pub(crate) async fn an_attach_reaches_the_main_process_and_its_close_leaves_it(b
     close(bed, &again).await;
     let phase = bed.kubectl(&["get", "pod", "main", "-o", "jsonpath={.status.phase}"]).await;
     assert_eq!(phase, "Running", "the close of an attach leaves the main process");
+}
+
+/// The main process of `shell` has no stdin in its spec, so the server takes no input for
+/// it: the terminal refuses each key with the reason, and the tab shows it.
+pub(crate) async fn an_attach_to_a_container_with_no_input_refuses_the_keys(bed: &Bed) {
+    let view = bed.open(bed.request(Program::Attach, "shell", "shell").await).await;
+    assert_eq!(view.terminal.send(b"ls\r"), Err(Refused::NoInput));
+    close(bed, &view).await;
 }
 
 /// Waits until no process of a session runs in the container `shell`. Its PID 1 is a reaper,
