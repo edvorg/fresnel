@@ -3,7 +3,8 @@
 //!
 //! YAML allows no tab in an indent: the Tab key gives spaces to the next even column, or
 //! two spaces before each selected line. Enter keeps the indent of the line, two more after
-//! a colon. A change that would give the text more lines than its limit does not go in.
+//! a colon. A change that would give the text more lines than its limit, or more than 8 MiB,
+//! does not go in.
 
 use super::buffer::{Buffer, Change, Pos, end_of};
 use super::history::{History, Step};
@@ -11,6 +12,10 @@ use super::moves::{self, Motion, Selection};
 
 /// The spaces of one step of indent.
 const INDENT: usize = 2;
+/// The most bytes that a change can give a text. A paste of a line of megabytes, such as a
+/// minified file, passes the line limit, and each key press copies and checks the full text.
+/// The API server takes a request of 3 MiB at most, so a larger text has no save.
+const MOST_BYTES: usize = 8 * 1024 * 1024;
 
 /// What the user does.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -221,16 +226,19 @@ impl Doc {
     }
 
     /// Applies a change with the selection after it, unless the text would get more lines
-    /// than its limit.
+    /// than its limit, or would grow past `MOST_BYTES`.
     fn change(&mut self, range: std::ops::Range<Pos>, text: &str, after: Selection, typed: Option<f64>) -> Outcome {
-        let before = self.selection;
+        let (before, bytes) = (self.selection, self.buffer.bytes());
         let change = self.buffer.replace(range, text);
-        if self.buffer.text_lines() > self.limit {
+        let grown = self.buffer.bytes();
+        let refusal = if self.buffer.text_lines() > self.limit {
+            Some(format!("{} lines", crate::format::thousands(self.limit as u64)))
+        } else {
+            (grown > MOST_BYTES && grown > bytes).then(|| "8 MiB of text".to_owned())
+        };
+        if let Some(most) = refusal {
             self.buffer.apply(&change.reverse());
-            return Outcome::Refused(format!(
-                "The editor holds {} lines at most, so the text did not change.",
-                crate::format::thousands(self.limit as u64)
-            ));
+            return Outcome::Refused(format!("The editor holds {most} at most, so the text did not change."));
         }
         self.select(after);
         self.history.record(Step { change, before, after: self.selection }, typed);

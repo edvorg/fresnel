@@ -102,3 +102,21 @@ fn up_and_down_keep_the_column_and_left_ends_a_selection_at_its_start() {
     );
     assert_eq!(doc.selection, Selection::at(Pos::new(2, 0)));
 }
+
+/// A paste of a line of megabytes passes the line limit: a change that would make the text
+/// larger than 8 MiB does not go in, and a larger text can get smaller.
+#[test]
+fn a_change_past_8_mib_is_refused_and_a_larger_text_can_get_smaller() {
+    let mut doc = doc("a: 1\n");
+    let refused = doc.act(Act::Insert("x".repeat(MOST_BYTES)), 0.0, 3);
+    assert_eq!(
+        refused,
+        Outcome::Refused("The editor holds 8 MiB of text at most, so the text did not change.".to_owned())
+    );
+    assert_eq!(doc.buffer.text(), "a: 1\n");
+    assert_eq!(doc.act(Act::Insert("x".repeat(MOST_BYTES - 5)), 1.0, 3), Outcome::Changed, "8 MiB");
+
+    let mut large = Doc::new(&"x".repeat(MOST_BYTES + 10), 10, true);
+    assert_eq!(large.act(Act::Delete { forward: true, unit: Unit::Character }, 0.0, 3), Outcome::Changed);
+    assert_eq!(large.buffer.bytes(), MOST_BYTES + 9);
+}

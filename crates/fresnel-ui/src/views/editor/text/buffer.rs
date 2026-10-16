@@ -67,6 +67,11 @@ impl Buffer {
         self.generation
     }
 
+    /// The count of bytes of the text.
+    pub(crate) fn bytes(&self) -> usize {
+        self.lines.iter().map(String::len).sum::<usize>() + self.lines.len().saturating_sub(1)
+    }
+
     pub(crate) fn text(&self) -> String {
         self.lines.join("\n")
     }
@@ -162,6 +167,7 @@ mod tests {
         let back = buffer.apply(&change.reverse());
         assert_eq!((buffer.text().as_str(), back), ("kind: Pod\nmetadata:\n  name: web\n", Pos::new(2, 7)));
         assert_eq!(buffer.slice(Pos::new(0, 6)..Pos::new(1, 4)), "Pod\nmeta");
+        assert_eq!(buffer.bytes(), buffer.text().len());
     }
 
     #[test]

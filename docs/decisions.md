@@ -1751,3 +1751,10 @@ Plan section 12.9 sets the limit. A larger manifest opens read-only in the same 
 colors, search and copy, and a paste that would pass the limit does not go in. A value of
 megabytes on one line would cost seconds for its galley, so a line of more than 2,000 bytes lays
 out the columns around the screen, and the lexer reads its first 4 KB.
+
+## An edited text has 8 MiB at most
+
+A paste of a line of megabytes, such as a minified file, passes the line limit, and each key
+press copies the full text and checks it on the worker. A change that would make a text larger
+than 8 MiB does not go in, and a larger text can get smaller. The API server takes a request of
+3 MiB at most, so a larger text has no save.
