@@ -81,6 +81,7 @@ async fn run_again(bed: &Bed, jobs: &Jobs, cancel: Cancel, at_wait: impl FnOnce(
         pods: None,
         downloads: bed.folder.path().join("Downloads"),
         cancel,
+        after: None,
     };
     let (sender, mut reports) = mpsc::unbounded_channel();
     let run = async move { ops::run(&order, parts, &mut Forward(Some(sender))).await };

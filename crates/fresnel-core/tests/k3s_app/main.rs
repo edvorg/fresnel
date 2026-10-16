@@ -9,6 +9,8 @@
 //!   final state of its job and the mark "change pending"; `Command::Cancel` of a rollout status.
 //! - `keys`: the save of a key of a Secret. `access`: `Command::ReadRules` and
 //!   `Command::CheckAccess` for the admin and for the user who may not scale.
+//! - `editor`: the saves of an editor and its conflicts. `yaml`: the create and the apply of
+//!   a text of documents.
 
 // k3s in Docker: the cluster job of CI runs on Linux.
 #![cfg(unix)]
@@ -21,11 +23,13 @@ mod bed;
 mod common;
 #[path = "../common/contexts.rs"]
 mod contexts;
+mod editor;
 mod jobs;
 mod keys;
 mod scene;
 #[path = "../common/user.rs"]
 mod user;
+mod yaml;
 
 use bed::Bed;
 
@@ -44,6 +48,11 @@ async fn each_command_of_a_view_runs_in_the_core_and_reaches_the_cluster_of_its_
     jobs::cancel_ends_a_rollout_status(&bed).await;
     keys::save_a_key_of_a_secret(&bed).await;
     access::the_rules_and_the_reviews_of_each_context_decide_its_actions(&bed).await;
+    editor::a_hint_never_refuses_a_save(&bed).await;
+    editor::a_conflict_gives_a_merge_or_a_diff_of_three_versions(&bed).await;
+    editor::a_secret_shows_decoded_and_saves_encoded(&bed).await;
+    yaml::a_file_with_many_documents_creates_each_object(&bed).await;
+    yaml::an_apply_conflict_names_its_fields_and_a_force_takes_them(&bed).await;
     assert!(scene::state(&bed.a).await == before, "an order for b changed cluster a");
     bed.no_task_failed();
 }

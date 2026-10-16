@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use super::Inner;
-use super::edits::EditRequest;
+use super::edits::{EditRequest, EditSave};
 use super::manifest::ManifestRequest;
 use crate::cluster::{ClusterId, Registry};
 use crate::config::Edit;
@@ -48,6 +48,9 @@ pub enum Command {
     /// The editors that the UI shows. The core reads the text of each new one, and drops the
     /// others. The view gets the reads.
     ShowEditors(Vec<EditRequest>),
+    /// Sends a save of the text of a shown editor: its dry run or its replace. The read of
+    /// the editor in the view gets its state.
+    SaveEditor(EditSave),
     /// The key view shows this Secret or ConfigMap, or `None` when it closes. The core
     /// reads the object and follows it while the view is open, and drops its values then.
     ShowKeys(Option<Target>),
@@ -71,6 +74,9 @@ pub enum Command {
     /// Starts one job for each order: one for an action, one for each row of a bulk action
     /// (plan section 10). The view gets the list of the jobs.
     Run(Vec<Order>),
+    /// Starts one job for each order, and each job waits for the end of the one before it:
+    /// the create or the apply of the documents of a text (plan section 12.9).
+    RunInTurn(Vec<Order>),
     /// Stops the job with this number. A wait ends at once; a write runs to its answer.
     Cancel(u64),
     /// The kubeconfig files or the settings file changed: the core reads them again and
@@ -126,13 +132,15 @@ impl Inner {
             Command::ShowKinds(kinds) => self.show_kinds(kinds),
             Command::ReadManifest(request) => self.read_manifest(registry, request),
             Command::ShowEditors(requests) => self.show_editors(registry, requests),
+            Command::SaveEditor(save) => self.save_editor(registry, save),
             Command::ShowKeys(target) => self.show_keys(target),
             Command::SaveKeys(save) => self.save_keys(save),
             Command::ShowLogs(requests) => self.show_logs(requests),
             Command::SaveLog(save) => self.save_log(save),
             Command::CancelSave { cluster, number } => self.cancel_save(&cluster, number),
             Command::CreateSecret(secret) => self.create_secret(registry, secret),
-            Command::Run(orders) => self.run_orders(orders),
+            Command::Run(orders) => self.run_orders(orders, false),
+            Command::RunInTurn(orders) => self.run_orders(orders, true),
             Command::Cancel(number) => self.state().jobs.cancel(number),
             Command::ReadRules { cluster, namespace } => self.read_rules(&cluster, namespace),
             Command::CheckAccess { cluster, attributes } => self.check_access(&cluster, attributes),

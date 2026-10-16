@@ -83,6 +83,7 @@ pub(crate) async fn a_forbidden_action_is_denied_with_its_reason_and_its_request
         // A refused delete writes no file.
         downloads: std::env::temp_dir(),
         cancel: Cancel::pair().1,
+        after: None,
     };
     let report = run_parts(&order, parts).await;
     let JobState::Failed(error) = &report.state else { panic!("a refusal: {report:#?}") };

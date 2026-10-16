@@ -36,7 +36,7 @@ fn states(jobs: &Jobs) -> Vec<(u64, JobState)> {
 async fn a_job_for_a_cluster_that_is_not_connected_ends_at_once_as_not_sent_with_a_journal_entry() {
     let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("no task: {report}"));
     let (mut jobs, ends) = (Jobs::default(), ends());
-    jobs.start(&tasks, order(Operation::Scale(3)), not_connected(), Cancel::pair().0, ends.clone());
+    jobs.start(&tasks, (order(Operation::Scale(3)), not_connected()), Cancel::pair().0, ends.clone(), None);
     let error = CoreError::invalid("a is not connected");
     assert_eq!(states(&jobs), [(1, JobState::NotSent(error))]);
     let entries = ends.journal.view();
@@ -49,7 +49,7 @@ async fn a_full_list_drops_its_oldest_ended_job_and_takes_no_job_when_each_one_r
     let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("no task: {report}"));
     let (mut jobs, ends) = (Jobs::default(), ends());
     for _ in 0..JOB_LIMIT {
-        jobs.start(&tasks, order(Operation::Restart), not_connected(), Cancel::pair().0, ends.clone());
+        jobs.start(&tasks, (order(Operation::Restart), not_connected()), Cancel::pair().0, ends.clone(), None);
     }
     let running = Arc::new(JobView { number: 9999, order: order(Operation::RolloutStatus), report: Report::default() });
     let entry = |job: &Arc<JobView>| Entry {
@@ -58,7 +58,7 @@ async fn a_full_list_drops_its_oldest_ended_job_and_takes_no_job_when_each_one_r
         _task: None,
     };
     jobs.entries[3] = entry(&running);
-    jobs.start(&tasks, order(Operation::Restart), not_connected(), Cancel::pair().0, ends.clone());
+    jobs.start(&tasks, (order(Operation::Restart), not_connected()), Cancel::pair().0, ends.clone(), None);
     let view = jobs.view();
     assert_eq!((view.jobs.len(), view.dropped), (JOB_LIMIT, 1));
     assert_eq!(view.jobs[0].number, 2, "the oldest job that ended left");
@@ -67,7 +67,7 @@ async fn a_full_list_drops_its_oldest_ended_job_and_takes_no_job_when_each_one_r
 
     let mut full = Jobs { entries: (0..JOB_LIMIT).map(|_| entry(&running)).collect(), ..Jobs::default() };
     assert_eq!(full.view().room(), 0);
-    full.start(&tasks, order(Operation::Restart), not_connected(), Cancel::pair().0, ends.clone());
+    full.start(&tasks, (order(Operation::Restart), not_connected()), Cancel::pair().0, ends.clone(), None);
     let view = full.view();
     assert_eq!((view.jobs.len(), view.dropped), (JOB_LIMIT, 0), "the list does not grow over its limit");
     let last = ends.journal.view().entries.last().map(|entry| entry.text.clone());
@@ -83,8 +83,8 @@ async fn the_same_order_while_its_job_runs_ends_as_not_sent_and_an_other_order_g
     jobs.entries.push_back(Entry { slot: Arc::new(Mutex::new(running)), cancel: Cancel::pair().0, _task: None });
     jobs.number = 1;
 
-    jobs.start(&tasks, order(Operation::Rollback(0)), not_connected(), Cancel::pair().0, ends.clone());
-    jobs.start(&tasks, order(Operation::Rollback(2)), not_connected(), Cancel::pair().0, ends.clone());
+    jobs.start(&tasks, (order(Operation::Rollback(0)), not_connected()), Cancel::pair().0, ends.clone(), None);
+    jobs.start(&tasks, (order(Operation::Rollback(2)), not_connected()), Cancel::pair().0, ends.clone(), None);
     let same = CoreError::invalid("job 1 runs the same operation on the object");
     let other = CoreError::invalid("a is not connected");
     assert_eq!(
@@ -100,7 +100,7 @@ async fn the_same_order_while_its_job_runs_ends_as_not_sent_and_an_other_order_g
     let running = Arc::new(JobView { number: 4, order: drain(false), report: Report::default() });
     jobs.entries.push_back(Entry { slot: Arc::new(Mutex::new(running)), cancel: Cancel::pair().0, _task: None });
     jobs.number = 4;
-    jobs.start(&tasks, drain(true), not_connected(), Cancel::pair().0, ends.clone());
+    jobs.start(&tasks, (drain(true), not_connected()), Cancel::pair().0, ends.clone(), None);
     let same = CoreError::invalid("job 4 runs the same operation on the object");
     assert_eq!(states(&jobs)[4], (5, JobState::NotSent(same)));
 
@@ -110,7 +110,7 @@ async fn the_same_order_while_its_job_runs_ends_as_not_sent_and_an_other_order_g
     let job = Arc::new(JobView { number: 1, order: order(Operation::Rollback(0)), report: ended });
     done.entries.push_back(Entry { slot: Arc::new(Mutex::new(job)), cancel: Cancel::pair().0, _task: None });
     done.number = 1;
-    done.start(&tasks, order(Operation::Rollback(0)), not_connected(), Cancel::pair().0, ends.clone());
+    done.start(&tasks, (order(Operation::Rollback(0)), not_connected()), Cancel::pair().0, ends.clone(), None);
     assert_eq!(states(&done)[1], (2, JobState::NotSent(other)));
 }
 
@@ -136,7 +136,7 @@ async fn a_job_that_stops_before_its_end_has_an_unknown_result_when_it_can_have_
     for (operation, unknown) in [(Operation::Scale(2), true), (Operation::History, false)] {
         let slot: Slot =
             Arc::new(Mutex::new(Arc::new(JobView { number: 1, order: order(operation), report: Report::default() })));
-        drop(Shown { slot: Arc::clone(&slot), ends: ends() });
+        drop(Shown { slot: Arc::clone(&slot), ends: ends(), ended: Arc::new(watch::channel(false).0) });
         let state = lock(&slot).report.state.clone();
         let error = CoreError::invalid("the job stopped before its end");
         assert_eq!(state, if unknown { JobState::Unknown(error) } else { JobState::Failed(error) });
@@ -144,6 +144,6 @@ async fn a_job_that_stops_before_its_end_has_an_unknown_result_when_it_can_have_
     let done = Report { state: JobState::Done, ..Report::default() };
     let slot: Slot =
         Arc::new(Mutex::new(Arc::new(JobView { number: 1, order: order(Operation::Restart), report: done })));
-    drop(Shown { slot: Arc::clone(&slot), ends: ends() });
+    drop(Shown { slot: Arc::clone(&slot), ends: ends(), ended: Arc::new(watch::channel(false).0) });
     assert_eq!(lock(&slot).report.state, JobState::Done, "a final state stays");
 }

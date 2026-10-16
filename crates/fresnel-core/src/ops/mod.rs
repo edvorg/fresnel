@@ -11,12 +11,14 @@
 //! - `rollout`: the rollout status of kubectl. `history`: the revisions of a workload.
 //!   `rollback`: the patch that goes back to a revision.
 //! - `job`: run a Job again, and the Job of a CronJob that the user triggers.
+//! - `document`: the create and the server-side apply of a document of a text.
 //! - `kubectl`: the `kubectl` commands that a user can copy.
 //! - `state`: the state of a job. `procedure`: the steps of each operation.
 //! - `access`: the permissions of the user in a cluster.
 
 pub mod access;
 mod delete;
+mod document;
 pub mod drain;
 mod history;
 mod job;
@@ -34,13 +36,14 @@ use std::sync::Arc;
 use drain::DrainOptions;
 pub use history::Revision;
 pub use job::trigger_name;
-pub use procedure::{Cancel, Parts, Progress, run};
+pub use procedure::{After, Cancel, Parts, Progress, run};
 pub use rollout::Rollout;
 pub use state::{JobState, Outcome, Report, Step, StepState};
 
 use crate::cluster::ClusterId;
 use crate::error::CoreError;
 use crate::kinds::{Action, Kind};
+use crate::manifest::documents::Document;
 use crate::store::ObjectKey;
 
 /// The object of an operation.
@@ -104,12 +107,18 @@ pub enum Operation {
     Drain(DrainOptions),
     /// Saves the manifest of the object as a new YAML file in the folder of downloads.
     Download,
+    /// Creates the object of a document of a text (plan section 12.9).
+    Create(Document),
+    /// Applies a document of a text with server-side apply. A force takes the fields that
+    /// an other field manager set.
+    Apply { document: Document, force: bool },
 }
 
 impl Operation {
-    /// The action of the command table that starts the operation.
-    pub fn action(&self) -> Action {
-        match self {
+    /// The action of the command table that starts the operation on an object. `None` for
+    /// the create and the apply of a text, which start from no object.
+    pub fn action(&self) -> Option<Action> {
+        Some(match self {
             Self::Scale(_) => Action::Scale,
             Self::Restart => Action::Restart,
             Self::RolloutStatus => Action::RolloutStatus,
@@ -126,7 +135,8 @@ impl Operation {
             Self::Uncordon => Action::Uncordon,
             Self::Drain(_) => Action::Drain,
             Self::Download => Action::Download,
-        }
+            Self::Create(_) | Self::Apply { .. } => return None,
+        })
     }
 
     /// False for an operation that only reads: a stop of its job changes nothing.
@@ -141,9 +151,14 @@ impl Operation {
     }
 
     /// True when objects of the kind have the operation: the kind lists its action. A
-    /// Deployment has no suspend, so the request would change nothing or fail.
+    /// Deployment has no suspend, so the request would change nothing or fail. A document
+    /// fits the kind that it names.
     pub fn fits(&self, kind: Kind) -> bool {
-        kind.actions().any(|action| action == self.action())
+        match (self, self.action()) {
+            (Self::Create(document) | Self::Apply { document, .. }, _) => document.kind == kind,
+            (_, Some(action)) => kind.actions().any(|of| of == action),
+            (_, None) => false,
+        }
     }
 
     /// The words of the operation for a list of jobs.
@@ -157,7 +172,10 @@ impl Operation {
             Self::Delete(Propagation::Orphan) => "Delete and keep the dependents".to_owned(),
             Self::Trigger(name) => format!("Trigger now as {name}"),
             Self::Drain(options) if *options != DrainOptions::default() => format!("Drain {}", options.flags()),
-            other => other.action().label().to_owned(),
+            Self::Create(_) => "Create".to_owned(),
+            Self::Apply { force: false, .. } => "Apply".to_owned(),
+            Self::Apply { force: true, .. } => "Apply with force".to_owned(),
+            other => other.action().map_or("", Action::label).to_owned(),
         }
     }
 }

@@ -48,7 +48,7 @@ pub(crate) fn editors(window: &Window) -> Vec<EditRequest> {
 
 /// Gives the fake core the state of the read of an editor.
 pub(crate) fn give(window: &mut Window, request: &EditRequest, state: EditState) {
-    window.state_mut().view.edits = vec![Arc::new(EditRead { request: request.clone(), state })];
+    window.state_mut().view.edits = vec![Arc::new(EditRead { request: request.clone(), state, save: None })];
     window.run();
 }
 

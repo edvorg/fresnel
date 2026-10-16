@@ -154,3 +154,26 @@ fn the_forms_of_valid_yaml_give_no_error() {
     let check = check(text, &web());
     assert!(!check.has_error() && check.marks.is_empty(), "{check:?}");
 }
+
+/// A text of documents for a create: the hints of each document, none of an identity, none
+/// for an empty document, and the error of the parser in any document.
+#[test]
+fn each_document_of_a_text_for_a_create_gets_its_hints_and_an_error_its_place() {
+    let text = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: a\ndata:\n  on: yes\n---\n---\napiVersion: v1\n\
+                kind: Secret\nmetadata:\n  name: b\n  namespace: other\n---\n- a list\n";
+    let found: Vec<(usize, Level, String)> =
+        check_documents(text).marks.into_iter().map(|mark| (mark.line, mark.level, mark.text)).collect();
+    let words = |line: usize, text: &str| (line, Level::Hint, text.to_owned());
+    assert_eq!(
+        found,
+        [
+            words(6, "kubectl reads the key on as true. Quote it, so that each tool reads on."),
+            words(6, "yes is the boolean true here, not a text. Quote it for a text."),
+            words(15, "The text of an object is a map with its kind and metadata."),
+        ]
+    );
+    let error = check_documents("kind: a\n---\nkind: [b\n");
+    assert!(error.has_error() && error.marks.iter().any(|mark| mark.line == 3), "{error:?}");
+    assert_eq!(check_documents("---\n---\n").marks.len(), 1, "an empty text");
+    assert!(check("kind: a\n---\nkind: b\n", &web()).has_error(), "an editor of one object takes one document");
+}

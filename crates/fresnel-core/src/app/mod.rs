@@ -10,7 +10,7 @@
 //! - `command`: what the UI asks for.
 //! - `data`: the stores and the indexes of each connected cluster. `objects`: the full
 //!   objects of the kinds that the views show. `manifest`: the read of one manifest.
-//!   `edits`: the reads of the texts of the editors.
+//!   `edits`: the reads and the saves of the texts of the editors.
 //! - `keys`: the object of the key view and its saves. `create`: the create of a Secret.
 //! - `logs`: the log views, one session for each in the cluster of its object.
 //! - `jobs`: the jobs of the operations. `access`: the permissions of the user.
@@ -55,7 +55,7 @@ pub use access::{AccessView, CheckState, RulesState};
 pub use command::Command;
 pub use create::CreateJob;
 pub use data::ClusterData;
-pub use edits::{EditRead, EditRequest, EditState};
+pub use edits::{EditRead, EditRequest, EditSave, EditState, Remote, SaveState, SaveView, Stage};
 pub use health::Health;
 pub use jobs::{JobView, JobsView};
 pub use keys::{KeysView, ReadState, SaveJob};

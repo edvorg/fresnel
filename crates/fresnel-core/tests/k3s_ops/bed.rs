@@ -108,6 +108,7 @@ impl Cluster {
             // No operation of the k3s tests is a download.
             downloads: std::env::temp_dir(),
             cancel,
+            after: None,
         }
     }
 

@@ -6,6 +6,10 @@ use std::sync::Arc;
 
 use fresnel_net::{ErrorClass, NetError};
 
+/// The reason of a cause of a conflict of a server-side apply: its field is the path of the
+/// field, and its message names the manager. Neither has a value of the object.
+pub(crate) const FIELD_CONFLICT: &str = "FieldManagerConflict";
+
 /// An error of the domain layer. The class selects the text and the action of the UI.
 ///
 /// The text never holds a token, a key or the content of an object.
@@ -48,8 +52,19 @@ impl CoreError {
 
     /// The message of the first cause with this reason, for example `DisruptionBudget`.
     pub(crate) fn cause(&self, reason: &str) -> Option<&str> {
+        self.causes(reason).next()
+    }
+
+    /// The message of each cause with this reason.
+    pub(crate) fn causes(&self, reason: &str) -> impl Iterator<Item = &str> {
         let causes = self.causes.as_deref().unwrap_or_default();
-        causes.iter().find(|(of, _)| of == reason).map(|(_, message)| message.as_str())
+        causes.iter().filter(move |(of, _)| of == reason).map(|(_, message)| message.as_str())
+    }
+
+    /// Each field of a server-side apply that an other field manager set, with the name of
+    /// that manager: ".data.mode (conflict with "kubectl" using v1)". A force takes them.
+    pub fn apply_conflicts(&self) -> impl Iterator<Item = &str> {
+        self.causes(FIELD_CONFLICT)
     }
 
     /// The class of the error.

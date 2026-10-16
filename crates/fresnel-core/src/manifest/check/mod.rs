@@ -12,6 +12,7 @@
 mod hints;
 
 use serde_json::Value;
+use serde_saphyr::granit_parser::Tag;
 use serde_saphyr::{MessageFormatter as _, UserMessageFormatter};
 
 use crate::kinds::Kind;
@@ -19,6 +20,8 @@ use crate::store::ObjectKey;
 
 /// The most marks of one check. A text can have a hint on each line.
 const MOST: usize = 500;
+/// The namespace of the tags of the YAML types, as `!!` names them.
+const YAML_TYPES: &str = "tag:yaml.org,2002:";
 
 /// The object that a text must stay: a save replaces it, and the server refuses a text of an
 /// other kind, name or namespace.
@@ -63,12 +66,23 @@ impl Check {
     }
 }
 
-/// Checks the text of the editor of an object. The error of the parser goes into the limit of
-/// the marks before the hints: a text with more hints than the limit before the place that
-/// the parser refuses keeps its error.
+/// Checks the text of the editor of an object.
 pub fn check(text: &str, identity: &Identity) -> Check {
+    checked(text, parse(text).err(), Some(identity))
+}
+
+/// Checks a text of documents for a create or an apply: each document gets the hints of the
+/// scalars, and none of an identity.
+pub fn check_documents(text: &str) -> Check {
+    checked(text, parse_documents(text).err(), None)
+}
+
+/// The marks of a text. The error of the parser goes into the limit of the marks before the
+/// hints: a text with more hints than the limit before the place that the parser refuses
+/// keeps its error.
+fn checked(text: &str, error: Option<serde_saphyr::Error>, identity: Option<&Identity>) -> Check {
     let mut marks = Vec::new();
-    if let Err(error) = parse(text) {
+    if let Some(error) = error {
         let (line, column) = error.location().map_or((1, 1), |place| (place.line(), place.column()));
         let (line, column) = (usize::try_from(line).unwrap_or(1), usize::try_from(column).unwrap_or(1));
         let text = sentence(&UserMessageFormatter.format_message(&error));
@@ -85,8 +99,21 @@ pub fn check(text: &str, identity: &Identity) -> Check {
 /// Reads a text as the save will read it: with the scalar rules of kubectl, and a value with
 /// the tag `!!binary` as its base64, which the save of a Secret sends as it is.
 pub(super) fn parse(text: &str) -> Result<Value, serde_saphyr::Error> {
-    let options = serde_saphyr::options! { legacy_octal_numbers: true, ignore_binary_tag_for_string: true };
-    serde_saphyr::from_str_with_options(text, options)
+    serde_saphyr::from_str_with_options(text, options())
+}
+
+/// Reads each document of a text, with the rules of `parse`. An empty document gives none.
+pub(super) fn parse_documents(text: &str) -> Result<Vec<Value>, serde_saphyr::Error> {
+    serde_saphyr::from_multiple_with_options(text, options())
+}
+
+fn options() -> serde_saphyr::Options {
+    serde_saphyr::options! { legacy_octal_numbers: true, ignore_binary_tag_for_string: true }
+}
+
+/// True for the tag of the YAML type `binary`: `!!binary`, or `!binary` as serde-saphyr reads it.
+pub(in crate::manifest) fn is_binary(tag: &Tag) -> bool {
+    tag.suffix_in_namespace(YAML_TYPES).is_some_and(|name| name == "binary") || tag.parts() == ("!", "binary")
 }
 
 /// A message of the parser as a sentence: "Duplicate mapping key: a not allowed here."

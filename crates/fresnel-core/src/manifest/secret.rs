@@ -5,14 +5,18 @@
 //! the rule of the key view (`keys::Value`) decoded, so the user reads and edits it, and each
 //! other value as its base64 with the YAML tag `!!binary`: the mark of a value that a text
 //! editor cannot hold. The YAML writer writes that tag itself for bytes, so the app writes
-//! no YAML of its own. The save encodes each text value again.
+//! no YAML of its own. The save encodes each text value again (`encode`).
+
+use std::collections::BTreeSet;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 use serde_json::{Map, Value};
+use serde_saphyr::granit_parser::{Event, Parser};
 
 use super::Decoded;
+use super::check::is_binary;
 use super::yaml::{self, Json};
 use crate::error::CoreError;
 use crate::keys::{Form, Value as KeyValue};
@@ -96,6 +100,78 @@ impl Serialize for Shown<'_> {
     }
 }
 
+/// Encodes the values of `data` of a Secret from the text of its editor again: a text as the
+/// base64 of its bytes, and a value with the tag `!!binary`, which the parser reads as its
+/// base64, as it is with no space. Each other value stays as the text has it: the server
+/// refuses a number there, and the user sees why.
+pub(super) fn encode(text: &str, object: &mut Value) {
+    let binary = binary_keys(text);
+    let Some(data) = object.get_mut("data").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for (key, value) in data.iter_mut() {
+        if let Value::String(value) = value {
+            *value = if binary.contains(key) {
+                value.split_whitespace().collect()
+            } else {
+                STANDARD.encode(value.as_bytes())
+            };
+        }
+    }
+}
+
+/// The keys of `data` in the first document whose value has the tag `!!binary`, also through
+/// an alias of such a value. The parser keeps no tag in the value that it gives.
+fn binary_keys(text: &str) -> BTreeSet<String> {
+    let mut keys = BTreeSet::new();
+    // An open map with the key of the value that comes now (`None` while a key comes), or a list.
+    let mut stack: Vec<Option<Option<String>>> = Vec::new();
+    let mut anchors = BTreeSet::new();
+    for event in Parser::new_from_str(text) {
+        let Ok((event, _)) = event else {
+            break;
+        };
+        let binary = match event {
+            Event::DocumentEnd => break,
+            Event::Scalar(value, _, anchor, tag) => {
+                let binary = tag.as_deref().is_some_and(is_binary);
+                if binary && anchor != 0 {
+                    anchors.insert(anchor);
+                }
+                Some((binary, value.into_owned()))
+            }
+            Event::Alias(anchor) => Some((anchors.contains(&anchor), String::new())),
+            Event::MappingStart(..) => {
+                stack.push(Some(None));
+                None
+            }
+            Event::SequenceStart(..) => {
+                stack.push(None);
+                None
+            }
+            Event::MappingEnd | Event::SequenceEnd => {
+                stack.pop();
+                Some((false, String::new()))
+            }
+            _ => None,
+        };
+        let Some((binary, text)) = binary else {
+            continue;
+        };
+        if let [Some(Some(data)), Some(Some(key))] = stack.as_slice()
+            && data == "data"
+            && binary
+        {
+            keys.insert(key.clone());
+        }
+        // The end of a node: a key, or the value of a key.
+        if let Some(Some(current)) = stack.last_mut() {
+            *current = if current.is_none() { Some(text) } else { None };
+        }
+    }
+    keys
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -149,6 +225,38 @@ mod tests {
                 Err(_) => assert_eq!(read, base64(bytes)),
             }
         }
+    }
+
+    /// The text of the editor of a Secret encodes back to the base64 of the server, each value
+    /// byte for byte; a changed text value gets its new base64.
+    #[test]
+    fn the_save_encodes_each_value_again_and_a_binary_value_stays_as_it_is() {
+        let binary = [0x89, b'P', b'N', b'G', 0xff, 0x00];
+        let data = json!({"password": base64(b"hunter2"), "image.png": base64(&binary),
+            "crlf": base64(b"a\r\nb"), "only": base64(b"\n"), "empty": ""});
+        let secret = json!({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "db"}, "data": data});
+        let (text, _) = yaml(&secret).expect("a text");
+        let mut object = crate::manifest::check::parse(&text).expect("valid YAML");
+        encode(&text, &mut object);
+        assert_eq!(object, secret);
+
+        let edited = text.replace("password: hunter2", "password: hunter3");
+        let mut object = crate::manifest::check::parse(&edited).expect("valid YAML");
+        encode(&edited, &mut object);
+        assert_eq!(object.pointer("/data/password"), Some(&json!(base64(b"hunter3"))));
+        assert_eq!(object.pointer("/data/image.png"), Some(&json!(base64(&binary))));
+    }
+
+    /// A !!binary value through an alias stays base64, a !!binary value outside `data` and
+    /// a binary value split on lines are no exception, and a number stays a number.
+    #[test]
+    fn the_tag_counts_only_on_a_value_of_data_and_through_an_alias() {
+        let text = "data:\n  a: !!binary &bin AAEC\n  b: *bin\n  c: !!binary |\n    AAEC\n    AwQ=\n  d: 1234\n  \
+                    e: AAEC\nmetadata:\n  note: !!binary AAEC\n";
+        let mut object = crate::manifest::check::parse(text).expect("valid YAML");
+        encode(text, &mut object);
+        let data = json!({"a": "AAEC", "b": "AAEC", "c": "AAECAwQ=", "d": 1234, "e": base64(b"AAEC")});
+        assert_eq!(object, json!({"data": data, "metadata": {"note": "AAEC"}}));
     }
 
     #[test]

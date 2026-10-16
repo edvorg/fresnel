@@ -17,7 +17,7 @@ use super::repaint::Repaint;
 use super::{Inner, Phase};
 use crate::error::CoreError;
 use crate::journal::Journal;
-use crate::ops::{self, Cancel, JobState, Order, Parts, Progress, Report};
+use crate::ops::{self, After, Cancel, JobState, Order, Parts, Progress, Report};
 
 /// The most jobs that the list keeps. A job that ended leaves first; the count of those
 /// that left shows in the view (design rule 12).
@@ -54,6 +54,8 @@ impl JobsView {
 }
 
 type Slot = Arc<Mutex<Arc<JobView>>>;
+/// Set when the job ends: a job of the next document waits for it.
+type Ended = Arc<watch::Sender<bool>>;
 
 fn lock(slot: &Slot) -> MutexGuard<'_, Arc<JobView>> {
     slot.lock().unwrap_or_else(PoisonError::into_inner)
@@ -85,34 +87,42 @@ impl Jobs {
     /// The same order while its job runs ends at once as not sent, as a fast second click
     /// gives it: a second "roll back to the revision before" would undo the first one, and
     /// a second "run again" would race the first one for the name of the Job.
+    ///
+    /// The job waits for the end of `after` first. Gives the end of this job, for a next one.
     pub(super) fn start(
         &mut self,
         tasks: &Tasks,
-        order: Order,
-        cluster: Result<ClusterParts, CoreError>,
+        (order, cluster): (Order, Result<ClusterParts, CoreError>),
         cancel: watch::Sender<bool>,
         ends: Ends,
-    ) {
+        after: Option<After>,
+    ) -> After {
         self.number += 1;
         let report = Report::default();
         let slot: Slot = Arc::new(Mutex::new(Arc::new(JobView { number: self.number, order: order.clone(), report })));
+        let (sender, receiver) = watch::channel(false);
+        let (ended, next) = (Arc::new(sender), After { number: self.number, ended: receiver });
         if let Err(error) = self.make_room() {
-            end_now(&slot, JobState::NotSent(error), &ends);
-            return;
+            end_now(&slot, JobState::NotSent(error), &ends, &ended);
+            return next;
         }
         let task = match (self.running(&order), cluster) {
             (Some(number), _) => {
                 let error = CoreError::invalid(format!("job {number} runs the same operation on the object"));
-                end_now(&slot, JobState::NotSent(error), &ends);
+                end_now(&slot, JobState::NotSent(error), &ends, &ended);
                 None
             }
-            (None, Ok((parts, access))) => Some(start(tasks, order, parts, access, &slot, ends)),
+            (None, Ok((mut parts, access))) => {
+                parts.after = after;
+                Some(start(tasks, order, (parts, access), (&slot, ends, ended)))
+            }
             (None, Err(error)) => {
-                end_now(&slot, JobState::NotSent(error), &ends);
+                end_now(&slot, JobState::NotSent(error), &ends, &ended);
                 None
             }
         };
         self.entries.push_back(Entry { slot, cancel, _task: task });
+        next
     }
 
     /// The number of the job that runs this order, if one does.
@@ -188,6 +198,7 @@ impl Ends {
 struct Shown {
     slot: Slot,
     ends: Ends,
+    ended: Ended,
 }
 
 impl Progress for Shown {
@@ -195,6 +206,9 @@ impl Progress for Shown {
         {
             let mut view = lock(&self.slot);
             *view = Arc::new(JobView { report: report.clone(), ..JobView::clone(&view) });
+        }
+        if report.state.is_final() {
+            self.ended.send_replace(true);
         }
         self.ends.repaint.request();
     }
@@ -211,17 +225,22 @@ impl Drop for Shown {
         if pending {
             let error = CoreError::invalid("the job stopped before its end");
             let state = if writes { JobState::Unknown(error) } else { JobState::Failed(error) };
-            end_now(&self.slot, state, &self.ends);
+            end_now(&self.slot, state, &self.ends, &self.ended);
         }
     }
 }
 
-fn start(tasks: &Tasks, order: Order, parts: Parts, access: AccessHandle, slot: &Slot, ends: Ends) -> TaskHandle {
+fn start(
+    tasks: &Tasks,
+    order: Order,
+    (parts, access): (Parts, AccessHandle),
+    (slot, ends, ended): (&Slot, Ends, Ended),
+) -> TaskHandle {
     let name = TaskName::scoped("job", order.target.cluster.as_str());
     let slot = Arc::clone(slot);
     tasks.start(name, Restart::Never, move || {
         let (order, parts, access) = (order.clone(), parts.clone(), access.clone());
-        let mut shown = Shown { slot: Arc::clone(&slot), ends: ends.clone() };
+        let mut shown = Shown { slot: Arc::clone(&slot), ends: ends.clone(), ended: Arc::clone(&ended) };
         async move {
             let state = ops::run(&order, parts, &mut shown).await;
             // The rules said yes, and the server said no: the rules of the namespace are old.
@@ -234,7 +253,7 @@ fn start(tasks: &Tasks, order: Order, parts: Parts, access: AccessHandle, slot: 
     })
 }
 
-fn end_now(slot: &Slot, state: JobState, ends: &Ends) {
+fn end_now(slot: &Slot, state: JobState, ends: &Ends, ended: &Ended) {
     let view = {
         let mut view = lock(slot);
         let mut report = view.report.clone();
@@ -242,17 +261,21 @@ fn end_now(slot: &Slot, state: JobState, ends: &Ends) {
         *view = Arc::new(JobView { report, ..JobView::clone(&view) });
         Arc::clone(&view)
     };
+    ended.send_replace(true);
     ends.record(&view);
 }
 
 impl Inner {
     /// Starts a job for each order: one for an action, one for each row of a bulk action.
-    pub(super) fn run_orders(&self, orders: Vec<Order>) {
+    /// With `in_turn`, each job waits for the end of the one before it: the documents of a
+    /// text go in their sequence, as kubectl sends them.
+    pub(super) fn run_orders(&self, orders: Vec<Order>, in_turn: bool) {
         let ends = Ends { journal: self.journal.clone(), repaint: self.repaint.clone() };
         let mut state = self.state();
         if state.phase == Phase::Stopped {
             return;
         }
+        let mut after = None;
         for order in orders {
             let (cancel, signal) = Cancel::pair();
             let id = &order.target.cluster;
@@ -263,7 +286,8 @@ impl Inner {
                 (None, Some(connected)) => Ok(connected.job_parts(signal, self.downloads.clone())),
                 (None, None) => Err(CoreError::invalid(format!("{id} is not connected"))),
             };
-            state.jobs.start(&self.tasks, order, cluster, cancel, ends.clone());
+            let next = state.jobs.start(&self.tasks, (order, cluster), cancel, ends.clone(), after.take());
+            after = in_turn.then_some(next);
         }
         drop(state);
         self.repaint.request();

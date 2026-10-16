@@ -115,6 +115,7 @@ async fn drain(bed: &Bed, pods: &Pods, options: DrainOptions, cancel: Cancel, mu
         pods: reader,
         downloads,
         cancel,
+        after: None,
     };
     let (sender, mut reports) = mpsc::unbounded_channel();
     let run = async move { ops::run(&order, parts, &mut Forward(Some(sender))).await };

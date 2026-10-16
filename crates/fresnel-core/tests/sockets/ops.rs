@@ -43,6 +43,7 @@ fn parts(bed: &Bed) -> Parts {
         pods: None,
         downloads,
         cancel,
+        after: None,
     }
 }
 

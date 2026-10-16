@@ -15,23 +15,26 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde_saphyr::granit_parser::{Event, Parser, ScalarStyle, Span, Tag};
 
-use super::{Identity, Level, Mark};
-
-/// The namespace of the tags of the YAML types, as `!!` names them.
-const YAML_TYPES: &str = "tag:yaml.org,2002:";
+use super::{Identity, Level, Mark, is_binary};
 
 /// Adds the hints of the events of a text, at most `most`, and gives the count of the others:
 /// a text can have a hint for each value. An error of the parser ends the walk: the check has
-/// its mark from the parser of serde-saphyr.
-pub(super) fn add(text: &str, identity: &Identity, marks: &mut Vec<Mark>, most: usize) -> usize {
+/// its mark from the parser of serde-saphyr. With no identity, the text has documents for
+/// a create, and each one is an object.
+pub(super) fn add(text: &str, identity: Option<&Identity>, marks: &mut Vec<Mark>, most: usize) -> usize {
     let mut walk = Walk { identity, stack: Vec::new(), root: Root::Before, marks, room: most, dropped: 0 };
+    let mut empty = true;
     for event in Parser::new_from_str(text) {
         let Ok((event, span)) = event else {
             return walk.dropped;
         };
+        if matches!(event, Event::DocumentStart(..)) && walk.identity.is_none() {
+            empty &= walk.root == Root::Before;
+            walk.root = Root::Before;
+        }
         walk.event(event, span);
     }
-    if walk.root == Root::Before {
+    if empty && walk.root == Root::Before {
         walk.hint(1, 1, "The text is empty. The text of an object is a map with its kind and metadata.");
     }
     walk.dropped
@@ -54,7 +57,7 @@ enum Frame {
 }
 
 struct Walk<'a> {
-    identity: &'a Identity,
+    identity: Option<&'a Identity>,
     stack: Vec<Frame>,
     root: Root,
     marks: &'a mut Vec<Mark>,
@@ -67,6 +70,10 @@ struct Walk<'a> {
 impl Walk<'_> {
     fn event(&mut self, event: Event<'_>, span: Span) {
         match event {
+            // An empty document of a text of documents is none, as for the parser: the
+            // parser gives it as `~`.
+            Event::Scalar(value, ScalarStyle::Plain, _, None)
+                if ["", "~", "null"].contains(&&*value) && self.identity.is_none() && self.root == Root::Before => {}
             Event::Scalar(value, style, _, tag) => {
                 self.root(&span, false);
                 self.scalar(&value, style, tag.as_deref(), &span);
@@ -127,7 +134,9 @@ impl Walk<'_> {
 
     /// Marks a kind, a name or a namespace that differs from the object of the editor.
     fn identity(&mut self, value: &str, line: usize, column: usize) {
-        let Identity { kind, key } = self.identity;
+        let Some(Identity { kind, key }) = self.identity else {
+            return;
+        };
         let wanted = if self.at(&["kind"]) {
             Some(("kind", kind.info().name))
         } else if self.at(&["metadata", "name"]) {
@@ -179,11 +188,6 @@ impl Walk<'_> {
 /// The line and the column of the start of a span, from 1.
 fn place(span: &Span) -> (usize, usize) {
     (span.start.line().max(1), span.start.col() + 1)
-}
-
-/// True for the tag of the YAML type `binary`: `!!binary`, or `!binary` as serde-saphyr reads it.
-fn is_binary(tag: &Tag) -> bool {
-    tag.suffix_in_namespace(YAML_TYPES).is_some_and(|name| name == "binary") || tag.parts() == ("!", "binary")
 }
 
 /// What the parser reads from a plain text that a user can mean as a text.

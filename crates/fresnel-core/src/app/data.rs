@@ -256,6 +256,7 @@ impl Connected {
             pods: Some(self.pods.clone()),
             downloads,
             cancel,
+            after: None,
         };
         (parts, self.access.handle())
     }

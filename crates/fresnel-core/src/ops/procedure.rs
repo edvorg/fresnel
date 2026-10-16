@@ -27,7 +27,7 @@ use serde_json::Value as Json;
 use tokio::sync::watch;
 
 use super::state::{JobState, Outcome, Report, Step, StepState};
-use super::{Operation, Order, Target, delete, job, node, request, workload};
+use super::{Operation, Order, Target, delete, document, job, node, request, workload};
 use crate::cluster::Gateway;
 use crate::error::CoreError;
 use crate::kinds::Kind;
@@ -66,6 +66,16 @@ impl Cancel {
     }
 }
 
+/// The end of the job before a job that waits for it: the documents of one text go one
+/// after the other, as kubectl sends them, so a Namespace exists before the objects in it.
+#[derive(Clone, Debug)]
+pub struct After {
+    /// The number of the job before.
+    pub number: u64,
+    /// True when it ended. A sender that drops ends the wait too.
+    pub ended: watch::Receiver<bool>,
+}
+
 /// What a procedure needs besides its order.
 #[derive(Clone)]
 pub struct Parts {
@@ -86,6 +96,8 @@ pub struct Parts {
     pub downloads: PathBuf,
     /// The cancel of the job.
     pub cancel: Cancel,
+    /// The job that this one waits for before its first step, if any.
+    pub after: Option<After>,
 }
 
 /// Runs an order to its final state. `progress` gets each change of the report.
@@ -157,6 +169,9 @@ async fn steps<P: Progress>(order: &Order, parts: &Parts, job: &mut Steps<'_, P>
             target.kind.info().name
         ))));
     }
+    if let Some(after) = &parts.after {
+        wait_for(after.clone(), parts.cancel.clone(), job).await?;
+    }
     match &order.operation {
         Operation::Scale(replicas) => {
             write(parts, job, format!("set the count of pods to {replicas}"), workload::scale(target, *replicas)).await
@@ -188,6 +203,28 @@ async fn steps<P: Progress>(order: &Order, parts: &Parts, job: &mut Steps<'_, P>
         Operation::Uncordon => write(parts, job, "uncordon the node", node::cordon(target, false)).await,
         Operation::Drain(options) => drain::drain(target, options, parts, job).await,
         Operation::Download => download::save(target, parts, job).await,
+        Operation::Create(file) => {
+            let what = format!("create the {} {}", target.kind.info().name, target.key.name);
+            write(parts, job, what, document::create(target, file)).await
+        }
+        Operation::Apply { document: file, force } => {
+            let what = if *force { "apply with force" } else { "apply with the field manager fresnel" };
+            write(parts, job, what, document::apply(target, file, *force)).await
+        }
+    }
+}
+
+/// The first step of a job that waits for the end of an other one. A cancel ends the wait.
+async fn wait_for<P: Progress>(mut after: After, mut cancel: Cancel, job: &mut Steps<'_, P>) -> Result<(), JobState> {
+    job.begin(format!("wait for the end of job {}", after.number));
+    // An error tells that the job before dropped its sender: it ended too.
+    let ended = async { after.ended.wait_for(|ended| *ended).await.map(|_| ()).unwrap_or(()) };
+    tokio::select! {
+        () = ended => {
+            job.done(format!("job {} ended", after.number));
+            Ok(())
+        }
+        () = cancel.until_set() => Err(JobState::Cancelled),
     }
 }
 

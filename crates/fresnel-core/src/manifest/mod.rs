@@ -6,10 +6,17 @@
 //!
 //! - `edit`: the text of the editor of one object. `secret`: the values of a Secret in it.
 //! - `check`: the check of an edited text: the errors of the YAML parser, and hints.
+//! - `save`: the replace of an object with the text of its editor. `documents`: the objects of
+//!   a text for a create or an apply.
+//! - `diff`: the changed lines of two texts. `merge`: two edits of one text after a conflict.
 //! - `yaml`: the YAML writer of a manifest.
 
 pub mod check;
+pub mod diff;
+pub mod documents;
 mod edit;
+pub mod merge;
+pub mod save;
 mod secret;
 mod yaml;
 
@@ -79,30 +86,35 @@ pub async fn fetch(
 }
 
 /// Reads one object from the server as JSON, with the time limit of a GET.
-///
-/// A key with no namespace for a kind in a namespace is an error with no request: its path
-/// would have an empty part. An answer with an other name or an other UID is an error too,
-/// so that no other object shows as the manifest of this one: a StatefulSet makes a new pod
-/// with the name of the old one during the read.
 async fn read(gateway: &Gateway, kind: Kind, key: &ObjectKey, uid: &str) -> Result<Value, CoreError> {
-    let info = kind.info();
-    let collection = match (info.namespaced, key.namespace.is_empty()) {
-        (false, _) => info.path(),
-        (true, false) => info.path_in(&key.namespace),
-        (true, true) => {
-            return Err(CoreError::invalid(format!("a {} is in a namespace, and the read has none", info.name)));
-        }
-    };
-    let request = Request::new(collection).get(&key.name, &GetParams::default());
+    let request = collection(kind, key, "read")?.get(&key.name, &GetParams::default());
     let request = request.map_err(|error| CoreError::invalid(format!("the read of the manifest: {error}")))?;
     let object: Value = gateway.get(request).await?;
+    same_object(&object, key, uid, "the read of the manifest")?;
+    Ok(object)
+}
+
+/// The collection of the object of `key`. A key with no namespace for a kind in a namespace
+/// is an error with no request: its path would have an empty part.
+fn collection(kind: Kind, key: &ObjectKey, what: &str) -> Result<Request, CoreError> {
+    let info = kind.info();
+    match (info.namespaced, key.namespace.is_empty()) {
+        (false, _) => Ok(Request::new(info.path())),
+        (true, false) => Ok(Request::new(info.path_in(&key.namespace))),
+        (true, true) => Err(CoreError::invalid(format!("a {} is in a namespace, and the {what} has none", info.name))),
+    }
+}
+
+/// An answer with an other name or an other UID is an error, so that no other object shows
+/// as the object of the key: a StatefulSet makes a new pod with the name of the old one.
+fn same_object(object: &Value, key: &ObjectKey, uid: &str, what: &str) -> Result<(), CoreError> {
     if object.pointer("/metadata/name").and_then(Value::as_str) != Some(&*key.name) {
-        return Err(CoreError::invalid("the server answered the read of the manifest with an other object"));
+        return Err(CoreError::invalid(format!("the server answered {what} with an other object")));
     }
     if !uid.is_empty() && object.pointer("/metadata/uid").and_then(Value::as_str) != Some(uid) {
         return Err(CoreError::invalid("the object of this name is an other object now: it has an other UID"));
     }
-    Ok(object)
+    Ok(())
 }
 
 /// Removes which client wrote which field: a long list that most users never need.

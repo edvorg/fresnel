@@ -11,7 +11,7 @@ use kube::core::Status;
 use serde::de::DeserializeOwned;
 use tokio::time::timeout;
 
-use crate::error::CoreError;
+use crate::error::{CoreError, FIELD_CONFLICT};
 
 /// A `Status` object of the server is small. A larger error body is not read to its end.
 const MAX_REFUSAL_BYTES: usize = 1024 * 1024;
@@ -22,9 +22,10 @@ const MAX_REFUSAL_BYTES: usize = 1024 * 1024;
 const MAX_ANSWER_BYTES: usize = 1024 * 1024 * 1024;
 
 /// The causes of a refusal that a step of an operation reads (research 08 section 7.2): the
-/// PodDisruptionBudget that blocks an eviction, and a namespace that goes away. The error
-/// keeps no other cause: the cause of an invalid object can quote a value of it.
-const KEPT_CAUSES: [&str; 2] = ["DisruptionBudget", "NamespaceTerminating"];
+/// PodDisruptionBudget that blocks an eviction, a namespace that goes away, and each field
+/// that an other manager set, for a server-side apply. The error keeps no other cause: the
+/// cause of an invalid object can quote a value of it.
+const KEPT_CAUSES: [&str; 3] = ["DisruptionBudget", "NamespaceTerminating", FIELD_CONFLICT];
 
 /// The error of a request that got no answer, as it comes out of the kube client. An error
 /// of the connection layer keeps its class.
@@ -64,7 +65,11 @@ pub(super) async fn refusal(response: Response<Body>, limit: Duration) -> CoreEr
     let status = body.and_then(|body| serde_json::from_slice::<Status>(&body).ok());
     let causes = status.as_ref().and_then(|status| status.details.as_ref()).map(|details| &details.causes);
     let causes = causes.into_iter().flatten().filter(|cause| KEPT_CAUSES.contains(&cause.reason.as_str()));
-    let causes = causes.map(|cause| (cause.reason.clone(), cause.message.clone())).collect();
+    let causes = causes.map(|cause| match cause.reason.as_str() {
+        FIELD_CONFLICT => (cause.reason.clone(), format!("{} ({})", cause.field, cause.message)),
+        _ => (cause.reason.clone(), cause.message.clone()),
+    });
+    let causes = causes.collect();
     let error = match status.map(|status| status.message).filter(|message| !message.is_empty()) {
         Some(message) => CoreError::answered(code, format!("{message} (HTTP {code})")),
         None => CoreError::answered(code, format!("the server answered HTTP {code}")),
@@ -138,5 +143,20 @@ mod tests {
         assert_eq!(error.to_string(), format!("{message} (HTTP 429)"));
         assert_eq!(error.cause("DisruptionBudget"), Some(budget));
         assert!(!format!("{error:?}").contains("hunter2"), "no other cause: it can quote a value");
+    }
+
+    /// The answer of k3s to a server-side apply of a field that kubectl set.
+    #[tokio::test]
+    async fn a_conflict_of_an_apply_keeps_each_field_with_its_manager() {
+        let conflict = r#"conflict with "kubectl-client-side-apply" using v1"#;
+        let status = serde_json::json!({"kind": "Status", "status": "Failure", "reason": "Conflict", "code": 409,
+            "message": format!("Apply failed with 1 conflict: {conflict}: .data.mode"),
+            "details": {"name": "app", "kind": "configmaps", "causes": [
+                {"reason": "FieldManagerConflict", "message": conflict, "field": ".data.mode"}]}});
+        let response =
+            Response::builder().status(409).body(Body::from(status.to_string().into_bytes())).expect("an answer");
+        let error = refusal(response, Duration::from_secs(1)).await;
+        let fields: Vec<&str> = error.apply_conflicts().collect();
+        assert_eq!(fields, [format!(".data.mode ({conflict})")]);
     }
 }
