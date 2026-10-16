@@ -112,7 +112,7 @@ fn the_keys_of_the_settings_act_and_the_defaults_they_replace_do_not() {
 }
 
 /// Plan section 11.5: the menu of a row has the actions of the kind from the command table,
-/// with their keys, and an action that this version does not run is off.
+/// with their keys. Since M5, each milestone runs its actions.
 #[test]
 fn the_menu_of_a_row_has_the_actions_of_its_kind_and_runs_one() {
     let mut window = window(view(vec![searchable("ams-prod", StoreState::Live)]));
@@ -121,7 +121,7 @@ fn the_menu_of_a_row_has_the_actions_of_its_kind_and_runs_one() {
     for action in ["View manifest", "Copy name", "Logs", "Terminal", "Evict…", "Delete…"] {
         assert!(window.query_by_label_contains(action).is_some(), "the menu has {action}");
     }
-    assert!(window.get_by_label_contains("Forward a port").accesskit_node().is_disabled(), "a later milestone");
+    assert!(!window.get_by_label_contains("Forward a port").accesskit_node().is_disabled(), "a forward runs in M5");
     assert!(!window.get_by_label_contains("Terminal").accesskit_node().is_disabled(), "a terminal runs in M10");
     assert!(!window.get_by_label_contains("Edit manifest").accesskit_node().is_disabled(), "an editor runs in M11");
     assert!(!window.get_by_label_contains("Logs").accesskit_node().is_disabled(), "the logs run in M9");
