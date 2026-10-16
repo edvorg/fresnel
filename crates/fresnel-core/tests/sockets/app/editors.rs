@@ -72,3 +72,31 @@ async fn each_editor_gets_the_text_of_its_object_and_a_cluster_that_does_not_ans
     let reads = ams.requests().into_iter().filter(|seen| seen.uri.path() == SECRET).count();
     assert_eq!(reads, 1, "one read for one editor");
 }
+
+/// A failed read ends: the editor asks again with a new request, which reads the object
+/// again. A read that finds an other object of the name, with an other UID, fails.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_request_reads_again_and_an_other_uid_fails() {
+    let ams = FakeApiServer::start().await.expect("a server");
+    let secret = r#"{"apiVersion":"v1","kind":"Secret","metadata":{"name":"db","namespace":"shop","uid":"u-db",
+        "resourceVersion":"7"},"data":{"password":"aHVudGVyMg=="}}"#;
+    ams.set_body(SECRET, secret);
+    ams.add_fault(Fault::not_found().on_path(SECRET));
+    let home = home("editors-again");
+    write_kubeconfig(&home, "ams", &[("ams", ams.addr(), &ams, false)]);
+    let app = App::started(&home, CoreSettings::default());
+    app.until_health("ams", Health::Live).await;
+
+    app.core.send(Command::ShowEditors(vec![request(1, "ams")]));
+    let failed = app.until("the failed read", |view| read(view, 1).is_some_and(|state| state.is_some())).await;
+    assert!(matches!(read(&failed, 1), Some(Some(Err(_)))), "HTTP 404");
+    ams.clear_faults();
+    let mut other = request(3, "ams");
+    other.target.uid = "u-old".into();
+    app.core.send(Command::ShowEditors(vec![request(2, "ams"), other]));
+    let done = |view: &CoreView| [2, 3].iter().all(|number| read(view, *number).is_some_and(|state| state.is_some()));
+    let view = app.until("the reads again", done).await;
+    assert!(matches!(read(&view, 2), Some(Some(Ok(text))) if text.contains("password: hunter2")), "the new read");
+    let uid = "the object of this name is an other object now: it has an other UID";
+    assert_eq!(read(&view, 3), Some(Some(Err(uid.to_owned()))));
+}

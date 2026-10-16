@@ -1,6 +1,6 @@
-//! The Edit action of the Manifest tab, of a row menu and of its key opens one editor for
-//! each object, which reads its object once; a failed read reads again on a click, and the
-//! close of a text with changes asks first.
+//! The Edit action of the Manifest tab, of a row menu, of its key and of the quick search
+//! opens one editor for each object, which reads its object once; a failed read reads again
+//! on a click, and the close of a text with changes asks first.
 
 use egui::accesskit::Role;
 use egui::{Event, Key, Modifiers};
@@ -69,6 +69,19 @@ fn the_menu_of_a_row_and_its_key_open_the_editor_and_a_read_only_cluster_closes_
     assert!(window.get_by_label("Edit the manifest").accesskit_node().is_disabled());
     hover(&mut window, Role::Button, "Edit the manifest");
     assert!(shows(&window, "ams-prod is read-only in the settings: the app makes no change in it."));
+}
+
+/// The quick search lists Edit manifest, and Enter opens the editor of the object of the panel.
+#[test]
+fn the_quick_search_opens_the_editor_of_the_object_of_the_panel() {
+    let mut window = panel();
+    crate::search::search(&mut window, "edit manifest");
+    until(&mut window, "the command", |window| window.query_by_label("Command Edit manifest").is_some());
+    window.key_press(Key::Enter);
+    window.run();
+    let web = target::<Deployment>("ams-prod", &scene::<Deployment>(), "web");
+    assert_eq!(editors(&window).iter().map(|request| &request.target).collect::<Vec<_>>(), [&web]);
+    assert!(shows(&window, "The manifest is read from ams-prod…"));
 }
 
 fn window_read_only(settings: &str) -> crate::fake::Window {
