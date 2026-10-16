@@ -52,7 +52,8 @@ pub struct Mark {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Check {
     pub marks: Vec<Mark>,
-    /// The count of marks past the limit of one check.
+    /// The count of marks past the limit of one check: hints, unless the text has more errors
+    /// than the limit.
     pub more: usize,
 }
 
@@ -63,7 +64,9 @@ impl Check {
     }
 }
 
-/// Checks the text of the editor of an object.
+/// Checks the text of the editor of an object. The errors go into the limit of the marks
+/// before the hints: a text with more hints than the limit before the place that the parser
+/// refuses keeps its error.
 pub fn check(text: &str, identity: &Identity) -> Check {
     let mut marks = Vec::new();
     if let Err(error) = parse(text) {
@@ -72,10 +75,11 @@ pub fn check(text: &str, identity: &Identity) -> Check {
         let text = sentence(&UserMessageFormatter.format_message(&error));
         marks.push(Mark { line, column, level: Level::Error, text });
     }
-    hints::add(text, identity, &mut marks);
-    marks.sort_by_key(|mark| (mark.line, mark.column, mark.level));
-    let more = marks.len().saturating_sub(MOST);
+    let mut more = hints::add(text, identity, &mut marks, MOST);
+    marks.sort_by_key(|mark| (mark.level, mark.line, mark.column));
+    more += marks.len().saturating_sub(MOST);
     marks.truncate(MOST);
+    marks.sort_by_key(|mark| (mark.line, mark.column, mark.level));
     Check { marks, more }
 }
 

@@ -20,19 +20,21 @@ use super::{Identity, Level, Mark};
 /// The namespace of the tags of the YAML types, as `!!` names them.
 const YAML_TYPES: &str = "tag:yaml.org,2002:";
 
-/// Adds the marks of the events of a text. An error of the parser ends the walk: the check
-/// has its mark from the parser of serde-saphyr.
-pub(super) fn add(text: &str, identity: &Identity, marks: &mut Vec<Mark>) {
-    let mut walk = Walk { identity, stack: Vec::new(), root: Root::Before, marks };
+/// Adds the marks of the events of a text, at most `most` of each level, and gives the count
+/// of the others: a text can have a hint for each value. An error of the parser ends the walk:
+/// the check has its mark from the parser of serde-saphyr.
+pub(super) fn add(text: &str, identity: &Identity, marks: &mut Vec<Mark>, most: usize) -> usize {
+    let mut walk = Walk { identity, stack: Vec::new(), root: Root::Before, marks, room: (most, most), dropped: 0 };
     for event in Parser::new_from_str(text) {
         let Ok((event, span)) = event else {
-            return;
+            return walk.dropped;
         };
         walk.event(event, span);
     }
     if walk.root == Root::Before {
         walk.mark(1, 1, Level::Hint, "The text is empty. The text of an object is a map with its kind and metadata.");
     }
+    walk.dropped
 }
 
 /// Where the walk is in the first document.
@@ -56,6 +58,10 @@ struct Walk<'a> {
     stack: Vec<Frame>,
     root: Root,
     marks: &'a mut Vec<Mark>,
+    /// The count of errors and of hints that `marks` can still take.
+    room: (usize, usize),
+    /// The count of marks past that room.
+    dropped: usize,
 }
 
 impl Walk<'_> {
@@ -156,6 +162,15 @@ impl Walk<'_> {
     }
 
     fn mark(&mut self, line: usize, column: usize, level: Level, text: &str) {
+        let room = match level {
+            Level::Error => &mut self.room.0,
+            Level::Hint => &mut self.room.1,
+        };
+        if *room == 0 {
+            self.dropped += 1;
+            return;
+        }
+        *room -= 1;
         self.marks.push(Mark { line, column, level, text: text.to_owned() });
     }
 }

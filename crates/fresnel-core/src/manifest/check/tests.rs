@@ -107,3 +107,15 @@ fn a_check_keeps_500_marks_and_counts_the_others() {
     assert_eq!((check.marks.len(), check.more), (500, 100));
     assert_eq!(check.marks.first().map(|mark| mark.line), Some(7), "the first places");
 }
+
+/// A hint never hides that the parser refuses a text: an error after more hints than the
+/// limit stays in the check, and the hints give it their room.
+#[test]
+fn an_error_after_more_hints_than_the_limit_stays_in_the_check() {
+    let lines: String = (0..600).map(|number| format!("  k{number}: yes\n")).collect();
+    let check = check(&format!("{DEPLOYMENT}  labels:\n{lines}  name: api\n"), &web());
+    assert!(check.has_error(), "the second name of the metadata");
+    assert_eq!((check.marks.len(), check.more), (500, 102), "600 hints, the hint of the name and the error");
+    let last = check.marks.last().map(|mark| (mark.line, mark.column, mark.level));
+    assert_eq!(last, Some((607, 3, Level::Error)), "the marks stay in the sequence of their places");
+}
