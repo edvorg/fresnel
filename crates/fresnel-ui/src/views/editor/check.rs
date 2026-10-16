@@ -3,8 +3,10 @@
 //!
 //! The editors share one worker, which starts with the first check. Only the tab on the
 //! screen asks, and a result carries the identity of its request: a result for a text that
-//! changed since, or for an other tab, has no reader. A text that is not checked yet keeps
-//! the marks of its last check.
+//! changed since, or for an other tab, has no reader. The mailbox of the worker holds one
+//! request, so the request of a tab takes the place of the request of an other tab, or takes
+//! its result: that tab asks again when it shows. A text that is not checked yet keeps the
+//! marks of its last check.
 
 use std::sync::Arc;
 
@@ -25,6 +27,8 @@ pub(super) struct Checker {
     worker: Option<Worker<Job, Check>>,
     /// The number of the last request.
     query: u64,
+    /// The last request: each one before it has no result.
+    last: Option<RequestId>,
     tasks: Tasks,
     wake: Wake,
 }
@@ -46,12 +50,12 @@ impl TabCheck {
 
 impl Checker {
     pub(super) fn new(tasks: &Tasks, wake: Wake) -> Self {
-        Self { worker: None, query: 0, tasks: tasks.clone(), wake }
+        Self { worker: None, query: 0, last: None, tasks: tasks.clone(), wake }
     }
 
-    /// Asks for the check of a text of a tab when its last request was for an other
-    /// generation, and takes the result of the worker. `text` gives the text only when the
-    /// check needs it.
+    /// Takes the result of the worker, and asks for the check of a text of a tab whose marks
+    /// are of an other generation, unless the last request is for this one. `text` gives the
+    /// text only when the check needs it.
     pub(super) fn follow(
         &mut self,
         tab: (u64, &mut TabCheck),
@@ -70,17 +74,58 @@ impl Checker {
                 _ => worker.discard(done.output),
             }
         }
-        if check.asked.is_none_or(|(_, asked)| asked != generation) {
+        let waits = check.asked.is_some_and(|(id, asked)| asked == generation && self.last == Some(id));
+        if check.is_behind(generation) && !waits {
             self.query += 1;
             let id = RequestId { query: self.query, data: number };
             let (text, identity) = text();
             worker.submit(id, Job { text: text.into(), identity });
-            check.asked = Some((id, generation));
+            (check.asked, self.last) = (Some((id, generation)), Some(id));
         }
     }
 
     /// Why the worker does not check now, if it does not.
     pub(super) fn failure(&self) -> Option<String> {
         self.worker.as_ref().and_then(Worker::failure)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::{Receiver, channel};
+
+    use fresnel_core::kinds::Kind;
+    use fresnel_core::store::ObjectKey;
+
+    use super::*;
+    use crate::testing::{LIMIT, TestTasks};
+
+    /// Follows a tab until it has the check of its text.
+    fn checked(checker: &mut Checker, woken: &Receiver<()>, tab: (u64, &mut TabCheck), job: &(String, Identity)) {
+        let (number, check) = tab;
+        checker.follow((number, &mut *check), 1, || job.clone());
+        while check.is_behind(1) {
+            woken.recv_timeout(LIMIT).expect("a result of the worker");
+            checker.follow((number, &mut *check), 1, || job.clone());
+        }
+    }
+
+    /// The second tab shows while the worker checks the text of the first one: its request
+    /// takes the place of the first one, or its result. The first tab asks again when it
+    /// shows, and gets its check.
+    #[test]
+    fn a_tab_whose_request_an_other_tab_took_asks_again() {
+        let bed = TestTasks::new();
+        let (sender, woken) = channel();
+        let mut checker = Checker::new(&bed.tasks, Arc::new(move || if sender.send(()).is_err() {}));
+        let identity = Identity { kind: Kind::Pod, key: ObjectKey::new("shop", "web") };
+        let valid = ("kind: Pod\nmetadata: {name: web, namespace: shop}\n".to_owned(), identity.clone());
+        let invalid = ("kind: [Pod\n".to_owned(), identity);
+        let (mut first, mut second) = (TabCheck::default(), TabCheck::default());
+        checker.follow((1, &mut first), 1, || valid.clone());
+        checked(&mut checker, &woken, (2, &mut second), &invalid);
+        checked(&mut checker, &woken, (1, &mut first), &valid);
+        let errors = |check: &TabCheck| check.done.as_ref().map(|(_, done)| done.has_error());
+        assert_eq!((errors(&first), errors(&second)), (Some(false), Some(true)), "each tab has the check of its text");
     }
 }
