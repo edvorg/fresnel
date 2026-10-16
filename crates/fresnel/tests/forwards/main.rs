@@ -103,7 +103,7 @@ fn a_forward_from_the_window_carries_bytes_shows_a_break_and_recovers() {
     window.run();
     let address = address(window).expect("a local address");
     echo(address, b"GET / HTTP/1.0\r\n\r\n").expect("the bytes of the pod");
-    until(window, "the counts", |window| shows(window, "0 open, 1 in all") && shows(window, "↑ 18 ↓ 18"));
+    until(window, "the counts", |window| shows(window, "0 open, 1 in all") && shows(window, "18 sent, 18 received"));
 
     bed.proxy.set(ProxyMode::Freeze);
     let silent = Instant::now();

@@ -1,6 +1,6 @@
-//! The Forwards tab: each forward with its state, its pod, its addresses, its counts, the
-//! age of the data of its target and its last error, the buttons of the chosen one, the
-//! counts of the status bar and the key of the tab.
+//! The Forwards tab: a line of each forward with its state, its target, its address and its
+//! pod, the chosen one in full with its buttons, the counts of the status bar and the key of
+//! the tab.
 
 use egui_kittest::kittest::NodeT as _;
 use fresnel_core::config::forwards::{forget_edit, save_edits};
@@ -17,33 +17,51 @@ fn opened_url(window: &Window) -> Option<String> {
     })
 }
 
+/// Clicks a widget after a scroll to it: the panel of the chosen forward scrolls in a short
+/// dock.
 fn click(window: &mut Window, label: &str) {
+    window.get_by_label(label).scroll_to_me();
+    window.run();
     window.get_by_label(label).click();
     window.run();
 }
 
+/// The list has one short line of each forward; the panel of the chosen one has its full
+/// state, its addresses, its counts, the age of the data of its target and its last error.
 #[test]
-fn the_tab_shows_each_forward_with_its_state_pod_addresses_counts_data_and_last_error() {
-    let window = tab_window(forwards());
-    let texts = [
+fn the_tab_lists_each_forward_and_shows_the_chosen_one_in_full() {
+    let mut window = tab_window(forwards());
+    let list = [
         "4 forwards: 1 active, 1 degraded, 1 failed, 1 reconnecting",
         "active",
-        "reconnecting, attempt 3, next in 4 s: requests: connect: no answer in 10s",
-        "failed: the local port 5432 is in use: an other program listens on 127.0.0.1:5432",
-        "degraded: the StatefulSet shop/cache has no pod that runs",
+        "reconnecting, next in 4 s",
+        "failed",
+        "degraded",
         "Service shop/web port 80",
         "Deployment shop/api port 9090",
-        "127.0.0.1:8080, [::1]:8080",
+        "127.0.0.1:8080",
+        "127.0.0.1:49152",
         "web-6888b778b6-75md7:8080",
-        "2 open, 14 in all",
-        "0 open, 3 in all, 1 reset",
-        "↑ 12Mi ↓ 300Ki",
-        "current",
-        "old for 48 s: the Pods are not live",
-        "12 s ago: a tunnel broke: silent: no frame for 15.0 s",
         "fra-prod",
     ];
-    assert_eq!(absent(&window, &texts), Vec::<&str>::new());
+    assert_eq!(absent(&window, &list), Vec::<&str>::new());
+    // The first forward is the chosen one.
+    let web = ["127.0.0.1:8080, [::1]:8080", "2 open, 14 in all", "12Mi sent, 300Ki received", "current"];
+    assert_eq!(absent(&window, &web), Vec::<&str>::new());
+    assert!(shows(&window, "yes, in config.toml"), "a saved forward");
+
+    click(&mut window, "Forward of Deployment shop/api port 9090 in fra-prod");
+    let api = [
+        "reconnecting, attempt 3, next in 4 s: requests: connect: no answer in 10s",
+        "0 open, 3 in all, 1 reset",
+        "old for 48 s: the Pods are not live",
+        "12 s ago: a tunnel broke: silent: no frame for 15.0 s",
+    ];
+    assert_eq!(absent(&window, &api), Vec::<&str>::new());
+    click(&mut window, "Forward of Pod shop/db-0 port 5432 in ams-prod");
+    assert!(shows(&window, "failed: the local port 5432 is in use: an other program listens on 127.0.0.1:5432"));
+    click(&mut window, "Forward of StatefulSet shop/cache port 6379 in ams-prod");
+    assert!(shows(&window, "degraded: the StatefulSet shop/cache has no pod that runs"));
 }
 
 #[test]
@@ -60,6 +78,8 @@ fn the_buttons_of_the_chosen_forward_send_its_commands_and_copy_and_open_its_add
     let mut window = tab_window(rows);
     // The first forward is the chosen one: it runs and is saved.
     let web = "Service shop/web port 80 in ams-prod";
+    window.get_by_label(&format!("Copy address: {web}")).scroll_to_me();
+    window.run();
     window.get_by_label(&format!("Copy address: {web}")).click();
     window.step();
     assert_eq!(copied(&window).as_deref(), Some("127.0.0.1:8080"));
