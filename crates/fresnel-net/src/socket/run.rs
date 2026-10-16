@@ -211,6 +211,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Run<S> {
             Message::Binary(data) => {
                 self.board.counts().received(data.len());
                 match self.delivery.try_send(data) {
+                    // Closed: the owner dropped the socket, and the drop aborts this task.
                     Ok(()) | Err(TrySendError::Closed(_)) => {}
                     Err(TrySendError::Full(data)) => {
                         self.held = Some(data);

@@ -1,6 +1,6 @@
 //! The tunnel of a port forward: the bytes of a port in each direction, and a closed port.
 
-use fresnel_core::net::SocketEnd;
+use fresnel_core::net::{SocketEnd, SocketState};
 use fresnel_core::stream::{Tunnel, TunnelEnd};
 use http::header::SEC_WEBSOCKET_PROTOCOL;
 
@@ -51,4 +51,45 @@ async fn a_closed_port_ends_the_tunnel_with_the_text_of_the_node() {
     let text = "error forwarding port 1 to pod web: dial tcp4 127.0.0.1:1: connection refused";
     assert_eq!(tunnel.end(), Some(TunnelEnd::Refused(text.to_owned())));
     assert_eq!(entries(&journal), Vec::<String>::new(), "a tunnel has no entry of its own: its forward has");
+}
+
+/// Plan section 15, M5: an upload to a slow pod completes. The pod reads in short bursts with
+/// pauses longer than the limit of a ping, while the channels of the cluster answer. A pod of
+/// the fake server that pauses reads nothing at all, also no ping, so the pauses end with the
+/// upload: a real one reads on until its buffers are full.
+#[tokio::test]
+async fn an_upload_to_a_pod_that_reads_in_bursts_completes_with_no_break() {
+    let bed = Bed::start(short_pings()).await;
+    let mut tunnel = Tunnel::open(&bed.link.gateway, &pod(), 8080, journal()).await.expect("a tunnel");
+    let sent: Vec<u8> = (0..16 * 1024 * 1024).map(|byte: u32| byte.to_le_bytes()[2]).collect();
+    let writer = tunnel.writer();
+    let write = async { writer.send(&sent).await.expect("the data") };
+    let waited = std::cell::Cell::new(0);
+    let slow_pod = async {
+        loop {
+            bed.server.hold_streams(true);
+            tokio::time::sleep(3 * SECOND).await;
+            waited.set(waited.get() + bed.link.net.status().upgrade.sockets.write_waits);
+            bed.server.hold_streams(false);
+            tokio::time::sleep(SECOND / 20).await;
+        }
+    };
+    let read = async {
+        let mut back = Vec::new();
+        while back.len() < sent.len() {
+            back.extend_from_slice(&in_time("the data of the port", tunnel.next()).await.expect("data"));
+        }
+        back
+    };
+    let until_read = async {
+        tokio::select! {
+            back = read => back,
+            () = slow_pod => unreachable!("the pod pauses until the end of the read"),
+        }
+    };
+    let ((), back) = tokio::join!(write, until_read);
+    bed.server.hold_streams(false);
+    assert!(back == sent, "each byte comes back in its sequence");
+    assert!(waited.get() >= 2, "the pauses of the pod made the write wait: {}", waited.get());
+    assert_eq!((tunnel.state(), bed.link.net.status().upgrade.sockets.failed), (SocketState::Open, 0));
 }

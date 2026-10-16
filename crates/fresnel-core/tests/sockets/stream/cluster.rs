@@ -2,7 +2,8 @@
 
 use std::time::Instant;
 
-use fresnel_core::net::{SocketEnd, SocketFailure, SocketState};
+use fresnel_core::net::{Cause, SocketFailure, SocketState};
+use fresnel_core::stream::{Tunnel, TunnelEnd};
 
 use super::*;
 use crate::bed::ProxyBed;
@@ -15,6 +16,29 @@ fn staggered_channel_pings() -> NetSettings {
         (lane.keepalive_interval, lane.keepalive_timeout) = (after * SECOND, SECOND);
     }
     settings
+}
+
+/// Plan section 8.12: a wake of the cluster tests each socket with a ping of a short limit,
+/// so a socket on a dead connection ends long before its own ping is due.
+#[tokio::test]
+async fn a_wake_of_the_cluster_tests_each_socket_with_its_short_limit() {
+    let socket = SocketSettings {
+        ping_after: 60 * SECOND,
+        answer_limit: 60 * SECOND,
+        test_limit: SECOND,
+        ..short_pings().upgrade.socket
+    };
+    let settings =
+        NetSettings { upgrade: UpgradeSettings { socket, ..UpgradeSettings::default() }, ..NetSettings::default() };
+    let bed = ProxyBed::start("wake-socket", settings).await;
+    let mut session = flowing(&bed.link.gateway, &journal()).await;
+    bed.proxy.silence_open();
+    let woke = Instant::now();
+    bed.link.net.signal().raise(Cause::Wake);
+    assert_eq!(output(&mut session).await, (Vec::new(), Vec::new()));
+    let end = socket_end(&session);
+    assert!(matches!(end, SocketEnd::Failed(SocketFailure::Silent { .. })), "{end:?}");
+    assert!(woke.elapsed() < 3 * SECOND, "the test of the wake ends the socket: {:?}", woke.elapsed());
 }
 
 /// Plan section 12.3: a write that waits for a slow pod is no break while a channel of the
@@ -51,4 +75,28 @@ async fn a_write_that_waits_breaks_on_a_silent_path_also_when_the_channels_conne
     assert!(after < 9 * SECOND, "the break after the channels from before the silence: {after:?}");
     let channels = bed.link.net.status().watches.channels;
     assert!(channels.iter().any(|channel| channel.connections >= 2), "the channels connected again: {channels:?}");
+}
+
+/// Plan section 15, M5: six forwards on one cluster each show a silent path in 20 s or
+/// less. Here each tunnel pings after 1 s and has 1 s for the answer.
+#[tokio::test]
+async fn six_tunnels_of_one_cluster_each_end_on_a_silent_path_in_the_limit_of_their_ping() {
+    let bed = ProxyBed::start("six-tunnels", short_pings()).await;
+    let mut tunnels = Vec::new();
+    for _ in 0..6 {
+        let mut tunnel = Tunnel::open(&bed.link.gateway, &pod(), 8080, journal()).await.expect("a tunnel");
+        tunnel.writer().send(b"ready").await.expect("the data");
+        assert_eq!(in_time("the echo", tunnel.next()).await.as_deref(), Some(&b"ready"[..]));
+        tunnels.push(tunnel);
+    }
+    let silenced = Instant::now();
+    bed.proxy.silence_open();
+    for tunnel in &mut tunnels {
+        assert_eq!(in_time("the end of a tunnel", tunnel.next()).await, None);
+        let end = tunnel.end();
+        assert!(matches!(end, Some(TunnelEnd::Socket(SocketEnd::Failed(SocketFailure::Silent { .. })))), "{end:?}");
+        assert!(silenced.elapsed() < 4 * SECOND, "each silence shows in its limit: {:?}", silenced.elapsed());
+    }
+    let sockets = bed.link.net.status().upgrade.sockets;
+    assert_eq!((sockets.opened, sockets.silent, sockets.open), (6, 6, 0));
 }

@@ -5,27 +5,10 @@
 use std::time::Instant;
 
 use fresnel_core::net::{ErrorClass, Limits, SocketEnd, SocketFailure, SocketState};
-use fresnel_core::stream::ExecEnd;
 use fresnel_testkit::ProxyMode;
 
 use super::*;
 use crate::bed::ProxyBed;
-
-/// The end of a session that read its output to the end.
-fn socket_end(session: &ExecSession) -> SocketEnd {
-    match session.end() {
-        Some(ExecEnd::Socket(end)) => end,
-        other => panic!("an end of the socket: {other:?}"),
-    }
-}
-
-/// Opens a shell and proves that its bytes flow.
-async fn flowing(gateway: &fresnel_core::cluster::Gateway, journal: &Journal) -> ExecSession {
-    let mut session = ExecSession::open(gateway, &sh(), journal.clone()).await.expect("an exec");
-    session.input().send(b"echo ready\n").await.expect("the input");
-    assert!(matches!(in_time("the echo", session.next()).await, Some(Output::Stdout(_))));
-    session
-}
 
 /// Plan section 15, M5 and M10: a silent exec connection shows in 20 s or less; here the
 /// ping comes after 1 s and has 1 s for its answer.

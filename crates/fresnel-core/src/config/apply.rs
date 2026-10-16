@@ -145,6 +145,7 @@ mod tests {
         let mut config = Config::default();
         for (id, value) in [
             (S::Keepalive, 20),
+            (S::PingTimeout, 7),
             (S::ConnectionWindow, 64),
             (S::PageSize, 100),
             (S::WatchSpread, 0),
@@ -159,8 +160,10 @@ mod tests {
         config.values.insert(S::PluginFolders, Value::List(vec!["~/bin".to_owned(), "/opt/bin".to_owned()]));
         let settings = apply(&config, &CoreSettings::default(), Some(Path::new("/Users/tester")));
         let lanes = [&settings.net.watches, &settings.net.requests, &settings.net.logs];
-        assert!(lanes.iter().all(|lane| lane.keepalive_interval == Duration::from_secs(20)));
-        assert_eq!(settings.net.upgrade.socket.ping_after, Duration::from_secs(20), "a socket pings as a channel");
+        let ping = (Duration::from_secs(20), Duration::from_secs(7));
+        assert!(lanes.iter().all(|lane| (lane.keepalive_interval, lane.keepalive_timeout) == ping));
+        let socket = &settings.net.upgrade.socket;
+        assert_eq!((socket.ping_after, socket.answer_limit), ping, "a socket pings as a channel");
         assert_eq!((settings.net.watches.connection_window, settings.net.logs.connection_window), (64 << 20, 64 << 20));
         assert_eq!(settings.net.requests.connection_window, 1 << 30, "the reads keep their own window");
         assert_eq!(settings.net.connect.hedge_min, Duration::from_millis(300));

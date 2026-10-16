@@ -12,10 +12,11 @@ mod tunnel;
 
 use std::time::Duration;
 
+use fresnel_core::cluster::Gateway;
 use fresnel_core::journal::Journal;
-use fresnel_core::net::{NetSettings, SocketCounts, SocketSettings, UpgradeSettings, WallClock};
+use fresnel_core::net::{NetSettings, SocketCounts, SocketEnd, SocketSettings, UpgradeSettings, WallClock};
 use fresnel_core::store::ObjectKey;
-use fresnel_core::stream::{Exec, ExecSession, Output};
+use fresnel_core::stream::{Exec, ExecEnd, ExecSession, Output};
 
 use crate::bed::Bed;
 use crate::common::{in_time, until};
@@ -68,4 +69,20 @@ async fn output(session: &mut ExecSession) -> (Vec<u8>, Vec<u8>) {
 /// The counters of the sockets of the cluster when no socket is open.
 async fn closed_sockets(bed: &Bed) -> SocketCounts {
     until(&bed.link, "each socket ended", |status| status.upgrade.sockets.open == 0).await.upgrade.sockets
+}
+
+/// Opens a shell and proves that its bytes flow.
+async fn flowing(gateway: &Gateway, journal: &Journal) -> ExecSession {
+    let mut session = ExecSession::open(gateway, &sh(), journal.clone()).await.expect("an exec");
+    session.input().send(b"echo ready\n").await.expect("the input");
+    assert!(matches!(in_time("the echo", session.next()).await, Some(Output::Stdout(_))));
+    session
+}
+
+/// The end of a session that read its output to the end.
+fn socket_end(session: &ExecSession) -> SocketEnd {
+    match session.end() {
+        Some(ExecEnd::Socket(end)) => end,
+        other => panic!("an end of the socket: {other:?}"),
+    }
 }

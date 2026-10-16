@@ -38,7 +38,8 @@ async fn a_peer_that_answers_each_ping_keeps_a_quiet_socket_open() {
 }
 
 /// The cluster stops to answer while a write waits: the wait was no proof of a live
-/// connection, and the change of the path ends it at once.
+/// connection, and the change of the path ends it at once. The socket asks the path each
+/// 5 s from 15 s on, so the change at 42 s shows only through the notice of the change.
 #[tokio::test(start_paused = true)]
 async fn a_write_that_waits_breaks_when_the_cluster_does_not_answer_either() {
     let bed = Bed::start().await;
@@ -47,11 +48,11 @@ async fn a_write_that_waits_breaks_when_the_cluster_does_not_answer_either() {
     let writer = bed.socket.writer();
     let write = async { while writer.send(piece.clone()).await.is_ok() {} };
     let fault = async {
-        tokio::time::sleep(40 * SECOND).await;
+        tokio::time::sleep(42 * SECOND).await;
         bed.set_path(DOWN);
     };
     let (end, (), ()) = tokio::join!(bed.end(start), write, fault);
-    assert_eq!(end, (silent(40 * SECOND), 40 * SECOND));
+    assert_eq!(end, (silent(42 * SECOND), 42 * SECOND));
 }
 
 #[tokio::test(start_paused = true)]
