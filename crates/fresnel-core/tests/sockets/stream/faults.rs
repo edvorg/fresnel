@@ -11,8 +11,6 @@ use fresnel_testkit::ProxyMode;
 use super::*;
 use crate::bed::ProxyBed;
 
-const SECOND: Duration = Duration::from_secs(1);
-
 /// The end of a session that read its output to the end.
 fn socket_end(session: &ExecSession) -> SocketEnd {
     match session.end() {

@@ -248,9 +248,10 @@ with no answer in 5 s, a bounded queue in each direction and a state with its en
 ## A peer that reads nothing is no break while a channel of its cluster is live
 
 Plan section 12.3: a write that waits for a slow pod is not a break. A ping behind a waiting write
-gets no answer, so one live channel of the cluster decides: the API server answers, the socket
-waits and shows it, and a change of the channels decides again at once. A connection that alone
-went silent during an upload thus waits too, with the state of a wait, until the user closes it.
+gets no answer, so a channel that has been live since the last frame of the socket decides, at
+each limit and change. A channel that connected again since does not count: a silent path ends
+each old connection while new ones work. A connection that alone went silent during an upload
+waits until the user closes it.
 
 ## A ping counts the data bytes before it
 

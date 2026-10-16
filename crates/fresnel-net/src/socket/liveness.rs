@@ -11,7 +11,7 @@
 //! A full queue of the caller stops the read of the socket, so no frame can arrive. The count
 //! of the silence starts again when the read goes on.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use tokio::time::Instant;
 
@@ -46,6 +46,8 @@ pub(super) struct Liveness {
     answer_limit: Duration,
     /// The last frame, or the end of a pause of the read.
     heard: Instant,
+    /// The same moment on the wall clock, which the states of the channels have.
+    heard_at: SystemTime,
     ping: Option<Ping>,
     paused: bool,
     /// A live path let the ping wait behind a write, so a change of the path decides again.
@@ -54,12 +56,21 @@ pub(super) struct Liveness {
 
 impl Liveness {
     pub(super) fn new(now: Instant, ping_after: Duration, answer_limit: Duration) -> Self {
-        Self { ping_after, answer_limit, heard: now, ping: None, paused: false, on_path: false }
+        Self {
+            ping_after,
+            answer_limit,
+            heard: now,
+            heard_at: SystemTime::now(),
+            ping: None,
+            paused: false,
+            on_path: false,
+        }
     }
 
     /// A frame arrived. It answers each ping.
     pub(super) fn heard(&mut self, now: Instant) {
         self.heard = now;
+        self.heard_at = SystemTime::now();
         self.ping = None;
         self.on_path = false;
     }
@@ -137,6 +148,11 @@ impl Liveness {
     /// The time since the last frame.
     pub(super) fn quiet(&self, now: Instant) -> Duration {
         now.saturating_duration_since(self.heard)
+    }
+
+    /// The wall clock time of the last frame.
+    pub(super) fn heard_at(&self) -> SystemTime {
+        self.heard_at
     }
 }
 

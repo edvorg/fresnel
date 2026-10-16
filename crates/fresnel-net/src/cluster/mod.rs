@@ -9,6 +9,7 @@ mod service;
 
 use std::sync::{Arc, Weak};
 use std::task::{Context, Poll};
+use std::time::SystemTime;
 
 use bytes::Bytes;
 use futures_util::FutureExt as _;
@@ -21,7 +22,7 @@ use crate::body::ResponseBody;
 use crate::changes::{Changed, Changes};
 use crate::channel::group::{Group, GroupStatus};
 use crate::channel::outage::{Outage, OutageSettings, OutageStatus};
-use crate::channel::{ChannelSettings, ChannelState, Parts, Purpose};
+use crate::channel::{ChannelSettings, ChannelState, ChannelStatus, Parts, Purpose};
 use crate::clock::WallClock;
 use crate::connect::dial::Protocol;
 use crate::connect::{ConnectSettings, ConnectStatus, Connector, Dial, Endpoint};
@@ -288,16 +289,18 @@ impl Cluster {
     }
 }
 
-/// The path of the sockets of a cluster: its channels. A live channel shows that the cluster
-/// answers, so the write of a socket that waits waits for its peer and not for the network.
-/// A socket does not keep the channels of a cluster that is gone: then no path is live.
+/// The path of the sockets of a cluster: its channels. A channel that has been live since the
+/// last frame of a socket shows that the path of that time answers, so the write of a socket
+/// that waits waits for its peer and not for the network. A socket does not keep the channels
+/// of a cluster that is gone: then no path is live.
 struct ChannelPath([Weak<Group>; 3]);
 
 impl Path for ChannelPath {
-    fn live(&self) -> bool {
-        let live =
-            |group: Arc<Group>| group.status().channels.iter().any(|channel| channel.state == ChannelState::Live);
-        self.0.iter().filter_map(Weak::upgrade).any(live)
+    fn live_since(&self, since: SystemTime) -> bool {
+        // `since` of a live channel is the time when its connection got its first answer.
+        let from_before = |channel: &ChannelStatus| channel.state == ChannelState::Live && channel.since <= since;
+        let any = |group: Arc<Group>| group.status().channels.iter().any(from_before);
+        self.0.iter().filter_map(Weak::upgrade).any(any)
     }
 }
 

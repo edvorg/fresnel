@@ -184,8 +184,10 @@ impl std::fmt::Debug for SocketSpec {
 
 /// Tells a socket whether its cluster answers: then a write that waits is not a break.
 pub(crate) trait Path: Send + Sync + 'static {
-    /// True while a channel of the cluster is live.
-    fn live(&self) -> bool;
+    /// True while a channel of the cluster has been live since `since`, the last frame of the
+    /// socket, or longer. A channel that connected again after it proves a new path, not the
+    /// one of the socket: a silent path ends each connection, and new ones work.
+    fn live_since(&self, since: SystemTime) -> bool;
 }
 
 /// What the sockets of one cluster share.

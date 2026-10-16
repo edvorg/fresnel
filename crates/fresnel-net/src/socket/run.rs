@@ -324,7 +324,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Run<S> {
                 None
             }
             Due::Silent if self.sent.saturating_sub(self.confirmed) < UNREAD => Some(self.silent(now)),
-            Due::Silent | Due::AskPath if self.path.live() => {
+            Due::Silent | Due::AskPath if self.path.live_since(self.live.heard_at()) => {
                 self.live.path_live(now);
                 self.behind = true;
                 None
@@ -348,10 +348,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Run<S> {
         }
     }
 
-    /// The cluster changed while the peer is behind. With no live channel, the silence of the
-    /// socket is a break.
+    /// The cluster changed while the peer is behind. With no channel that has been live since
+    /// the last frame, the silence of the socket is a break.
     fn path_changed(&mut self) -> Option<SocketEnd> {
-        (!self.path.live()).then(|| self.silent(Instant::now()))
+        (!self.path.live_since(self.live.heard_at())).then(|| self.silent(Instant::now()))
     }
 
     fn silent(&self, now: Instant) -> SocketEnd {

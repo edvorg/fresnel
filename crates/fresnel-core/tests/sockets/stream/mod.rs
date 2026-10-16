@@ -3,8 +3,9 @@
 //!
 //! - `exec`: the channels of exec and attach, the exit and the journal.
 //! - `tunnel`: the port forward. `faults`: silent, reset and held connections, and a pod
-//!   that reads nothing.
+//!   that reads nothing. `cluster`: the signal and the channels of the cluster of a socket.
 
+mod cluster;
 mod exec;
 mod faults;
 mod tunnel;
@@ -18,6 +19,8 @@ use fresnel_core::stream::{Exec, ExecSession, Output};
 
 use crate::bed::Bed;
 use crate::common::{in_time, until};
+
+const SECOND: Duration = Duration::from_secs(1);
 
 /// The pod of the fake server.
 fn pod() -> ObjectKey {

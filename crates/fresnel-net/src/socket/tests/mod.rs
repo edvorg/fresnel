@@ -14,7 +14,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use bytes::Bytes;
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -44,7 +44,7 @@ const DOWN: u8 = 1;
 const PANICS: u8 = 2;
 
 impl Path for TestPath {
-    fn live(&self) -> bool {
+    fn live_since(&self, _since: SystemTime) -> bool {
         let path = self.0.load(Ordering::Relaxed);
         assert_ne!(path, PANICS, "a defect in the path");
         path == LIVE
