@@ -95,7 +95,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Logs** (`logs`): a session for each view of `ShowLogs` runs a source for each container, whose
   new stream starts at the second of its latest line with a marker; `SaveLog` writes a new file.
 - **Terminal** (`terminal`): the screen of `alacritty_terminal` behind a fair lock and a guard of
-  its parser; a session (`remote`) runs an exec or an attach for it, and ends its shell at a close.
+  its parser; a session (`remote`) runs its exec or attach, and ends its shell at a close or a quit.
 - **Operations** (`ops`): a function builds each request of plan section 10, with a unit test of
   its URL and body. An `Order` is a job in its own task, with steps and a state, not two at once;
   the jobs of a text run in turn. A write goes out one time; an unknown result gets a read. A

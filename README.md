@@ -22,7 +22,7 @@ The cluster overview in the light theme, and the connections of prod-us, which t
 
 ## Status
 
-Milestones M0 to M4 and M6 to M11 are complete; the last one, M5, adds the forwards. The core
+Milestones M0 to M4 and M6 to M11 are complete; M5, the forwards, is the one left. The core
 has the kubeconfig, gateway, journal, settings, 41 kinds, stores, indexes, search, commands, jobs,
 metrics, logs, terminals, editors and notices, and the window a view of each with its actions.
 

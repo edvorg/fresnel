@@ -1968,6 +1968,35 @@ Ctrl-D, waits 1 s, then closes. A shell of the app gets a hangup through a secon
 process that carries the session mark `FRESNEL_TERMINAL`, which the launch exported; a kill
 follows for a process of `nohup`. An attach only closes: its process is not one of the app.
 
+## The quit ends the programs of the terminals, 5 s at most
+
+The stop of the task of a session left its shell in the pod, and the privileged pod of a node
+shell on its node (terminal review). The quit sequence now closes each session first and waits
+5 s at most: Ctrl-D and its wait of 1 s, the close of the stream, and the second exec, whose
+hangup waits 1 s before its kill. After that limit, the journal has a warning.
+
+## A shell that no stream reached ends at the close of its tab
+
+A debug container runs its shell from its start, with an open input. When the attach to it
+failed, nothing ended that shell (terminal review). The session now handles it as a shell after
+a broken stream: the line tells that it can still run, and the close of the tab sends the hangup.
+A close before the start of a node shell deletes its pod at once, after its create: a cut create
+could leave the pod.
+
+## An attach to a container with no input refuses the keys
+
+The server takes no input for a container whose spec has no stdin, and the session dropped each
+key with no sign (terminal review). The terminal now refuses a key and a paste with the reason,
+which the tab shows, and counts each answer of its parser as lost.
+
+## The terminal actions need the verbs of their requests
+
+The gate of a terminal action asks the rules for each request of its session: a shell `create
+pods/exec`, an attach `create pods/attach`, a debug container `patch pods/ephemeralcontainers` and
+the attach, a node shell `create`, `create pods/attach` and `delete` of pods in the namespace of
+its setting, which the view gives to `access::needs`. Before, a forbidden terminal showed as
+possible and failed on its tab (terminal review).
+
 ## A node shell is a privileged pod with nsenter, deleted at the end
 
 A node shell creates a pod on the node (host PID, IPC and network, a toleration of each taint,
