@@ -84,7 +84,11 @@ pub(super) fn resolve(
     };
     candidates.retain(|candidate| !avoid.contains(&candidate.target.uid));
     let any_ready = candidates.iter().any(|candidate| candidate.target.ready);
-    let fits = |candidate: &Candidate| keep == Some(&candidate.target) && (candidate.target.ready || !any_ready);
+    // The pod of now is the same pod and port, also after a change of its readiness.
+    let same = |candidate: &Candidate| {
+        keep.is_some_and(|keep| (&keep.uid, keep.port) == (&candidate.target.uid, candidate.target.port))
+    };
+    let fits = |candidate: &Candidate| same(candidate) && (candidate.target.ready || !any_ready);
     if let Some(kept) = candidates.iter().find(|candidate| fits(candidate)) {
         return Resolution::Pod(kept.target.clone());
     }

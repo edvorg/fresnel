@@ -231,6 +231,22 @@ fn the_pod_of_now_stays_while_it_fits_and_a_pod_that_failed_its_open_waits() {
     assert_eq!(target(resolve(&kept, &inputs(found()), Some(&slow), &[])).pod.name, first.pod.name);
 }
 
+/// A pod of now that is no longer ready stays while no other pod is ready: a forward does
+/// not move to an other pod that is not ready either.
+#[test]
+fn the_pod_of_now_stays_when_it_and_each_other_pod_are_not_ready() {
+    let not_ready = |name: &str| {
+        fixture::changed::<Pod>(name, |value: &mut Value| fixture::condition(value, "Ready")["status"] = json!("False"))
+    };
+    let mut pods: Vec<Pod> = fixture::all();
+    pods.retain(|pod| ![WEB_A, WEB_B].contains(&pod.metadata.name.as_deref().unwrap_or_default()));
+    pods.extend([not_ready(WEB_A), not_ready(WEB_B)]);
+    let scene = Scene::of(pods, fixture::all());
+    let was_ready = TargetPod { ready: true, ..target(Scene::fixture().resolve::<Pod>(WEB_B, 80)) };
+    let kept = target(scene.resolve_with::<Deployment>("web", 80, Some(&was_ready), &[]));
+    assert_eq!((&*kept.pod.name, kept.ready), (WEB_B, false));
+}
+
 #[test]
 fn a_store_with_no_complete_list_gives_no_answer() {
     let mut scene = Scene::fixture();
