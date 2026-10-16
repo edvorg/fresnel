@@ -119,3 +119,35 @@ fn an_error_after_more_hints_than_the_limit_stays_in_the_check() {
     let last = check.marks.last().map(|mark| (mark.line, mark.column, mark.level));
     assert_eq!(last, Some((607, 3, Level::Error)), "the marks stay in the sequence of their places");
 }
+
+/// The server drops the namespace of an object of a kind with none, and refuses no text for it.
+#[test]
+fn a_namespace_of_an_object_of_a_kind_with_none_is_a_hint_that_the_server_drops_it() {
+    let node = Identity { kind: Kind::Node, key: ObjectKey::new("", "worker") };
+    let check = check("apiVersion: v1\nkind: Node\nmetadata:\n  name: worker\n  namespace: shop\n", &node);
+    let found: Vec<(usize, usize, Level, String)> =
+        check.marks.into_iter().map(|mark| (mark.line, mark.column, mark.level, mark.text)).collect();
+    assert_eq!(found, [(5, 14, Level::Hint, "A Node has no namespace: the server drops this one.".to_owned())]);
+}
+
+/// The column of a mark counts characters, as the editor does: a letter of two bytes is one.
+#[test]
+fn the_column_of_a_mark_counts_characters() {
+    let text = format!("{DEPLOYMENT}  labels:\n    größe: yes\n    ü: größe: x\n");
+    let found: Vec<(usize, usize, Level)> =
+        marks(&text).into_iter().map(|(line, column, level, _)| (line, column, level)).collect();
+    assert_eq!(found, [(7, 12, Level::Hint), (8, 13, Level::Error)], "bytes would give 14 and 16");
+}
+
+/// Plan section 15, M11: the forms of YAML that kubectl reads give no error: a document
+/// start, comments, an anchor with a merge key, flow maps, a tag, plain and folded texts on
+/// more lines, and a base64 value on lines of its own.
+#[test]
+fn the_forms_of_valid_yaml_give_no_error() {
+    let text = "--- # the object\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: shop\n  \
+                labels: &labels {app: web, \"tier\": front}\n  annotations:\n    mode: !!str 0644\n    note: a text \
+                on\n      two lines\n    folded: >\n      one\n      line\nspec:\n  selector:\n    matchLabels:\n      \
+                <<: *labels\n  data: !!binary |\n    aGVs\n    bG8=\n";
+    let check = check(text, &web());
+    assert!(!check.has_error() && check.marks.is_empty(), "{check:?}");
+}

@@ -5,7 +5,8 @@
 //!   text: `yes`, `0644`, `1_000` (research 05 section 6.3).
 //! - A plain key of that form: kubectl reads it as the boolean or the number and sends that
 //!   text, the app sends the key as it is.
-//! - A kind, a name or a namespace that is not the one of the object of the editor.
+//! - A kind, a name or a namespace that is not the one of the object of the editor, and a
+//!   namespace of an object of a kind with none.
 //! - A text that is empty or not a map.
 //!
 //! A value with the tag `!!binary` that is not base64 is an error: the YAML type `binary`
@@ -138,8 +139,13 @@ impl Walk<'_> {
             None
         };
         if let Some((field, wanted)) = wanted.filter(|(_, wanted)| *wanted != value) {
-            let text =
-                format!("The editor edits the object with the {field} {wanted}. The server refuses an other {field}.");
+            let info = kind.info();
+            // The server drops the namespace of an object of a kind with none.
+            let text = if field == "namespace" && !info.namespaced {
+                format!("A {} has no namespace: the server drops this one.", info.name)
+            } else {
+                format!("The editor edits the object with the {field} {wanted}. The server refuses an other {field}.")
+            };
             self.mark(line, column, Level::Hint, &text);
         }
     }
