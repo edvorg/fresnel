@@ -38,6 +38,15 @@ pub(super) fn pressed(ctx: &Context, keys: &Keys, typing: bool) -> Option<(Comma
     })
 }
 
+/// True when a key of this frame has the Cmd key of macOS: the one key that a terminal leaves
+/// to the app. The event tells it, as the state of the modifiers can lag behind it.
+pub(super) fn with_cmd(ctx: &Context) -> bool {
+    ctx.input(|input| {
+        input.modifiers.mac_cmd
+            || input.events.iter().any(|event| matches!(event, egui::Event::Key { modifiers, .. } if modifiers.mac_cmd))
+    })
+}
+
 fn count(modifiers: Modifiers) -> usize {
     [modifiers.alt, modifiers.ctrl, modifiers.shift, modifiers.command].into_iter().filter(|on| *on).count()
 }

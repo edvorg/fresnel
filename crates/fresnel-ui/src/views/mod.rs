@@ -8,6 +8,7 @@
 //! - `cluster`, `config`, `network`, `access`: the sections of the kinds of these groups.
 //! - `act`: the actions on objects and their dialogs. `operations`: the jobs of the core.
 //! - `logs`: the tabs of the log views. `editor`: the tabs of the manifest editors.
+//!   `terminal`: the tabs of the terminals.
 //! - `overview`: the overviews of the Cluster and the Workloads groups.
 //! - `connections`, `journal`, `settings`: the pages of the app itself. `search`: the quick search.
 //! - `help`: the overlay of the keys.
@@ -33,4 +34,5 @@ pub(crate) mod pod_spec;
 pub(crate) mod pods;
 pub(crate) mod search;
 pub(crate) mod settings;
+pub(crate) mod terminal;
 pub(crate) mod workloads;

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use eframe::egui;
 use fresnel_core::app::CoreView;
-use fresnel_ui::{Clock, Shell};
+use fresnel_ui::{Clock, Shell, TerminalFonts};
 
 use crate::boot::Boot;
 use crate::frame;
@@ -32,6 +32,9 @@ pub(crate) fn run(boot: &Arc<Boot>) -> Result<(), String> {
     let create = move |creation: &eframe::CreationContext<'_>| {
         let ctx = creation.egui_ctx.clone();
         let shell = Shell::new(&ctx, Clock::system(), &boot.core().tasks());
+        let (fonts, problems) = TerminalFonts::of_system();
+        problems.into_iter().for_each(|problem| boot.journal().info("app", problem));
+        fresnel_ui::add_terminal_fonts(&ctx, fonts);
         boot.core().set_notifier(notify::notifier(boot.journal().clone()));
         boot.core().start(move || ctx.request_repaint());
         Ok(Box::new(Window { shell, boot, nap: NapGuard::default() }) as Box<dyn eframe::App>)

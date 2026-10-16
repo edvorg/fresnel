@@ -10,7 +10,7 @@ use crate::widgets::{self, dot};
 
 /// The height of the dock at the first start. The user changes it with the pointer.
 pub(super) const HEIGHT: f32 = 170.0;
-/// The height of the dock with a log view or an editor at the first start: a log and a text
+/// The height of the dock with a log view, an editor or a terminal at the first start: they
 /// need rows, and their tabs have a bar. The dock with one of them keeps a height of its own.
 pub(super) const LOG_HEIGHT: f32 = 380.0;
 /// The smallest dock shows its tab bar only, so the center has the rest of the window.
@@ -26,15 +26,17 @@ pub(crate) enum Tab {
     Logs(u64),
     /// An editor: the identity of its tab.
     Editor(u64),
+    /// A terminal of the core: its identity.
+    Terminal(u64),
 }
 
-/// The title of the tab of a log view or an editor in the tab bar.
+/// The title of the tab of a log view, an editor or a terminal in the tab bar.
 #[derive(Clone, Debug)]
 pub(crate) struct Title {
     pub(crate) tab: Tab,
     pub(crate) text: String,
     pub(crate) cluster: ClusterId,
-    /// The state of its view in one tone.
+    /// The state of its view or of its session in one tone.
     pub(crate) tone: Tone,
 }
 
@@ -43,7 +45,7 @@ impl Tab {
         [(Self::Operations, "Operations"), (Self::Journal, "Journal"), (Self::Connections, "Connections")];
 }
 
-/// Draws the tab bar. A click on a title opens its tab. Each log view and each editor has a
+/// Draws the tab bar. A click on a title opens its tab. Each log view, editor and terminal has a
 /// tab with the color of its cluster, its title in the tone of its state and a close button.
 /// Gives the tab that the user closed.
 ///

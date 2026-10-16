@@ -7,8 +7,9 @@
 //! kube upgrade does not change the UI.
 //!
 //! - `shell`: the layout of the window. `views`: the pages of the center and the tabs of
-//!   the dock. `widgets`: the table and small parts.
-//! - `theme`: colors and sizes. `format`: texts for numbers and times.
+//!   the dock. `widgets`: the table, the terminal and small parts.
+//! - `theme`: colors and sizes. `format`: texts for numbers and times. `platform`: the fonts
+//!   of each system.
 
 #![deny(
     clippy::indexing_slicing,
@@ -17,6 +18,7 @@
 )]
 
 mod format;
+mod platform;
 mod shell;
 #[cfg(test)]
 mod testing;
@@ -26,3 +28,4 @@ mod widgets;
 
 pub use format::Clock;
 pub use shell::Shell;
+pub use widgets::terminal::fonts::{TerminalFonts, add_fonts as add_terminal_fonts};

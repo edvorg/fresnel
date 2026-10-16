@@ -3,13 +3,14 @@
 pub(crate) mod chart;
 pub(crate) mod mini_table;
 pub(crate) mod table;
+pub(crate) mod terminal;
 pub(crate) mod tone;
 pub(crate) mod worker;
 
 use std::sync::Arc;
 
 use egui::text::{LayoutJob, TextWrapping};
-use egui::{Color32, FontId, Galley, Sense, Ui};
+use egui::{Color32, FontId, Galley, Id, Rect, Sense, Ui};
 
 use crate::theme::Palette;
 
@@ -31,6 +32,25 @@ pub(crate) fn dot(ui: &mut Ui, color: Color32) {
 /// widget by its name. Use it when the text of the widget does not tell its target.
 pub(crate) fn name(response: &egui::Response, name: &str) {
     response.ctx.accesskit_node_builder(response.id, |node| node.set_label(name));
+}
+
+/// A node of the accessibility tree for a row that a widget paints itself, such as a line of
+/// a log or a row of a terminal: a screen reader reads its text, and a test finds the rows by
+/// their role. egui gives a place only to the node of a widget that takes the focus, so the
+/// row sets its own.
+pub(crate) fn row_node(ui: &Ui, rect: Rect, id: Id, text: &str) {
+    let response = ui.interact(rect, id, Sense::hover());
+    ui.ctx().accesskit_node_builder(response.id, |node| {
+        node.set_role(egui::accesskit::Role::ListItem);
+        node.set_label(text);
+        let (min, max) = (rect.min, rect.max);
+        node.set_bounds(egui::accesskit::Rect {
+            x0: min.x.into(),
+            y0: min.y.into(),
+            x1: max.x.into(),
+            y1: max.y.into(),
+        });
+    });
 }
 
 /// A bar that a part fills: the use of a limit. `mark` is a line across it, for example the

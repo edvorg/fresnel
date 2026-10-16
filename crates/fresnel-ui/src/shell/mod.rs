@@ -57,6 +57,7 @@ use crate::views::operations::OperationsTab;
 use crate::views::overview::{Jump, OverviewPage};
 use crate::views::search::{Choice, QuickSearch};
 use crate::views::settings::SettingsPage;
+use crate::views::terminal::TerminalTabs;
 use crate::views::{connections, kinds};
 use crate::widgets::worker::Wake;
 
@@ -70,6 +71,7 @@ pub struct Shell {
     operations: OperationsTab,
     logs: LogTabs,
     editors: EditorTabs,
+    terminals: TerminalTabs,
     /// The page of the kind that the sidebar opened last. The other pages keep it.
     open: Box<dyn objects::Page>,
     overview: OverviewPage,
@@ -116,6 +118,7 @@ impl Shell {
     /// of the app then has the report of a worker that ends, and the worker starts again.
     pub fn new(ctx: &egui::Context, clock: Clock, tasks: &Tasks) -> Self {
         theme::install(ctx);
+        crate::widgets::terminal::fonts::install(ctx);
         let wake: Wake = {
             let ctx = ctx.clone();
             Arc::new(move || ctx.request_repaint())
@@ -128,6 +131,7 @@ impl Shell {
             operations: OperationsTab::default(),
             logs: LogTabs::new(tasks, Arc::clone(&wake)),
             editors: EditorTabs::new(tasks, Arc::clone(&wake)),
+            terminals: TerminalTabs::default(),
             open: kinds::page(Kind::Pod, tasks, Arc::clone(&wake)),
             overview: OverviewPage::new(tasks, Arc::clone(&wake)),
             settings: SettingsPage::default(),
@@ -152,13 +156,16 @@ impl Shell {
         self.appearance.apply(ui.ctx(), view, (&mut self.clock, &mut self.colors, &mut self.namespaces));
         // The keys act before the widgets of the frame, which would take them. Back and
         // Forward take one step for each press; each other command acts one time.
-        // A dialog takes the keys of the user, and an editor keeps the keys that are text.
+        // A dialog takes the keys of the user, an editor keeps the keys that are text, and a
+        // terminal takes each key but those with Cmd.
         let typing = ui.ctx().text_edit_focused() || self.editors.focused(self.tab).is_some();
+        let terminal = matches!(self.tab, Tab::Terminal(id) if self.terminals.focused(id));
         if !self.search.is_open()
             && !self.new_secret.is_open()
             && !self.open.has_dialog()
             && !self.editors.has_dialog()
             && !self.help
+            && (!terminal || keys::with_cmd(ui.ctx()))
             && let Some((command, presses)) = keys::pressed(ui.ctx(), &view.config.keys, typing)
         {
             let times = if matches!(command, CommandId::Back | CommandId::Forward) { presses } else { 1 };
@@ -195,11 +202,13 @@ impl Shell {
             .frame(chrome.inner_margin(Margin::symmetric(6, 0)))
             .show(ui, |ui| sidebar::show(ui, view, &mut self.page, self.focus.take(Area::Sidebar)));
         follow_page(&mut self.open, self.page, &self.tasks, &self.wake);
+        self.terminals.follow(view);
         let mut titles = self.logs.titles(view);
         titles.extend(self.editors.titles(view));
-        // A dock with a log view or an editor has a height of its own: they need more rows.
+        titles.extend(TerminalTabs::titles(view));
+        // A dock with a log view, an editor or a terminal has a height of its own: more rows.
         let (name, height) = match self.tab {
-            Tab::Logs(_) | Tab::Editor(_) => ("dock with logs", dock::LOG_HEIGHT),
+            Tab::Logs(_) | Tab::Editor(_) | Tab::Terminal(_) => ("dock with logs", dock::LOG_HEIGHT),
             _ => ("dock", dock::HEIGHT),
         };
         let dock = Panel::bottom(name).resizable(true).default_size(height).min_size(dock::SMALLEST);
@@ -209,6 +218,7 @@ impl Shell {
                 Some(Tab::Logs(closed)) => self.logs.close(closed),
                 // An editor with changes asks first, on its tab.
                 Some(Tab::Editor(closed)) if !self.editors.close(closed) => self.tab = Tab::Editor(closed),
+                Some(Tab::Terminal(closed)) => scene.commands.push(Command::CloseTerminal(closed)),
                 _ => {}
             }
             // The center can show the same view, so the two have widgets with different identities.
@@ -218,11 +228,16 @@ impl Shell {
                 Tab::Connections => connections::show(ui, &mut scene),
                 Tab::Logs(id) => self.logs.show(id, ui, &mut scene),
                 Tab::Editor(id) => self.editors.show(id, ui, &mut scene),
+                Tab::Terminal(id) => self.terminals.show(id, ui, &mut scene),
             });
         });
-        if matches!(self.tab, Tab::Logs(id) if !self.logs.has(id))
-            || matches!(self.tab, Tab::Editor(id) if !self.editors.has(id))
-        {
+        let gone = match self.tab {
+            Tab::Logs(id) => !self.logs.has(id),
+            Tab::Editor(id) => !self.editors.has(id),
+            Tab::Terminal(id) => !view.terminals.iter().any(|terminal| terminal.id == id),
+            _ => false,
+        };
+        if gone {
             self.tab = Tab::Journal;
         }
         let jump =

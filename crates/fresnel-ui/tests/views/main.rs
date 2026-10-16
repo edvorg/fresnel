@@ -15,6 +15,7 @@
 //!   groups (M7). `overview`: the overviews of the Cluster and the Workloads groups (M7).
 //! - `settings`: the settings view, read-only clusters, themes, keys and focus (M8).
 //! - `editor`: the manifest editor of the dock (M11).
+//! - `terminal`: the terminals of the dock: the tab, the keys, the pointer and the screen (M10).
 //! - `frame_time`: the time of a frame with 10,000 pods. Its limit holds in a release build.
 //! - `snapshots`: PNG files of the views, for a look by a person.
 //! - `showcase`: the pictures of the README on a made-up world of three clusters
@@ -41,4 +42,5 @@ mod settings;
 mod shell;
 mod showcase;
 mod snapshots;
+mod terminal;
 mod workloads;

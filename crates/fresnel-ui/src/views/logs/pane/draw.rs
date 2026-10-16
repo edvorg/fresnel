@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use egui::{Align, Align2, Button, Id, Layout, Painter, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
+use egui::{Align, Align2, Button, Id, Layout, Painter, Rect, RichText, Ui, UiBuilder, pos2, vec2};
 use fresnel_core::kinds::Kind;
 use fresnel_core::logs::{LineKind, LogLine, LogView, SourceView};
 use fresnel_core::store::ObjectKey;
@@ -14,6 +14,7 @@ use super::rows::{Cut, laid_out};
 use super::{Input, Metrics, Output, Pane, Placed, SOURCE_COLUMNS};
 use crate::format::{PodNames, short_start, thousands};
 use crate::theme::{self, Palette, SMALL};
+use crate::widgets;
 
 /// The space above the text in a row.
 const ABOVE: f32 = 1.5;
@@ -84,7 +85,7 @@ impl Pane {
                     painter.galley(pos2(x, y + ABOVE), galley, palette.text);
                     label.push_str(line.text.get(row.bytes.clone()).unwrap_or_default());
                 }
-                node(ui, full, id.with((number, row_index)), label.trim_end());
+                widgets::row_node(ui, full, id.with((number, row_index)), label.trim_end());
                 self.placed.push(Placed { line: number, bytes: row.bytes.clone(), at: pos2(x, y) });
                 y += metrics.row;
             }
@@ -153,24 +154,6 @@ pub(super) fn source_names(view: &LogView) -> Vec<String> {
 pub(super) fn source_columns(kind: Kind, names: &[String]) -> Option<usize> {
     let least = if kind == Kind::Pod { 0 } else { ROLLOUT_NAME };
     names.iter().map(|name| name.chars().count().max(least) + 1).max()
-}
-
-/// A node of the accessibility tree for a row: a screen reader reads the text that the pane
-/// paints itself, and a test finds the rows by their role. egui gives a place only to the
-/// node of a widget that takes the focus, so the row sets its own.
-fn node(ui: &Ui, rect: Rect, id: Id, text: &str) {
-    let response = ui.interact(rect, id, Sense::hover());
-    ui.ctx().accesskit_node_builder(response.id, |node| {
-        node.set_role(egui::accesskit::Role::ListItem);
-        node.set_label(text);
-        let (min, max) = (rect.min, rect.max);
-        node.set_bounds(egui::accesskit::Rect {
-            x0: min.x.into(),
-            y0: min.y.into(),
-            x1: max.x.into(),
-            y1: max.y.into(),
-        });
-    });
 }
 
 /// The row after the laid-out part of a long line: a button that shows the full line, with
