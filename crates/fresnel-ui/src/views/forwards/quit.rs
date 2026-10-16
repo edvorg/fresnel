@@ -1,10 +1,9 @@
-//! The close of the window while a forward runs (plan section 11.6): the app asks first,
-//! since the local ports of the forwards close with it. The dialog offers minimize, quit and
+//! The close of the window while a forward has its local port (plan section 11.6): the app
+//! asks first, since the local ports of the forwards close with it. The dialog offers minimize, quit and
 //! cancel. Cmd+Q ends the app with no question: eframe gives the app no way to refuse it.
 
 use egui::{Context, Id, Key, Modal, RichText, ViewportCommand};
 use fresnel_core::app::CoreView;
-use fresnel_core::forward::ForwardState;
 
 use crate::format;
 use crate::theme;
@@ -31,9 +30,8 @@ impl QuitGuard {
 
     /// Stops a close of the window while a forward runs, and asks the user.
     pub(crate) fn show(&mut self, ctx: &Context, view: &CoreView) {
-        // A forward that stopped or failed has no local port.
-        let open = |state: &ForwardState| !matches!(state, ForwardState::Stopped | ForwardState::Failed(_));
-        let running = view.forwards.iter().filter(|row| open(&row.view.state)).count();
+        // A forward whose listener is open: a forward that the server refuses keeps its port.
+        let running = view.forwards.iter().filter(|row| !row.view.addresses.is_empty()).count();
         if ctx.input(|input| input.viewport().close_requested()) && running > 0 && !self.allowed {
             ctx.send_viewport_cmd(ViewportCommand::CancelClose);
             self.asking = true;
