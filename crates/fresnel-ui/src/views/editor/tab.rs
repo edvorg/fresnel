@@ -125,8 +125,8 @@ impl EditorTab {
             if let Some(forward) = hit {
                 self.find.go(&mut loaded.text, forward);
             }
-            let cursor = loaded.text.cursor();
-            let next = mark.and_then(|forward| check.as_deref().and_then(|check| marks::next(check, cursor, forward)));
+            let place = loaded.text.cursor_place();
+            let next = mark.and_then(|forward| check.as_deref().and_then(|check| marks::next(check, place, forward)));
             if let Some(mark) = next {
                 marks::go_to(&mut loaded.text, mark);
             }

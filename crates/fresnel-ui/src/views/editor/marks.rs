@@ -72,13 +72,14 @@ pub(super) fn go_to(text: &mut TextArea, mark: &Mark) {
     text.focus();
 }
 
-/// The next mark after the cursor, or the one before it, round the end.
-pub(super) fn next(check: &Check, cursor: Pos, forward: bool) -> Option<&Mark> {
-    let line = |mark: &Mark| mark.line.saturating_sub(1);
+/// The next mark after a place, or the one before it, round the end. `place` is the line and
+/// the column of the cursor, from 1, as a mark has them: each mark of a line gets its turn.
+pub(super) fn next(check: &Check, place: (usize, usize), forward: bool) -> Option<&Mark> {
+    let at = |mark: &Mark| (mark.line, mark.column);
     let found = if forward {
-        check.marks.iter().find(|mark| line(mark) > cursor.line)
+        check.marks.iter().find(|mark| at(mark) > place)
     } else {
-        check.marks.iter().rev().find(|mark| line(mark) < cursor.line)
+        check.marks.iter().rev().find(|mark| at(mark) < place)
     };
     found.or(if forward { check.marks.first() } else { check.marks.last() })
 }
@@ -94,19 +95,23 @@ fn color(level: Level, palette: &Palette) -> egui::Color32 {
 mod tests {
     use super::*;
 
-    fn mark(line: usize, level: Level) -> Mark {
-        Mark { line, column: 3, level, text: String::new() }
+    fn mark(line: usize, column: usize, level: Level) -> Mark {
+        Mark { line, column, level, text: String::new() }
     }
 
     #[test]
-    fn the_summary_counts_and_the_next_mark_goes_by_line_round_the_end() {
-        let check = Check { marks: vec![mark(2, Level::Hint), mark(5, Level::Error), mark(9, Level::Hint)], more: 1 };
-        assert_eq!(summary(&check), "1 error, 3 hints");
+    fn the_summary_counts_and_the_next_mark_goes_by_place_round_the_end() {
+        let marks =
+            vec![mark(2, 3, Level::Hint), mark(2, 9, Level::Hint), mark(5, 3, Level::Error), mark(9, 3, Level::Hint)];
+        let check = Check { marks, more: 1 };
+        assert_eq!(summary(&check), "1 error, 4 hints");
         assert_eq!(summary(&Check::default()), "No error");
-        let line = |found: Option<&Mark>| found.map(|mark| mark.line);
-        assert_eq!(line(next(&check, Pos::new(1, 0), true)), Some(5), "the next line, past the mark of the cursor");
-        assert_eq!(line(next(&check, Pos::new(8, 0), true)), Some(2), "round the end");
-        assert_eq!(line(next(&check, Pos::new(4, 0), false)), Some(2));
-        assert_eq!(line(next(&check, Pos::new(0, 0), false)), Some(9), "round the start");
+        let place = |found: Option<&Mark>| found.map(|mark| (mark.line, mark.column));
+        assert_eq!(place(next(&check, (1, 5), true)), Some((2, 3)));
+        assert_eq!(place(next(&check, (2, 3), true)), Some((2, 9)), "the second mark of a line, past the cursor");
+        assert_eq!(place(next(&check, (2, 9), true)), Some((5, 3)));
+        assert_eq!(place(next(&check, (9, 4), true)), Some((2, 3)), "round the end");
+        assert_eq!(place(next(&check, (5, 3), false)), Some((2, 9)));
+        assert_eq!(place(next(&check, (2, 3), false)), Some((9, 3)), "round the start");
     }
 }

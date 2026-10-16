@@ -131,6 +131,13 @@ impl TextArea {
         self.doc.selection.head
     }
 
+    /// The line and the column of the cursor, from 1, in characters, as the marks of the
+    /// check count them.
+    pub(crate) fn cursor_place(&self) -> (usize, usize) {
+        let head = self.doc.selection.head;
+        (head.line + 1, moves::column(self.doc.buffer.line(head.line), head.byte) + 1)
+    }
+
     /// Why the last change did not go in.
     pub(crate) fn note(&self) -> Option<&str> {
         self.note.as_deref()

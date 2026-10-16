@@ -123,3 +123,23 @@ fn the_text_and_the_marks_keep_the_height_of_the_dock() {
         (window.get_by_label_contains("Line 9").rect(), window.get_by_label("The text of the editor").rect());
     assert!(text.bottom() <= mark.top(), "the list is below the text: {text:?} {mark:?}");
 }
+
+/// F8 goes to each mark of a line in turn: `on: yes` has a hint at its key and at its value.
+#[test]
+fn f8_goes_to_each_mark_of_a_line_in_turn() {
+    let mut window = panel();
+    edit(&mut window, text(WEB, None));
+    click_row(&mut window, "  replicas: 2");
+    window.key_press(Key::Enter);
+    window.event(Event::Text("on: yes".to_owned()));
+    window.run();
+    checked(&mut window, "No error, 2 hints");
+    click_row(&mut window, "apiVersion: apps/v1");
+    for _ in 0..2 {
+        window.key_press(Key::F8);
+        window.run();
+    }
+    window.event(Event::Text("x".to_owned()));
+    window.run();
+    assert!(rows(&window).contains(&"  on: xyes".to_owned()), "{:?}", rows(&window));
+}
