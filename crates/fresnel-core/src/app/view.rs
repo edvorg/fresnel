@@ -171,7 +171,7 @@ impl Core {
                 edits: state.edits.as_ref().map(super::edits::EditReader::reads).unwrap_or_default(),
                 create: state.creates.as_ref().and_then(SecretWriter::last),
                 jobs: state.jobs.view(),
-                terminals: Arc::clone(&state.terminals),
+                terminals: state.terminals.views(),
                 // The journal has its own lock, which the copy takes after this one.
                 journal: Arc::default(),
             };

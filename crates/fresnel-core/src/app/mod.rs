@@ -75,7 +75,6 @@ use crate::kinds::Kind;
 use crate::logs::LogRequest;
 use crate::published::Disposal;
 use crate::state_file::TableLayout;
-use crate::terminal::TerminalView;
 use create::SecretWriter;
 use data::Connected;
 use manifest::ManifestReader;
@@ -132,8 +131,8 @@ struct State {
     keys: Option<Target>,
     /// The log views that the UI shows.
     logs: Vec<LogRequest>,
-    /// The terminals of the dock, in the sequence of their open.
-    terminals: Arc<[TerminalView]>,
+    /// The terminals of the dock, in the sequence of their open, with their sessions.
+    terminals: terminals::Terminals,
     /// The number of the last save of the key view.
     saves: u64,
     /// The task of the creates of Secrets. It starts with the first create.
@@ -240,7 +239,7 @@ impl Core {
             edits: None,
             keys: None,
             logs: Vec::new(),
-            terminals: Arc::default(),
+            terminals: terminals::Terminals::default(),
             saves: 0,
             creates: None,
             jobs: jobs::Jobs::default(),
@@ -339,7 +338,7 @@ impl Core {
             state.commands.clear();
             let readers = (state.manifests.take(), state.edits.take(), state.creates.take());
             let tasks = (std::mem::take(&mut state.running), readers, (state.monitor.take(), state.file_watch.take()));
-            (tasks, std::mem::take(&mut state.jobs), std::mem::take(&mut state.connected))
+            (tasks, std::mem::take(&mut state.jobs), std::mem::take(&mut state.connected), state.terminals.stop())
         };
         drop(stopped);
         if let Some(registry) = self.inner.registry.get() {

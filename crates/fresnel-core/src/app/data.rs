@@ -238,6 +238,11 @@ impl Connected {
         self.keys.holder(target)
     }
 
+    /// The gateway and the pods of the cluster, for the session of a terminal.
+    pub(super) fn terminal_parts(&self) -> (Gateway, Reader<Snapshot<Pod>>) {
+        (self.gateway.clone(), self.pods.clone())
+    }
+
     /// The permissions of the user in the cluster.
     pub(super) fn access(&self) -> &ClusterAccess {
         &self.access

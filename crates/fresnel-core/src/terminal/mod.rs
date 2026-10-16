@@ -21,12 +21,15 @@
 //! - `frame`: the copy of a frame. `palette`: the colors. `select`: the selection and the
 //!   scroll. `input`: the bytes for stdin and the size for the remote TTY. `session`: the
 //!   state of the session and the request of a terminal.
+//! - `remote`: the task of a session: the exec or the attach, the new pod of a node shell or
+//!   the debug container, the bytes of the stream and the end of the remote program.
 
 mod events;
 mod frame;
 mod guard;
 mod input;
 mod palette;
+mod remote;
 mod screen;
 mod select;
 mod session;
@@ -47,6 +50,8 @@ pub use input::{INPUT_LIMIT, PIECE, Refused};
 pub use palette::Palette;
 pub use select::{Scroll, SelectKind, Spot};
 pub use session::{Program, SessionState, TerminalRequest, TerminalView};
+
+pub(crate) use remote::{Launch, Parts as SessionParts, RemoteSession};
 
 use events::Reporter;
 use input::Io;

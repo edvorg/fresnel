@@ -244,8 +244,10 @@ impl Inner {
             }
             state.selected.retain(|id| clusters.iter().any(|cluster| &cluster.id == id));
             let selected = state.selected.clone();
-            let stopped: Vec<Connected> =
-                state.connected.extract_if(|id, _| !selected.contains(id)).map(|(_, running)| running).collect();
+            let (ids, stopped): (Vec<ClusterId>, Vec<Connected>) =
+                state.connected.extract_if(|id, _| !selected.contains(id)).unzip();
+            // A terminal session holds the gateway of its cluster to its end: it ends its shell.
+            state.terminals.close_sessions_of(&ids);
             (selected, stopped)
         };
         // The stores of a cluster that left the selection stop here, after the lock is free.

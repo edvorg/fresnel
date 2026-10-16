@@ -12,7 +12,8 @@
 //!   `rollback`: the patch that goes back to a revision.
 //! - `job`: run a Job again, and the Job of a CronJob that the user triggers.
 //! - `document`: the create and the server-side apply of a document of a text.
-//! - `kubectl`: the `kubectl` commands that a user can copy.
+//! - `kubectl`: the `kubectl` commands that a user can copy. `shell`: the pod of a node
+//!   shell and a debug container of a terminal.
 //! - `state`: the state of a job. `procedure`: the steps of each operation.
 //! - `access`: the permissions of the user in a cluster.
 
@@ -28,6 +29,7 @@ mod procedure;
 mod request;
 mod rollback;
 mod rollout;
+pub(crate) mod shell;
 mod state;
 mod workload;
 

@@ -132,6 +132,10 @@ pub enum Setting {
     TerminalFont,
     TerminalScrollback,
     OptionAsMeta,
+    TerminalShells,
+    DebugImage,
+    NodeShellImage,
+    NodeShellNamespace,
     EventsMode,
     MaxEvents,
     ReadOnly,
@@ -242,6 +246,10 @@ pub const TIME_FORMATS: &[&str] = &["24h", "12h"];
 /// The folders after `PATH` where the app looks for a credential plugin (plan section 8.1):
 /// none on Windows, where the process has the full `PATH` of the user.
 pub const FIXED_FOLDERS: &[&str] = fresnel_net::env::FIXED_FOLDERS;
+/// The shells of a terminal, the first that exists in the container (plan section 12.8).
+pub const SHELLS: &[&str] = &["/bin/bash", "/bin/sh"];
+/// The image of a debug container and of a node shell: busybox has `sh`, `ps` and `nsenter`.
+pub const SHELL_IMAGE: &str = "busybox:1.36.1";
 /// Which Events a cluster keeps (plan section 9.6).
 pub const EVENT_MODES: &[&str] = &["all", "warnings", "on-demand"];
 /// The confirm rules: a dialog, or a dialog that waits for the name of the cluster.
@@ -291,6 +299,16 @@ pub const TABLE: &[Spec] = &[
     num(S::TerminalFont, Terminal, "font_size", [13, 8, 32], Points, "Font size"),
     num(S::TerminalScrollback, Terminal, "scrollback_lines", [10_000, 0, 100_000], Count, "Lines of history"),
     other(S::OptionAsMeta, Terminal, "option_as_meta", "Option or Alt key as Meta", Form::Flag(false)),
+    other(S::TerminalShells, Terminal, "shells", "Shells to try, in this sequence", Form::List(SHELLS)),
+    other(S::DebugImage, Terminal, "debug_image", "Image of a debug container", Form::Text(SHELL_IMAGE)),
+    other(S::NodeShellImage, Terminal, "node_shell_image", "Image of a node shell", Form::Text(SHELL_IMAGE)),
+    other(
+        S::NodeShellNamespace,
+        Terminal,
+        "node_shell_namespace",
+        "Namespace of a node shell",
+        Form::Text("kube-system"),
+    ),
     other(S::EventsMode, Events, "mode", "Events of a cluster", choice(EVENT_MODES, "all")),
     num(S::MaxEvents, Events, "max", [20_000, 100, 200_000], Count, "Events of a cluster at most"),
     other(S::ReadOnly, Safety, "read_only", "Each cluster is read-only", Form::Flag(false)),

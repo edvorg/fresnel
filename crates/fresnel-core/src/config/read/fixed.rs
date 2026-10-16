@@ -119,8 +119,20 @@ fn text_problem(id: Setting, text: &str) -> Option<String> {
         Setting::TimeZone if !is_time_zone(text) => {
             Some(format!("no time zone `{text}`; use local, UTC or a name such as Europe/Amsterdam"))
         }
+        Setting::DebugImage | Setting::NodeShellImage if text.is_empty() || text.contains(char::is_whitespace) => {
+            Some("an image name with no space, for example busybox:1.36.1".to_owned())
+        }
+        Setting::NodeShellNamespace if !is_label(text) => {
+            Some("the name of a namespace: small letters, digits and '-', 63 at most".to_owned())
+        }
         _ => None,
     }
+}
+
+/// True for a DNS label, the form of a name of a namespace.
+fn is_label(text: &str) -> bool {
+    let fits = |char: char| char.is_ascii_lowercase() || char.is_ascii_digit() || char == '-';
+    (1..=63).contains(&text.len()) && text.chars().all(fits) && !text.starts_with('-') && !text.ends_with('-')
 }
 
 /// True for "local", "UTC" and each name of the time zone database of the system.
