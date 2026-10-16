@@ -12,11 +12,12 @@
 //! to the core, which reads its values while the panel shows it.
 //!
 //! - `top_bar`, `sidebar`, `dock`, `status_bar`: the parts of the window. `namespaces`:
-//!   the namespace filter of each view. `keys`: the key of each command. `history`: Back
-//!   and Forward. `focus`: the focus of the keys between the areas. `appearance`: the
-//!   settings that act on the window at once.
+//!   the namespace filter of each view. `keys`: the key of each command. `command`: the run
+//!   of a command. `history`: Back and Forward. `focus`: the focus of the keys between the
+//!   areas. `appearance`: the settings that act on the window at once.
 
 mod appearance;
+mod command;
 mod dock;
 mod focus;
 mod history;
@@ -309,49 +310,6 @@ impl Shell {
             self.tab = Tab::Forwards;
         }
         commands
-    }
-
-    /// Runs a command of the command table.
-    fn run(&mut self, command: CommandId, ctx: &egui::Context) {
-        match command {
-            CommandId::QuickSearch => self.search.open(),
-            CommandId::Back => {
-                if let Some(link) = self.history.back() {
-                    self.follow_link(link);
-                }
-            }
-            CommandId::Forward => {
-                if let Some(link) = self.history.forward() {
-                    self.follow_link(link);
-                }
-            }
-            // Cmd+F in an editor finds in its text.
-            CommandId::Filter => match self.editors.focused(self.tab) {
-                Some(id) => self.editors.find(id),
-                None => self.open.focus_filter(),
-            },
-            CommandId::NewSecret => self.new_secret.open(),
-            CommandId::FromYaml => self.tab = Tab::Editor(self.editors.open_create()),
-            CommandId::Settings => self.page = Page::Settings,
-            CommandId::Forwards => self.tab = Tab::Forwards,
-            CommandId::Help => self.help = !self.help,
-            CommandId::Focus(area) => self.focus_area(area),
-            CommandId::NextArea | CommandId::PreviousArea => {
-                let area = self.focus.step(command == CommandId::NextArea);
-                self.focus_area(area);
-            }
-            CommandId::Object(action) => self.open.act(ctx, action),
-        }
-        ctx.request_repaint();
-    }
-
-    /// Puts the focus of the keys into an area. The page of a kind holds the table and the
-    /// panel; the sidebar and the dock take theirs in the frame.
-    fn focus_area(&mut self, area: Area) {
-        self.focus.to(area);
-        if matches!(area, Area::Table | Area::Panel) && self.focus.take(area) && matches!(self.page, Page::Kind(_)) {
-            self.open.focus(area);
-        }
     }
 
     /// Opens the page of the kind of a link, and the panel of its object there.
