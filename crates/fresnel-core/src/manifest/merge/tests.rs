@@ -65,3 +65,42 @@ fn a_side_with_no_change_takes_the_other_side() {
     let removed = merge(BASE, "", BASE);
     assert_eq!((removed.is_clean(), ours(&removed)), (true, String::new()), "the user removed each line");
 }
+
+/// A random edit of `lines`: a line changes, goes away or gets a new line before it. Each new
+/// line is unique, so a line of the base keeps one place in each version.
+fn edit(lines: &[String], random: &mut fastrand::Rng, side: &str) -> Vec<String> {
+    let mut edited = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        match random.u8(0..4) {
+            0 => {}
+            1 => edited.push(format!("{side} changed {index}\n")),
+            2 => edited.extend([format!("{side} new {index}\n"), line.clone()]),
+            _ => edited.push(line.clone()),
+        }
+    }
+    edited
+}
+
+/// Random edits of two parts of a text with an equal line between them merge with no
+/// conflict into the text with both edits, in either order of the sides; a side with no
+/// change gives the other side.
+#[test]
+fn edits_of_random_texts_in_parts_apart_merge_into_both_edits() {
+    let mut random = fastrand::Rng::with_seed(5);
+    for _ in 0..2_000 {
+        let base: Vec<String> = (0..random.usize(3..30)).map(|line| format!("line {line}\n")).collect();
+        let split = random.usize(0..base.len());
+        let (before, after) = (&base[..split], &base[split + 1..]);
+        let (head, tail) = (edit(before, &mut random, "ours"), edit(after, &mut random, "theirs"));
+        let middle = std::slice::from_ref(&base[split]);
+        let (ours, theirs) = ([&head, middle, after].concat(), [before, middle, &tail].concat());
+        let both = [&head, middle, &tail].concat().concat();
+        let (base, ours, theirs) = (base.concat(), ours.concat(), theirs.concat());
+        let merged = merge(&base, &ours, &theirs);
+        assert!(merged.is_clean(), "{base:?} {ours:?} {theirs:?}: {merged:?}");
+        assert_eq!(merged.text(|_| Side::Ours), both, "{base:?} {ours:?} {theirs:?}");
+        assert_eq!(merge(&base, &theirs, &ours).text(|_| Side::Theirs), both);
+        assert_eq!(merge(&base, &ours, &base).text(|_| Side::Theirs), ours);
+        assert_eq!(merge(&base, &base, &theirs).text(|_| Side::Ours), theirs);
+    }
+}
