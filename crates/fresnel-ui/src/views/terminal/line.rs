@@ -112,9 +112,9 @@ mod tests {
             (tone(&quiet), words(&quiet, &clock).as_str()),
             (Tone::Warn, "No data for 12 s: the connection can be lost")
         );
-        let (ended, failed) = (SessionState::Exited { code: 130 }, SessionState::Exited { code: 0 });
+        let (ended, normal) = (SessionState::Exited { code: 130 }, SessionState::Exited { code: 0 });
         assert_eq!((tone(&ended), words(&ended, &clock).as_str()), (Tone::Warn, "Ended with exit code 130"));
-        assert_eq!(tone(&failed), Tone::Muted, "a normal end");
+        assert_eq!(tone(&normal), Tone::Muted, "a normal end");
         let failed = SessionState::Failed { reason: "connection reset".to_owned() };
         assert_eq!(tone(&failed), Tone::Error);
         assert_eq!((tone(&SessionState::Open), words(&SessionState::Open, &clock).as_str()), (Tone::Ok, "Open"));

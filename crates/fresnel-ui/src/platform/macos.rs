@@ -13,3 +13,14 @@ pub(crate) fn bold_font() -> Option<SystemFont> {
 pub(crate) fn wide_font() -> Option<SystemFont> {
     Some(SystemFont { path: "/System/Library/Fonts/Hiragino Sans GB.ttc".into(), index: 0 })
 }
+
+#[cfg(test)]
+mod tests {
+    /// A wrong path costs the bold face or the CJK glyphs, with only a line in the journal.
+    #[test]
+    fn the_font_files_are_on_the_system() {
+        for font in [super::bold_font(), super::wide_font()].into_iter().flatten() {
+            assert!(font.path.is_file(), "{}", font.path.display());
+        }
+    }
+}
