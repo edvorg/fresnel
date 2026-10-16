@@ -62,6 +62,8 @@ pub(super) async fn run(parts: Arc<Parts>) -> Result<(), CoreError> {
     let mut feeds = parts.feeds.clone();
     let mut feed = feeds.borrow_and_update().clone();
     let mut changes = feed.as_ref().ok().map(|feed| feed.changes());
+    // The warm set of the cluster keeps upgrade connections ready for the next tunnels.
+    let mut _warm = feed.as_ref().ok().map(|feed| feed.net.keep_upgrades_warm());
     let mut connections = JoinSet::new();
     let mut retries = parts.retries.clone();
     let mut tick = interval(TICK);
@@ -94,6 +96,7 @@ pub(super) async fn run(parts: Arc<Parts>) -> Result<(), CoreError> {
             Ok(()) = feeds.changed() => {
                 feed = feeds.borrow_and_update().clone();
                 changes = feed.as_ref().ok().map(|feed| feed.changes());
+                _warm = feed.as_ref().ok().map(|feed| feed.net.keep_upgrades_warm());
             }
             () = next(&mut changes) => {}
             Ok(()) = retries.changed() => run.retry_now(feed.as_ref()),

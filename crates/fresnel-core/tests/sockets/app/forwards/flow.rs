@@ -32,6 +32,8 @@ async fn a_forward_to_a_pod_carries_its_bytes_and_keeps_its_cluster_connected_wi
     assert_eq!(echo(address, &data).await, Ok(()));
     let view = bed.app.core.view();
     assert!(!row(&view, "ams").selected && row(&view, "ams").health() == Health::Live, "{:?}", row(&view, "ams"));
+    let status = row(&view, "ams").status().cloned().expect("a connected cluster");
+    assert_eq!(status.upgrade.holders, 1, "the forward keeps upgrade connections warm");
     let shown = bed.until(&pod, "the counts", |view| view.bytes.received == 300_000).await;
     let target = shown.view.target.as_ref().expect("a target");
     assert_eq!((&*target.pod.name, target.port, target.ready), ("web-1", 8080, true));
