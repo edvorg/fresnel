@@ -359,6 +359,7 @@ pub(crate) fn view(clusters: Vec<ClusterRow>) -> CoreView {
     let (tables, journal, jobs) = (Some(Arc::default()), Arc::default(), Arc::default());
     let (config, config_file, terminals) = (Arc::default(), Arc::default(), Arc::default());
     let (startup, shell_problem, manifest, create, edits) = (Startup::Ready, None, None, None, Vec::new());
+    let forwards = Arc::from([]);
     CoreView {
         startup,
         shell_problem,
@@ -371,6 +372,7 @@ pub(crate) fn view(clusters: Vec<ClusterRow>) -> CoreView {
         create,
         jobs,
         terminals,
+        forwards,
         journal,
     }
 }

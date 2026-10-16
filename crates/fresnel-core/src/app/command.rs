@@ -9,6 +9,7 @@ use super::manifest::ManifestRequest;
 use crate::cluster::{ClusterId, Registry};
 use crate::config::Edit;
 use crate::error::CoreError;
+use crate::forward::ForwardRule;
 use crate::keys::{NewSecret, Save, Target};
 use crate::kinds::Kind;
 use crate::logs::{LogRequest, LogSave};
@@ -109,6 +110,21 @@ pub enum Command {
         /// The request.
         attributes: Attributes,
     },
+    /// Starts a port forward, or the forward of an equal rule that stopped (plan section
+    /// 12.3). Its cluster stays connected while it runs. The view gets `CoreView::forwards`.
+    StartForward(ForwardRule),
+    /// Starts the forward with this number again: a new listener and a new state, for a
+    /// forward that stopped or failed.
+    RestartForward(u64),
+    /// Stops the forward with this number: its listener closes, and each local connection
+    /// gets a reset. It stays in the list.
+    StopForward(u64),
+    /// Stops the forward with this number and removes it from the list. A rule of the
+    /// settings file stays, as a forward that stopped.
+    RemoveForward(u64),
+    /// "Retry now" for the forward with this number: its cluster tests its path at once,
+    /// and the tunnels that failed in a row count from 0 again.
+    RetryForward(u64),
 }
 
 impl Inner {
@@ -116,12 +132,16 @@ impl Inner {
         self.state().commands.pop_front()
     }
 
-    /// Runs one command. Only a change of the selection, "retry now" and a read of the
-    /// files change connections.
+    /// Runs one command. Only a change of the selection, "retry now", a read of the files
+    /// and the start and the stop of a forward change connections.
     pub(super) async fn apply(&self, registry: &Registry, command: Command) -> Result<(), CoreError> {
         match command {
             Command::Select { cluster, selected } => self.select(cluster, selected),
             Command::RetryNow(cluster) => self.retry(registry, &cluster).await?,
+            Command::StartForward(rule) => self.start_forward(rule),
+            Command::RestartForward(id) => self.restart_forward(id),
+            Command::StopForward(id) => self.stop_forward(id),
+            Command::RemoveForward(id) => self.remove_forward(id),
             Command::ReloadFiles => self.reload_files(registry, None).await?,
             Command::EditSettings(edits) => self.save_config(registry, edits).await?,
             other => {
@@ -153,7 +173,15 @@ impl Inner {
             Command::CloseTerminal(id) => self.close_terminal(id),
             Command::ReadRules { cluster, namespace } => self.read_rules(&cluster, namespace),
             Command::CheckAccess { cluster, attributes } => self.check_access(&cluster, attributes),
-            Command::Select { .. } | Command::RetryNow(_) | Command::ReloadFiles | Command::EditSettings(_) => {}
+            Command::RetryForward(id) => self.retry_forward(id),
+            Command::Select { .. }
+            | Command::RetryNow(_)
+            | Command::ReloadFiles
+            | Command::EditSettings(_)
+            | Command::StartForward(_)
+            | Command::RestartForward(_)
+            | Command::StopForward(_)
+            | Command::RemoveForward(_) => {}
         }
     }
 }

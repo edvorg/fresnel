@@ -9,6 +9,7 @@ use fresnel_net::detect::Detector;
 use fresnel_net::env::{EnvSettings, ProcessEnv};
 use tokio::runtime::Handle;
 
+use crate::forward::ForwardSettings;
 use crate::journal::Journal;
 use crate::logs::LogSettings;
 use crate::metrics::MetricsSettings;
@@ -27,6 +28,8 @@ pub struct CoreSettings {
     pub metrics: MetricsSettings,
     /// The log views.
     pub logs: LogSettings,
+    /// The port forwards.
+    pub forwards: ForwardSettings,
     /// The wake detector and the network detector look each time this period ends.
     pub detect_period: Duration,
     /// The most repaints in one second that the core asks the UI for.
@@ -41,6 +44,7 @@ impl Default for CoreSettings {
             stores: StoreSettings::default(),
             metrics: MetricsSettings::default(),
             logs: LogSettings::default(),
+            forwards: ForwardSettings::default(),
             detect_period: Duration::from_secs(2),
             repaints_per_second: 60,
         }

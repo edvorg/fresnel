@@ -29,6 +29,7 @@ impl Inner {
         let config = self.read_config(None).await?;
         self.effective.get_or_init(|| apply(&config, &self.settings, self.home().as_deref()));
         self.state().config_read = true;
+        self.follow_saved(true);
         Ok(())
     }
 
@@ -36,6 +37,7 @@ impl Inner {
     /// at once, together with `save`, the result of a save of the settings view.
     pub(super) async fn reload_config(&self, save: Option<SaveState>) -> Result<(), CoreError> {
         let config = self.read_config(save).await?;
+        self.follow_saved(false);
         let wanted = apply(&config, &self.settings, self.home().as_deref());
         // The settings of the core have no equality of their own, and their text has each field.
         if format!("{wanted:?}") != format!("{:?}", self.settings()) {

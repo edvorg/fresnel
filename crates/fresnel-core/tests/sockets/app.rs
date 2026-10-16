@@ -13,7 +13,8 @@
 //!   `key_faults`: the key view with fast input, a fault at the worst moment and bad data.
 //! - `orders`: the jobs of the operations and the permissions of each cluster. `documents`:
 //!   the create of the documents of a text in turn.
-//! - `logs`: the log views. `editors`: the texts of the editors.
+//! - `logs`: the log views. `editors`: the texts of the editors. `forwards`: the port
+//!   forwards, their breaks and their commands.
 //! - `metrics`: the sampler of each selected cluster and its metrics in the view.
 //! - `network`: a network that goes away and comes back.
 //! - `selection`: the selection of one run is the selection of the next run.
@@ -30,6 +31,7 @@ mod editors;
 mod explorer;
 #[cfg(unix)]
 mod faults;
+mod forwards;
 mod key_faults;
 mod keys;
 mod logs;
@@ -134,6 +136,15 @@ impl Detector for OnOrder {
     }
 }
 
+/// A detector that sees a wake after a sleep of a minute when the test sets its flag.
+struct OnWake(Arc<AtomicBool>);
+
+impl Detector for OnWake {
+    fn look(&mut self) -> Option<Disturbance> {
+        self.0.swap(false, Ordering::Relaxed).then_some(Disturbance::Wake(Duration::from_secs(60)))
+    }
+}
+
 /// The core of one test. A task of the core that ends is a defect, and the drop fails the
 /// test for it.
 struct App {
@@ -141,6 +152,8 @@ struct App {
     /// The wake of the UI: the core asks for a repaint.
     woken: Arc<Notify>,
     network_changed: Arc<AtomicBool>,
+    /// The computer woke from a sleep.
+    woke: Arc<AtomicBool>,
     /// The count of task runs that the test itself ends with a fault.
     expected_task_ends: usize,
 }
@@ -154,7 +167,7 @@ impl App {
     /// The same, with a journal of the test.
     fn with_journal(home: &Home, mut settings: CoreSettings, journal: Journal) -> Self {
         settings.detect_period = Duration::from_millis(20);
-        let network_changed = Arc::new(AtomicBool::new(false));
+        let (network_changed, woke) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
         let core = Core::new(CoreParts {
             runtime: Handle::current(),
             base_env: home.finder_env(),
@@ -162,10 +175,10 @@ impl App {
             state_file: home.path(STATE_FILE),
             config_file: home.path(CONFIG_FILE),
             downloads: home.path("Downloads"),
-            detectors: vec![Box::new(OnOrder(Arc::clone(&network_changed)))],
+            detectors: vec![Box::new(OnOrder(Arc::clone(&network_changed))), Box::new(OnWake(Arc::clone(&woke)))],
             settings,
         });
-        Self { core, woken: Arc::new(Notify::new()), network_changed, expected_task_ends: 0 }
+        Self { core, woken: Arc::new(Notify::new()), network_changed, woke, expected_task_ends: 0 }
     }
 
     fn start(&self) {

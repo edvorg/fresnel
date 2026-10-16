@@ -24,6 +24,7 @@ use super::repaint::Repaint;
 use super::{Inner, watch};
 use crate::cluster::{ClusterId, ClusterVersion, Gateway, Link, ServerVersion};
 use crate::error::CoreError;
+use crate::forward::Feed;
 use crate::index::{ClusterIndexes, Index, IndexParts, ObjectEvents, Owners, References};
 use crate::keys::Target;
 use crate::kinds::{Describe, Kind};
@@ -117,6 +118,8 @@ impl fmt::Debug for ClusterData {
 /// before the stores that they read, and the state watch goes last, because it holds the
 /// connections of the cluster open.
 pub(super) struct Connected {
+    /// What the forwards of the cluster read. `None` for a cluster with no store of pods.
+    feed: Option<Arc<Feed>>,
     logs: ClusterLogs,
     keys: ClusterKeys,
     access: ClusterAccess,
@@ -184,6 +187,7 @@ impl Connected {
         let mut shown_kinds = ShownKinds::default();
         shown_kinds.set(&stores, shown);
         Ok(Self {
+            feed: Feed::new(link, &stores, &indexes).map(Arc::new),
             logs: ClusterLogs::new(log_parts, link.gateway.clone(), save_parts),
             keys: ClusterKeys::default(),
             access: ClusterAccess::start(tasks, id, link.gateway.clone(), inner.repaint.clone()),
@@ -243,6 +247,11 @@ impl Connected {
         (self.gateway.clone(), self.pods.clone())
     }
 
+    /// What the forwards of the cluster read.
+    pub(super) fn feed(&self) -> Option<Arc<Feed>> {
+        self.feed.clone()
+    }
+
     /// The permissions of the user in the cluster.
     pub(super) fn access(&self) -> &ClusterAccess {
         &self.access
@@ -290,7 +299,7 @@ impl Connected {
 /// Asks the UI for a repaint for each new snapshot of a store, each new value of an index
 /// each poll of the metrics and each new value of a log view: the sidebar shows the count of
 /// each store, and a table the objects of its kind. The notifier limits the rate.
-async fn follow(mut notices: Vec<Changes>, repaint: Repaint) -> Result<(), CoreError> {
+pub(super) async fn follow(mut notices: Vec<Changes>, repaint: Repaint) -> Result<(), CoreError> {
     loop {
         repaint.request();
         select_all(notices.iter_mut().map(|changes| Box::pin(changes.next()))).await;

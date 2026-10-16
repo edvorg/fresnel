@@ -295,6 +295,36 @@ The bind of tokio sets `SO_REUSEADDR`: macOS then gave the app the port of a pro
 connect: old connections in time-wait. An abnormal end is a reset after the client took its
 bytes, 2 s at most: macOS lost 74 of 100 resets with bytes on the way.
 
+## A forward lives in the core, and its cluster stays connected
+
+The listener of a forward stays open during each break, also through a new connect of its
+cluster: a forward is in the list of the core, not a part of its connected cluster as a log view
+is, and each connect gives it the feed of the cluster. A forward keeps its cluster connected with
+no selection, so a look at an other cluster keeps the tunnels of this one. A forward reads, so a
+read-only cluster forwards too.
+
+## The path of each forward is the check of its cluster
+
+In the prototype each forward checked the path itself, one after the other, and the sixth of six
+idle forwards showed a silent path after 39 s. A forward now reads the channels of its cluster,
+which ping each 10 s, so each forward shows the loss at once, in 15 s, with the attempt and the
+next time of the channel of requests. A tunnel has its own ping; one that breaks asks the
+cluster to test its path.
+
+## A local connection in a break waits 5 s, then gets a reset
+
+A client that connects in a break waits for a tunnel up to `wait_secs` of `[forwards]`, 5 s, then
+gets a reset, never a silent end. A tunnel that breaks resets its client too; only a clean end
+of the pod ends the data. The protocol has no half close: after the end of the local input, the
+tunnel stays until the pod is silent for 1 s, as kubectl does.
+
+## Saved forwards are tables of config.toml
+
+The plan named a file `forwards.toml`. The settings view of M8 edits `config.toml` and keeps its
+comments, so each saved rule is a table of `[forwards.saved]`, one for each target and cluster.
+`start_saved` of `[forwards]` starts them with the app. A fixed local port never changes: a port
+in use is the state "failed" with the program that holds it, and a start binds it again.
+
 ## The login shell starts from the process environment
 
 The login shell runs one time, with the environment of the process as its start. Its profile

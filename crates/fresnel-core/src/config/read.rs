@@ -3,9 +3,11 @@
 //!
 //! - `fixed`: the groups of the settings table, with the bounds of each number.
 //! - `clusters`: the options of each cluster and the cluster groups.
+//! - `forwards`: the group `[forwards]` with its saved rules.
 
 pub(super) mod clusters;
 pub(super) mod fixed;
+mod forwards;
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -48,6 +50,7 @@ pub(super) fn parse_all(text: &str) -> Loaded {
             "shortcuts" => choices = reader.shortcuts(value),
             "clusters" => config.clusters = reader.clusters(value),
             "groups" => config.groups = reader.groups(value),
+            "forwards" => config.forwards = reader.forwards(value, &mut values),
             other => match Group::named(other) {
                 Some(group) => reader.fixed(group, value, &mut values),
                 None => reader.problem(key.span(), format!("unknown key `{other}`; the app ignores it")),

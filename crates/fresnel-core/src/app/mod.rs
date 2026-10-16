@@ -14,6 +14,7 @@
 //! - `keys`: the object of the key view and its saves. `create`: the create of a Secret.
 //! - `logs`: the log views, one session for each in the cluster of its object. `terminals`:
 //!   the terminals of the dock.
+//! - `forwards`: the port forwards, which keep the clusters of their rules connected.
 //! - `jobs`: the jobs of the operations. `access`: the permissions of the user.
 //! - `watch`: one task for each connected cluster, for the journal and the repaint.
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
@@ -27,6 +28,7 @@ mod create;
 mod data;
 mod edits;
 mod files;
+mod forwards;
 mod health;
 mod jobs;
 mod keys;
@@ -58,7 +60,9 @@ pub use command::Command;
 pub use create::CreateJob;
 pub use data::ClusterData;
 pub use edits::{EditRead, EditRequest, EditSave, EditState, Remote, SaveState, SaveView, Stage};
+pub use forwards::ForwardRow;
 pub use health::Health;
+pub(crate) use health::reason as link_reason;
 pub use jobs::{JobView, JobsView};
 pub use keys::{KeysView, ReadState, SaveJob};
 pub use manifest::{ManifestRead, ManifestRequest, ManifestState};
@@ -133,6 +137,8 @@ struct State {
     logs: Vec<LogRequest>,
     /// The terminals of the dock, in the sequence of their open, with their sessions.
     terminals: terminals::Terminals,
+    /// The port forwards, in the sequence of their start.
+    forwards: forwards::Forwards,
     /// The number of the last save of the key view.
     saves: u64,
     /// The task of the creates of Secrets. It starts with the first create.
@@ -240,6 +246,7 @@ impl Core {
             keys: None,
             logs: Vec::new(),
             terminals: terminals::Terminals::default(),
+            forwards: forwards::Forwards::default(),
             saves: 0,
             creates: None,
             jobs: jobs::Jobs::default(),
@@ -338,7 +345,10 @@ impl Core {
             state.commands.clear();
             let readers = (state.manifests.take(), state.edits.take(), state.creates.take());
             let tasks = (std::mem::take(&mut state.running), readers, (state.monitor.take(), state.file_watch.take()));
-            (tasks, std::mem::take(&mut state.jobs), std::mem::take(&mut state.connected), state.terminals.stop())
+            // The listeners close, and each local connection gets a reset (plan section 11.6).
+            let forwards = std::mem::take(&mut state.forwards);
+            let connections = (std::mem::take(&mut state.connected), state.terminals.stop());
+            (tasks, (std::mem::take(&mut state.jobs), forwards), connections)
         };
         drop(stopped);
         if let Some(registry) = self.inner.registry.get() {

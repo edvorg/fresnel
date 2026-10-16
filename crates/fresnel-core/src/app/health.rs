@@ -54,7 +54,7 @@ impl Health {
 
 /// Why a connected cluster is not live. The text is safe for a log: it has no output of a
 /// plugin.
-pub(super) fn reason(status: &ClusterStatus) -> Option<String> {
+pub(crate) fn reason(status: &ClusterStatus) -> Option<String> {
     if let Some(failure) = credential_failure(status) {
         return Some(failure);
     }

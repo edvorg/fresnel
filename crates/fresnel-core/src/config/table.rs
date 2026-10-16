@@ -20,15 +20,17 @@ pub enum Group {
     Safety,
     Diagnostics,
     Notifications,
+    Forwards,
 }
 
 impl Group {
     /// The groups in the sequence of the settings view.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Appearance,
         Self::Table,
         Self::Safety,
         Self::Notifications,
+        Self::Forwards,
         Self::Kubeconfig,
         Self::Plugins,
         Self::Network,
@@ -54,6 +56,7 @@ impl Group {
             Self::Safety => "safety",
             Self::Diagnostics => "diagnostics",
             Self::Notifications => "notifications",
+            Self::Forwards => "forwards",
         }
     }
 
@@ -77,6 +80,7 @@ impl Group {
             Self::Safety => "Safety",
             Self::Diagnostics => "Diagnostics",
             Self::Notifications => "Notifications",
+            Self::Forwards => "Port forwards",
         }
     }
 
@@ -144,6 +148,8 @@ pub enum Setting {
     NotifyFailed,
     NotifyLost,
     LostAfter,
+    StartSaved,
+    ForwardWait,
 }
 
 /// The unit of a number. The key of the file ends with it, so the file tells it.
@@ -233,8 +239,8 @@ const fn choice(options: &'static [&'static str], default: &'static str) -> Form
 }
 
 use Group::{
-    Appearance, Diagnostics, Events, Kubeconfig, Logs, Metrics, Network, Notifications, Plugins, Safety, Table,
-    Terminal,
+    Appearance, Diagnostics, Events, Forwards, Kubeconfig, Logs, Metrics, Network, Notifications, Plugins, Safety,
+    Table, Terminal,
 };
 use Setting as S;
 use Unit::{Count, Kib, Mib, Millis, Percent, Points, Seconds};
@@ -317,6 +323,8 @@ pub const TABLE: &[Spec] = &[
     other(S::NotifyFailed, Notifications, "failed_operations", "A failed operation", Form::Flag(true)),
     other(S::NotifyLost, Notifications, "lost_clusters", "A cluster that stays lost", Form::Flag(true)),
     time(S::LostAfter, Notifications, "lost_after_secs", [60, 10, 3600], Seconds, "Lost while hidden for"),
+    other(S::StartSaved, Forwards, "start_saved", "Start the saved forwards with the app", Form::Flag(true)),
+    time(S::ForwardWait, Forwards, "wait_secs", [5, 1, 60], Seconds, "Wait of a local connection in a break"),
 ];
 
 /// The entry of a setting. Each setting has one: a test holds it.

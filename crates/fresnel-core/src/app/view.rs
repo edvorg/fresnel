@@ -12,6 +12,7 @@ use super::Core;
 use super::create::{CreateJob, SecretWriter};
 use super::data::ClusterData;
 use super::edits::EditRead;
+use super::forwards::ForwardRow;
 use super::health::{self, Health};
 use super::jobs::JobsView;
 use super::manifest::{ManifestRead, ManifestReader};
@@ -144,6 +145,8 @@ pub struct CoreView {
     pub jobs: Arc<JobsView>,
     /// The terminals of the dock, in the sequence of their open.
     pub terminals: Arc<[TerminalView]>,
+    /// The port forwards, in the sequence of their start, for the Forwards tab.
+    pub forwards: Arc<[ForwardRow]>,
     /// The journal.
     pub journal: Arc<JournalView>,
 }
@@ -172,6 +175,7 @@ impl Core {
                 create: state.creates.as_ref().and_then(SecretWriter::last),
                 jobs: state.jobs.view(),
                 terminals: state.terminals.views(),
+                forwards: state.forwards.rows(),
                 // The journal has its own lock, which the copy takes after this one.
                 journal: Arc::default(),
             };

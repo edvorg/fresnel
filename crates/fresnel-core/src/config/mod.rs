@@ -11,10 +11,12 @@
 //!   of each cluster and the cluster groups.
 //! - `read`: the reader of the text, with the place of each problem. `apply`: the values of
 //!   the file in the settings of the core. `edit`: a change of the settings view in the text.
+//! - `forwards`: the saved forward rules, and the edits that save and forget one.
 
 pub(crate) mod apply;
 mod clusters;
 pub mod edit;
+pub mod forwards;
 mod read;
 pub mod table;
 mod values;
@@ -55,6 +57,8 @@ pub struct Config {
     pub clusters: BTreeMap<String, ClusterOptions>,
     /// The cluster groups, in the sequence of the file.
     pub groups: Vec<ClusterGroup>,
+    /// The saved forward rules, in the sequence of their keys.
+    pub forwards: Vec<crate::forward::ForwardRule>,
 }
 
 /// One problem of the file, at its place.

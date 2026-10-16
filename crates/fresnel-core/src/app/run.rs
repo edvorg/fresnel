@@ -231,8 +231,8 @@ impl Inner {
         Ok(())
     }
 
-    /// Makes the connections equal to the selection: each selected cluster is connected,
-    /// and no other cluster is.
+    /// Makes the connections equal to the selection: each selected cluster is connected, and
+    /// each cluster of a forward that runs (plan section 12.3), and no other cluster is.
     pub(super) async fn reconcile(&self, registry: &Registry) -> Result<(), CoreError> {
         let clusters = registry.snapshot();
         let (selected, stopped) = {
@@ -243,7 +243,8 @@ impl Inner {
                 return Ok(());
             }
             state.selected.retain(|id| clusters.iter().any(|cluster| &cluster.id == id));
-            let selected = state.selected.clone();
+            let mut selected = state.selected.clone();
+            selected.extend(state.forwards.clusters());
             let (ids, stopped): (Vec<ClusterId>, Vec<Connected>) =
                 state.connected.extract_if(|id, _| !selected.contains(id)).unzip();
             // A terminal session holds the gateway of its cluster to its end: it ends its shell.
@@ -262,6 +263,7 @@ impl Inner {
                 (true, LinkState::On(_) | LinkState::Failed(_)) | (false, LinkState::Off) => {}
             }
         }
+        self.feed_forwards();
         self.repaint.request();
         Ok(())
     }

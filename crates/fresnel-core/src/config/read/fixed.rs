@@ -24,14 +24,25 @@ impl Reader<'_> {
             return;
         };
         for (key, value) in entries.iter() {
-            let name = key.get_ref().as_ref();
-            let Some(spec) = table::find(group, name) else {
-                self.problem(key.span(), format!("unknown key `{name}` in `{}`; the app ignores it", group.name()));
-                continue;
-            };
-            if let Some(read) = self.value(spec, value) {
-                values.insert(spec.id, read);
-            }
+            self.fixed_entry(group, key, value, values);
+        }
+    }
+
+    /// One key of the table of a group.
+    pub(super) fn fixed_entry(
+        &mut self,
+        group: Group,
+        key: &Spanned<std::borrow::Cow<'_, str>>,
+        value: &Spanned<DeValue<'_>>,
+        values: &mut BTreeMap<Setting, Value>,
+    ) {
+        let name = key.get_ref().as_ref();
+        let Some(spec) = table::find(group, name) else {
+            self.problem(key.span(), format!("unknown key `{name}` in `{}`; the app ignores it", group.name()));
+            return;
+        };
+        if let Some(read) = self.value(spec, value) {
+            values.insert(spec.id, read);
         }
     }
 
