@@ -48,7 +48,7 @@ use crate::format::Clock;
 use crate::theme::{self, ClusterColors};
 use crate::views::detail::sections;
 use crate::views::editor::EditorTabs;
-use crate::views::forwards::{ForwardAsk, ForwardDialog, ForwardsTab};
+use crate::views::forwards::{ForwardAsk, ForwardDialog, ForwardsTab, QuitGuard};
 use crate::views::help;
 use crate::views::journal::JournalTab;
 use crate::views::keys::new_secret::NewSecretDialog;
@@ -85,6 +85,7 @@ pub struct Shell {
     search: QuickSearch,
     new_secret: NewSecretDialog,
     forward: ForwardDialog,
+    quit: QuitGuard,
     /// The object whose values the core reads for the key view, as far as the shell knows.
     keys: Option<Target>,
     history: History,
@@ -146,6 +147,7 @@ impl Shell {
             search: QuickSearch::new(tasks, Arc::clone(&wake)),
             new_secret: NewSecretDialog::default(),
             forward: ForwardDialog::default(),
+            quit: QuitGuard::default(),
             keys: None,
             history: History::default(),
             colors: ClusterColors::default(),
@@ -170,6 +172,7 @@ impl Shell {
         if !self.search.is_open()
             && !self.new_secret.is_open()
             && !self.forward.is_open()
+            && !self.quit.is_open()
             && !self.open.has_dialog()
             && !self.editors.has_dialog()
             && !self.help
@@ -252,6 +255,7 @@ impl Shell {
         let chosen = self.search.show(ui.ctx(), &scene, &view.config.keys);
         let created = self.new_secret.show(ui.ctx(), &mut scene, &on_page);
         self.forward.show(ui.ctx(), &mut scene);
+        self.quit.show(ui.ctx(), view);
         help::show(ui.ctx(), &view.config.keys, &mut self.help);
         let asked = scene.asked.take();
         if let Some(request) = scene.logs.take() {

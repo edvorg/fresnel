@@ -3,9 +3,11 @@
 //! the status bar and the keys.
 //!
 //! - `tab`: the tab and the status bar. `dialog`: the dialog and the ways to it.
+//! - `quit`: a close of the window while a forward runs.
 //! - `snapshots`: the PNG files of the tab and of the dialog.
 
 mod dialog;
+mod quit;
 mod snapshots;
 mod tab;
 
