@@ -262,3 +262,34 @@ fn the_default_history_is_the_default_of_the_settings() {
     let lines = crate::config::Config::default().number(crate::config::table::Setting::TerminalScrollback);
     assert_eq!(Options::default().scrollback as u64, lines);
 }
+
+#[test]
+fn a_repeat_of_the_remote_program_has_a_limit_and_repeats_no_mark() {
+    let short = terminal(20, 2);
+    short.feed(b"ab\x1b[3b");
+    assert_eq!(rows(&short)[0], "abbbb");
+    let long = Terminal::new(Options { size: GridSize::new(20, 2), scrollback: 1000 });
+    long.feed(b"x\x1b[65535b");
+    let cells = 1 + usize::from(guard::REPEAT_LIMIT);
+    // The 2 lines of the screen and the history above them, with 20 cells each.
+    assert_eq!(copied(&long).history + 2, cells.div_ceil(20), "the limit, not 65,536 cells");
+
+    let marks = Terminal::new(Options { size: GridSize::new(20, 2), scrollback: 10 });
+    let mut output = "e\u{301}".as_bytes().to_vec();
+    (0..40).for_each(|_| output.extend(b"\x1b[65535b"));
+    (0..10).for_each(|_| output.extend([b"\x80".as_slice(), "\u{302}".repeat(16).as_bytes()].concat()));
+    marks.feed(&output);
+    let frame = copied(&marks);
+    assert_eq!(frame.marks(0, 0).map(|marks| marks.chars().count()), Some(guard::MARKS_LIMIT));
+}
+
+#[test]
+fn the_history_keeps_no_link_of_the_remote_program() {
+    let terminal = terminal(20, 2);
+    terminal.feed(b"\x1b]8;;https://example.test/a\x07link\x1b]8;;\x07 text");
+    assert_eq!(rows(&terminal)[0], "link text");
+    use alacritty_terminal::index::{Column, Line, Point};
+    let screen = terminal.shared.screen.lock();
+    let cell = &screen.term.grid()[Point::new(Line(0), Column(0))];
+    assert_eq!(cell.hyperlink(), None, "a link of each cell kept 4 KiB for each cell of the history");
+}

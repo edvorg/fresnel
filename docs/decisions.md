@@ -1904,6 +1904,20 @@ passes 4 KiB of each OSC sequence, so the stack of 4,096 titles holds 16 MiB at 
 marks of zero width in a row, which the model would add to one cell with no limit. A title
 keeps 200 characters with no control character, and OSC 52 cannot read or write the clipboard.
 
+## The guard gives a repeat a limit and repeats no mark
+
+`CSI Ps b` repeats the last character up to 65,535 times for 8 bytes: in the review, 323 bytes
+put 2.6 million marks of zero width on one cell, and 4 KiB of repeats held the lock of the screen
+for 120 ms. The guard ends each repeat with CAN and sends one of 2,048 characters at most, more
+than ncurses repeats in a line, and none of a mark, as xterm.
+
+## The terminal keeps no link (OSC 8)
+
+A link gives each cell after it its own copy, and the history keeps it: in the review, 80 MB of
+output with a link of 4 KiB for each cell held 80 MB in 100 lines, so a history of 10,000 lines
+of 200 columns could hold 8 GB. The widget opens no link, so the guard passes only `8;` of a
+link, which the parser ignores.
+
 ## Input goes in pieces of 16 KiB, and a paste above 64 KiB asks first
 
 In the spike, a paste of 1 MiB in one frame made the API server lose the end of a shell; in
