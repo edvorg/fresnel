@@ -42,3 +42,26 @@ fn is_hidden(ctx: &egui::Context) -> bool {
         viewport.minimized == Some(true) || viewport.focused == Some(false)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// "Open in browser" of a forward: the window takes the URL out of the frame and opens it
+    /// itself; a copy of a text stays for eframe.
+    #[test]
+    fn the_window_takes_the_urls_of_a_frame_and_leaves_the_other_commands() {
+        let ctx = egui::Context::default();
+        let mut taken = Vec::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.ctx().open_url(egui::OpenUrl::new_tab("http://127.0.0.1:8080/"));
+            ui.ctx().copy_text("127.0.0.1:8080".to_owned());
+            taken = take_urls(ui.ctx());
+        });
+        // The test has no painter for the fonts.
+        output.textures_delta.clear();
+        assert_eq!(taken, ["http://127.0.0.1:8080/"]);
+        let copy = egui::OutputCommand::CopyText("127.0.0.1:8080".to_owned());
+        assert_eq!(output.platform_output.commands, [copy]);
+    }
+}
