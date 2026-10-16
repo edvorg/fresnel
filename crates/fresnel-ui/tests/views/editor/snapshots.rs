@@ -1,5 +1,6 @@
-//! PNG files of the editor in the dark theme: the colors and the line numbers, an error and
-//! a hint with their marks, the hits of a search, a Secret, and a text past the line limit.
+//! PNG files of the editor: the colors and the line numbers in each theme, and in the dark
+//! theme an error and a hint with their marks, the hits of a search, a Secret, and a text
+//! past the line limit.
 
 use egui::accesskit::Role;
 use egui::{Event, Key, Modifiers};
@@ -38,10 +39,14 @@ fn secret_text() -> String {
 
 /// The window with the editor of an object of a page, from the menu of its row.
 fn editor(page: (&str, &str), yaml: &str, decoded: Option<Decoded>) -> Window {
+    editor_in(egui::Theme::Dark, page, yaml, decoded)
+}
+
+fn editor_in(theme: egui::Theme, page: (&str, &str), yaml: &str, decoded: Option<Decoded>) -> Window {
     let (page, name) = page;
     let clusters =
         vec![allowed("ams-prod", &scene::<Deployment>()), with_secrets("fra-prod", &[secret("db", "Opaque", &[])])];
-    let mut window = window_with(view(clusters), egui::Theme::Dark, SCALE);
+    let mut window = window_with(view(clusters), theme, SCALE);
     crate::fake::open_page(&mut window, page);
     until(&mut window, "the row", |window| window.query_all_by_role_and_label(Role::Label, name).next().is_some());
     window.get_by_role_and_label(Role::Label, name).click_secondary();
@@ -57,6 +62,9 @@ fn editor(page: (&str, &str), yaml: &str, decoded: Option<Decoded>) -> Window {
 
 #[test]
 fn the_editor_with_colors_marks_a_search_a_secret_and_a_read_only_text() {
+    let mut window = editor_in(egui::Theme::Light, ("Deployments", "web"), MANIFEST, None);
+    checked(&mut window, "No error");
+    save_clean(&mut window, "editor-colors-light");
     let mut window = editor(("Deployments", "web"), MANIFEST, None);
     checked(&mut window, "No error");
     save_clean(&mut window, "editor-colors");
