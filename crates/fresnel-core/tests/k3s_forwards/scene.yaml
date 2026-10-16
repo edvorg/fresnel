@@ -1,0 +1,135 @@
+# The scene of the forwards test: an object of each kind that a forward reaches, each with
+# one pod of busybox httpd on port 8080 whose page is the kind of its object, and a pod that
+# reads its input only after 30 s. `bed.rs` creates it on k3s.
+apiVersion: v1
+kind: Namespace
+metadata: {name: forwards}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: web, namespace: forwards, labels: {app: web}}
+spec:
+  terminationGracePeriodSeconds: 1
+  containers:
+    - name: page
+      image: rancher/mirrored-library-busybox:1.36.1
+      command: [sh, -c, "mkdir -p /www && echo Pod > /www/index.html && exec httpd -f -p 8080 -h /www"]
+      ports: [{name: http, containerPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: deploy, namespace: forwards}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: deploy}}
+  template:
+    metadata: {labels: {app: deploy}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: page
+          image: rancher/mirrored-library-busybox:1.36.1
+          command: [sh, -c, "mkdir -p /www && echo Deployment > /www/index.html && exec httpd -f -p 8080 -h /www"]
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 1}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: svc, namespace: forwards}
+spec:
+  selector: {app: deploy}
+  ports: [{name: web, port: 80, targetPort: http}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: stateful, namespace: forwards}
+spec:
+  clusterIP: None
+  selector: {app: stateful}
+  ports: [{name: web, port: 8080}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: stateful, namespace: forwards}
+spec:
+  serviceName: stateful
+  replicas: 1
+  selector: {matchLabels: {app: stateful}}
+  template:
+    metadata: {labels: {app: stateful}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: page
+          image: rancher/mirrored-library-busybox:1.36.1
+          command: [sh, -c, "mkdir -p /www && echo StatefulSet > /www/index.html && exec httpd -f -p 8080 -h /www"]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: daemon, namespace: forwards}
+spec:
+  selector: {matchLabels: {app: daemon}}
+  template:
+    metadata: {labels: {app: daemon}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: page
+          image: rancher/mirrored-library-busybox:1.36.1
+          command: [sh, -c, "mkdir -p /www && echo DaemonSet > /www/index.html && exec httpd -f -p 8080 -h /www"]
+---
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata: {name: replicas, namespace: forwards}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: replicas}}
+  template:
+    metadata: {labels: {app: replicas}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: page
+          image: rancher/mirrored-library-busybox:1.36.1
+          command: [sh, -c, "mkdir -p /www && echo ReplicaSet > /www/index.html && exec httpd -f -p 8080 -h /www"]
+---
+apiVersion: v1
+kind: ReplicationController
+metadata: {name: controller, namespace: forwards}
+spec:
+  replicas: 1
+  selector: {app: controller}
+  template:
+    metadata: {labels: {app: controller}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: page
+          image: rancher/mirrored-library-busybox:1.36.1
+          command: [sh, -c, "mkdir -p /www && echo ReplicationController > /www/index.html && exec httpd -f -p 8080 -h /www"]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: job, namespace: forwards}
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: page
+          image: rancher/mirrored-library-busybox:1.36.1
+          command: [sh, -c, "mkdir -p /www && echo Job > /www/index.html && exec httpd -f -p 8080 -h /www"]
+---
+# The slow pod: it takes a connection to port 9000, reads its first byte, then nothing for
+# 30 s, and then writes the rest to a file whose size the test reads. The input of nc stays open: at its end, nc ends
+# its side of the connection, and the node ends the forward (the protocol has no half close).
+apiVersion: v1
+kind: Pod
+metadata: {name: slow, namespace: forwards}
+spec:
+  terminationGracePeriodSeconds: 1
+  containers:
+    - name: sink
+      image: rancher/mirrored-library-busybox:1.36.1
+      command: [sh, -c, "sleep 3600 | nc -l -p 9000 | (dd bs=1 count=1 of=/tmp/first 2>/dev/null; sleep 30; cat > /tmp/upload)"]
