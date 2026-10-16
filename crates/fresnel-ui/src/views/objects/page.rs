@@ -246,6 +246,7 @@ impl<M: ObjectModel> Page for ObjectPage<M> {
                 detail::Act::Ask(ask) => self.acts.ask(ask),
                 detail::Act::Logs(logs) => self.acts.ask_logs(logs),
                 detail::Act::Terminal(ask) => self.acts.ask_terminal(ask),
+                detail::Act::Forward(port) => self.acts.ask_forward(port),
                 detail::Act::None => {}
             }
         }

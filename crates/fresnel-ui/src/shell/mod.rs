@@ -8,8 +8,8 @@
 //!
 //! The shell runs the commands of the command table (plan section 11.5): their keys, the
 //! quick search, the history of the visited objects for Back and Forward, and the dialog of
-//! a new Secret. It names the Secret or the ConfigMap of the open panel to the core, which
-//! reads its values while the panel shows it.
+//! a new Secret and of a new forward. It names the Secret or the ConfigMap of the open panel
+//! to the core, which reads its values while the panel shows it.
 //!
 //! - `top_bar`, `sidebar`, `dock`, `status_bar`: the parts of the window. `namespaces`:
 //!   the namespace filter of each view. `keys`: the key of each command. `history`: Back
@@ -48,6 +48,7 @@ use crate::format::Clock;
 use crate::theme::{self, ClusterColors};
 use crate::views::detail::sections;
 use crate::views::editor::EditorTabs;
+use crate::views::forwards::{ForwardAsk, ForwardDialog, ForwardsTab};
 use crate::views::help;
 use crate::views::journal::JournalTab;
 use crate::views::keys::new_secret::NewSecretDialog;
@@ -69,6 +70,7 @@ pub struct Shell {
     tab: Tab,
     journal: JournalTab,
     operations: OperationsTab,
+    forwards: ForwardsTab,
     logs: LogTabs,
     editors: EditorTabs,
     terminals: TerminalTabs,
@@ -82,6 +84,7 @@ pub struct Shell {
     namespaces: BTreeSet<Arc<str>>,
     search: QuickSearch,
     new_secret: NewSecretDialog,
+    forward: ForwardDialog,
     /// The object whose values the core reads for the key view, as far as the shell knows.
     keys: Option<Target>,
     history: History,
@@ -110,6 +113,8 @@ pub(crate) struct Scene<'a> {
     pub(crate) logs: Option<LogRequest>,
     /// The object of an editor that a view asks for. The shell opens its tab after the frame.
     pub(crate) edit: Option<ops::Target>,
+    /// A forward that a view asks for. The shell opens its dialog after the frame.
+    pub(crate) forward: Option<ForwardAsk>,
 }
 
 impl Shell {
@@ -129,6 +134,7 @@ impl Shell {
             tab: Tab::Journal,
             journal: JournalTab::default(),
             operations: OperationsTab::default(),
+            forwards: ForwardsTab::default(),
             logs: LogTabs::new(tasks, Arc::clone(&wake)),
             editors: EditorTabs::new(tasks, Arc::clone(&wake)),
             terminals: TerminalTabs::default(),
@@ -139,6 +145,7 @@ impl Shell {
             namespaces: BTreeSet::new(),
             search: QuickSearch::new(tasks, Arc::clone(&wake)),
             new_secret: NewSecretDialog::default(),
+            forward: ForwardDialog::default(),
             keys: None,
             history: History::default(),
             colors: ClusterColors::default(),
@@ -162,6 +169,7 @@ impl Shell {
         let terminal = matches!(self.tab, Tab::Terminal(id) if self.terminals.focused(id));
         if !self.search.is_open()
             && !self.new_secret.is_open()
+            && !self.forward.is_open()
             && !self.open.has_dialog()
             && !self.editors.has_dialog()
             && !self.help
@@ -184,6 +192,7 @@ impl Shell {
             asked: None,
             logs: None,
             edit: None,
+            forward: None,
         };
         let palette = theme::palette(ui);
 
@@ -211,6 +220,7 @@ impl Shell {
             open: &mut self.tab,
             journal: &mut self.journal,
             operations: &mut self.operations,
+            forwards: &mut self.forwards,
             logs: &mut self.logs,
             editors: &mut self.editors,
             terminals: &mut self.terminals,
@@ -241,6 +251,7 @@ impl Shell {
             });
         let chosen = self.search.show(ui.ctx(), &scene, &view.config.keys);
         let created = self.new_secret.show(ui.ctx(), &mut scene, &on_page);
+        self.forward.show(ui.ctx(), &mut scene);
         help::show(ui.ctx(), &view.config.keys, &mut self.help);
         let asked = scene.asked.take();
         if let Some(request) = scene.logs.take() {
@@ -249,6 +260,10 @@ impl Shell {
         }
         if let Some(id) = scene.edit.take().and_then(|target| self.editors.open(target)) {
             self.tab = Tab::Editor(id);
+            ui.ctx().request_repaint();
+        }
+        if let Some(ask) = scene.forward.take() {
+            self.forward.open(ask);
             ui.ctx().request_repaint();
         }
         if let Some(visited) = self.open.opened() {
@@ -281,9 +296,13 @@ impl Shell {
         commands.extend(self.show_keys());
         commands.extend(self.logs.command());
         commands.extend(self.editors.command());
-        // A job that the user started shows its steps in the Operations tab.
+        // A job that the user started shows its steps in the Operations tab, and a forward
+        // its state in the Forwards tab.
         if commands.iter().any(|command| matches!(command, Command::Run(_))) {
             self.tab = Tab::Operations;
+        }
+        if commands.iter().any(|command| matches!(command, Command::StartForward(_))) {
+            self.tab = Tab::Forwards;
         }
         commands
     }
@@ -310,6 +329,7 @@ impl Shell {
             CommandId::NewSecret => self.new_secret.open(),
             CommandId::FromYaml => self.tab = Tab::Editor(self.editors.open_create()),
             CommandId::Settings => self.page = Page::Settings,
+            CommandId::Forwards => self.tab = Tab::Forwards,
             CommandId::Help => self.help = !self.help,
             CommandId::Focus(area) => self.focus_area(area),
             CommandId::NextArea | CommandId::PreviousArea => {

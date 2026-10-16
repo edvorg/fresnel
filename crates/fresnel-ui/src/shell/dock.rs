@@ -9,6 +9,7 @@ use super::Scene;
 use crate::theme::{self, BAR_HEIGHT, ClusterColors};
 use crate::views::connections;
 use crate::views::editor::EditorTabs;
+use crate::views::forwards::ForwardsTab;
 use crate::views::journal::JournalTab;
 use crate::views::logs::LogTabs;
 use crate::views::operations::OperationsTab;
@@ -28,6 +29,7 @@ const SMALLEST: f32 = BAR_HEIGHT;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Tab {
     Operations,
+    Forwards,
     Journal,
     Connections,
     /// A log view: the identity of its tab.
@@ -49,8 +51,12 @@ pub(crate) struct Title {
 }
 
 impl Tab {
-    const FIXED: [(Self, &'static str); 3] =
-        [(Self::Operations, "Operations"), (Self::Journal, "Journal"), (Self::Connections, "Connections")];
+    const FIXED: [(Self, &'static str); 4] = [
+        (Self::Operations, "Operations"),
+        (Self::Forwards, "Forwards"),
+        (Self::Journal, "Journal"),
+        (Self::Connections, "Connections"),
+    ];
 }
 
 /// The tabs of the dock, which the shell owns: the open one and the state of each kind.
@@ -58,6 +64,7 @@ pub(super) struct Tabs<'a> {
     pub(super) open: &'a mut Tab,
     pub(super) journal: &'a mut JournalTab,
     pub(super) operations: &'a mut OperationsTab,
+    pub(super) forwards: &'a mut ForwardsTab,
     pub(super) logs: &'a mut LogTabs,
     pub(super) editors: &'a mut EditorTabs,
     pub(super) terminals: &'a mut TerminalTabs,
@@ -88,6 +95,7 @@ pub(super) fn show(ui: &mut Ui, tabs: Tabs<'_>, scene: &mut Scene<'_>, focus: bo
         // The center can show the same view, so the two have widgets with different identities.
         ui.push_id("dock", |ui| match *tabs.open {
             Tab::Operations => tabs.operations.show(ui, scene),
+            Tab::Forwards => tabs.forwards.show(ui, scene),
             Tab::Journal => tabs.journal.show(ui, &view.journal, scene.clock),
             Tab::Connections => connections::show(ui, scene),
             Tab::Logs(id) => tabs.logs.show(id, ui, scene),

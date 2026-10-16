@@ -1,6 +1,7 @@
 //! One block for each container of a spec: the init containers, the containers and the
 //! ephemeral containers, in the sequence of the spec, as `kubectl describe pod` lists them.
 //! A container of a pod has its logs, and the logs of its earlier instance after a restart.
+//! Each TCP port has a Forward button (plan section 12.3).
 
 use egui::{Button, Frame, Label, Margin, RichText, Ui};
 use fresnel_core::kinds::Kind;
@@ -140,8 +141,9 @@ fn block(ui: &mut Ui, place: &Place<'_>, shown: &Shown<'_>, status: Option<Optio
         }
         text_field(ui, palette, "Image", shown.image.unwrap_or_default());
         optional(ui, place, "Pull policy", shown.pull.map(str::to_owned));
-        let ports: Vec<String> = shown.ports.iter().map(texts::port).collect();
-        optional(ui, place, "Ports", (!ports.is_empty()).then(|| ports.join(", ")));
+        if let Some(port) = ports(ui, place, shown) {
+            picked = Some(port);
+        }
         optional(ui, place, "Command", (!shown.command.is_empty()).then(|| shown.command.join(" ")));
         optional(ui, place, "Arguments", (!shown.args.is_empty()).then(|| shown.args.join(" ")));
         clicked = environment(ui, place, shown);
@@ -155,6 +157,37 @@ fn block(ui: &mut Ui, place: &Place<'_>, shown: &Shown<'_>, status: Option<Optio
     });
     ui.add_space(6.0);
     picked.or(clicked.map(Pick::Open))
+}
+
+/// The ports of a container, each TCP port with its Forward button. Gives the port of a click.
+fn ports(ui: &mut Ui, place: &Place<'_>, shown: &Shown<'_>) -> Option<Pick> {
+    if shown.ports.is_empty() {
+        return None;
+    }
+    let mut picked = None;
+    field(ui, place.palette, "Ports", |ui| {
+        ui.horizontal_wrapped(|ui| {
+            for port in shown.ports.iter().take(ITEM_LIMIT) {
+                ui.label(texts::port(port));
+                let tcp = port.protocol.as_deref().is_none_or(|protocol| protocol == "TCP");
+                let number = u16::try_from(port.container_port).ok().filter(|_| tcp && place.forwards);
+                if let Some(number) = number
+                    && forward_button(ui, &format!("Forward port {number} of {}", shown.name))
+                {
+                    picked = Some(Pick::Forward(number));
+                }
+            }
+        });
+    });
+    picked
+}
+
+/// The small Forward button of a port. True for a click.
+pub(crate) fn forward_button(ui: &mut Ui, name: &str) -> bool {
+    let border = egui::Stroke::new(1.0, crate::theme::palette(ui).border);
+    let button = ui.add(Button::new(RichText::new("Forward…").size(SMALL)).small().stroke(border));
+    widgets::name(&button, name);
+    button.clicked()
 }
 
 /// The buttons of a container of a pod: its logs, the logs of its instance before the last

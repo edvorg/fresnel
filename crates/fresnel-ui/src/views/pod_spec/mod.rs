@@ -14,6 +14,8 @@ pub(crate) mod scheduling;
 pub(crate) mod texts;
 mod volumes;
 
+pub(crate) use containers::forward_button;
+
 use egui::Ui;
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::kinds::Kind;
@@ -34,6 +36,9 @@ pub(crate) struct Place<'a> {
     pub(crate) cluster: &'a ClusterId,
     /// Its namespace: a spec names objects of its own namespace only.
     pub(crate) namespace: &'a str,
+    /// True when the object forwards a port (plan section 12.3): each TCP port of a container
+    /// then has a Forward button. A CronJob has none: its Jobs come and go.
+    pub(crate) forwards: bool,
 }
 
 impl Place<'_> {

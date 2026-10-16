@@ -19,6 +19,7 @@ use crate::views::act::{
 };
 use crate::views::detail::DetailPanel;
 use crate::views::detail::actions::{later, of_kind};
+use crate::views::forwards::ForwardAsk;
 use crate::views::logs::LogAsk;
 use crate::views::terminal::TerminalAsk;
 use crate::widgets::tone::Tone;
@@ -37,6 +38,8 @@ pub(super) struct Acts {
     logs: Option<LogAsk>,
     /// The choice of a terminal in the panel: its program and its container.
     terminal: Option<TerminalAsk>,
+    /// The port of a Forward button of the panel, with an ask of `Action::Forward`.
+    port: Option<u16>,
     dialog: Option<Dialog>,
     permits: Permits,
 }
@@ -44,19 +47,25 @@ pub(super) struct Acts {
 impl Acts {
     /// The user asked for an action on the object of the panel. It starts in the frame.
     pub(super) fn ask(&mut self, ask: Ask) {
-        (self.asked, self.logs, self.terminal) = (Some(ask), None, None);
+        (self.asked, self.logs, self.terminal, self.port) = (Some(ask), None, None, None);
     }
 
     /// The user asked for the logs of a container of the object of the panel.
     pub(super) fn ask_logs(&mut self, logs: LogAsk) {
         let ask = Ask { action: Action::Logs, revision: None };
-        (self.asked, self.logs, self.terminal) = (Some(ask), Some(logs), None);
+        (self.asked, self.logs, self.terminal, self.port) = (Some(ask), Some(logs), None, None);
     }
 
     /// The user asked for a terminal of a container of the object of the panel.
     pub(super) fn ask_terminal(&mut self, terminal: TerminalAsk) {
         let ask = Ask { action: terminal.action(), revision: None };
-        (self.asked, self.logs, self.terminal) = (Some(ask), None, Some(terminal));
+        (self.asked, self.logs, self.terminal, self.port) = (Some(ask), None, Some(terminal), None);
+    }
+
+    /// The user asked for a forward of one port of the object of the panel.
+    pub(super) fn ask_forward(&mut self, port: u16) {
+        let ask = Ask { action: Action::Forward, revision: None };
+        (self.asked, self.logs, self.terminal, self.port) = (Some(ask), None, None, Some(port));
     }
 
     pub(super) fn has_dialog(&self) -> bool {
@@ -65,7 +74,7 @@ impl Acts {
 
     /// Drops the action and the dialog of a page that is not painted.
     pub(super) fn rest(&mut self) {
-        (self.asked, self.logs, self.terminal, self.dialog) = (None, None, None, None);
+        (self.asked, self.logs, self.terminal, self.port, self.dialog) = (None, None, None, None, None);
     }
 
     /// The gate of an action on the object of a row, for the menu of the row.
@@ -108,6 +117,11 @@ impl Acts {
         // The editor asks before a change: its save shows the diff.
         if action == Action::EditManifest {
             scene.edit = Some(subject.target);
+            return None;
+        }
+        if action == Action::Forward {
+            let (ports, port) = (subject.facts.ports, self.port.take());
+            scene.forward = Some(ForwardAsk { target: subject.target, ports, port });
             return None;
         }
         if let Some(ask) = self.terminal.take().or_else(|| TerminalAsk::of(action)) {

@@ -1,8 +1,10 @@
-//! Status bar: the one state of each selected cluster, and the counts of the journal.
+//! Status bar: the one state of each selected cluster, the count of the forwards of each
+//! state, and the counts of the journal.
 
 use egui::scroll_area::ScrollBarVisibility;
 use egui::{Align, Button, Layout, RichText, ScrollArea, Ui};
 use fresnel_core::app::ClusterRow;
+use fresnel_core::forward::ForwardState;
 
 use super::{Scene, Tab};
 use crate::format;
@@ -20,6 +22,9 @@ pub(super) fn show(ui: &mut Ui, scene: &Scene<'_>, tab: &mut Tab) {
         ui.add_space(4.0);
         if journal_counts(ui, palette, scene).clicked() {
             *tab = Tab::Journal;
+        }
+        if forward_counts(ui, palette, scene).is_some_and(|counts| counts.clicked()) {
+            *tab = Tab::Forwards;
         }
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| cluster_states(ui, palette, scene, tab));
     });
@@ -73,4 +78,28 @@ fn journal_counts(ui: &mut Ui, palette: &Palette, scene: &Scene<'_>) -> egui::Re
     };
     let text = format!("{}   {}", format::count(journal.errors, "error"), format::count(journal.warnings, "warning"));
     ui.add(Button::new(small(text).color(color)).frame(false)).on_hover_text("Open the journal")
+}
+
+/// The count of the forwards of each state, in the tone of the worst one. A click opens the
+/// Forwards tab. Nothing with no forward.
+fn forward_counts(ui: &mut Ui, palette: &Palette, scene: &Scene<'_>) -> Option<egui::Response> {
+    let rows = &scene.view.forwards;
+    if rows.is_empty() {
+        return None;
+    }
+    let tone = |state: &ForwardState| match state {
+        ForwardState::Failed(_) => Tone::Error,
+        ForwardState::Degraded(_) | ForwardState::Reconnecting { .. } => Tone::Warn,
+        ForwardState::Active | ForwardState::Starting(_) | ForwardState::Stopped => Tone::Muted,
+    };
+    let worst = rows.iter().map(|row| tone(&row.view.state)).max_by_key(|tone| match tone {
+        Tone::Error => 2,
+        Tone::Warn => 1,
+        _ => 0,
+    });
+    let color = worst.unwrap_or(Tone::Muted).color(palette);
+    let text = crate::views::forwards::summary(rows);
+    let button = ui.add(Button::new(small(&text).color(color)).frame(false)).on_hover_text("Open the forwards");
+    widgets::name(&button, &text);
+    Some(button)
 }

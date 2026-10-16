@@ -35,10 +35,11 @@ fn counts(ui: &mut Ui, cx: &Context<'_>, counts: &[(&str, Option<i32>)]) {
 }
 
 /// The pod template: where and as whom its pods run, its containers and its volumes.
-fn template(ui: &mut Ui, cx: &Context<'_>, template: Option<&PodTemplateSpec>) -> Option<Pick> {
+/// `forwards` is true for a workload that forwards the ports of its pods.
+fn template(ui: &mut Ui, cx: &Context<'_>, template: Option<&PodTemplateSpec>, forwards: bool) -> Option<Pick> {
     let spec = template.and_then(|template| template.spec.as_ref())?;
     heading(ui, cx.palette, "POD TEMPLATE");
-    let place = cx.place();
+    let place = pod_spec::Place { forwards, ..cx.place() };
     let clicked = scheduling::show(ui, &place, spec);
     pod_spec::show(ui, &place, spec, None).or(clicked.map(Pick::Open))
 }

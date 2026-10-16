@@ -68,6 +68,8 @@ pub(crate) enum Act {
     Logs(LogAsk),
     /// A click on a terminal of a container.
     Terminal(TerminalAsk),
+    /// A click on the Forward button of a port.
+    Forward(u16),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -271,6 +273,7 @@ impl<K: Describe> DetailPanel<K> {
                         Some(Pick::Ask(ask)) => act = Act::Ask(ask),
                         Some(Pick::Logs(logs)) => act = Act::Logs(logs),
                         Some(Pick::Terminal(ask)) => act = Act::Terminal(ask),
+                        Some(Pick::Forward(port)) => act = Act::Forward(port),
                         None => {}
                     });
                 });

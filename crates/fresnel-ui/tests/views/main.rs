@@ -11,6 +11,7 @@
 //! - `workloads`: the views, actions, dialogs and jobs of the workloads (M3).
 //! - `metrics`: the CPU and memory columns, the Metrics tab and the sampler (M6).
 //! - `logs`: the log views: the tab, the pane, the search, the copy and the saves (M9).
+//! - `forwards`: the Forwards tab, the dialog of a forward and its keys (M5).
 //! - `details`: the views of the kinds of the Cluster, Config, Network and Access control
 //!   groups (M7). `overview`: the overviews of the Cluster and the Workloads groups (M7).
 //! - `settings`: the settings view, read-only clusters, themes, keys and focus (M8).
@@ -28,6 +29,7 @@ mod data;
 pub(crate) mod details;
 mod editor;
 mod fake;
+mod forwards;
 mod frame_time;
 mod journal;
 mod keys;

@@ -18,6 +18,22 @@ pub fn draw(shell: &mut Shell, core: &Core, ui: &mut egui::Ui) -> CoreView {
     view
 }
 
+/// The URLs that the views asked the system to open in this frame, such as the address of a
+/// forward. eframe opens none: its feature for links would start a helper process on Linux.
+pub fn take_urls(ctx: &egui::Context) -> Vec<String> {
+    ctx.output_mut(|output| {
+        let mut urls = Vec::new();
+        output.commands.retain(|command| match command {
+            egui::OutputCommand::OpenUrl(open) => {
+                urls.push(open.url.clone());
+                false
+            }
+            egui::OutputCommand::CopyText(_) | egui::OutputCommand::CopyImage(_) => true,
+        });
+        urls
+    })
+}
+
 /// True for a window that is minimized or that lost the focus to some other app. A change
 /// of the focus or a minimize gives a frame, so the core learns each change.
 fn is_hidden(ctx: &egui::Context) -> bool {

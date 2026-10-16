@@ -8,9 +8,10 @@ use block2::RcBlock;
 use fresnel_core::app::Notice;
 use fresnel_core::journal::Journal;
 use fresnel_core::net::env::ProcessEnv;
+use objc2::msg_send;
 use objc2::rc::Retained;
-use objc2::runtime::{Bool, NSObjectProtocol, ProtocolObject};
-use objc2_foundation::{NSActivityOptions, NSBundle, NSError, NSProcessInfo, NSString};
+use objc2::runtime::{AnyClass, AnyObject, Bool, NSObjectProtocol, ProtocolObject};
+use objc2_foundation::{NSActivityOptions, NSBundle, NSError, NSProcessInfo, NSString, NSURL};
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNMutableNotificationContent, UNNotificationRequest, UNUserNotificationCenter,
 };
@@ -111,4 +112,19 @@ impl Notifications {
         UNUserNotificationCenter::currentNotificationCenter()
             .addNotificationRequest_withCompletionHandler(&request, Some(&answer));
     }
+}
+
+/// Opens a URL in the browser of the user, through the workspace of AppKit, which the window
+/// loads: the app starts no process itself.
+pub(crate) fn open_url(url: &str) -> Result<(), String> {
+    let url = NSURL::URLWithString(&NSString::from_str(url)).ok_or("it is no URL")?;
+    let workspace = AnyClass::get(c"NSWorkspace").ok_or("AppKit is not loaded")?;
+    // SAFETY: `sharedWorkspace` is a class method of `NSWorkspace` with no argument that gives
+    // an object, and `openURL:` takes one `NSURL` and gives a `BOOL`.
+    let opened: Bool = unsafe {
+        let shared: Option<Retained<AnyObject>> = msg_send![workspace, sharedWorkspace];
+        let shared = shared.ok_or("AppKit has no workspace")?;
+        msg_send![&shared, openURL: &*url]
+    };
+    if opened.as_bool() { Ok(()) } else { Err("macOS did not open it".to_owned()) }
 }

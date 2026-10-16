@@ -30,6 +30,7 @@ pub(crate) fn rules_without(missing: &[(&str, &str)]) -> Rules {
         ("", "pods"),
         ("", "pods/eviction"),
         ("", "pods/log"),
+        ("", "pods/portforward"),
         ("", "replicationcontrollers"),
         ("", "replicationcontrollers/scale"),
         ("apps", "deployments"),

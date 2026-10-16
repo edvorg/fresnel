@@ -1,6 +1,7 @@
 //! The sections of a Service (`research/01` section 3.4.3, `research/02` section 4.4): its
 //! type, its addresses inside and outside the cluster, its selector, its policies and its
-//! ports; then its endpoints, with the pod and the node of each one as links.
+//! ports, each TCP port with its Forward button; then its endpoints, with the pod and the
+//! node of each one as links.
 //!
 //! The endpoints come from the owner index, from the same read as the pods behind the
 //! Service, so they have the same basis.
@@ -16,10 +17,11 @@ use super::port;
 use crate::views::detail::fields::{NONE, heading, note};
 use crate::views::detail::lines::{details_heading, line, none, number, table};
 use crate::views::detail::related::basis_note;
-use crate::views::detail::sections::Context;
+use crate::views::detail::sections::{Context, Pick};
 use crate::views::objects::Link;
+use crate::views::pod_spec::forward_button;
 
-pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, service: &Service) -> Option<Link> {
+pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, service: &Service) -> Option<Pick> {
     let spec = service.spec.as_ref();
     let kind = spec.and_then(|spec| spec.type_.as_deref()).unwrap_or("ClusterIP");
     details_heading(ui, cx);
@@ -69,14 +71,25 @@ pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, service: &Service) -> Optio
     if ports.is_empty() {
         none(ui, cx);
     }
-    table(ui, cx, "service ports", &["Port", "Target", "Node port", "App protocol"], ports, |ui, each| {
+    let mut picked = None;
+    table(ui, cx, "service ports", &["Port", "Target", "Node port", "App protocol", ""], ports, |ui, each| {
         ui.label(port(each.name.as_deref(), Some(each.port), each.protocol.as_deref()));
         ui.label(each.target_port.as_ref().map_or_else(|| each.port.to_string(), number));
         ui.label(each.node_port.map_or_else(|| NONE.to_owned(), |port| port.to_string()));
         ui.label(each.app_protocol.as_deref().unwrap_or(NONE));
+        let tcp = each.protocol.as_deref().is_none_or(|protocol| protocol == "TCP");
+        match u16::try_from(each.port).ok().filter(|_| tcp) {
+            Some(number) if forward_button(ui, &format!("Forward port {number} of the Service")) => {
+                picked = Some(Pick::Forward(number));
+            }
+            Some(_) => {}
+            None => {
+                ui.label("");
+            }
+        }
     });
     ui.add_space(10.0);
-    None
+    picked
 }
 
 /// The endpoints of the EndpointSlices of the Service.

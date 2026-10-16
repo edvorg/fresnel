@@ -7,6 +7,7 @@
 //! - The activity against App Nap of macOS ([`crate::nap`]).
 //! - The notifications of the system ([`crate::notify`]).
 //! - A start error: a dialog on Windows, whose release build has no console.
+//! - The address of a forward in the browser of the user: AppKit and the Windows shell.
 
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
@@ -18,4 +19,6 @@ mod system;
 #[path = "other.rs"]
 mod system;
 
-pub(crate) use self::system::{Activity, FOLDER_VARIABLES, Notifications, folders, show_start_error, try_lock};
+pub(crate) use self::system::{
+    Activity, FOLDER_VARIABLES, Notifications, folders, open_url, show_start_error, try_lock,
+};

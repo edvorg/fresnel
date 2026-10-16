@@ -1,5 +1,5 @@
 //! The variant of the platform module for the other systems: Linux, on which CI runs the
-//! tests. It has no App Nap and no notifications.
+//! tests. It has no App Nap, no notifications and no browser.
 
 use std::fs::{File, TryLockError};
 use std::path::PathBuf;
@@ -44,4 +44,9 @@ impl Notifications {
     }
 
     pub(crate) fn show(&self, _notice: &Notice) {}
+}
+
+/// No browser: the app starts no helper process, and Linux opens a URL with one.
+pub(crate) fn open_url(_url: &str) -> Result<(), String> {
+    Err("the app opens no browser on this system: copy the address".to_owned())
 }

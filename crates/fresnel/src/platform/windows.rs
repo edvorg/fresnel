@@ -11,7 +11,8 @@ use fresnel_core::net::env::ProcessEnv;
 use windows_sys::Win32::Foundation::ERROR_LOCK_VIOLATION;
 use windows_sys::Win32::Storage::FileSystem::{LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx};
 use windows_sys::Win32::System::IO::OVERLAPPED;
-use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+use windows_sys::Win32::UI::Shell::ShellExecuteW;
+use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW, SW_SHOWNORMAL};
 
 /// The variables that [`folders`] and the folder of downloads read.
 pub(crate) const FOLDER_VARIABLES: &str = "USERPROFILE, APPDATA or LOCALAPPDATA";
@@ -77,4 +78,23 @@ impl Notifications {
     }
 
     pub(crate) fn show(&self, _notice: &Notice) {}
+}
+
+/// Opens a URL in the browser of the user. The shell of Windows starts the browser: the app
+/// starts no process itself.
+pub(crate) fn open_url(url: &str) -> Result<(), String> {
+    let wide = |text: &str| text.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+    let (verb, target) = (wide("open"), wide(url));
+    // SAFETY: each text ends with a 0 and lives to the end of the call, and the call takes
+    // no window and no parameters.
+    let result = unsafe {
+        ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), target.as_ptr(), std::ptr::null(), std::ptr::null(), {
+            SW_SHOWNORMAL
+        })
+    };
+    // A value above 32 tells a success; a smaller one is the error of the shell.
+    match result as isize {
+        code if code > 32 => Ok(()),
+        code => Err(format!("the shell of Windows did not open it (error {code})")),
+    }
 }

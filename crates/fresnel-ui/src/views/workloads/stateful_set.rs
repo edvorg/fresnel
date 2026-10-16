@@ -63,5 +63,5 @@ pub(crate) fn parts(ui: &mut Ui, cx: &Context<'_>, set: &StatefulSet) -> Option<
     let pod = pods::show(ui, cx, Kind::StatefulSet).map(Pick::from);
     let picked = revisions::show(ui, cx).or(pod);
     let spec = set.spec.as_ref();
-    template(ui, cx, spec.map(|spec| &spec.template)).or(picked)
+    template(ui, cx, spec.map(|spec| &spec.template), true).or(picked)
 }

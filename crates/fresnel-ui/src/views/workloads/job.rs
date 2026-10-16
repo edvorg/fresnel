@@ -67,7 +67,7 @@ pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, job: &Job) -> Option<Link> 
 
 pub(crate) fn parts(ui: &mut Ui, cx: &Context<'_>, job: &Job) -> Option<Pick> {
     let pod = pods::show(ui, cx, Kind::Job).map(Pick::from);
-    template(ui, cx, job.spec.as_ref().map(|spec| &spec.template)).or(pod)
+    template(ui, cx, job.spec.as_ref().map(|spec| &spec.template), true).or(pod)
 }
 
 /// The state of a Job from its conditions, with its tone: complete, failed, suspended,

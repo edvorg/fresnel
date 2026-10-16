@@ -7,12 +7,12 @@ use std::sync::Arc;
 
 use eframe::egui;
 use fresnel_core::app::CoreView;
+use fresnel_core::forward::ForwardState;
 use fresnel_ui::{Clock, Shell, TerminalFonts};
 
 use crate::boot::Boot;
-use crate::frame;
 use crate::nap::NapGuard;
-use crate::notify;
+use crate::{frame, notify, platform};
 
 const TITLE: &str = "Fresnel";
 const SIZE: [f32; 2] = [1280.0, 800.0];
@@ -49,15 +49,22 @@ struct Window {
 }
 
 impl Window {
-    /// App Nap stays off while a cluster is selected: its channels have timers.
+    /// App Nap stays off while a cluster is selected or a forward runs: their channels and
+    /// tunnels have timers.
     fn hold_activity(&mut self, view: &CoreView) {
-        self.nap.hold(view.clusters.iter().any(|row| row.selected));
+        let forwards = view.forwards.iter().any(|row| row.view.state != ForwardState::Stopped);
+        self.nap.hold(forwards || view.clusters.iter().any(|row| row.selected));
     }
 }
 
 impl eframe::App for Window {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let view = frame::draw(&mut self.shell, self.boot.core(), ui);
+        for url in frame::take_urls(ui.ctx()) {
+            if let Err(error) = platform::open_url(&url) {
+                self.boot.journal().warning("app", format!("cannot open {url} in a browser: {error}"));
+            }
+        }
         self.hold_activity(&view);
     }
 

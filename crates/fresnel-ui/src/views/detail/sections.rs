@@ -43,7 +43,8 @@ pub(crate) struct Context<'a> {
 impl Context<'_> {
     /// The place of the objects that a pod spec of the object names.
     pub(crate) fn place(&self) -> Place<'_> {
-        Place { palette: self.palette, clock: self.clock, cluster: &self.id.cluster, namespace: &self.id.key.namespace }
+        let (cluster, namespace) = (&self.id.cluster, &*self.id.key.namespace);
+        Place { palette: self.palette, clock: self.clock, cluster, namespace, forwards: true }
     }
 
     /// A link with this text to an object of the cluster of the panel. A kind with no
@@ -79,6 +80,8 @@ pub(crate) enum Pick {
     Logs(LogAsk),
     /// A click on a terminal of a container of a pod (a shell, an attach or a debug container).
     Terminal(TerminalAsk),
+    /// A click on the Forward button of a port of a container or of a Service.
+    Forward(u16),
 }
 
 impl From<Link> for Pick {
@@ -116,7 +119,8 @@ pub(super) fn details<K: Describe>(ui: &mut Ui, cx: &Context<'_>, object: &K) ->
         }
         Kind::Job => of(object).and_then(|job| workloads::job::details(ui, cx, job)),
         Kind::CronJob => of(object).and_then(|job| workloads::cron_job::details(ui, cx, job)),
-        Kind::Service => of(object).and_then(|service| network::service::details(ui, cx, service)),
+        // The ports of a Service have their Forward buttons.
+        Kind::Service => return of(object).and_then(|service| network::service::details(ui, cx, service)),
         Kind::EndpointSlice => of(object).and_then(|slice| network::endpoints::slice_details(ui, cx, slice)),
         Kind::Endpoints => of(object).and_then(|endpoints| network::endpoints::details(ui, cx, endpoints)),
         Kind::Ingress => of(object).and_then(|ingress| network::ingress::details(ui, cx, ingress)),
