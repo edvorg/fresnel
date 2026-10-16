@@ -2,13 +2,11 @@
 //! has the same jobs with their steps. An apply that a conflict refused lists each field
 //! with its manager, and "Apply with force…" asks before it takes them.
 
-use std::sync::Arc;
-
 use egui::{Label, RichText, ScrollArea, Ui};
 use fresnel_core::app::{CoreView, JobView};
 use fresnel_core::ops::JobState;
 
-use super::plan::{Item, Run, Way};
+use super::plan::{Item, JobOf, Run, Way};
 use crate::format::short;
 use crate::theme;
 use crate::views::operations::state;
@@ -27,12 +25,15 @@ pub(super) fn show(ui: &mut Ui, run: &Run, view: &CoreView) -> Option<Vec<(Item,
         .items
         .iter()
         .zip(&jobs)
-        .filter_map(|(item, job)| Some((item.clone(), fields(job.as_deref()?))))
+        .filter_map(|(item, job)| match job {
+            JobOf::Shown(job) => Some((item.clone(), fields(job))),
+            JobOf::None | JobOf::Left => None,
+        })
         .filter(|(_, fields)| !fields.is_empty())
         .collect();
     let mut force = false;
     ui.horizontal(|ui| {
-        let ended = jobs.iter().flatten().filter(|job| job.report.state.is_final()).count();
+        let ended = jobs.iter().filter(|job| is_final(job)).count();
         let going = run.items.iter().filter(|item| item.order.is_ok()).count();
         let words = format!("{}: {ended} of {going} jobs ended. The Operations tab has their steps.", run.way.verb());
         ui.label(RichText::new(words).strong());
@@ -48,8 +49,9 @@ pub(super) fn show(ui: &mut Ui, run: &Run, view: &CoreView) -> Option<Vec<(Item,
         for (item, job) in run.items.iter().zip(&jobs) {
             let (words, tone) = match (&item.order, job) {
                 (Err(reason), _) => (format!("not sent: {reason}"), Tone::Warn),
-                (Ok(_), None) => ("waits for the core".to_owned(), Tone::Muted),
-                (Ok(_), Some(job)) => words(job),
+                (Ok(_), JobOf::None) => ("waits for the core".to_owned(), Tone::Muted),
+                (Ok(_), JobOf::Shown(job)) => words(job),
+                (Ok(_), JobOf::Left) => ("ended: the journal has its result".to_owned(), Tone::Muted),
             };
             ui.horizontal(|ui| {
                 dot(ui, tone.color(palette));
@@ -84,9 +86,14 @@ fn fields(job: &JobView) -> Vec<String> {
 
 /// True when each job of the run ended, or the run has no job.
 pub(super) fn ended(run: &Run, view: &CoreView) -> bool {
-    let jobs: Vec<Option<Arc<JobView>>> = run.jobs(view);
-    run.items
-        .iter()
-        .zip(&jobs)
-        .all(|(item, job)| item.order.is_err() || job.as_ref().is_some_and(|job| job.report.state.is_final()))
+    run.items.iter().zip(&run.jobs(view)).all(|(item, job)| item.order.is_err() || is_final(job))
+}
+
+/// True for a job that ended: in the view, or after it left the list of the view.
+fn is_final(job: &JobOf) -> bool {
+    match job {
+        JobOf::Shown(job) => job.report.state.is_final(),
+        JobOf::Left => true,
+        JobOf::None => false,
+    }
 }

@@ -98,12 +98,26 @@ pub(super) struct Run {
     pub(super) items: Vec<Item>,
     /// The number of the last job of the view at the click.
     after: u64,
+    /// The number of the job of each item, from the first view that has it. A job that ended
+    /// can leave the list of the view, which has a limit, and the run still knows its end.
+    numbers: Vec<Option<u64>>,
+}
+
+/// The job of an item of a run.
+#[derive(Clone, Debug)]
+pub(super) enum JobOf {
+    /// No job: a refused document, or a job that the view does not have yet.
+    None,
+    Shown(Arc<JobView>),
+    /// The job ended and left the list of the view.
+    Left,
 }
 
 impl Run {
     pub(super) fn new(way: Way, (target, items): ((ClusterId, String), Vec<Item>), view: &CoreView) -> Self {
         let after = view.jobs.jobs.last().map_or(0, |job| job.number);
-        Self { way, target, items, after }
+        let numbers = vec![None; items.len()];
+        Self { way, target, items, after, numbers }
     }
 
     /// The orders of the run.
@@ -111,22 +125,29 @@ impl Run {
         self.items.iter().filter_map(|item| item.order.clone().ok()).collect()
     }
 
-    /// The job of each item in the view, in the sequence of the items: `None` for a refused
-    /// document and for a job that the view does not have yet, or not any more.
-    pub(super) fn jobs(&self, view: &CoreView) -> Vec<Option<Arc<JobView>>> {
+    /// Finds the job of each item that has none yet: the first job of its order after the
+    /// job of the item before it.
+    pub(super) fn follow(&mut self, view: &CoreView) {
         let mut from = self.after;
-        let mut found = Vec::new();
-        for item in &self.items {
-            let job =
-                item.order.as_ref().ok().and_then(|order| {
-                    view.jobs.jobs.iter().find(|job| job.number > from && job.order == *order).cloned()
-                });
-            if let Some(job) = &job {
-                from = job.number;
+        for (item, number) in self.items.iter().zip(&mut self.numbers) {
+            if number.is_none() {
+                let order = item.order.as_ref().ok();
+                let job = view.jobs.jobs.iter().find(|job| job.number > from && order == Some(&job.order));
+                *number = job.map(|job| job.number);
             }
-            found.push(job);
+            from = number.unwrap_or(from);
         }
-        found
+    }
+
+    /// The job of each item, in the sequence of the items.
+    pub(super) fn jobs(&self, view: &CoreView) -> Vec<JobOf> {
+        let job = |number: u64| view.jobs.jobs.iter().find(|job| job.number == number);
+        let of = |number: &Option<u64>| match number.map(job) {
+            None => JobOf::None,
+            Some(Some(job)) => JobOf::Shown(Arc::clone(job)),
+            Some(None) => JobOf::Left,
+        };
+        self.numbers.iter().map(of).collect()
     }
 }
 

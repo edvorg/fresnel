@@ -129,6 +129,26 @@ fn an_apply_with_a_conflict_names_its_fields_and_asks_before_a_force() {
     assert!(matches!(force[0].operation, Operation::Apply { force: true, .. }));
 }
 
+/// The jobs of a run that ended and then left the list of jobs, which has a limit, count as
+/// ended: the tab tells it and takes a new run.
+#[test]
+fn the_jobs_of_a_run_that_left_the_list_of_jobs_count_as_ended() {
+    let mut window = super::panel();
+    tab(&mut window);
+    window.get_by_label("Create the documents").click();
+    window.run();
+    window.get_by_label("Create 2 objects").click();
+    window.run();
+    let orders = in_turn(&window);
+    jobs(&mut window, vec![(orders[0].clone(), JobState::Done), (orders[1].clone(), JobState::Done)]);
+    assert!(shows(&window, "Create: 2 of 2 jobs ended. The Operations tab has their steps."));
+    window.state_mut().view.jobs = Arc::new(JobsView { jobs: Vec::new(), dropped: 2 });
+    window.run();
+    assert!(shows(&window, "Create: 2 of 2 jobs ended. The Operations tab has their steps."));
+    assert!(shows(&window, "ended: the journal has its result"));
+    assert!(!window.get_by_label("Create the documents").accesskit_node().is_disabled(), "a new run");
+}
+
 /// A force goes to the target of its run, also when the bar of the tab names an other
 /// cluster now: its dialog names that cluster and asks for its name by its confirm rule.
 #[test]

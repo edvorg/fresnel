@@ -93,6 +93,9 @@ impl CreateTab {
         if self.cluster.is_none() {
             self.cluster = default_cluster(scene);
         }
+        if let Some(run) = &mut self.run {
+            run.follow(scene.view);
+        }
         let generation = self.text.generation();
         checker.follow((self.id, &mut self.check), generation, || (self.text.text(), None));
         self.find.update(&self.text);
