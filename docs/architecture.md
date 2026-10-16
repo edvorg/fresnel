@@ -95,7 +95,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 - **Logs** (`logs`): a session for each view of `ShowLogs` runs a source for each container, whose
   new stream starts at the second of its latest line with a marker; `SaveLog` writes a new file.
 - **Terminal** (`terminal`): the screen of `alacritty_terminal` behind a fair lock and a guard of
-  its parser, the input in pieces of 16 KiB and the size, for a session that feeds the output.
+  its parser; a session (`remote`) runs an exec or an attach for it, and ends its shell at a close.
 - **Operations** (`ops`): a function builds each request of plan section 10, with a unit test of
   its URL and body. An `Order` is a job in its own task, with steps and a state, not two at once;
   the jobs of a text run in turn. A write goes out one time; an unknown result gets a read. A
@@ -177,8 +177,8 @@ dock (Operations, Journal, Connections, a tab for each log view, editor, termina
   rows (`pane`, `text`); a worker filters a log (`ShowLogs`) and checks a text (`ShowEditors`). A
   save shows the diff of its dry run (`SaveEditor`); a YAML tab sends documents (`RunInTurn`).
 - **Terminal** (`widgets/terminal`): copies the rows of a `Terminal` under its lock and paints the
-  copy: runs of a style, box characters as shapes, the cursor; keys, paste, pointer and size go to
-  the terminal. `views/terminal`: a tab for each terminal of the core, with the line of its session.
+  copy: style runs, box characters as shapes, the cursor; keys, paste, pointer and size go to the
+  terminal. `views/terminal`: a tab for each terminal; Shell, Attach, Debug, Node shell open one.
 - **Settings** (`views/settings`): a control for each entry of `config::table`, cluster and key; a
   draft goes to `EditSettings`. `shell/focus` moves the keys between four areas; `?` lists them.
 

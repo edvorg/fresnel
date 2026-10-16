@@ -22,10 +22,9 @@ The cluster overview in the light theme, and the connections of prod-us, which t
 
 ## Status
 
-Milestones M0 to M4, M6, M7 and M9 are complete; the work is in M8 (settings, keys, notices, soak).
-`fresnel-core` has the kubeconfig, gateway, journal, settings, 41 kinds, stores, indexes, quick
-search, commands, operations as jobs, downloads, metrics, logs and notices. The window has a live
-table and panel for each kind, actions, keys, Operations, metrics, logs, settings, YAML edit, apply.
+Milestones M0 to M4 and M6 to M11 are complete; the last one, M5, adds the forwards. The core
+has the kubeconfig, gateway, journal, settings, 41 kinds, stores, indexes, search, commands, jobs,
+metrics, logs, terminals, editors and notices, and the window a view of each with its actions.
 
 ## The app
 
@@ -40,7 +39,8 @@ The first start selects the current kubeconfig context, and `state.json` keeps i
   not live: its values are old, and a note above the table gives the reason.
 - Cmd+K opens the quick search, ? lists each key, Cmd+1 to Cmd+4 and F6 move the focus between
   the sidebar, the table, the panel and the dock. Cmd+[ and Cmd+] go back and forward. A right
-  click lists the actions of a row; a change asks, and a read-only cluster refuses it.
+  click lists the actions of a row; a change asks, and a read-only cluster refuses it. Shell,
+  Attach, Debug and Node shell open a terminal in the dock, which a closed tab ends in the pod.
 - Settings folder: `~/Library/Application Support/fresnel`. A debug build uses `fresnel-debug`.
   Cmd+, opens the settings view, which edits `config.toml` and keeps its comments. The app reads
   it again after each change; the journal tells each problem with its line and column.

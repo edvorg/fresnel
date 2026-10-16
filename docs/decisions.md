@@ -1953,3 +1953,32 @@ cut too, sends its key.
 1.36.1, the version of the test pods, recorded from `alpine:3.20` in a TTY of 80 x 24. The tests
 feed it with no cluster and read the rows. A recording keeps each byte: `.gitattributes` marks
 `*.bin` as binary, so no carriage return becomes a line end.
+
+## A terminal session runs exec or attach on the stream, with the state on the tab
+
+The session (`terminal/remote`) is one task on the stream of the gateway: exec for a shell, a
+debug container or a node shell, attach for the main process. The socket ping proves the
+connection, so a silent exec fails in its 15 s; the tab shows the state, and the status of the
+process decides the final one. The core refuses a change of a read-only cluster.
+
+## A closed tab ends the remote program: Ctrl-D, then a hangup through a second exec
+
+A WebSocket close and a reset leave a shell in the pod (spike X11). On a close the session sends
+Ctrl-D, waits 1 s, then closes. A shell of the app gets a hangup through a second exec to each
+process that carries the session mark `FRESNEL_TERMINAL`, which the launch exported; a kill
+follows for a process of `nohup`. An attach only closes: its process is not one of the app.
+
+## A node shell is a privileged pod with nsenter, deleted at the end
+
+A node shell creates a pod on the node (host PID, IPC and network, a toleration of each taint,
+privileged) that runs `nsenter -t 1` into the node, as Freelens does. A debug container is an
+ephemeral container that shares the process namespace of its target. Both ask first and a
+read-only cluster refuses them. The session waits for the new container to run, with the step on
+the line, and deletes the node shell pod when the tab closes.
+
+## The container and the shell of a terminal are a choice
+
+The container section of a pod has a Shell, an Attach and a Debug button for each container, and
+the header action takes the first container; a node shell has none. The shells to try, in
+sequence, and the images of a debug container and a node shell are settings (`[terminal]`): the
+launch runs the first shell that exists, so a container with only `/bin/sh` works.
