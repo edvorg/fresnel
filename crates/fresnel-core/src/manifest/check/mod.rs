@@ -7,7 +7,7 @@
 //! section 6.3). A check of 8,000 lines takes some milliseconds, so a view runs it on a
 //! worker thread.
 //!
-//! - `hints`: the hints and the marks of a bad `!!binary` value, from the events of the parser.
+//! - `hints`: the hints, from the events of the parser.
 
 mod hints;
 
@@ -52,8 +52,7 @@ pub struct Mark {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Check {
     pub marks: Vec<Mark>,
-    /// The count of marks past the limit of one check: hints, unless the text has more errors
-    /// than the limit.
+    /// The count of hints past the limit of one check.
     pub more: usize,
 }
 
@@ -64,9 +63,9 @@ impl Check {
     }
 }
 
-/// Checks the text of the editor of an object. The errors go into the limit of the marks
-/// before the hints: a text with more hints than the limit before the place that the parser
-/// refuses keeps its error.
+/// Checks the text of the editor of an object. The error of the parser goes into the limit of
+/// the marks before the hints: a text with more hints than the limit before the place that
+/// the parser refuses keeps its error.
 pub fn check(text: &str, identity: &Identity) -> Check {
     let mut marks = Vec::new();
     if let Err(error) = parse(text) {

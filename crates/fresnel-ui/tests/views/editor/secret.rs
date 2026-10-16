@@ -1,5 +1,5 @@
 //! The editor of a Secret shows the text values decoded and a binary value as base64 with
-//! the tag `!!binary` (plan section 12.9); the check reads the tag and asks for base64.
+//! the tag `!!binary` (plan section 12.9); the check reads the tag, and a hint asks for base64.
 
 use egui::Key;
 use egui::accesskit::Role;
@@ -38,10 +38,12 @@ fn a_secret_shows_its_text_values_decoded_and_a_binary_value_with_its_mark() {
     assert!(shows(&window, note));
     checked(&mut window, "No error");
 
-    // A binary value that is no longer base64 is an error of the YAML type.
+    // A binary value that is no longer base64 is a hint: the parser reads it as its text, and
+    // the server refuses it in a Secret.
     click_row(&mut window, "  raw: !!binary /wA=");
     window.key_press(Key::Backspace);
     window.run();
-    checked(&mut window, "1 error");
-    assert!(shows(&window, "Line 4, column 17: The value with the tag !!binary is not base64."));
+    checked(&mut window, "No error, 1 hint");
+    let hint = "Line 4, column 17: The value with the tag !!binary is not base64. A Secret takes no such value.";
+    assert!(shows(&window, hint));
 }

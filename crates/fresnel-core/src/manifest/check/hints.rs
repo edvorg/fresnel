@@ -1,5 +1,5 @@
-//! The hints of a text and the marks of a bad `!!binary` value, from the events of the YAML
-//! parser of serde-saphyr, each with its line and column.
+//! The hints of a text, from the events of the YAML parser of serde-saphyr, each with its
+//! line and column. A hint refuses nothing (plan section 12.9).
 //!
 //! - A plain value that the parser reads as a boolean or a number where a user can mean a
 //!   text: `yes`, `0644`, `1_000` (research 05 section 6.3).
@@ -8,9 +8,8 @@
 //! - A kind, a name or a namespace that is not the one of the object of the editor, and a
 //!   namespace of an object of a kind with none.
 //! - A text that is empty or not a map.
-//!
-//! A value with the tag `!!binary` that is not base64 is an error: the YAML type `binary`
-//! is base64, and the save of a Secret sends it as it is.
+//! - A value with the tag `!!binary` that is not base64. The parser reads it as its text,
+//!   which the save of a Secret sends as it is: the server refuses it there.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -21,11 +20,11 @@ use super::{Identity, Level, Mark};
 /// The namespace of the tags of the YAML types, as `!!` names them.
 const YAML_TYPES: &str = "tag:yaml.org,2002:";
 
-/// Adds the marks of the events of a text, at most `most` of each level, and gives the count
-/// of the others: a text can have a hint for each value. An error of the parser ends the walk:
-/// the check has its mark from the parser of serde-saphyr.
+/// Adds the hints of the events of a text, at most `most`, and gives the count of the others:
+/// a text can have a hint for each value. An error of the parser ends the walk: the check has
+/// its mark from the parser of serde-saphyr.
 pub(super) fn add(text: &str, identity: &Identity, marks: &mut Vec<Mark>, most: usize) -> usize {
-    let mut walk = Walk { identity, stack: Vec::new(), root: Root::Before, marks, room: (most, most), dropped: 0 };
+    let mut walk = Walk { identity, stack: Vec::new(), root: Root::Before, marks, room: most, dropped: 0 };
     for event in Parser::new_from_str(text) {
         let Ok((event, span)) = event else {
             return walk.dropped;
@@ -33,7 +32,7 @@ pub(super) fn add(text: &str, identity: &Identity, marks: &mut Vec<Mark>, most: 
         walk.event(event, span);
     }
     if walk.root == Root::Before {
-        walk.mark(1, 1, Level::Hint, "The text is empty. The text of an object is a map with its kind and metadata.");
+        walk.hint(1, 1, "The text is empty. The text of an object is a map with its kind and metadata.");
     }
     walk.dropped
 }
@@ -59,9 +58,9 @@ struct Walk<'a> {
     stack: Vec<Frame>,
     root: Root,
     marks: &'a mut Vec<Mark>,
-    /// The count of errors and of hints that `marks` can still take.
-    room: (usize, usize),
-    /// The count of marks past that room.
+    /// The count of hints that `marks` can still take.
+    room: usize,
+    /// The count of hints past that room.
     dropped: usize,
 }
 
@@ -98,7 +97,7 @@ impl Walk<'_> {
             self.root = Root::In;
             if !map {
                 let (line, column) = place(span);
-                self.mark(line, column, Level::Hint, "The text of an object is a map with its kind and metadata.");
+                self.hint(line, column, "The text of an object is a map with its kind and metadata.");
             }
         }
     }
@@ -107,7 +106,7 @@ impl Walk<'_> {
         let (line, column) = place(span);
         let is_key = matches!(self.stack.last(), Some(Frame::Map(None)));
         if tag.is_some_and(is_binary) && STANDARD.decode(value.split_whitespace().collect::<String>()).is_err() {
-            self.mark(line, column, Level::Error, "The value with the tag !!binary is not base64.");
+            self.hint(line, column, "The value with the tag !!binary is not base64. A Secret takes no such value.");
         }
         if style == ScalarStyle::Plain
             && tag.is_none()
@@ -118,7 +117,7 @@ impl Walk<'_> {
             } else {
                 format!("{value} is {} here, not a text. Quote it for a text.", read.words())
             };
-            self.mark(line, column, Level::Hint, &text);
+            self.hint(line, column, &text);
         }
         if !is_key {
             self.identity(value, line, column);
@@ -146,7 +145,7 @@ impl Walk<'_> {
             } else {
                 format!("The editor edits the object with the {field} {wanted}. The server refuses an other {field}.")
             };
-            self.mark(line, column, Level::Hint, &text);
+            self.hint(line, column, &text);
         }
     }
 
@@ -167,17 +166,13 @@ impl Walk<'_> {
         }
     }
 
-    fn mark(&mut self, line: usize, column: usize, level: Level, text: &str) {
-        let room = match level {
-            Level::Error => &mut self.room.0,
-            Level::Hint => &mut self.room.1,
-        };
-        if *room == 0 {
+    fn hint(&mut self, line: usize, column: usize, text: &str) {
+        if self.room == 0 {
             self.dropped += 1;
             return;
         }
-        *room -= 1;
-        self.marks.push(Mark { line, column, level, text: text.to_owned() });
+        self.room -= 1;
+        self.marks.push(Mark { line, column, level: Level::Hint, text: text.to_owned() });
     }
 }
 

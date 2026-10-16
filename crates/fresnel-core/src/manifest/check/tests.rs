@@ -94,10 +94,13 @@ fn an_empty_text_and_a_text_that_is_not_a_map_are_hints() {
     assert_eq!(marks("- kind: Deployment\n"), [(1, 1, Level::Hint, list.to_owned())]);
 }
 
+/// The parser reads a value with the tag `!!binary` as its text, so a value that is not base64
+/// is valid YAML: a hint, which refuses nothing.
 #[test]
-fn a_binary_value_that_is_not_base64_is_an_error_and_base64_is_none() {
+fn a_binary_value_that_is_not_base64_is_a_hint_and_base64_is_none() {
     let text = format!("{DEPLOYMENT}data:\n  good: !!binary iVBORw0KGgo=\n  bad: !!binary not*base64\n");
-    assert_eq!(marks(&text), [(8, 17, Level::Error, "The value with the tag !!binary is not base64.".to_owned())]);
+    let hint = "The value with the tag !!binary is not base64. A Secret takes no such value.";
+    assert_eq!(marks(&text), [(8, 17, Level::Hint, hint.to_owned())]);
 }
 
 #[test]
