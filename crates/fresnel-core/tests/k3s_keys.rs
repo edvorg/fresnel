@@ -197,7 +197,8 @@ async fn an_edit_keeps_each_other_key_byte_for_byte_and_a_conflict_shows_as_a_co
 
 /// The text of the editor of the Secret `db` (plan section 12.9): each text value decoded,
 /// the binary value as the base64 that kubectl reads, with the tag `!!binary`, and a text
-/// that the check of the editor reads with no mark.
+/// that the check of the editor reads with no mark. The text of a Secret that kubectl made
+/// reads back as each of its values, also a value of only line feeds.
 async fn the_editor_shows_each_text_value_decoded_and_a_binary_value_as_base64(k3s: &K3s, gateway: &Gateway) {
     let (data, _) = stored(k3s, "secret", "db").await;
     let key = ObjectKey::new(NAMESPACE, "db");
@@ -209,6 +210,20 @@ async fn the_editor_shows_each_text_value_decoded_and_a_binary_value_as_base64(k
     assert!(!text.text.contains("managedFields"));
     let check = check::check(&text.text, &Identity { kind: Kind::Secret, key });
     assert!(check.marks.is_empty(), "the check of the text has {} marks", check.marks.len());
+
+    let literals = [("one", "\n"), ("two", "\n\n"), ("word", "yes"), ("crlf", "a\r\nb")];
+    let flags: Vec<String> = literals.iter().map(|(key, value)| format!("--from-literal={key}={value}")).collect();
+    let mut create = vec!["create", "secret", "generic", "lines", "--namespace", NAMESPACE];
+    create.extend(flags.iter().map(String::as_str));
+    k3s.kubectl(&create).await.expect("kubectl creates the Secret");
+    let lines = ObjectKey::new(NAMESPACE, "lines");
+    let text = manifest::read_for_edit(gateway, Kind::Secret, &lines, "").await.expect("the read");
+    let options = serde_saphyr::options! { legacy_octal_numbers: true, ignore_binary_tag_for_string: true };
+    let read: Json = serde_saphyr::from_str_with_options(&text.text, options).expect("valid YAML");
+    for (key, value) in literals {
+        let found = read.pointer(&format!("/data/{key}")).and_then(Json::as_str);
+        assert!(found == Some(value), "the key {key} reads back as its value");
+    }
 }
 
 /// The draft of an immutable Secret refuses each edit, and the server refuses a save.
