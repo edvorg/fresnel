@@ -1,9 +1,12 @@
-//! The Journal tab.
+//! The Journal tab, and the journals of the fake core.
+
+use std::sync::Arc;
+use std::time::Duration;
 
 use egui_kittest::kittest::Queryable as _;
-use fresnel_core::journal::Level;
+use fresnel_core::journal::{Entry, JournalView, Level};
 
-use crate::fake::{Window, absent, journal, shows, view, window};
+use crate::fake::{Window, absent, now, shows, view, window};
 
 fn open_journal(window: &mut Window) {
     window.get_by_label("Journal").click();
@@ -62,4 +65,35 @@ fn a_full_journal_tells_how_many_entries_left_it_and_draws_only_the_visible_rows
     window.state_mut().view.journal = journal(&entries[..1], 1);
     window.run();
     assert!(shows(&window, "1 older entry is only in the log file"));
+}
+
+/// A journal with these entries, one for each second before now. `dropped` entries left it.
+pub(crate) fn journal(entries: &[(Level, &str, &str)], dropped: u64) -> Arc<JournalView> {
+    let count = entries.len() as u64;
+    let timed: Vec<(Duration, Level, &str, &str)> = (0..)
+        .zip(entries)
+        .map(|(index, (level, source, text))| (Duration::from_secs(count - index), *level, *source, *text))
+        .collect();
+    journal_of(&timed, dropped)
+}
+
+/// A journal with these entries, each with its age, the oldest first. Its counts of the
+/// warnings and the errors come from the entries.
+pub(crate) fn journal_of(entries: &[(Duration, Level, &str, &str)], dropped: u64) -> Arc<JournalView> {
+    let entry = |(index, (age, level, source, text)): (u64, &(Duration, Level, &str, &str))| {
+        Arc::new(Entry {
+            number: dropped + index,
+            time: now() - *age,
+            level: *level,
+            source: (*source).to_owned(),
+            text: (*text).to_owned(),
+        })
+    };
+    let of_level = |wanted: Level| entries.iter().filter(|(_, level, _, _)| *level == wanted).count() as u64;
+    Arc::new(JournalView {
+        entries: (0..).zip(entries).map(entry).collect(),
+        total: dropped + entries.len() as u64,
+        warnings: of_level(Level::Warning),
+        errors: of_level(Level::Error),
+    })
 }

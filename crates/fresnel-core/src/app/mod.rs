@@ -12,7 +12,8 @@
 //!   objects of the kinds that the views show. `manifest`: the read of one manifest.
 //!   `edits`: the reads and the saves of the texts of the editors.
 //! - `keys`: the object of the key view and its saves. `create`: the create of a Secret.
-//! - `logs`: the log views, one session for each in the cluster of its object.
+//! - `logs`: the log views, one session for each in the cluster of its object. `terminals`:
+//!   the terminals of the dock.
 //! - `jobs`: the jobs of the operations. `access`: the permissions of the user.
 //! - `watch`: one task for each connected cluster, for the journal and the repaint.
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
@@ -37,6 +38,7 @@ mod parts;
 mod repaint;
 mod run;
 mod saved;
+mod terminals;
 mod view;
 mod watch;
 
@@ -73,6 +75,7 @@ use crate::kinds::Kind;
 use crate::logs::LogRequest;
 use crate::published::Disposal;
 use crate::state_file::TableLayout;
+use crate::terminal::TerminalView;
 use create::SecretWriter;
 use data::Connected;
 use manifest::ManifestReader;
@@ -129,6 +132,8 @@ struct State {
     keys: Option<Target>,
     /// The log views that the UI shows.
     logs: Vec<LogRequest>,
+    /// The terminals of the dock, in the sequence of their open.
+    terminals: Arc<[TerminalView]>,
     /// The number of the last save of the key view.
     saves: u64,
     /// The task of the creates of Secrets. It starts with the first create.
@@ -235,6 +240,7 @@ impl Core {
             edits: None,
             keys: None,
             logs: Vec::new(),
+            terminals: Arc::default(),
             saves: 0,
             creates: None,
             jobs: jobs::Jobs::default(),
@@ -313,45 +319,6 @@ impl Core {
     /// the views for their worker threads, so a worker that ends is in the journal too.
     pub fn tasks(&self) -> Tasks {
         self.inner.tasks.clone()
-    }
-
-    /// A copy of the state of the app at one moment.
-    ///
-    /// The core changes the selection under the lock of its state, and the registry after
-    /// it. A copy that read the registry after the lock could have the selection of one
-    /// moment and the connections of a later one: a cluster selected and off. Thus the copy
-    /// reads the registry under the same lock.
-    pub fn view(&self) -> CoreView {
-        let (startup, shell_problem, selected, tables, config, (manifest, edits, create, jobs), mut data, clusters) = {
-            let state = self.inner.state();
-            let data: HashMap<ClusterId, ClusterData> =
-                state.connected.iter().map(|(id, connected)| (id.clone(), connected.data())).collect();
-            let manifest = state.manifests.as_ref().and_then(ManifestReader::last);
-            let edits = state.edits.as_ref().map(edits::EditReader::reads).unwrap_or_default();
-            let (create, jobs) = (state.creates.as_ref().and_then(SecretWriter::last), state.jobs.view());
-            let (tables, config) = (state.tables.clone(), (Arc::clone(&state.config), Arc::clone(&state.config_file)));
-            let clusters = self.inner.registry.get().map(Registry::snapshot).unwrap_or_default();
-            let selected = state.selected.clone();
-            let reads = (manifest, edits, create, jobs);
-            (state.startup, state.shell_problem.clone(), selected, tables, config, reads, data, clusters)
-        };
-        let row = |cluster: crate::cluster::ClusterView| {
-            let (selected, data) = (selected.contains(&cluster.id), data.remove(&cluster.id));
-            ClusterRow::new(cluster, selected, data)
-        };
-        CoreView {
-            startup,
-            shell_problem,
-            clusters: clusters.into_iter().map(row).collect(),
-            tables,
-            config: config.0,
-            config_file: config.1,
-            manifest,
-            edits,
-            create,
-            jobs,
-            journal: self.inner.journal.view(),
-        }
     }
 
     /// Gives a command to the task of the core. The call returns at once. A stopped core

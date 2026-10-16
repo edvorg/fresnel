@@ -1,0 +1,26 @@
+$ [6nls --color=always -la /
+total 64
+drwxr-xr-x    1 root     root          4096 Oct 16 17:25 [1;34m.[m
+drwxr-xr-x    1 root     root          4096 Oct 16 17:25 [1;34m..[m
+-rwxr-xr-x    1 root     root             0 Oct 16 17:25 [1;32m.dockerenv[m
+drwxr-xr-x    2 root     root          4096 Apr 15  2026 [1;34mbin[m
+drwxr-xr-x    5 root     root           360 Oct 16 17:25 [1;34mdev[m
+drwxr-xr-x    1 root     root          4096 Oct 16 17:25 [1;34metc[m
+drwxr-xr-x    2 root     root          4096 Apr 15  2026 [1;34mhome[m
+drwxr-xr-x    6 root     root          4096 Apr 15  2026 [1;34mlib[m
+drwxr-xr-x    5 root     root          4096 Apr 15  2026 [1;34mmedia[m
+drwxr-xr-x    2 root     root          4096 Apr 15  2026 [1;34mmnt[m
+drwxr-xr-x    2 root     root          4096 Apr 15  2026 [1;34mopt[m
+dr-xr-xr-x  406 root     root             0 Oct 16 17:25 [1;34mproc[m
+drwx------    1 root     root          4096 Oct 16 17:25 [1;34mroot[m
+drwxr-xr-x    2 root     root          4096 Apr 15  2026 [1;34mrun[m
+drwxr-xr-x    2 root     root          4096 Apr 15  2026 [1;34msbin[m
+drwxr-xr-x    2 root     root          4096 Apr 15  2026 [1;34msrv[m
+dr-xr-xr-x   11 root     root             0 Oct 16 17:25 [1;34msys[m
+drwxrwxrwt    2 root     root          4096 Apr 15  2026 [1;34mtmp[m
+drwxr-xr-x    7 root     root          4096 Apr 15  2026 [1;34musr[m
+drwxr-xr-x   12 root     root          4096 Apr 15  2026 [1;34mvar[m
+$ [6nprintf '\033[1;31mbold red\033[0m \033[38;5;208morange\033[0m \033[48;2;10;20;
+30m rgb \033[0m\n'
+[1;31mbold red[0m [38;5;208morange[0m [48;2;10;20;30m rgb [0m
+$ [6nexit

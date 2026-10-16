@@ -15,6 +15,7 @@ pub enum Group {
     Table,
     Metrics,
     Logs,
+    Terminal,
     Events,
     Safety,
     Diagnostics,
@@ -23,7 +24,7 @@ pub enum Group {
 
 impl Group {
     /// The groups in the sequence of the settings view.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Appearance,
         Self::Table,
         Self::Safety,
@@ -33,6 +34,7 @@ impl Group {
         Self::Network,
         Self::Metrics,
         Self::Logs,
+        Self::Terminal,
         Self::Events,
         Self::Diagnostics,
     ];
@@ -47,6 +49,7 @@ impl Group {
             Self::Table => "table",
             Self::Metrics => "metrics",
             Self::Logs => "logs",
+            Self::Terminal => "terminal",
             Self::Events => "events",
             Self::Safety => "safety",
             Self::Diagnostics => "diagnostics",
@@ -69,6 +72,7 @@ impl Group {
             Self::Table => "Tables",
             Self::Metrics => "Metrics",
             Self::Logs => "Logs",
+            Self::Terminal => "Terminal",
             Self::Events => "Events",
             Self::Safety => "Safety",
             Self::Diagnostics => "Diagnostics",
@@ -125,6 +129,9 @@ pub enum Setting {
     LogLines,
     LogMemory,
     LogStreams,
+    TerminalFont,
+    TerminalScrollback,
+    OptionAsMeta,
     EventsMode,
     MaxEvents,
     ReadOnly,
@@ -223,6 +230,7 @@ const fn choice(options: &'static [&'static str], default: &'static str) -> Form
 
 use Group::{
     Appearance, Diagnostics, Events, Kubeconfig, Logs, Metrics, Network, Notifications, Plugins, Safety, Table,
+    Terminal,
 };
 use Setting as S;
 use Unit::{Count, Kib, Mib, Millis, Percent, Points, Seconds};
@@ -280,6 +288,9 @@ pub const TABLE: &[Spec] = &[
     num(S::LogLines, Logs, "lines", [200_000, 1000, 1_000_000], Count, "Lines of one view"),
     num(S::LogMemory, Logs, "memory_mib", [128, 8, 1024], Mib, "Bytes of one view"),
     num(S::LogStreams, Logs, "streams", [50, 1, 100], Count, "Streams of one view"),
+    num(S::TerminalFont, Terminal, "font_size", [13, 8, 32], Points, "Font size"),
+    num(S::TerminalScrollback, Terminal, "scrollback_lines", [10_000, 0, 100_000], Count, "Lines of history"),
+    other(S::OptionAsMeta, Terminal, "option_as_meta", "Option or Alt key as Meta", Form::Flag(false)),
     other(S::EventsMode, Events, "mode", "Events of a cluster", choice(EVENT_MODES, "all")),
     num(S::MaxEvents, Events, "max", [20_000, 100, 200_000], Count, "Events of a cluster at most"),
     other(S::ReadOnly, Safety, "read_only", "Each cluster is read-only", Form::Flag(false)),

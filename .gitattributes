@@ -1,2 +1,4 @@
 # LF in each checkout, also on Windows: the tests compare texts and fixtures byte for byte.
 * text=auto eol=lf
+# The recordings of a terminal keep each byte: a carriage return is a part of them.
+*.bin binary

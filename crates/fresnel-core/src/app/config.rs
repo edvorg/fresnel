@@ -133,6 +133,7 @@ impl Inner {
         let repaints = config.set(Setting::RepaintLimit).map(|_| config.number(Setting::RepaintLimit));
         let repaints = repaints.map_or(self.settings.repaints_per_second, |n| u32::try_from(n).unwrap_or(u32::MAX));
         self.repaint.set_limit(repaints);
+        self.follow_terminal_settings(&config);
         self.repaint.request();
         Ok(Config::clone(&config))
     }

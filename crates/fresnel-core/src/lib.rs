@@ -9,6 +9,7 @@
 //!   search in the stores. [`keys`]: the keys and values of a Secret or a ConfigMap.
 //! - [`logs`]: the log streams of pods and workloads. [`stream`]: exec, attach and the
 //!   tunnels of a port forward, each on a WebSocket.
+//! - [`terminal`]: the screen and the input of a terminal in a pod.
 //! - [`ops`]: the operations on objects, as jobs, and the permissions of the user.
 //! - [`metrics`]: the sampler of each cluster and the history of its CPU and memory.
 //! - [`published`]: the one type that publishes a state to its readers.
@@ -41,6 +42,7 @@ pub mod search;
 pub mod state_file;
 pub mod store;
 pub mod stream;
+pub mod terminal;
 mod watch;
 
 pub use error::CoreError;

@@ -70,6 +70,12 @@ imbl = "7.0.2"
 # The escape sequences of a log line: the parser of the terminal of M10 too. `ansi` gives
 # each SGR code as a style, so the app decodes no parameter itself.
 vte = { version = "0.15.0", default-features = false, features = ["std", "ansi"] }
+# The screen of a terminal (plan section 12.8). Exact pin: its API changes between minor
+# versions, and the app reads its grid, its modes and its selection. No feature: no serde.
+alacritty_terminal = { version = "=0.26.0", default-features = false }
+# The width of a character, by the rules of the terminal model: the guard in front of its
+# parser counts the marks of zero width with it. The version of alacritty_terminal.
+unicode-width = "0.2.2"
 
 # Only the test kit and tests use these.
 libc = "0.2.180"

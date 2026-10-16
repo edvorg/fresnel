@@ -25,7 +25,7 @@ impl ConfirmRule {
     }
 }
 
-/// A color of the file: `"#3fb950"`.
+/// A color: in the file, `"#3fb950"`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rgb(pub [u8; 3]);
 

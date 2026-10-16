@@ -8,7 +8,6 @@ use egui_kittest::kittest::Queryable as _;
 use fresnel_core::CoreError;
 use fresnel_core::app::{ClusterRow, Command, CoreView, Startup};
 use fresnel_core::cluster::{ClusterId, LinkState};
-use fresnel_core::journal::{Entry, JournalView, Level};
 use fresnel_core::kubeconfig::AuthKind;
 use fresnel_core::net::credential::{CredentialState, CredentialStatus};
 use fresnel_core::net::task::{TaskReport, Tasks};
@@ -17,6 +16,8 @@ use fresnel_core::net::{
 };
 use fresnel_ui::{Clock, Shell};
 use tokio::runtime::{Builder, Runtime};
+
+pub(crate) use crate::journal::{journal, journal_of};
 
 pub(crate) const SECOND: Duration = Duration::from_secs(1);
 /// The longest wait for a frame that must come.
@@ -355,40 +356,21 @@ pub(crate) fn error(text: &str) -> CoreError {
 
 /// The view of a core whose start is complete, with no saved table layout and an empty journal.
 pub(crate) fn view(clusters: Vec<ClusterRow>) -> CoreView {
-    let tables = Some(Arc::default());
-    let (config, config_file, journal) = (Arc::default(), Arc::default(), Arc::default());
-    let (manifest, create, jobs) = (None, None, Arc::default());
-    let (startup, shell_problem, edits) = (Startup::Ready, None, Vec::new());
-    CoreView { startup, shell_problem, clusters, tables, config, config_file, manifest, edits, create, jobs, journal }
-}
-
-/// A journal with these entries, one for each second before now. `dropped` entries left it.
-pub(crate) fn journal(entries: &[(Level, &str, &str)], dropped: u64) -> Arc<JournalView> {
-    let count = entries.len() as u64;
-    let timed: Vec<(Duration, Level, &str, &str)> = (0..)
-        .zip(entries)
-        .map(|(index, (level, source, text))| (Duration::from_secs(count - index), *level, *source, *text))
-        .collect();
-    journal_of(&timed, dropped)
-}
-
-/// A journal with these entries, each with its age, the oldest first. Its counts of the
-/// warnings and the errors come from the entries.
-pub(crate) fn journal_of(entries: &[(Duration, Level, &str, &str)], dropped: u64) -> Arc<JournalView> {
-    let entry = |(index, (age, level, source, text)): (u64, &(Duration, Level, &str, &str))| {
-        Arc::new(Entry {
-            number: dropped + index,
-            time: now() - *age,
-            level: *level,
-            source: (*source).to_owned(),
-            text: (*text).to_owned(),
-        })
-    };
-    let of_level = |wanted: Level| entries.iter().filter(|(_, level, _, _)| *level == wanted).count() as u64;
-    Arc::new(JournalView {
-        entries: (0..).zip(entries).map(entry).collect(),
-        total: dropped + entries.len() as u64,
-        warnings: of_level(Level::Warning),
-        errors: of_level(Level::Error),
-    })
+    let (tables, journal, jobs) = (Some(Arc::default()), Arc::default(), Arc::default());
+    let (config, config_file, terminals) = (Arc::default(), Arc::default(), Arc::default());
+    let (startup, shell_problem, manifest, create, edits) = (Startup::Ready, None, None, None, Vec::new());
+    CoreView {
+        startup,
+        shell_problem,
+        clusters,
+        tables,
+        config,
+        config_file,
+        manifest,
+        edits,
+        create,
+        jobs,
+        terminals,
+        journal,
+    }
 }

@@ -86,6 +86,8 @@ pub enum Command {
     /// and reads it again. The view gets the state of the save; a file that the app cannot
     /// read stays as it is.
     EditSettings(Vec<Edit>),
+    /// Closes the terminal of the dock with this identity.
+    CloseTerminal(u64),
     /// Reads the rules of the user in a namespace of a cluster, unless an answer of the last
     /// minutes exists. The view of the cluster gets them.
     ReadRules {
@@ -142,6 +144,7 @@ impl Inner {
             Command::Run(orders) => self.run_orders(orders, false),
             Command::RunInTurn(orders) => self.run_orders(orders, true),
             Command::Cancel(number) => self.state().jobs.cancel(number),
+            Command::CloseTerminal(id) => self.close_terminal(id),
             Command::ReadRules { cluster, namespace } => self.read_rules(&cluster, namespace),
             Command::CheckAccess { cluster, attributes } => self.check_access(&cluster, attributes),
             Command::Select { .. } | Command::RetryNow(_) | Command::ReloadFiles | Command::EditSettings(_) => {}

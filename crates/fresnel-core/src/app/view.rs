@@ -2,25 +2,27 @@
 //!
 //! Each value is a copy. The UI never holds a lock that a task needs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
 use fresnel_net::ClusterStatus;
 
-use super::create::CreateJob;
+use super::Core;
+use super::create::{CreateJob, SecretWriter};
 use super::data::ClusterData;
 use super::edits::EditRead;
 use super::health::{self, Health};
 use super::jobs::JobsView;
-use super::manifest::ManifestRead;
-use crate::cluster::{ClusterId, ClusterView, LinkState};
+use super::manifest::{ManifestRead, ManifestReader};
+use crate::cluster::{ClusterId, ClusterView, LinkState, Registry};
 use crate::config::{Config, FileState};
 use crate::error::CoreError;
 use crate::journal::JournalView;
 use crate::kubeconfig::AuthKind;
 use crate::search::ClusterSources;
 use crate::state_file::TableLayout;
+use crate::terminal::TerminalView;
 
 /// How far the start of the core is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,6 +142,48 @@ pub struct CoreView {
     pub create: Option<Arc<CreateJob>>,
     /// The jobs of the operations, for the Operations tab.
     pub jobs: Arc<JobsView>,
+    /// The terminals of the dock, in the sequence of their open.
+    pub terminals: Arc<[TerminalView]>,
     /// The journal.
     pub journal: Arc<JournalView>,
+}
+
+impl Core {
+    /// A copy of the state of the app at one moment.
+    ///
+    /// The core changes the selection under the lock of its state, and the registry after
+    /// it. A copy that read the registry after the lock could have the selection of one
+    /// moment and the connections of a later one: a cluster selected and off. Thus the copy
+    /// reads the registry under the same lock.
+    pub fn view(&self) -> CoreView {
+        let (mut view, selected, mut data, clusters) = {
+            let state = self.inner.state();
+            let data: HashMap<ClusterId, ClusterData> =
+                state.connected.iter().map(|(id, connected)| (id.clone(), connected.data())).collect();
+            let view = CoreView {
+                startup: state.startup,
+                shell_problem: state.shell_problem.clone(),
+                clusters: Vec::new(),
+                tables: state.tables.clone(),
+                config: Arc::clone(&state.config),
+                config_file: Arc::clone(&state.config_file),
+                manifest: state.manifests.as_ref().and_then(ManifestReader::last),
+                edits: state.edits.as_ref().map(super::edits::EditReader::reads).unwrap_or_default(),
+                create: state.creates.as_ref().and_then(SecretWriter::last),
+                jobs: state.jobs.view(),
+                terminals: Arc::clone(&state.terminals),
+                // The journal has its own lock, which the copy takes after this one.
+                journal: Arc::default(),
+            };
+            let clusters = self.inner.registry.get().map(Registry::snapshot).unwrap_or_default();
+            (view, state.selected.clone(), data, clusters)
+        };
+        let row = |cluster: ClusterView| {
+            let (selected, data) = (selected.contains(&cluster.id), data.remove(&cluster.id));
+            ClusterRow::new(cluster, selected, data)
+        };
+        view.clusters = clusters.into_iter().map(row).collect();
+        view.journal = self.inner.journal.view();
+        view
+    }
 }
