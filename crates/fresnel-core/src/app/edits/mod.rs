@@ -134,9 +134,16 @@ impl EditReader {
         let wanted = watch::Sender::new(Vec::new());
         let (reads, saved) = (Reads::default(), Arc::new(Notify::new()));
         let parts = Parts { registry, repaint, journal, saved: Arc::clone(&saved) };
+        let mut runs = 0_u64;
         let task = tasks.start(TaskName::new("editor reads"), Restart::Always(Backoff::default()), {
             let (wanted, reads) = (wanted.clone(), Arc::clone(&reads));
-            move || serve(wanted.subscribe(), Arc::clone(&reads), parts.clone())
+            move || {
+                runs += 1;
+                if runs > 1 {
+                    end_after_restart(&reads);
+                }
+                serve(wanted.subscribe(), Arc::clone(&reads), parts.clone())
+            }
         });
         Self { _task: task, wanted, reads, saved }
     }
@@ -182,6 +189,23 @@ impl EditReader {
     /// The reads, for the view.
     pub(super) fn reads(&self) -> Vec<Arc<EditRead>> {
         lock(&self.reads).clone()
+    }
+}
+
+/// Ends each replace that waits or runs as a write whose result is not known: the run of the
+/// task before this one can have ended during it, and it can be in effect, so it does not go
+/// again (design rule 6). A dry run goes again: it stores nothing.
+fn end_after_restart(reads: &Reads) {
+    let mut kept = lock(reads);
+    for read in kept.iter_mut() {
+        let Some(view) = read.save.as_ref().filter(|view| view.state == SaveState::Pending) else {
+            continue;
+        };
+        if view.save.stage == Stage::Send {
+            let error = CoreError::invalid("the task of the editors started again during the save");
+            let view = SaveView { save: view.save.clone(), state: SaveState::Unknown(error, None) };
+            *read = Arc::new(EditRead { save: Some(view), ..EditRead::clone(read) });
+        }
     }
 }
 
@@ -287,3 +311,6 @@ async fn read(registry: Registry, request: EditRequest) -> Answer {
     };
     Answer::Read(request, state)
 }
+
+#[cfg(test)]
+mod tests;
