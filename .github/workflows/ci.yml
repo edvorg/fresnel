@@ -81,6 +81,9 @@ jobs:
   # runs, so on Linux the check finds only a large regression). Since the pod sections of M3,
   # the first frame of the panel of a pod with extreme values is the longest one: 14 to 31 ms
   # in 8 runs on Linux (median of its frames 1 to 4 ms), 5 to 11 ms on macOS, 6.5 ms on the Mac.
+  # The macOS search took 71.4 ms on one slow runner in run 38793607952 (17 to 29 ms in 4 other
+  # runs), above its limit of 70 ms then. A failure on master stops the release until a re-run,
+  # so that limit is now about twice the 71.4 ms.
   time:
     name: time (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -91,7 +94,7 @@ jobs:
         include:
           - os: macos-26
             frame: 50
-            search: 70
+            search: 150
           - os: ubuntu-24.04
             frame: 60
             search: 230
