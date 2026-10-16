@@ -87,10 +87,12 @@ fn a_save_shows_the_diff_of_its_dry_run_and_sends_the_text_that_the_user_saw() {
     window.run();
     assert!(rows(&window).contains(&"  replicas: 3".to_owned()), "a held text takes no key");
 
-    let saved = version(&WEB.replace("replicas: 2", "replicas: 3"), "43");
+    // A version after the one of the store: the panel shows the change as pending.
+    let saved = version(&WEB.replace("replicas: 2", "replicas: 3"), "99999943");
     answer(&mut window, &send, SaveState::Saved(saved));
-    assert!(shows(&window, "Saved: the object has version 43 now."));
-    assert!(shows(&window, "version 43 · 13 lines"), "the answer is the new read");
+    assert!(shows(&window, "Saved: the object has version 99999943 now."));
+    assert!(shows(&window, "version 99999943 · 13 lines"), "the answer is the new read");
+    assert!(shows(&window, "Change pending: the server stored a change, and the watch did not bring it yet."));
     assert!(!shows(&window, "Edit Deployment web •"), "no change after the save: {:?}", rows(&window));
     replicas_again(&mut window);
 }
@@ -104,7 +106,7 @@ fn replicas_again(window: &mut Window) {
     window.get_by_label("Save the text").click();
     window.run();
     let next = saves(window).pop().expect("a next dry run");
-    assert_eq!((next.number, next.base.version.as_deref()), (3, Some("43")));
+    assert_eq!((next.number, next.base.version.as_deref()), (3, Some("99999943")));
 }
 
 #[test]

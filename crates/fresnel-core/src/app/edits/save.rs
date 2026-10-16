@@ -12,11 +12,14 @@
 use std::fmt;
 use std::sync::Arc;
 
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+
 use super::EditRequest;
 use crate::cluster::{Fate, Gateway, Registry, WriteError};
 use crate::error::CoreError;
 use crate::manifest::merge::{self, Merge};
 use crate::manifest::{EditText, read_for_edit, save};
+use crate::store::Written;
 
 /// A save of the text of an editor.
 #[derive(Clone, PartialEq, Eq)]
@@ -60,6 +63,24 @@ pub enum Stage {
 pub struct SaveView {
     pub save: EditSave,
     pub state: SaveState,
+}
+
+impl SaveView {
+    /// The result of a replace that the server stored, for the mark "change pending" of its
+    /// object while its watch event did not arrive (plan section 9.10).
+    pub fn written(&self) -> Option<Written> {
+        let SaveState::Saved(answer) = &self.state else {
+            return None;
+        };
+        let target = &self.save.editor.target;
+        Written::changed(&ObjectMeta {
+            name: Some(target.key.name.to_string()),
+            namespace: Some(target.key.namespace.to_string()).filter(|namespace| !namespace.is_empty()),
+            uid: Some(target.uid.to_string()),
+            resource_version: answer.version.clone(),
+            ..ObjectMeta::default()
+        })
+    }
 }
 
 /// How far a save is.

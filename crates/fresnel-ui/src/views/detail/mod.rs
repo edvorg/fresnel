@@ -373,12 +373,15 @@ impl<K: Describe> DetailPanel<K> {
     }
 }
 
-/// True while a job of this object wrote a change that its store does not show yet (plan
-/// section 9.10).
+/// True while a job or the save of an editor of this object wrote a change that its store does
+/// not show yet (plan section 9.10).
 fn pending<K: Describe>(view: &CoreView, id: &ObjectId, store: &Snapshot<K>) -> bool {
-    view.jobs.jobs.iter().any(|job| {
-        let target = &job.order.target;
-        let same = target.cluster == id.cluster && target.kind == K::ID && target.key == id.key;
-        same && job.report.outcome.written().is_some_and(|written| store.is_pending(written))
-    })
+    let same = |target: &Target| target.cluster == id.cluster && target.kind == K::ID && target.key == id.key;
+    let job = view.jobs.jobs.iter().any(|job| {
+        same(&job.order.target) && job.report.outcome.written().is_some_and(|written| store.is_pending(written))
+    });
+    let saves = view.edits.iter().filter_map(|read| read.save.as_ref());
+    job || saves
+        .filter(|save| same(&save.save.editor.target))
+        .any(|save| save.written().is_some_and(|written| store.is_pending(&written)))
 }

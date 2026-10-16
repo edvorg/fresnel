@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use fresnel_core::app::{Command, CoreView, EditRequest, EditSave, EditState, SaveState, Stage};
+use fresnel_core::app::{Command, CoreView, EditRequest, EditSave, EditState, SaveState, SaveView, Stage};
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::kinds::Kind;
 use fresnel_core::manifest::EditText;
@@ -17,7 +17,9 @@ use fresnel_core::manifest::merge::{Conflict, Side};
 use fresnel_core::ops::Target;
 use fresnel_core::store::ObjectKey;
 
-use crate::bed::Bed;
+use k8s_openapi::api::apps::v1::Deployment;
+
+use crate::bed::{Bed, snapshot};
 use crate::scene::{APP, field, kubectl};
 
 /// The editor of an object of the namespace `app` of cluster b, with its UID from kubectl.
@@ -86,9 +88,15 @@ pub(crate) async fn a_hint_never_refuses_a_save(bed: &Bed) {
         marks.iter().any(|mark| mark.level == Level::Hint && mark.text.starts_with("0700 is the octal number 448"))
     );
     assert!(marks.iter().all(|mark| mark.level == Level::Hint), "a hint and no error");
+    let before = snapshot::<Deployment>(&bed.core.view(), "b").expect("the Deployments of b");
     let answer = check_and_send(bed, &web, (1, &base), &text).await;
     assert!(answer.version != base.version, "a new version");
     assert_eq!(field(&bed.b, "deployment/web", "{.spec.progressDeadlineSeconds}").await, "448");
+    // The panel of the object shows "change pending" until the watch event of the save.
+    let view = bed.core.view();
+    let saved = view.edits.iter().find(|read| read.request == web).and_then(|read| read.save.as_ref());
+    let written = saved.and_then(SaveView::written).expect("the result of the save");
+    bed.mark::<Deployment>("b", &before, &written).await;
 }
 
 /// The text with the line of the key `key` of `data` set to this value, in double quotes.
