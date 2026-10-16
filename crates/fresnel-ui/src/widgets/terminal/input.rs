@@ -3,7 +3,9 @@
 //! The copy keys differ between the systems, and egui-winit turns them into events with no
 //! key: Cmd+C on macOS and Ctrl+C on Windows give `Event::Copy`, the same for Cut and
 //! Paste. On macOS Ctrl+C stays a key (0x03). On Windows a copy with no selection is the
-//! byte of Ctrl+C, and a cut the byte of Ctrl+X, as in Windows Terminal.
+//! byte of Ctrl+C, and a cut the byte of Ctrl+X, as in Windows Terminal. Shift+Delete is a
+//! cut there too and sends its own key; Ctrl+Insert is a copy, which the event cannot tell
+//! from Ctrl+C.
 
 use egui::{Event, ImeEvent, Key, Modifiers};
 use fresnel_core::terminal::{Modes, Scroll};
@@ -63,7 +65,11 @@ pub(super) fn translate(events: &[Event], modes: Modes, options: KeyOptions, hel
             Event::Paste(text) => actions.push(Action::Paste(text.clone())),
             Event::Copy if held.mac_cmd => actions.push(Action::Copy),
             Event::Copy => actions.push(Action::CopyOr(vec![0x03])),
-            Event::Cut if !held.mac_cmd => actions.push(Action::Send(vec![0x18])),
+            // Ctrl+X and Shift+Delete: each sends the bytes of its own key.
+            Event::Cut if !held.mac_cmd && (held.ctrl || held.shift) => {
+                let key = if held.ctrl { Key::X } else { Key::Delete };
+                actions.extend(keymap::encode(key, held, modes, options).map(Action::Send));
+            }
             _ => {}
         }
     }
@@ -119,6 +125,8 @@ mod tests {
         assert_eq!(mac, [send(b"\x03"), Action::Copy]);
         let windows = translate(&[Event::Copy, Event::Cut], Modes::default(), META, Modifiers::CTRL);
         assert_eq!(windows, [Action::CopyOr(vec![0x03]), send(b"\x18")]);
+        // Shift+Delete is a cut on Windows too; it sent Ctrl-X, which ends nano.
+        assert_eq!(translate(&[Event::Cut], Modes::default(), META, Modifiers::SHIFT), [send(b"\x1b[3;2~")]);
     }
 
     #[test]

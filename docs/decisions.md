@@ -1944,7 +1944,8 @@ test or on Windows, a bold run is painted two times one pixel apart.
 Ctrl+K deletes to the end of a line in a shell, `?` is text, and F6 is a key of `mc`. While a
 terminal has the focus, the app keys act only with the Cmd key of macOS; on Windows, whose app
 keys use Ctrl, the terminal takes them all. egui-winit turns Ctrl+C on Windows into a copy: with
-no selection the terminal sends the byte of Ctrl+C, as Windows Terminal does.
+no selection the terminal sends the byte of Ctrl+C, as Windows Terminal does. Shift+Delete, a
+cut too, sends its key.
 
 ## The tests of the terminal feed recordings of busybox
 
