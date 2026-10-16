@@ -172,3 +172,21 @@ fn changes_of_the_same_lines_show_three_versions_and_the_chosen_side_goes_into_t
     assert!(shows(&window, "version 44 · 13 lines"), "the new read of the server");
     assert!(!shows(&window, "Edit Deployment web •"), "the side of the server is its text");
 }
+
+/// The dialog of a save takes the keys and the clicks: the text stays the text that the
+/// dry run checked, so the answer of the save loses no edit.
+#[test]
+fn the_text_takes_no_key_while_the_dialog_of_its_save_is_open() {
+    let mut window = panel();
+    let check = checked_save(&mut window);
+    answer(&mut window, &check, SaveState::Checked(text(&WEB.replace("replicas: 2", "replicas: 3"), None)));
+    window.event(Event::Text("Z".to_owned()));
+    window.run();
+    click_row(&mut window, "  replicas: 3");
+    window.event(Event::Text("Q".to_owned()));
+    window.key_press(egui::Key::Backspace);
+    window.run();
+    let shown = rows(&window);
+    assert!(shown.contains(&"  replicas: 3".to_owned()) && !shown.iter().any(|row| row.contains(['Z', 'Q'])));
+    assert!(shows(&window, "Save this Deployment?"), "the dialog stays");
+}
