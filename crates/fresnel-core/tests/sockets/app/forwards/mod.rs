@@ -19,6 +19,7 @@ use fresnel_core::cluster::ClusterId;
 use fresnel_core::forward::{Bind, ForwardRule, ForwardView, LocalPort};
 use fresnel_core::kinds::Kind;
 use fresnel_core::metrics::MetricsSettings;
+use fresnel_core::net::UpgradeStatus;
 use fresnel_core::store::ObjectKey;
 use fresnel_testkit::{FakeApiServer, FaultProxy, Home};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -125,6 +126,12 @@ fn rule(kind: Kind, name: &str, port: u16) -> ForwardRule {
 
 fn forward<'a>(view: &'a CoreView, rule: &ForwardRule) -> Option<&'a ForwardRow> {
     view.forwards.iter().find(|row| &row.view.rule == rule)
+}
+
+/// The upgrade client of the cluster `ams`. A raise of its signal, which tells each channel
+/// to test its connection now, drops the warm connections: `dropped` counts them.
+fn upgrade(view: &CoreView) -> UpgradeStatus {
+    super::row(view, "ams").status().map(|status| status.upgrade.clone()).unwrap_or_default()
 }
 
 /// Sends `data` through the local port and reads it back from the pod. Gives the error of

@@ -4,11 +4,25 @@
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
+use fresnel_core::forward::ForwardSettings;
 use fresnel_testkit::ProxyMode;
 use tokio::time::Instant;
 
 use super::*;
 use crate::common::in_time;
+
+/// Settings of a test with short pings: each channel and each tunnel pings after 1 s with no
+/// frame and breaks with no answer in 1 s, so a silent path shows in about 2 s.
+fn short_pings(wait: Duration) -> CoreSettings {
+    let mut core = settings();
+    for lane in [&mut core.net.watches, &mut core.net.requests, &mut core.net.logs] {
+        (lane.keepalive_interval, lane.keepalive_timeout) = (SECOND, SECOND);
+    }
+    let socket = &mut core.net.upgrade.socket;
+    (socket.ping_after, socket.answer_limit) = (SECOND, SECOND);
+    core.forwards = ForwardSettings { wait, ..ForwardSettings::default() };
+    core
+}
 
 /// Six forwards of the pod `web-1`, each on a port of its own, once each one is active.
 async fn six_forwards(bed: &Bed) -> Vec<(ForwardRule, SocketAddr)> {
@@ -95,4 +109,49 @@ async fn each_forward_works_again_in_10_s_after_a_wake() {
     let texts =
         bed.app.until_texts("app", |texts| texts.iter().any(|text| text.starts_with("the computer slept"))).await;
     assert!(texts.iter().any(|text| text.starts_with("the computer slept for 60 s")), "{texts:?}");
+}
+
+/// Plan section 12.3: an abnormal end always gives the local client an error, never a silent
+/// stop. The open connections go silent while a client waits for the next bytes: its tunnel
+/// breaks on its ping, and the client gets a reset.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tunnel_that_goes_silent_gives_its_client_a_reset() {
+    let bed = Bed::start_with("forward-silent-tunnel", short_pings(5 * SECOND)).await;
+    let pod = rule(Kind::Pod, "web-1", 8080);
+    bed.start_forward(&pod);
+    let address = bed.active(&pod).await;
+    let mut client = TcpStream::connect(address).await.expect("a connect");
+    client.write_all(b"one").await.expect("a write");
+    let mut back = [0_u8; 3];
+    client.read_exact(&mut back).await.expect("the bytes back");
+
+    bed.proxy.silence_open();
+    let end = timeout(30 * SECOND, client.read(&mut back)).await;
+    assert!(matches!(end, Ok(Err(_))), "a reset, not an end of the data: {end:?}");
+    let row = bed.until(&pod, "the reset", |view| view.connections.reset == 1).await;
+    let error = row.view.last_error.as_ref().map(|(_, text)| text.as_str()).unwrap_or_default();
+    assert!(error.starts_with("a tunnel broke: "), "{error}");
+}
+
+/// Plan section 12.3: a local connection that arrives in a break waits for a tunnel, and
+/// gets one when the path returns before the end of its wait.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_local_connection_in_a_break_gets_its_tunnel_when_the_path_returns_in_its_wait() {
+    let bed = Bed::start_with("forward-wait", short_pings(30 * SECOND)).await;
+    let pod = rule(Kind::Pod, "web-1", 8080);
+    bed.start_forward(&pod);
+    let address = bed.active(&pod).await;
+    bed.proxy.set(ProxyMode::Freeze);
+    bed.until(&pod, "the state reconnecting", |view| view.state.name() == "reconnecting").await;
+    let mut client = TcpStream::connect(address).await.expect("the port stays open");
+    client.write_all(b"in the break").await.expect("a write");
+    bed.until(&pod, "a connection that waits", |view| view.connections.open == 1).await;
+
+    bed.proxy.set(ProxyMode::Pass);
+    let mut back = [0_u8; 12];
+    let read = timeout(30 * SECOND, client.read_exact(&mut back)).await;
+    assert!(matches!(read, Ok(Ok(_))), "{read:?}");
+    assert_eq!(&back, b"in the break");
+    let row = bed.until(&pod, "the counts", |view| view.bytes.received == 12).await;
+    assert_eq!(row.view.connections.reset, 0);
 }
