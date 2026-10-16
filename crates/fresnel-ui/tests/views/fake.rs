@@ -358,8 +358,8 @@ pub(crate) fn view(clusters: Vec<ClusterRow>) -> CoreView {
     let tables = Some(Arc::default());
     let (config, config_file, journal) = (Arc::default(), Arc::default(), Arc::default());
     let (manifest, create, jobs) = (None, None, Arc::default());
-    let startup = Startup::Ready;
-    CoreView { startup, shell_problem: None, clusters, tables, config, config_file, manifest, create, jobs, journal }
+    let (startup, shell_problem, edits) = (Startup::Ready, None, Vec::new());
+    CoreView { startup, shell_problem, clusters, tables, config, config_file, manifest, edits, create, jobs, journal }
 }
 
 /// A journal with these entries, one for each second before now. `dropped` entries left it.

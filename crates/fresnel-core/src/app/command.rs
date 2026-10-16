@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use super::Inner;
+use super::edits::EditRequest;
 use super::manifest::ManifestRequest;
 use crate::cluster::{ClusterId, Registry};
 use crate::config::Edit;
@@ -44,6 +45,9 @@ pub enum Command {
     ShowKinds(BTreeSet<Kind>),
     /// Reads the manifest of one object from its server. The view gets the result.
     ReadManifest(ManifestRequest),
+    /// The editors that the UI shows. The core reads the text of each new one, and drops the
+    /// others. The view gets the reads.
+    ShowEditors(Vec<EditRequest>),
     /// The key view shows this Secret or ConfigMap, or `None` when it closes. The core
     /// reads the object and follows it while the view is open, and drops its values then.
     ShowKeys(Option<Target>),
@@ -121,6 +125,7 @@ impl Inner {
             Command::SaveTable { table, layout } => self.save_table(table, layout),
             Command::ShowKinds(kinds) => self.show_kinds(kinds),
             Command::ReadManifest(request) => self.read_manifest(registry, request),
+            Command::ShowEditors(requests) => self.show_editors(registry, requests),
             Command::ShowKeys(target) => self.show_keys(target),
             Command::SaveKeys(save) => self.save_keys(save),
             Command::ShowLogs(requests) => self.show_logs(requests),

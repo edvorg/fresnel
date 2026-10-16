@@ -10,6 +10,7 @@ use fresnel_net::ClusterStatus;
 
 use super::create::CreateJob;
 use super::data::ClusterData;
+use super::edits::EditRead;
 use super::health::{self, Health};
 use super::jobs::JobsView;
 use super::manifest::ManifestRead;
@@ -133,6 +134,8 @@ pub struct CoreView {
     pub config_file: Arc<FileState>,
     /// The last read of a manifest that a view asked for.
     pub manifest: Option<Arc<ManifestRead>>,
+    /// The read of the text of each editor that the UI shows.
+    pub edits: Vec<Arc<EditRead>>,
     /// The last create of a Secret.
     pub create: Option<Arc<CreateJob>>,
     /// The jobs of the operations, for the Operations tab.

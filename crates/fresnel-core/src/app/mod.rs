@@ -10,6 +10,7 @@
 //! - `command`: what the UI asks for.
 //! - `data`: the stores and the indexes of each connected cluster. `objects`: the full
 //!   objects of the kinds that the views show. `manifest`: the read of one manifest.
+//!   `edits`: the reads of the texts of the editors.
 //! - `keys`: the object of the key view and its saves. `create`: the create of a Secret.
 //! - `logs`: the log views, one session for each in the cluster of its object.
 //! - `jobs`: the jobs of the operations. `access`: the permissions of the user.
@@ -23,6 +24,7 @@ mod command;
 mod config;
 mod create;
 mod data;
+mod edits;
 mod files;
 mod health;
 mod jobs;
@@ -53,6 +55,7 @@ pub use access::{AccessView, CheckState, RulesState};
 pub use command::Command;
 pub use create::CreateJob;
 pub use data::ClusterData;
+pub use edits::{EditRead, EditRequest, EditState};
 pub use health::Health;
 pub use jobs::{JobView, JobsView};
 pub use keys::{KeysView, ReadState, SaveJob};
@@ -120,6 +123,8 @@ struct State {
     shown: BTreeSet<Kind>,
     /// The task of the manifest reads. It starts with the first request.
     manifests: Option<ManifestReader>,
+    /// The task of the reads of the editors. It starts with the first editor.
+    edits: Option<edits::EditReader>,
     /// The object of the key view, which the core follows while the view is open.
     keys: Option<Target>,
     /// The log views that the UI shows.
@@ -227,6 +232,7 @@ impl Core {
             connected: HashMap::new(),
             shown: BTreeSet::new(),
             manifests: None,
+            edits: None,
             keys: None,
             logs: Vec::new(),
             saves: 0,
@@ -316,16 +322,17 @@ impl Core {
     /// moment and the connections of a later one: a cluster selected and off. Thus the copy
     /// reads the registry under the same lock.
     pub fn view(&self) -> CoreView {
-        let (startup, shell_problem, selected, tables, config, (manifest, create, jobs), mut data, clusters) = {
+        let (startup, shell_problem, selected, tables, config, (manifest, edits, create, jobs), mut data, clusters) = {
             let state = self.inner.state();
             let data: HashMap<ClusterId, ClusterData> =
                 state.connected.iter().map(|(id, connected)| (id.clone(), connected.data())).collect();
             let manifest = state.manifests.as_ref().and_then(ManifestReader::last);
+            let edits = state.edits.as_ref().map(edits::EditReader::reads).unwrap_or_default();
             let (create, jobs) = (state.creates.as_ref().and_then(SecretWriter::last), state.jobs.view());
             let (tables, config) = (state.tables.clone(), (Arc::clone(&state.config), Arc::clone(&state.config_file)));
             let clusters = self.inner.registry.get().map(Registry::snapshot).unwrap_or_default();
             let selected = state.selected.clone();
-            let reads = (manifest, create, jobs);
+            let reads = (manifest, edits, create, jobs);
             (state.startup, state.shell_problem.clone(), selected, tables, config, reads, data, clusters)
         };
         let row = |cluster: crate::cluster::ClusterView| {
@@ -340,6 +347,7 @@ impl Core {
             config: config.0,
             config_file: config.1,
             manifest,
+            edits,
             create,
             jobs,
             journal: self.inner.journal.view(),
@@ -362,9 +370,9 @@ impl Core {
             let mut state = self.inner.state();
             state.phase = Phase::Stopped;
             state.commands.clear();
-            let readers = (state.manifests.take(), state.creates.take(), std::mem::take(&mut state.jobs));
+            let readers = (state.manifests.take(), state.edits.take(), state.creates.take());
             let tasks = (std::mem::take(&mut state.running), readers, (state.monitor.take(), state.file_watch.take()));
-            (tasks, std::mem::take(&mut state.connected))
+            (tasks, std::mem::take(&mut state.jobs), std::mem::take(&mut state.connected))
         };
         drop(stopped);
         if let Some(registry) = self.inner.registry.get() {

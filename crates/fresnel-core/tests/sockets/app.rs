@@ -12,7 +12,7 @@
 //! - `data`: the objects of the selected clusters in the view. `keys`: the key view.
 //!   `key_faults`: the key view with fast input, a fault at the worst moment and bad data.
 //! - `orders`: the jobs of the operations and the permissions of each cluster.
-//! - `logs`: the log views.
+//! - `logs`: the log views. `editors`: the texts of the editors.
 //! - `metrics`: the sampler of each selected cluster and its metrics in the view.
 //! - `network`: a network that goes away and comes back.
 //! - `selection`: the selection of one run is the selection of the next run.
@@ -22,6 +22,7 @@
 mod commands;
 mod config;
 mod data;
+mod editors;
 #[cfg(windows)]
 mod explorer;
 #[cfg(unix)]
