@@ -32,9 +32,11 @@ nix.workspace = true
 
 # `process`: a child process starts with the command of tokio, in a job object.
 # `WindowsProgramming`: the interrupt times, for the time that the computer slept.
+# `WinSock` and `IO`: the exclusive bind of a local listener, and the bytes in flight of a
+# local connection before its reset.
 [target.'cfg(windows)'.dependencies]
 tokio = { workspace = true, features = ["process"] }
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
 
 [dev-dependencies]
 base64.workspace = true

@@ -1,7 +1,9 @@
 //! The Windows variant of the platform module.
 //!
 //! - `tree`: a child in a job object that ends each process of the tree.
+//! - `tcp`: the bind of a local listener, and the bytes that a local client did not take.
 
+mod tcp;
 mod tree;
 
 use std::collections::BTreeSet;
@@ -12,6 +14,7 @@ use std::time::Duration;
 
 use windows_sys::Win32::System::WindowsProgramming::{QueryInterruptTime, QueryUnbiasedInterruptTime};
 
+pub(crate) use self::tcp::{own_port, share_port, unacknowledged};
 pub(crate) use self::tree::{Started, Tree, start};
 use crate::env::{EnvSettings, EnvSource, ProcessEnv};
 

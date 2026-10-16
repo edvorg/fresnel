@@ -2,9 +2,11 @@
 //!
 //! - `shell`: the environment of the login shell.
 //! - `tree`: a child in a new session and process group; `child`: its start with no fork.
+//! - `tcp`: the bind of a local listener, and the bytes that a local client did not take.
 
 mod child;
 mod shell;
+mod tcp;
 mod tree;
 
 use std::collections::BTreeSet;
@@ -18,6 +20,7 @@ use nix::ifaddrs::getifaddrs;
 use nix::net::if_::InterfaceFlags;
 
 pub(crate) use self::shell::environment;
+pub(crate) use self::tcp::{own_port, share_port, unacknowledged};
 pub(crate) use self::tree::{Started, Tree, start};
 use crate::env::ProcessEnv;
 

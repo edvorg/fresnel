@@ -18,6 +18,7 @@ pub mod detect;
 pub mod env;
 mod error;
 mod light;
+pub mod local;
 mod platform;
 pub mod probe;
 mod process;

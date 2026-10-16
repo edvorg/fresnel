@@ -10,6 +10,8 @@
 //!   object on Windows. [`Tree`] ends them all.
 //! - The addresses of the network interfaces.
 //! - The time that the computer slept: the monotonic clock of Windows counts a sleep.
+//! - The bind of a local listener with no shared port, and the bytes that a local client did
+//!   not take before a reset (`local`).
 
 #[cfg(unix)]
 #[path = "unix/mod.rs"]
@@ -20,6 +22,6 @@ mod system;
 
 pub use self::system::FIXED_FOLDERS;
 pub(crate) use self::system::{
-    HOME, HOME_FOLDERS, Started, Tree, environment, interface_addresses, is_bare, is_program, program_files, start,
-    time_asleep, variable_key,
+    HOME, HOME_FOLDERS, Started, Tree, environment, interface_addresses, is_bare, is_program, own_port, program_files,
+    share_port, start, time_asleep, unacknowledged, variable_key,
 };

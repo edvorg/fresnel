@@ -288,6 +288,13 @@ error channel, each with the port at its start. A tunnel has one port, so one lo
 one socket, as in the prototype; the multiplexed SPDY tunnel is a later option of plan section
 12.3. Exec and attach ask for v5, which can end the input, and take v4 from a server before 1.30.
 
+## A local listener binds its port alone, and a broken connection ends with a reset
+
+The bind of tokio sets `SO_REUSEADDR`: macOS then gave the app the port of a program on
+`0.0.0.0` (forward prototype, P7), and Windows lets a program take the port of the app. So the first bind is exclusive, and a shared one follows only when nothing answers a
+connect: old connections in time-wait. An abnormal end is a reset after the client took its
+bytes, 2 s at most: macOS lost 74 of 100 resets with bytes on the way.
+
 ## The login shell starts from the process environment
 
 The login shell runs one time, with the environment of the process as its start. Its profile
