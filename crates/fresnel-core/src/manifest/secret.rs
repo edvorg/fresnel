@@ -259,6 +259,31 @@ mod tests {
         assert_eq!(object, json!({"data": data, "metadata": {"note": "AAEC"}}));
     }
 
+    /// Random values of the characters that YAML reads in a special way: the text of the
+    /// editor saves each one back to its bytes, so a save changes no value that the user did
+    /// not edit.
+    #[test]
+    fn each_random_value_saves_back_to_its_bytes() {
+        let characters = [
+            " ", "\n", "\r", "\t", ":", "#", "-", "\"", "'", "|", ">", "!", "&", "*", "%", "@", "`", ",", "[", "]",
+            "{", "}", "?", "a", "y", "s", "0", "7", ".", "n", "~", "\u{2028}", "\u{85}", "\u{feff}", "é", "\u{a0}",
+            "\\", "=", "<<", "null", "true", "0x1F", "1e3", "---", "...", "\u{1}",
+        ];
+        let mut random = fastrand::Rng::with_seed(11);
+        for _ in 0..3_000 {
+            let value = |random: &mut fastrand::Rng| -> String {
+                (0..random.usize(0..8)).map(|_| characters[random.usize(0..characters.len())]).collect()
+            };
+            let data: Map<String, Value> =
+                (0..4).map(|index| (format!("k{index}"), base64(value(&mut random).as_bytes()).into())).collect();
+            let secret = json!({"kind": "Secret", "data": data});
+            let (text, _) = yaml(&secret).expect("a text");
+            let mut object = crate::manifest::check::parse(&text).expect("valid YAML");
+            encode(&text, &mut object);
+            assert_eq!(object, secret, "{text}");
+        }
+    }
+
     #[test]
     fn a_value_that_is_not_base64_fails_with_no_value_in_its_text() {
         let error = yaml(&json!({"kind": "Secret", "data": {"key": "not base64!"}})).expect_err("no base64");

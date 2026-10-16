@@ -1,9 +1,12 @@
-//! The YAML writer of the manifests: serde-saphyr with one correction.
+//! The YAML writer of the manifests: serde-saphyr with two corrections.
 //!
 //! serde-saphyr 0.0.29 writes a text of only line feeds as a block scalar that reads as a
-//! shorter text: "\n" as `|` with an empty line, which reads as "". The Manifest tab, a
-//! download and the text of an editor would then give a value that the object does not have.
-//! Such a text goes in double quotes; each other text keeps the form of the writer.
+//! shorter text: "\n" as `|` with an empty line, which reads as "". Its parser drops a space
+//! that is not ASCII, such as U+00A0, at the start and the end of a plain text before it reads
+//! a number, so "12\u{a0}" reads as the number 12, while its writer writes the text plain.
+//! The Manifest tab, a download and the text of an editor would then give a value that the
+//! object does not have, and a save would send it. Such texts go in double quotes; each other
+//! text keeps the form of the writer.
 
 use serde::ser::{Serialize, Serializer};
 use serde_json::Value;
@@ -31,9 +34,12 @@ impl Serialize for Json<'_> {
     }
 }
 
-/// Writes a text, in double quotes when it has only line feeds.
+/// Writes a text, in double quotes when it has only line feeds, or a space that is not ASCII
+/// at its start or its end.
 pub(super) fn text<S: Serializer>(value: &str, serializer: S) -> Result<S::Ok, S::Error> {
-    if !value.is_empty() && value.bytes().all(|byte| byte == b'\n') {
+    let wide = |edge: Option<char>| edge.is_some_and(|edge| edge.is_whitespace() && !edge.is_ascii());
+    let feeds = !value.is_empty() && value.bytes().all(|byte| byte == b'\n');
+    if feeds || wide(value.chars().next()) || wide(value.chars().next_back()) {
         DoubleQuoted(value).serialize(serializer)
     } else {
         serializer.serialize_str(value)
@@ -47,8 +53,9 @@ mod tests {
     use super::*;
     use crate::manifest::check;
 
-    /// Each text reads back as itself, also a text of only line feeds; a text with other
-    /// characters keeps the block of the writer.
+    /// Each text reads back as itself, also a text of only line feeds and a number with a
+    /// space that is not ASCII at an edge; a text with other characters keeps the block of
+    /// the writer.
     #[test]
     fn each_text_reads_back_as_itself_and_a_text_of_only_line_feeds_has_quotes() {
         let texts = [
@@ -71,6 +78,10 @@ mod tests {
             "#x",
             "a: b",
             "~",
+            "12\u{a0}",
+            "\u{3000}0x1F",
+            "\u{2009}.inf",
+            "\u{a0}",
         ];
         let data: Map<String, Value> =
             texts.iter().enumerate().map(|(index, text)| (format!("k{index:02}"), Value::from(*text))).collect();
