@@ -291,9 +291,10 @@ one socket, as in the prototype; the multiplexed SPDY tunnel is a later option o
 ## A local listener binds its port alone, and a broken connection ends with a reset
 
 The bind of tokio sets `SO_REUSEADDR`: macOS then gave the app the port of a program on
-`0.0.0.0` (forward prototype, P7), and Windows lets a program take the port of the app. So the first bind is exclusive, and a shared one follows only when nothing answers a
-connect: old connections in time-wait. An abnormal end is a reset after the client took its
-bytes, 2 s at most: macOS lost 74 of 100 resets with bytes on the way.
+`0.0.0.0` (forward prototype, P7), and Windows lets a program take the port of the app. So the
+first bind is exclusive, and a shared one follows only when nothing answers a connect: old
+connections in time-wait. An abnormal end is a reset after the client took its bytes, 2 s at
+most: macOS lost 74 of 100 resets with bytes on the way.
 
 ## A forward lives in the core, and its cluster stays connected
 

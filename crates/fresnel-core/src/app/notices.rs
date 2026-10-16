@@ -1,6 +1,6 @@
 //! The notices of the system (plan section 11.6): a failed operation, a failed forward, and a
-//! cluster that stays lost while the window is hidden. The core decides when a notice goes; the program
-//! shows it as a macOS notification through the function of `Core::set_notifier`.
+//! cluster that stays lost while the window is hidden. The core decides when a notice goes;
+//! the program shows it as a macOS notification through the function of `Core::set_notifier`.
 //!
 //! A user who looks at the window sees each state there, so a lost cluster gives a notice
 //! only while the window is hidden, and one notice for each loss. A failed operation gives
