@@ -9,7 +9,7 @@ use super::*;
 use crate::error::CoreError;
 use crate::journal::Level;
 
-pub(super) fn core() -> Core {
+fn core() -> Core {
     Core::new(CoreParts {
         runtime: Handle::current(),
         base_env: ProcessEnv::default(),
