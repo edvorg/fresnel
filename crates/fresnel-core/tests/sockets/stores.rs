@@ -19,6 +19,13 @@ const SECRETS: &str = "/api/v1/secrets";
 /// The kinds of tier A and tier B.
 pub(crate) const STORES: usize = 39;
 
+/// True for the list of one object with which a store checks the version of the server
+/// after a lost connection: no list of the objects of a store.
+pub(crate) fn is_version_check(seen: &SeenRequest) -> bool {
+    let limit = seen.uri.query().and_then(|query| query.split('&').find_map(|pair| pair.strip_prefix("limit=")));
+    !seen.is_watch() && limit == Some("1")
+}
+
 pub(crate) fn of_path<'a>(requests: &'a [SeenRequest], path: &str) -> Vec<&'a SeenRequest> {
     requests.iter().filter(|seen| seen.uri.path() == path).collect()
 }
@@ -193,7 +200,7 @@ async fn a_server_that_refuses_or_throttles_shows_as_the_state_of_the_store() {
 
 /// Plan section 6.8: old data must not show as current. A connection that carries no data
 /// and gives no error shows in each store in 20 seconds or less, and the stores continue
-/// on a new connection with no new list.
+/// on a new connection with no new list: a list of one object checks the version.
 #[tokio::test]
 async fn a_silent_connection_shows_in_each_store_in_20_seconds_or_less() {
     let bed = ProxyBed::start("silent-stores", NetSettings::default()).await;
@@ -213,7 +220,10 @@ async fn a_silent_connection_shows_in_each_store_in_20_seconds_or_less() {
     let found = Instant::now();
     stores.until_live(Duration::from_secs(10)).await;
     println!("each store was live again {:?} after that", found.elapsed());
-    let lists = bed.server.requests().iter().filter(|seen| seen.uri.path() != "/version" && !seen.is_watch()).count();
-    assert_eq!(lists, STORES, "each watch continued from its last version: no new list");
+    let requests = bed.server.requests();
+    let lists = requests.iter().filter(|seen| seen.uri.path() != "/version" && !seen.is_watch());
+    let (checked, listed): (Vec<&SeenRequest>, Vec<_>) = lists.partition(|seen| is_version_check(seen));
+    assert_eq!(listed.len(), STORES, "each watch continued from its last version: no new list");
+    assert_eq!(checked.len(), STORES, "each store checked the version of the server one time");
     assert_eq!(bed.proxy.task_failures(), Vec::<String>::new());
 }

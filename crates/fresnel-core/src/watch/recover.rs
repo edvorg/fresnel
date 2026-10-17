@@ -127,7 +127,8 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
             Failure::Fault(error) => return Err(error),
             Failure::ChannelLost => self.lost = true,
             Failure::Interrupted(error) => {
-                self.lost = true;
+                // A bad line of the server tells of no lost connection.
+                self.lost |= error.class() != ErrorClass::Invalid;
                 self.attempts.count(error);
             }
             Failure::Gone(error) => {

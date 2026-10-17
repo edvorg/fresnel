@@ -13,7 +13,7 @@ use k8s_openapi::api::core::v1::Pod;
 use crate::bed::{Bed, ProxyBed};
 use crate::common::{LIMIT, in_time};
 use crate::store_bed::Stores;
-use crate::stores::{PODS, STORES, of_path, state_of};
+use crate::stores::{PODS, STORES, is_version_check, of_path, state_of};
 
 /// Plan section 15: each store is live 10 seconds or less after the network returns.
 const RECOVERY: Duration = Duration::from_secs(10);
@@ -50,12 +50,14 @@ fn pod_names(snapshot: &Snapshot<Pod>) -> Vec<String> {
     snapshot.items.iter().map(|(key, _)| key.name.to_string()).collect()
 }
 
-/// The requests of one path that the server saw, lists and watches apart.
+/// The requests of one path that the server saw, lists and watches apart. A check of the
+/// version of the server is no list.
 fn lists_and_watches(server: &FakeApiServer, path: &str) -> (usize, usize) {
     let requests = server.requests();
     let of_path = of_path(&requests, path);
     let watches = of_path.iter().filter(|seen| seen.is_watch()).count();
-    (of_path.len() - watches, watches)
+    let checks = of_path.iter().filter(|seen| is_version_check(seen)).count();
+    (of_path.len() - watches - checks, watches)
 }
 
 /// Waits until each store is live with a state from after `fault`. Gives the time from
@@ -144,7 +146,9 @@ async fn a_connection_that_goes_silent_at_the_renewal_of_each_watch_shows_in_20_
     let found = SystemTime::now();
     let recovery = live_again_after(&stores, found, RECOVERY).await;
     println!("each store was live again {recovery:?} after that");
-    let lists = bed.server.requests().iter().filter(|seen| seen.uri.path() != "/version" && !seen.is_watch()).count();
+    let requests = bed.server.requests();
+    let lists = requests.iter().filter(|seen| seen.uri.path() != "/version" && !seen.is_watch());
+    let lists = lists.filter(|seen| !is_version_check(seen)).count();
     assert_eq!(lists, STORES, "each watch continued from its last version: no new list");
     assert_eq!(bed.proxy.task_failures(), Vec::<String>::new());
 }
