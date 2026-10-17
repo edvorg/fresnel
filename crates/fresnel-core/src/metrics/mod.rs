@@ -57,8 +57,9 @@ pub struct MetricsSettings {
 }
 
 impl Default for MetricsSettings {
-    /// A series of 24 hours has 1,680 samples of 24 bytes, about 40 KB. 64 MiB then hold
-    /// about 1,600 full series: the containers, pods and workloads of about 500 pods.
+    /// A series of 24 hours holds 240 fine and 1,440 coarse samples in 33 chunks of 64
+    /// samples, about 52 KB. 64 MiB then hold about 1,250 full series: the containers, pods
+    /// and workloads of about 400 pods.
     fn default() -> Self {
         Self {
             period: Duration::from_secs(15),

@@ -50,11 +50,10 @@ impl SeriesKey {
 }
 
 const RANKS: usize = 6;
-/// The part of the memory limit that one sample costs.
-const SAMPLE_BYTES: usize = size_of::<Sample>();
-/// The part that one series costs besides its samples: the series, its key, the node of the
-/// map and the names of the key. An estimate: the limit is a setting, not a measure.
-const SERIES_BYTES: usize = size_of::<Series>() + size_of::<SeriesKey>() + 96;
+/// The part that one series costs besides its tiers: the series, its key, the node of the
+/// map and the names of the key, two times: the sampler keeps one map of the series and
+/// publishes a copy of it. An estimate: the limit is a setting, not a measure.
+pub(crate) const SERIES_BYTES: usize = 2 * (size_of::<Series>() + size_of::<SeriesKey>() + 96);
 /// The most that a sample of the last answer can be older than the last sample of its
 /// series and still be of now, in seconds: the same sample again, or the one of a second
 /// replica of the server, which scrapes on its own within the longest period of 60 s
@@ -69,6 +68,8 @@ pub(crate) struct History {
     series: BTreeMap<SeriesKey, Series>,
     /// The count of samples of all series.
     samples: usize,
+    /// The bytes of the tiers of all series (`Series::bytes`).
+    tiers: usize,
     /// The count of samples that the memory limit dropped (design rule 12).
     dropped: u64,
 }
@@ -95,9 +96,10 @@ impl History {
         self.series.len()
     }
 
-    /// The memory of the history, as the limit counts it.
+    /// The memory of the history, as the limit counts it: the chunks of the tiers, which
+    /// share no part with an other series, and each series in the two maps.
     pub(crate) fn bytes(&self) -> usize {
-        self.samples * SAMPLE_BYTES + self.series.len() * SERIES_BYTES
+        self.tiers + self.series.len() * SERIES_BYTES
     }
 
     /// A copy that shares no part of a series, for the measure of the memory account.
@@ -118,12 +120,13 @@ impl History {
     /// value of the series is then old (plan section 12.4).
     pub(crate) fn record(&mut self, key: SeriesKey, sample: Sample, answer: u64, tiers: &Tiers) {
         let series = self.series.entry(key).or_default();
-        let before = series.len();
+        let before = (series.len(), series.bytes());
         series.push(sample, tiers);
         if series.latest().is_some_and(|latest| latest.at.saturating_sub(sample.at) <= REPLICA_LAG) {
             series.seen = answer;
         }
-        self.samples = self.samples - before + series.len();
+        self.samples = self.samples - before.0 + series.len();
+        self.tiers = self.tiers - before.1 + series.bytes();
     }
 
     /// Marks the series of each object that left its store, and drops a series after `keep`
@@ -131,7 +134,7 @@ impl History {
     /// object of a key is in its store: `None` while the store has no complete list, which
     /// changes no mark.
     pub(crate) fn sweep(&mut self, exists: impl Fn(&SeriesKey) -> Option<bool>, now: SystemTime, keep: Duration) {
-        let mut dropped = 0;
+        let (mut dropped, mut freed) = (0, 0);
         self.series.retain(|key, series| {
             match exists(key) {
                 Some(true) => series.gone = None,
@@ -142,10 +145,12 @@ impl History {
             let stays = series.gone.is_none_or(|gone| now.duration_since(gone).unwrap_or_default() < keep);
             if !stays {
                 dropped += series.len();
+                freed += series.bytes();
             }
             stays
         });
         self.samples -= dropped;
+        self.tiers -= freed;
     }
 
     /// Drops the oldest samples until the history fits in `max_bytes` (research 11 section
@@ -162,10 +167,13 @@ impl History {
                         break;
                     };
                     let last = oldest.saturating_add(LIMIT_STEP - 1);
-                    let ranked = self.series.iter_mut().filter(|(key, _)| in_rank(key));
-                    let freed: usize = ranked.map(|(_, series)| series.drop_through(tier, last)).sum();
-                    self.samples -= freed;
-                    self.dropped += freed as u64;
+                    for (_, series) in self.series.iter_mut().filter(|(key, _)| in_rank(key)) {
+                        let bytes = series.bytes();
+                        let freed = series.drop_through(tier, last);
+                        self.samples -= freed;
+                        self.dropped += freed as u64;
+                        self.tiers = self.tiers - bytes + series.bytes();
+                    }
                 }
             }
         }

@@ -53,6 +53,30 @@ impl Sample {
     }
 }
 
+/// The samples of one chunk of a tier: the vector of `imbl` holds its elements in chunks of
+/// 64, and a tier of 3 samples holds a full chunk.
+const CHUNK: usize = 64;
+/// The samples that a vector of `imbl` holds in its own struct, before its first chunk.
+const INLINE: usize = 2;
+/// The bytes of one chunk: its samples, its two ends and the counts of its shared pointer.
+/// A measure of the counting allocator gives 1,568 bytes.
+pub(crate) const CHUNK_BYTES: usize = CHUNK * size_of::<Sample>() + 4 * size_of::<usize>();
+
+/// The bytes of a tier of this many samples on the heap, as a measure of the vectors of
+/// `imbl` gives them, and some more: one chunk up to 64 samples; then a chunk for each 64,
+/// two more at the ends of a tier that drops at its front and adds at its back, and one for
+/// the node of the middle, four chunks at least.
+fn tier_bytes(samples: usize) -> usize {
+    let chunks = if samples <= INLINE {
+        0
+    } else if samples <= CHUNK {
+        1
+    } else {
+        (samples.div_ceil(CHUNK) + 2).max(4) + 1
+    };
+    chunks * CHUNK_BYTES
+}
+
 /// One tier of a series.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Tier {
@@ -153,6 +177,11 @@ impl Series {
     /// The count of samples that the tiers hold.
     pub(crate) fn len(&self) -> usize {
         self.fine.len() + self.coarse.len()
+    }
+
+    /// The bytes of the two tiers on the heap.
+    pub(crate) fn bytes(&self) -> usize {
+        tier_bytes(self.fine.len()) + tier_bytes(self.coarse.len())
     }
 
     /// Adds a sample that is later than the last one, and drops each sample that is older

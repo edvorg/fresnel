@@ -1325,7 +1325,8 @@ each with unit tests. An item that does not fit is a count with its reason, not 
 
 The sampler keeps one hour of samples and 24 hours of minutes in memory. A limit for each
 cluster, not one for all, keeps a large cluster from pushing the history of a small one out.
-A history from before the start of the app needs Prometheus, a later option of the plan.
+The limit counts the chunks of 64 samples of each tier: a soak measured that a short series
+holds a full chunk. A history from before the start of the app needs Prometheus.
 
 ## A cluster with no metrics API gets a poll each 5 minutes
 
