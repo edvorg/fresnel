@@ -177,9 +177,12 @@ impl Inner {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc;
+
     use fresnel_net::WallClock;
     use fresnel_testkit::Home;
     use tokio::runtime::Handle;
+    use tokio::task::JoinHandle;
 
     use super::super::{Command, Core, CoreParts, CoreSettings, Startup};
     use crate::config::{Edit, EditValue, Theme};
@@ -198,39 +201,65 @@ mod tests {
         })
     }
 
+    /// Holds the one thread of the runtime for blocking calls until the drop of the sender.
+    /// A read or a write of a file that starts later waits behind it.
+    fn hold(gates: &mut Vec<JoinHandle<()>>) -> mpsc::Sender<()> {
+        let (sender, gate) = mpsc::channel::<()>();
+        gates.push(tokio::task::spawn_blocking(move || while gate.recv().is_ok() {}));
+        sender
+    }
+
     /// The view with the result of a save of the settings view has the settings of that save.
     /// Before, the core showed the result and then read the file, so a view in that time
     /// showed "saved" with the old settings, and the settings view, which empties its draft
-    /// at the result, showed the old values. The test takes a view after each step of the
-    /// command, at each wait for a file: each state that a frame could see.
-    #[tokio::test]
-    async fn the_view_with_the_result_of_a_save_has_the_settings_of_the_save() {
-        let home = Home::new("save-order", &["kubeconfig.yaml"]).expect("a home folder");
-        home.write("work/kubeconfig.yaml", "contexts:\n- {name: a, context: {cluster: none}}\n").expect("a file");
-        home.write("state/config.toml", "version = 1\n[appearance]\ntheme = \"dark\"\n").expect("the file");
-        let core = core_of(&home);
-        core.start(|| {});
-        while core.view().startup != Startup::Ready {
-            tokio::task::yield_now().await;
-        }
-        assert_eq!(core.view().config.theme(), Theme::Dark);
-        let registry = core.inner.registry.get().cloned().expect("the registry of the start");
+    /// at the result, showed the old values. The test takes a view at each poll of the
+    /// command. The runtime has one thread for blocking calls, and before each poll a new gate
+    /// of the test waits on it: each wait of the save for a file thus ends only after a poll
+    /// and a view, also on a disk that answers at once, where each wait could end in the poll
+    /// that starts it. The look for changes of the files waits 60 s and reads nothing between.
+    #[test]
+    fn the_view_with_the_result_of_a_save_has_the_settings_of_the_save() {
+        let mut runtime = tokio::runtime::Builder::new_current_thread();
+        let runtime = runtime.enable_all().max_blocking_threads(1).build().expect("a runtime");
+        runtime.block_on(async {
+            let home = Home::new("save-order", &["kubeconfig.yaml"]).expect("a home folder");
+            home.write("work/kubeconfig.yaml", "contexts:\n- {name: a, context: {cluster: none}}\n").expect("a file");
+            let text = "version = 1\n[appearance]\ntheme = \"dark\"\n[kubeconfig]\nwatch_secs = 60\n";
+            home.write("state/config.toml", text).expect("the file");
+            let core = core_of(&home);
+            core.start(|| {});
+            while core.view().startup != Startup::Ready {
+                tokio::task::yield_now().await;
+            }
+            assert_eq!(core.view().config.theme(), Theme::Dark);
+            let registry = core.inner.registry.get().cloned().expect("the registry of the start");
 
-        let light = Edit::new(&["appearance", "theme"], EditValue::Text("light".to_owned()));
-        let mut save = std::pin::pin!(core.inner.apply(&registry, Command::EditSettings(vec![light])));
-        let mut views = Vec::new();
-        let saved = std::future::poll_fn(|context| {
-            let step = save.as_mut().poll(context);
-            let view = core.view();
-            views.push((view.config_file.save.as_ref().and_then(|save| save.result.clone()), view.config.theme()));
-            step
-        })
-        .await;
-        core.stop();
-        saved.expect("the save");
-        assert!(views.len() > 2, "a view at each wait for a file: {views:?}");
-        let results: Vec<_> = views.iter().filter(|(result, _)| result.is_some()).collect();
-        assert!(!results.is_empty() && results.iter().all(|view| **view == (Some(Ok(())), Theme::Light)), "{views:?}");
+            let light = Edit::new(&["appearance", "theme"], EditValue::Text("light".to_owned()));
+            let mut save = std::pin::pin!(core.inner.apply(&registry, Command::EditSettings(vec![light])));
+            let (mut views, mut gates) = (Vec::new(), Vec::new());
+            let mut held = hold(&mut gates);
+            let saved = std::future::poll_fn(|context| {
+                let step = save.as_mut().poll(context);
+                let view = core.view();
+                views.push((view.config_file.save.as_ref().and_then(|save| save.result.clone()), view.config.theme()));
+                // The new gate comes before the end of the old one: the next wait waits behind it.
+                held = hold(&mut gates);
+                step
+            })
+            .await;
+            drop(held);
+            for gate in gates {
+                gate.await.expect("the end of a gate");
+            }
+            core.stop();
+            saved.expect("the save");
+            views.dedup();
+            assert_eq!(
+                views,
+                [(None, Theme::Dark), (Some(Ok(())), Theme::Light)],
+                "the views at the waits of the save"
+            );
+        });
     }
 
     /// The limits of the journal and of the repaints in the file act at once, and a file with
