@@ -1639,9 +1639,24 @@ so 5 minutes with no line is a view that stopped; no line at all fails too.
 ## The soak counts the heap with its allocator
 
 The memory of the soak is the count of the bytes that the allocator of `fresnel-cli` holds, not
-the resident size: a growth shows at once and the same in each run. The base of the growth is the
-heap at the end of the warm-up, because the first lists, the history of the metrics and the ring
-of the log view grow at the start.
+the resident size: a growth shows at once and the same in each run. The records of the soak
+itself are a copy that the soak measures, and they are no part of the heap that it judges.
+
+## The soak judges the floor of the heap after its buffers are full
+
+The buffers of the app have limits: 64 MiB of metrics, 128 MiB of log lines, 10,000 journal
+entries, 20,000 Events. A fixed limit of growth cannot tell a leak from a buffer that fills. The
+soak gives each buffer a small limit, so each one is full early; after the warm-up, the floor of
+the heap, its lowest value in 5 minutes, may rise by 8 MiB at most: a list after a fault is a
+peak.
+
+## Each minute of the soak has a memory account of the core
+
+`Core::memory` gives the items and the bytes of each bounded part: each store, index, log ring
+and metrics history, the journal, the tasks, the jobs, the forwards and the channels. A buffer
+gives the bytes that its limit counts. For the objects of a store, the bytes that a copy
+allocates on the thread of the walk are the measure: the counting allocator counts for each
+thread. The report names the parts that grew most.
 
 ## The harness of the soak is a program of the test kit
 
@@ -1649,6 +1664,21 @@ of the log view grow at the start.
 `fresnel-cli` and `fresnel-soak`, a program of the test kit with k3s, the fault proxy, the changes
 and the faults, and runs it. The core runs in a child process of the harness, so the heap and the
 connections that the soak records are those of the core alone.
+
+## An outage of k3s is no failure of the app
+
+In a 24-hour soak, the API server of k3s panicked in a restart and stayed down for 38 minutes.
+The harness looks at it between the faults; after 150 s with no answer, it restarts the
+container, then recreates the cluster, and writes the outage into the file of the faults. Checks
+and log lines that cannot come then count apart; a gap with no visible state still fails. A
+jump of the wall clock is a sleep.
+
+## A fast soak puts the changes of hours into one hour
+
+`--fast` gives four times the changes and the faults, ten times the log lines, and a recreate of
+the cluster in the middle of the run: each object gets a new UID, and the resource versions start
+again, as after a restore of a backup. A part of the core that a UID, a pod or a connection keys
+and that keeps its entries shows in a short run.
 
 ## Each difference of the systems is in a platform module
 

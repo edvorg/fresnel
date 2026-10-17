@@ -66,7 +66,7 @@ cargo test --workspace -- --ignored   # cluster tests, with k3s in Docker
 cargo test --release --package fresnel-ui --test views -- frame_time search::time
 cargo xtask check-sizes               # size limits of documents and source files
 cargo xtask check-borders             # no kube in fresnel-net, no egui in fresnel-core
-cargo xtask soak --hours 1            # the core on k3s in Docker with changes and faults
+cargo xtask soak --hours 1 [--fast]   # the core on k3s in Docker with changes and faults
 cargo xtask screenshots               # the pictures above, from made-up data with no cluster
 ```
 

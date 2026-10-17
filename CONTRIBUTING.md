@@ -120,8 +120,8 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 - A test of a program starts it as a child process with `env -i`, the `PATH` of Finder and a
   home folder of the test (`fresnel_testkit::Home`). No test reads the home folder of the user.
 - A test of the fake plugin or of the login shell, shell scripts, has `#[cfg(unix)]`.
-- `cargo xtask soak --hours <N>` runs the core on k3s with changes and random faults, and
-  `fresnel-cli soak` checks each store against the API and writes a report of each minute.
+- `cargo xtask soak --hours <N> [--fast]` runs the core on k3s with changes and faults, and
+  `fresnel-cli soak` checks each store and writes each minute with the memory of each part.
 - No test opens the window of `fresnel`: it runs `Boot`, or `frame::draw` in a harness. A
   test of `xtask` works in the test folder of the build, never in `/Applications`.
 - A test file that needs `expect` starts with an `#![allow(clippy::expect_used, reason = "…")]`.
