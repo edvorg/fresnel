@@ -20,6 +20,10 @@ use super::scene;
 const DOWN_LIMIT: Duration = Duration::from_secs(150);
 /// The time between two looks at the API server.
 const LOOK_PERIOD: Duration = Duration::from_secs(10);
+/// The recreates after a restart that did not bring the API server back. A k3s on a busy
+/// machine panicked at its start with a slow datastore three times in a row, and a later
+/// start worked.
+const RECREATES: u32 = 3;
 
 pub(crate) struct Keeper<'a> {
     k3s: &'a K3s,
@@ -65,19 +69,32 @@ impl<'a> Keeper<'a> {
     }
 
     /// The outage starts at the last answer. A restart of the container comes first; a
-    /// cluster that does not start again gets a recreate, and its first objects again.
+    /// cluster that does not start again gets a recreate, and its first objects again, up to
+    /// `RECREATES` times.
     async fn restore(&mut self, file: &std::path::Path) -> Result<(), String> {
         self.outages += 1;
         let since = seconds(self.last_answer);
         note_line(file, &format!("outage from {since}: the API server of k3s does not answer; a restart follows"));
-        let how = match self.k3s.restart().await {
-            Ok(()) => "a restart of the container".to_owned(),
-            Err(error) => {
-                println!("fresnel-soak: the restart did not bring the API server back: {error}");
-                self.k3s.recreate().await.map_err(|error| format!("the recreate of the cluster failed: {error}"))?;
-                scene::create(self.k3s, self.line_pause).await?;
-                "a recreate of the cluster".to_owned()
+        let mut failed = match self.k3s.restart().await {
+            Ok(()) => None,
+            Err(error) => Some(format!("the restart did not bring the API server back: {error}")),
+        };
+        let mut recreates = 0;
+        while let Some(error) = failed.take() {
+            println!("fresnel-soak: {error}");
+            if recreates == RECREATES {
+                return Err(error);
             }
+            recreates += 1;
+            failed = self.k3s.recreate().await.err().map(|error| format!("recreate {recreates} failed: {error}"));
+        }
+        if recreates > 0 {
+            scene::create(self.k3s, self.line_pause).await?;
+        }
+        let how = match recreates {
+            0 => "a restart of the container".to_owned(),
+            1 => "a recreate of the cluster".to_owned(),
+            _ => format!("{recreates} recreates of the cluster"),
         };
         self.last_answer = SystemTime::now();
         let to = seconds(self.last_answer);
