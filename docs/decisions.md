@@ -319,6 +319,13 @@ gets a reset, never a silent end. A tunnel that breaks resets its client too; on
 of the pod ends the data. The protocol has no half close: after the end of the local input, the
 tunnel stays until the pod is silent for 1 s, as kubectl does.
 
+## A failed accept of a forward pauses, and the journal counts the failures
+
+An accept that fails, for example with too many open files, fails again at once. A warning each
+100 ms pushed each other entry out of the journal. The next accept now waits 100 ms, doubled
+after each failure in a row to 2 s, and the journal gets the first failure at once and the later
+ones in one entry a minute, with their count.
+
 ## Saved forwards are tables of config.toml
 
 The plan named a file `forwards.toml`. The settings view of M8 edits `config.toml` and keeps its

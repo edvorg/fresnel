@@ -13,6 +13,7 @@ use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tokio::time::{Instant, MissedTickBehavior, interval};
 
+use super::accept::Accepts;
 use super::conn;
 use super::feed::{Feed, FeedChanges, StoreFacts};
 use super::resolve::{Inputs, Owner, Resolution, resolve};
@@ -65,23 +66,19 @@ pub(super) async fn run(parts: Arc<Parts>) -> Result<(), CoreError> {
     // The warm set of the cluster keeps upgrade connections ready for the next tunnels.
     let mut _warm = feed.as_ref().ok().map(|feed| feed.net.keep_upgrades_warm());
     let mut connections = JoinSet::new();
+    let mut accepts = Accepts::new();
     let mut retries = parts.retries.clone();
     let mut tick = interval(TICK);
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
         run.step(feed.as_ref());
+        accepts.note(&parts.rule, &parts.shared.journal);
         tokio::select! {
-            accepted = listener.accept() => match accepted {
-                Ok(local) => {
+            accepted = accepts.next(&listener) => {
+                if let Some(local) = accepts.take(accepted) {
                     connections.spawn(conn::serve(local, Arc::clone(&parts.shared), run.gate.subscribe()));
                 }
-                Err(error) => {
-                    let text = format!("{}: the accept of a local connection failed: {error}", parts.rule);
-                    parts.shared.journal.warning(parts.rule.cluster.as_str(), text);
-                    // An error such as "too many open files" comes again at once.
-                    tokio::time::sleep(TICK / 10).await;
-                }
-            },
+            }
             Some(done) = connections.join_next(), if !connections.is_empty() => {
                 // A connection ends with no result; its outcome went to the reports.
                 if let Err(error) = done
