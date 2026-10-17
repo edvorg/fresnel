@@ -27,6 +27,10 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
     pub(super) async fn watch(&mut self, from: &str) -> Result<(), Failure> {
         let renewal = std::mem::take(&mut self.renewal);
         self.ready(Lane::Watches).await.map_err(Failure::Fault)?;
+        if self.lost {
+            self.check_cursor(from).await?;
+            self.lost = false;
+        }
         // A store stays live while the renewal of its watch starts. Each other start of a
         // watch shows as a state, and so does a renewal that had to wait before its request.
         if !(renewal && self.writer.state().is_live()) {
@@ -65,6 +69,25 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
             // loss one time (plan section 8.13). The next watch starts with no pause.
             Err(Failure::Failed(error)) if worked => Err(Failure::Interrupted(error)),
             Err(failure) => Err(failure),
+        }
+    }
+
+    /// Tells after a lost connection whether the cluster went back to an older version: a
+    /// restore of a backup, or a new cluster at the same address. Such a server takes a watch
+    /// from a version that it does not have yet and sends nothing until its own version
+    /// passes it, while the store shows "live" with the objects of the old cluster. A fast
+    /// soak found that after a recreate of k3s. A list of one object gives the version of
+    /// the server now; a version older than the cursor gives a new list, as HTTP 410 does.
+    async fn check_cursor(&mut self, from: &str) -> Result<(), Failure> {
+        self.ready(Lane::Requests).await.map_err(Failure::Fault)?;
+        self.start_request(StoreState::Waiting(Wait::Stream));
+        let source = &self.parts.source;
+        let page = self.answer(source.list_page(1, None)).await?;
+        let number = |version: &str| version.parse::<u128>().ok();
+        let now = page.metadata.resource_version.as_deref().and_then(number);
+        match (now, number(from)) {
+            (Some(now), Some(from)) if now < from => Err(Failure::Gone(went_back(now, from))),
+            _ => Ok(()),
         }
     }
 
@@ -129,6 +152,11 @@ async fn wait_until(time: Option<Instant>) {
 fn stalled(limit: Duration) -> CoreError {
     let text = format!("the watch gave no event and no bookmark in {} s", limit.as_secs());
     CoreError::new(ErrorClass::Timeout, text)
+}
+
+fn went_back(now: u128, cursor: u128) -> CoreError {
+    let text = format!("the cluster went back to the version {now}, before the version {cursor} of the store");
+    CoreError::new(ErrorClass::Server, text)
 }
 
 fn ended_early(after: Duration) -> CoreError {

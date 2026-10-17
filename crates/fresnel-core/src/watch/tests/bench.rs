@@ -130,6 +130,12 @@ impl Script {
         self.add_page(Answer::Gives(Ok(Page { metadata, items: Some(items) })));
     }
 
+    /// The answer to the check of the cursor after a lost connection: a list of one object
+    /// at this version of the server.
+    pub(super) fn version_now(&self, version: &str) {
+        self.page(&[("now", version)], Some(version), None);
+    }
+
     /// The next list page is one object with no name.
     pub(super) fn page_with_no_name(&self) {
         let metadata = serde_json::from_str(r#"{"resourceVersion":"7"}"#).expect("the metadata of a list");

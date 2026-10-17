@@ -3,8 +3,9 @@
 //!
 //! The loop reads a list in pages and then follows a watch from the resource version of
 //! the list. After each end of a watch it starts a new one from the last version that it
-//! saw. Only HTTP 410 makes a new list necessary. The store shows each step as its state,
-//! and it stays live through the renewal of a watch that the server ended at its timeout.
+//! saw. Only HTTP 410, or a cluster that went back to an older version after a lost
+//! connection, makes a new list necessary. The store shows each step as its state, and it
+//! stays live through the renewal of a watch that the server ended at its timeout.
 //!
 //! - `list`: the list in pages. `stream`: one watch. `recover`: what follows a failure.
 //! - `source`: the two requests. `lanes`: the connections of the cluster. `gate`: the
@@ -130,6 +131,9 @@ struct Loop<'a, T, S> {
     /// True after a watch that worked and that the server ended at its timeout. The next
     /// watch is then a renewal: the store stays live while it starts.
     renewal: bool,
+    /// True after a lost connection, until a list or a check of the cursor: the server can
+    /// have started again with an older datastore (`stream`).
+    lost: bool,
     attempts: Attempts,
 }
 
@@ -171,6 +175,7 @@ async fn keep_current<T: Object, S: Source<T>>(parts: &Parts<T, S>) -> Result<()
         cursor: None,
         listed_before: false,
         renewal: false,
+        lost: false,
         attempts: Attempts::default(),
     };
     loop {

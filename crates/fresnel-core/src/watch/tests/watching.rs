@@ -69,6 +69,7 @@ async fn a_store_stays_live_while_the_renewal_of_its_watch_starts() {
     assert_eq!((&renewed.state, renewed.since), (&StoreState::Live, live_since));
 
     // Only the start after such an end is a renewal. A failure of the new watch shows.
+    bench.script.version_now("10");
     events.send(Err(CoreError::new(ErrorClass::Network, "the connection broke"))).expect("the watch is open");
     let attempt = bench.until_state("the next watch", |state| matches!(state, StoreState::Attempt { .. })).await;
     assert_eq!(attempt.items.len(), 5, "the objects stay");
@@ -132,6 +133,7 @@ async fn the_changes_of_30_ms_reach_the_readers_as_one_snapshot() {
 #[tokio::test(start_paused = true)]
 async fn a_change_that_waits_for_its_batch_shows_at_the_end_of_the_watch() {
     let (mut bench, events) = Bench::live(settings()).await;
+    bench.script.version_now("9");
     events.send(Ok(event("ADDED", "c", "8"))).expect("the watch is open");
     events.send(Ok(event("ADDED", "d", "9"))).expect("the watch is open");
     events.send(Ok(error_event(500, "InternalError", "etcdserver: no leader"))).expect("the watch is open");
@@ -139,7 +141,8 @@ async fn a_change_that_waits_for_its_batch_shows_at_the_end_of_the_watch() {
     assert_eq!((failed.items.len(), failed.generation), (4, 2), "the objects before the error, as one change");
     assert_eq!(failed.state.to_string(), "attempt after 1 failures: etcdserver: no leader (InternalError, HTTP 500)");
     assert_eq!(bench.elapsed(), Duration::ZERO);
-    assert_eq!(bench.script.take_calls(), ["watch after 9 for 60 s"]);
+    yield_now().await;
+    assert_eq!(bench.script.take_calls(), ["list of 1", "watch after 9 for 60 s"]);
 }
 
 /// Plan section 9.1: the stall limit is the server timeout plus 10 s.
@@ -154,9 +157,11 @@ async fn a_watch_with_no_event_and_no_bookmark_in_the_stall_limit_starts_again()
     assert!(events.is_closed(), "the stream of the stalled watch is closed");
     assert_eq!(stalled.items.len(), 3, "the objects stay");
 
+    bench.script.version_now("8");
     let _next = bench.script.watch_opens();
     bench.until_state("the next watch", StoreState::is_live).await;
-    assert_eq!(bench.script.take_calls(), ["watch after 8 for 60 s"], "no list: the watch continues");
+    let calls = ["list of 1", "watch after 8 for 60 s"];
+    assert_eq!(bench.script.take_calls(), calls, "no full list: the watch continues after a check of its version");
     assert_eq!(bench.elapsed(), 100 * SECOND, "the new watch started at once");
 }
 
@@ -204,11 +209,34 @@ async fn a_store_is_not_live_while_no_channel_for_watches_is_live() {
     // No request goes into a connection that is gone, and nothing counts as a failure.
     sleep(600 * SECOND).await;
     assert_eq!(bench.script.take_calls(), Vec::<String>::new());
+    bench.script.version_now("7");
     let _next = bench.script.watch_opens();
     bench.lanes.send_replace(LIVE);
     bench.until_state("the watch on the new connection", StoreState::is_live).await;
-    assert_eq!(bench.script.take_calls(), ["watch after 7 for 60 s"], "at once, and with no list");
+    let calls = ["list of 1", "watch after 7 for 60 s"];
+    assert_eq!(bench.script.take_calls(), calls, "at once, with a check of the version and no full list");
     assert_eq!(bench.elapsed(), 620 * SECOND);
+}
+
+/// A server that starts again with an older datastore, after a restore of a backup or as a
+/// new cluster at the same address, takes a watch from a version that it does not have yet
+/// and sends nothing. A fast soak found stores that showed "live" with the objects of the old
+/// cluster for minutes after a recreate of k3s. The check after the lost connection finds the
+/// older version of the server, and a new list follows at once.
+#[tokio::test(start_paused = true)]
+async fn a_cluster_that_went_back_to_an_older_version_gets_a_new_list_after_the_lost_connection() {
+    let (mut bench, _events) = Bench::live(settings()).await;
+    bench.lanes.send_replace(LaneStates { watches: Path::NoChannel, requests: Path::NoChannel, ..LIVE });
+    bench.until_state("the lost channel", |state| *state == StoreState::Waiting(Wait::Channel)).await;
+    bench.script.version_now("3");
+    bench.lanes.send_replace(LIVE);
+    let listing = bench.until_state("the new list", |state| matches!(state, StoreState::Listing { .. })).await;
+    assert_eq!(listing.items.len(), 2, "the old objects stay until the list ends, with a visible state");
+    bench.script.page(&[("x", "2")], Some("3"), None);
+    let _next = bench.script.watch_opens();
+    bench.until_state("the watch of the new cluster", StoreState::is_live).await;
+    assert_eq!(bench.objects(), pairs(&[("x", "2")]));
+    assert_eq!(bench.script.take_calls(), ["list of 1", "list of 500", "watch after 3 for 60 s"]);
 }
 
 #[tokio::test(start_paused = true)]

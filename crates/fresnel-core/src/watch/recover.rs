@@ -125,8 +125,11 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         let throttled_until = self.lanes.throttled_until().filter(|until| *until > now);
         match failure {
             Failure::Fault(error) => return Err(error),
-            Failure::ChannelLost => {}
-            Failure::Interrupted(error) => self.attempts.count(error),
+            Failure::ChannelLost => self.lost = true,
+            Failure::Interrupted(error) => {
+                self.lost = true;
+                self.attempts.count(error);
+            }
             Failure::Gone(error) => {
                 self.cursor = None;
                 self.attempts.gone = self.attempts.gone.saturating_add(1);

@@ -33,7 +33,7 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
             self.writer.set_state(StoreState::Listing { loaded });
             if token.is_none() {
                 self.attempts.listed();
-                self.cursor = version;
+                (self.cursor, self.lost) = (version, false);
                 self.writer.end_list();
                 return Ok(());
             }

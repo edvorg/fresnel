@@ -631,6 +631,14 @@ waits in the sequence of its request. With the priority of its kind for each lis
 kinds whose lists got no answer held the four slots for all time on the fake server, and no
 other kind got its first list.
 
+## After a lost connection, a store checks that the cluster did not go back
+
+A cluster can start again with an older datastore: a restore of a backup, or a new cluster at
+the same address. Its server takes a watch from a version that it does not have yet and sends
+nothing: after a recreate of k3s, a fast soak saw each store "live" with the old objects. After
+a lost connection, a list of one object gives the version of the server; an older version than
+the cursor gives a new list.
+
 ## A second HTTP 410 gives a pause
 
 After HTTP 410, only a new list gives the current objects, and the first one starts at once.

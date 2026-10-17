@@ -31,11 +31,13 @@ async fn the_count_of_failures_starts_again_at_the_first_answer() {
     assert_eq!(bench.elapsed(), 700 * MS);
 
     // Eight resets of a watch that works. The channel counts the loss of a connection, so
-    // the store takes no pause of its own: the next watch starts at once (plan section 8.13).
+    // the store takes no pause of its own: the next watch starts at once (plan section 8.13),
+    // after a check that the server did not go back.
     for reset in 1..=8 {
         let events = bench.script.watch_opens();
         bench.until_state("the open watch", StoreState::is_live).await;
         sleep(5 * SECOND).await;
+        bench.script.version_now("7");
         events.send(Err(broke())).expect("the watch is open");
         let attempt = bench.until_state("the next watch", |state| matches!(state, StoreState::Attempt { .. })).await;
         assert_eq!(attempt.state.to_string(), "attempt after 1 failures: the connection broke");
@@ -44,7 +46,8 @@ async fn the_count_of_failures_starts_again_at_the_first_answer() {
     // A second failure with no answer between the two gets a pause.
     bench.script.watch_fails(broke());
     bench.until_state("the pause", is_pause(2)).await;
-    assert_eq!(bench.script.take_calls().iter().filter(|call| call.starts_with("list")).count(), 4, "no new list");
+    let lists = bench.script.take_calls().iter().filter(|call| *call == "list of 500").count();
+    assert_eq!(lists, 4, "no new list");
 }
 
 /// One signal of the cluster ends each retry delay: a wake, a network change or "retry
@@ -138,6 +141,7 @@ async fn http_410_for_the_token_of_a_list_page_starts_the_list_again() {
 async fn a_panic_of_the_task_of_a_store_gives_a_state_a_report_and_a_restart() {
     let (mut bench, events) = Bench::live(settings()).await;
     sleep(90 * SECOND).await;
+    bench.script.version_now("7");
     bench.script.watch_panics("index 4 of 3");
     drop(events);
     let failed = bench.until_state("the fault", |state| matches!(state, StoreState::InternalError { .. })).await;
@@ -155,7 +159,8 @@ async fn a_panic_of_the_task_of_a_store_gives_a_state_a_report_and_a_restart() {
     assert_eq!(bench.reports().len(), 2);
     assert_eq!(
         bench.script.take_calls(),
-        ["watch after 7 for 60 s", "list of 500", "list of 500", "watch after 9 for 60 s"]
+        ["list of 1", "watch after 7 for 60 s", "list of 500", "list of 500", "watch after 9 for 60 s"],
+        "the stalled watch at 70 s, the check of its version, the next watch"
     );
 }
 
