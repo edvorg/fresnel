@@ -1626,8 +1626,8 @@ is the identity of the cluster, and a dialog of a change must name the target as
 
 A store and a list are seldom equal while the cluster changes, so the soak tests "at least as
 new": each listed object is in the store in its version or a later one, each other object of the
-store came after the list, and an absent one is gone in a second list. The lists go on a
-connection with no fault proxy. A store that shows "live" and is behind for more than 20 s fails it.
+store came after the list, and a second list decides an object that one side lacks. The lists go
+on a connection with no fault proxy. A store that shows "live" and is behind for over 20 s fails.
 
 ## A soak check ends at its limit, and a store or a log view must recover
 

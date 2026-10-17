@@ -53,7 +53,8 @@ pub(super) enum Verdict {
 
 /// Compares the store with the list `first`. `later` is a list after the read of the store.
 /// A store that keeps only the newest objects of its kind (`partial`, the Events at their
-/// limit) can lack an object.
+/// limit) can lack an object. An object that only the store has is stale when `later` lacks
+/// it too: a list in pages of k3s once lacked an Event that the API had before and after it.
 pub(super) fn cover(first: &Listed, store: &Versions, later: Option<&Listed>, partial: bool) -> Verdict {
     let mut absent = false;
     for (key, listed) in &first.objects {
@@ -71,13 +72,18 @@ pub(super) fn cover(first: &Listed, store: &Versions, later: Option<&Listed>, pa
         }
     }
     let stale = store.iter().find(|(key, stored)| {
-        !first.objects.contains_key(*key)
-            && !matches!((stored.number, first.version), (Some(stored), Some(list)) if stored > list)
+        let after =
+            |list: &Listed| matches!((stored.number, list.version), (Some(stored), Some(list)) if stored > list);
+        let in_later =
+            later.map(|later| later.objects.get(*key).is_some_and(|again| again.uid == stored.uid) || after(later));
+        !first.objects.contains_key(*key) && !after(first) && in_later != Some(true)
     });
-    if let Some((key, _)) = stale {
-        return Verdict::Behind(format!("{} is only in the store", name(key)));
+    match (stale, later) {
+        (Some(_), None) => Verdict::NeedsLater,
+        (Some((key, _)), Some(_)) => Verdict::Behind(format!("{} is only in the store", name(key))),
+        (None, _) if absent => Verdict::NeedsLater,
+        (None, _) => Verdict::Covered,
     }
-    if absent { Verdict::NeedsLater } else { Verdict::Covered }
 }
 
 /// The same object in the same version, or a later one.
@@ -121,7 +127,14 @@ mod tests {
         let old = versions(&[("a", "u-a", 9)]);
         assert_eq!(cover(&list, &old, None, false), Verdict::Behind("ns/a has an older version".to_owned()));
         let gone = versions(&[("a", "u-a", 10), ("z", "u-z", 15)]);
-        assert_eq!(cover(&list, &gone, None, false), Verdict::Behind("ns/z is only in the store".to_owned()));
+        assert_eq!(cover(&list, &gone, None, false), Verdict::NeedsLater, "a second list tells");
+        let behind = Verdict::Behind("ns/z is only in the store".to_owned());
+        assert_eq!(cover(&list, &gone, Some(&listed(&[("a", "u-a", 10)], 30)), false), behind);
+        // A list of k3s in pages once lacked an object that the API had before and after it.
+        let again = listed(&[("a", "u-a", 10), ("z", "u-z", 15)], 30);
+        assert_eq!(cover(&list, &gone, Some(&again), false), Verdict::Covered);
+        let other = listed(&[("a", "u-a", 10), ("z", "u-z2", 25)], 30);
+        assert_eq!(cover(&list, &gone, Some(&other), false), behind, "a new object of the same name");
     }
 
     #[test]
