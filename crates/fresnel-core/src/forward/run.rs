@@ -194,9 +194,9 @@ impl<'a> Run<'a> {
     /// not find them, and true when a connection asks for a retry of the cluster.
     fn read_reports(&mut self) -> (Vec<Arc<str>>, bool) {
         let mut reports = self.parts.shared.reports();
-        let now = Instant::now();
-        reports.suspects.retain(|(_, until)| *until > now);
+        reports.expire(Instant::now());
         self.facts.failures = (reports.failures, reports.last_error.as_ref().map(|(_, text)| text.clone()));
+        self.facts.no_tunnel = reports.no_tunnel.as_ref().map(|(_, reason)| reason.clone());
         self.facts.refused.clone_from(&reports.refused);
         let suspects = reports.suspects.iter().map(|(uid, _)| Arc::clone(uid)).collect();
         (suspects, std::mem::take(&mut reports.retry))
@@ -251,7 +251,7 @@ impl<'a> Run<'a> {
     fn retry_now(&mut self, feed: Result<&Arc<Feed>, &String>) {
         {
             let mut reports = self.parts.shared.reports();
-            reports.failures = 0;
+            reports.clear();
             reports.suspects.clear();
         }
         if let Ok(feed) = feed {

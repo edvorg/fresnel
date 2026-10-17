@@ -62,6 +62,7 @@ fn active() -> Facts {
         was_up: true,
         resolution: Some(pod()),
         failures: (0, None),
+        no_tunnel: None,
         refused: None,
     }
 }
@@ -124,6 +125,23 @@ fn tunnels_that_fail_in_a_row_degrade_the_state_and_a_refusal_fails_it() {
     let refused = Facts { refused: Some("the server refuses the port forward: forbidden".to_owned()), ..active() };
     assert_eq!(refused.state().to_string(), "failed: the server refuses the port forward: forbidden");
     assert!(!refused.opens());
+}
+
+/// Plan section 12.3: a forward whose new connections get no tunnel is never "active". A
+/// connection that tried and got none degrades the state at once, before the second failure
+/// of an open of 5 s; the gate stays open, so the next good tunnel ends it.
+#[test]
+fn a_connection_that_got_no_tunnel_degrades_the_state_before_a_run_of_failures() {
+    let stalled = "the open of a tunnel to pod web-1 had no answer in 5.0 s";
+    let no_tunnel = Facts { no_tunnel: Some(stalled.to_owned()), failures: (1, Some(stalled.to_owned())), ..active() };
+    let text = format!("the last local connection got no tunnel: {stalled}");
+    assert_eq!((no_tunnel.state(), no_tunnel.opens()), (ForwardState::Degraded(text), true));
+
+    // A pod that is gone tells that first: no tunnel can open.
+    let gone = Facts { resolution: Some(Resolution::NoPod("no pod runs".to_owned())), ..no_tunnel.clone() };
+    assert_eq!(gone.state(), ForwardState::Degraded("no pod runs".to_owned()));
+    let lost = Path::Down { attempt: Some(1), next_retry: None, reason: "silent".to_owned() };
+    assert_eq!(Facts { path: Ok(lost), ..no_tunnel }.state().name(), "reconnecting");
 }
 
 #[test]

@@ -6,10 +6,12 @@
 //! - `flow`: the bytes of a Pod and of a Service, a new pod, a slow pod, a cluster that is
 //!   not selected. `breaks`: a network that goes away and comes back, a wake, six forwards.
 //! - `commands`: a port in use, stop, start again, remove, "retry now", the saved rules.
+//! - `stalls`: opens with no answer, and the faults of the soak with a client of each second.
 
 mod breaks;
 mod commands;
 mod flow;
+mod stalls;
 
 use std::net::SocketAddr;
 use std::time::Duration;

@@ -22,6 +22,8 @@ mod bed;
 mod common;
 mod demand;
 mod drain;
+#[path = "../common/gaps.rs"]
+mod gaps;
 mod gateway;
 mod indexes;
 mod manifest;

@@ -2,7 +2,8 @@
 //!
 //! The state is not stored: each change of a fact computes it again (port forward prototype,
 //! `supervisor/model`). The facts: the listener, the path to the cluster, the target of the
-//! stores, the tunnels that failed in a row and the refusal of the server.
+//! stores, the tunnels that failed in a row, a connection that got no tunnel and the refusal
+//! of the server.
 //!
 //! The path is the one check of the cluster: its channels, which ping each 10 s. Each forward
 //! of a cluster reads it, so six idle forwards show a silent path at the same moment; in the
@@ -18,6 +19,7 @@ use super::resolve::Resolution;
 use crate::app::Health;
 
 /// The tunnels that fail in a row, with no good one between them, before the state degrades.
+/// A connection tries again after a failure in its wait, so one failure is no failed client.
 pub(super) const FAILURES: u32 = 3;
 
 /// The state of one forward.
@@ -31,7 +33,8 @@ pub enum ForwardState {
     /// A local connection gets a tunnel to the target pod now.
     Active,
     /// The listener is open, and a local connection gets no tunnel now: no pod can take
-    /// one, or each of the last tunnels failed. The text tells why.
+    /// one, the last connection that tried got none, or each of the last tunnels failed.
+    /// The text tells why.
     Degraded(String),
     /// The path to the cluster is lost, or its first connect failed: its channels connect
     /// again with no end.
@@ -141,6 +144,8 @@ pub(super) struct Facts {
     pub(super) resolution: Option<Resolution>,
     /// The tunnels that failed in a row, and the text of the last failure.
     pub(super) failures: (u32, Option<String>),
+    /// The last connection that tried got no tunnel in its wait, for this reason.
+    pub(super) no_tunnel: Option<String>,
     /// The server refused the forward, for example with HTTP 403.
     pub(super) refused: Option<String>,
 }
@@ -153,6 +158,7 @@ impl Facts {
             was_up: false,
             resolution: None,
             failures: (0, None),
+            no_tunnel: None,
             refused: None,
         }
     }
@@ -180,12 +186,20 @@ impl Facts {
             (Path::Up, None) => ForwardState::Starting("the stores of the cluster load".to_owned()),
             (Path::Up, Some(Resolution::NotKnown(reason))) => ForwardState::Starting(reason.clone()),
             (Path::Up, Some(Resolution::NoPod(reason))) => ForwardState::Degraded(reason.clone()),
-            (Path::Up, Some(Resolution::Pod(_))) if self.failures.0 >= FAILURES => {
-                let last = self.failures.1.as_deref().unwrap_or("no reason");
-                ForwardState::Degraded(format!("each of the last {} tunnels failed: {last}", self.failures.0))
+            (Path::Up, Some(Resolution::Pod(_))) => {
+                self.tunnel_fault().map_or(ForwardState::Active, ForwardState::Degraded)
             }
-            (Path::Up, Some(Resolution::Pod(_))) => ForwardState::Active,
         }
+    }
+
+    /// Why a local connection gets no tunnel to the pod of the stores: the last one that
+    /// tried got none, or each of the last tunnels failed. A good tunnel ends both.
+    fn tunnel_fault(&self) -> Option<String> {
+        if let Some(reason) = &self.no_tunnel {
+            return Some(format!("the last local connection got no tunnel: {reason}"));
+        }
+        let (count, last) = (self.failures.0, self.failures.1.as_deref().unwrap_or("no reason"));
+        (count >= FAILURES).then(|| format!("each of the last {count} tunnels failed: {last}"))
     }
 
     /// True when a local connection can open a tunnel now: the path is up and the stores give

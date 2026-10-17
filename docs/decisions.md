@@ -319,6 +319,14 @@ gets a reset, never a silent end. A tunnel that breaks resets its client too; on
 of the pod ends the data. The protocol has no half close: after the end of the local input, the
 tunnel stays until the pod is silent for 1 s, as kubectl does.
 
+## A tunnel opens in the wait time, and a connection with no tunnel degrades its forward
+
+In five fast soaks, an API server held the upgrade requests after a restart: each client waited
+10 s, three failed opens took 30 s, and the forward showed "active" with no page. An open now
+ends after `wait_secs`, 5 s, with no port on its data channel. A connection that tried and got no
+tunnel degrades the forward until a good open, for 30 s at most: an idle forward drops an old
+fault.
+
 ## A failed accept of a forward pauses, and the journal counts the failures
 
 An accept that fails, for example with too many open files, fails again at once. A warning each

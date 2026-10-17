@@ -18,6 +18,9 @@ use crate::journal::Journal;
 /// The time that a pod waits after the server did not find it: the store can be some time
 /// behind a delete, and the next tunnel then goes to an other pod.
 const SUSPECT_TIME: Duration = Duration::from_secs(10);
+/// The time that a failure keeps the state degraded with no good tunnel after it: an idle
+/// forward does not show a fault of long ago, and a check of the soak (20 s) sees it.
+pub(super) const WINDOW: Duration = Duration::from_secs(30);
 
 /// What a new local connection reads: the cluster and the pod of its tunnel. `None` while
 /// no tunnel can open, and the connection waits.
@@ -31,21 +34,30 @@ pub(super) struct Gate {
 pub(super) enum Outcome {
     /// A connection waits for a target: the cluster gets a retry now.
     Waits,
-    /// A connection got a reset after its wait, for this reason.
+    /// A connection got a reset after its wait with no target, for this reason.
     NoTarget(String),
+    /// A connection that tried got no tunnel in its wait, and a reset with this text.
+    NoTunnel(String),
+    /// A tunnel opened in its time: the failures end.
+    Opened,
     /// The open of a tunnel failed.
     OpenFailed { target: TargetPod, error: CoreError },
+    /// The open of a tunnel had no answer in the wait time, and stopped.
+    Stalled { target: TargetPod },
     /// A tunnel failed after its open. `path`: its connection broke, so the path can be lost.
     Broke { text: String, path: bool },
-    /// A tunnel ended well: the failures in a row end.
-    Clean,
 }
 
 /// The outcomes since the last read of the task.
 #[derive(Debug, Default)]
 pub(super) struct Reports {
-    /// The tunnels that failed in a row, with no good one between them.
+    /// The opens and tunnels that failed in a row, with no good open between them, and the
+    /// time of the last one: the run ends [`WINDOW`] after it.
     pub(super) failures: u32,
+    failed_at: Option<Instant>,
+    /// The last connection that tried and got no tunnel, with the reason of its last open,
+    /// until a good open or the end of [`WINDOW`].
+    pub(super) no_tunnel: Option<(Instant, String)>,
     pub(super) last_error: Option<(SystemTime, String)>,
     /// The server refuses the forward: no retry runs.
     pub(super) refused: Option<String>,
@@ -53,6 +65,31 @@ pub(super) struct Reports {
     pub(super) suspects: Vec<(Arc<str>, Instant)>,
     /// A connection waits, or a tunnel broke: the cluster tests its path now.
     pub(super) retry: bool,
+}
+
+impl Reports {
+    /// Removes what is older than its time: the suspects after their wait, the failures
+    /// after [`WINDOW`].
+    pub(super) fn expire(&mut self, now: Instant) {
+        self.suspects.retain(|(_, until)| *until > now);
+        if self.failed_at.is_some_and(|at| now >= at + WINDOW) {
+            (self.failures, self.failed_at) = (0, None);
+        }
+        if self.no_tunnel.as_ref().is_some_and(|(at, _)| now >= *at + WINDOW) {
+            self.no_tunnel = None;
+        }
+    }
+
+    /// One more failure in the run.
+    fn failed(&mut self, now: Instant) {
+        self.failures = self.failures.saturating_add(1);
+        self.failed_at = Some(now);
+    }
+
+    /// The end of the failures: a good open, or "retry now" of the user.
+    pub(super) fn clear(&mut self) {
+        (self.failures, self.failed_at, self.no_tunnel) = (0, None, None);
+    }
 }
 
 /// The counters of the connections and of the bytes.
@@ -111,7 +148,8 @@ impl Counts {
 pub(super) struct Shared {
     pub(super) counts: Counts,
     pub(super) journal: Journal,
-    /// The longest wait of a new connection for a tunnel (plan section 12.3: 5 s).
+    /// The longest wait of a new connection for a tunnel (plan section 12.3: 5 s), and the
+    /// longest open of one tunnel.
     pub(super) wait: Duration,
     /// The time that a tunnel stays after the end of the local input while the pod is silent.
     pub(super) linger: Duration,
@@ -137,12 +175,18 @@ impl Shared {
 
     /// Takes the outcome of a connection, and wakes the task.
     pub(super) fn report(&self, outcome: Outcome) {
-        let now = self.clock.now();
+        let (now, at) = (self.clock.now(), Instant::now());
         {
             let mut reports = self.reports();
             match outcome {
                 Outcome::Waits => reports.retry = true,
                 Outcome::NoTarget(text) => reports.last_error = Some((now, text)),
+                Outcome::NoTunnel(text) => {
+                    let reason = reports.last_error.as_ref().map_or_else(|| text.clone(), |(_, last)| last.clone());
+                    reports.no_tunnel = Some((at, reason));
+                    reports.last_error = Some((now, text));
+                }
+                Outcome::Opened => reports.clear(),
                 Outcome::OpenFailed { target, error } => {
                     let text = format!("a tunnel to pod {} did not open: {error}", target.pod.name);
                     match (error.class(), error.status()) {
@@ -150,22 +194,32 @@ impl Shared {
                             reports.refused = Some(format!("the server refuses the port forward: {error}"));
                         }
                         // The pod is gone or does not run: the store is behind.
-                        (_, Some(400 | 404)) => reports.suspects.push((target.uid, Instant::now() + SUSPECT_TIME)),
+                        (_, Some(400 | 404)) => reports.suspects.push((target.uid, at + SUSPECT_TIME)),
                         (class, _) => {
-                            reports.failures = reports.failures.saturating_add(1);
+                            reports.failed(at);
                             reports.retry |= matches!(class, ErrorClass::Network | ErrorClass::Timeout);
                         }
                     }
                     reports.last_error = Some((now, text));
                 }
+                // A silent path stalls each open too, so the channels test theirs now.
+                Outcome::Stalled { target } => {
+                    let wait = self.wait.as_secs_f64();
+                    let text = format!("the open of a tunnel to pod {} had no answer in {wait:.1} s", target.pod.name);
+                    reports.failed(at);
+                    reports.retry = true;
+                    reports.last_error = Some((now, text));
+                }
                 Outcome::Broke { text, path } => {
-                    reports.failures = reports.failures.saturating_add(1);
+                    reports.failed(at);
                     reports.retry |= path;
                     reports.last_error = Some((now, text));
                 }
-                Outcome::Clean => reports.failures = 0,
             }
         }
         self.changed.notify_one();
     }
 }
+
+#[cfg(test)]
+mod tests;

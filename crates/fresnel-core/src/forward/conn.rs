@@ -2,7 +2,9 @@
 //! bytes in each direction and ends with a clear signal for the client (plan section 12.3).
 //!
 //! A connection that arrives during a break waits for the wait time, 5 s by default, and
-//! then gets a reset. A tunnel that breaks gives the client a reset too, never a silent end:
+//! then gets a reset. An open of a tunnel has the same time: in fast soaks, an API server
+//! after a restart held the upgrade requests, and each client waited 10 s for nothing while
+//! the forward showed "active". A tunnel that breaks gives the client a reset too, never a silent end:
 //! only a clean end of the pod gives the end of the data. The two directions run at the same
 //! time, so a pod that waits for the app to read its answer never stops the upload.
 //!
@@ -16,7 +18,7 @@ use fresnel_net::local::LocalStream;
 use fresnel_net::{SocketEnd, SocketFailure};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::watch;
-use tokio::time::{Instant, sleep_until, timeout_at};
+use tokio::time::{Instant, sleep_until, timeout, timeout_at};
 
 use super::shared::{Gate, Outcome, Shared};
 use crate::stream::{Tunnel, TunnelEnd};
@@ -54,10 +56,7 @@ pub(super) async fn serve(mut local: LocalStream, shared: Arc<Shared>, mut gate:
     };
     let end = carry(&mut local, &mut tunnel, &shared).await;
     match end {
-        Down::Tunnel(Some(TunnelEnd::Socket(end))) if end.is_clean() => {
-            shared.report(Outcome::Clean);
-            local.finish().await;
-        }
+        Down::Tunnel(Some(TunnelEnd::Socket(end))) if end.is_clean() => local.finish().await,
         Down::Tunnel(Some(TunnelEnd::Socket(end @ SocketEnd::Failed(_)))) => {
             // A ping with no answer or a broken connection: the path can be lost, so the
             // channels of the cluster test theirs now.
@@ -79,42 +78,61 @@ pub(super) async fn serve(mut local: LocalStream, shared: Arc<Shared>, mut gate:
         }
         Down::Quiet => {
             tunnel.close();
-            shared.report(Outcome::Clean);
             local.finish().await;
         }
         Down::Client => tunnel.close(),
     }
 }
 
-/// Opens a tunnel to the target of the gate before the deadline. A failure tries again with
-/// the next target, or after a short pause. `None` at the deadline.
+/// Opens a tunnel to the target of the gate before the deadline. An open that has no
+/// answer in the wait time stops. A failure tries again with the next target, or after a
+/// short pause. `None` at the deadline, after its report.
 async fn open(shared: &Shared, gate: &mut watch::Receiver<Gate>, deadline: Instant) -> Option<Tunnel> {
-    let mut waited = false;
+    let (mut waited, mut tried) = (false, false);
     loop {
+        if tried && Instant::now() >= deadline {
+            shared.report(no_tunnel(shared, tried));
+            return None;
+        }
         if !waited && gate.borrow().target.is_none() {
             waited = true;
             shared.report(Outcome::Waits);
         }
-        let (feed, target) = match timeout_at(deadline, gate.wait_for(|gate| gate.target.is_some())).await {
-            Ok(Ok(open)) => open.target.clone()?,
-            Ok(Err(_)) | Err(_) => {
-                let wait = shared.wait.as_secs_f64();
-                shared.report(Outcome::NoTarget(format!("a local connection got no tunnel in {wait:.1} s: a reset")));
-                return None;
-            }
+        let target = match timeout_at(deadline, gate.wait_for(|gate| gate.target.is_some())).await {
+            Ok(Ok(open)) => open.target.clone(),
+            Ok(Err(_)) | Err(_) => None,
         };
-        match Tunnel::open(&feed.gateway, &target.pod, target.port, shared.journal.clone()).await {
-            Ok(tunnel) => return Some(tunnel),
-            Err(error) => shared.report(Outcome::OpenFailed { target: target.clone(), error }),
+        let Some((feed, target)) = target else {
+            shared.report(no_tunnel(shared, tried));
+            return None;
+        };
+        tried = true;
+        let opening = Tunnel::open(&feed.gateway, &target.pod, target.port, shared.journal.clone());
+        match timeout(shared.wait, opening).await {
+            Ok(Ok(tunnel)) => {
+                shared.report(Outcome::Opened);
+                return Some(tunnel);
+            }
+            Ok(Err(error)) => shared.report(Outcome::OpenFailed { target, error }),
+            Err(_) => shared.report(Outcome::Stalled { target }),
         }
         // The report can give a new target at once; else the pause keeps a refusal from a loop.
+        // An end of the gate needs no step here: the task of the forward stops each connection.
         let pause = (Instant::now() + shared.retry_pause).min(deadline);
-        if timeout_at(pause, gate.changed()).await.is_err() && pause >= deadline {
-            let text = "a local connection got no tunnel before the end of its wait: a reset".to_owned();
-            shared.report(Outcome::NoTarget(text));
-            return None;
+        match timeout_at(pause, gate.changed()).await {
+            Ok(Ok(()) | Err(_)) | Err(_) => {}
         }
     }
+}
+
+/// The outcome of a connection that got no tunnel in its wait: with no target, or after
+/// tries that failed.
+fn no_tunnel(shared: &Shared, tried: bool) -> Outcome {
+    if tried {
+        return Outcome::NoTunnel("a local connection got no tunnel before the end of its wait: a reset".to_owned());
+    }
+    let wait = shared.wait.as_secs_f64();
+    Outcome::NoTarget(format!("a local connection got no tunnel in {wait:.1} s: a reset"))
 }
 
 /// Carries the bytes in each direction to the end of the tunnel or of the client.
