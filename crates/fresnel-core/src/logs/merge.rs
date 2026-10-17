@@ -23,6 +23,17 @@ struct Queue {
     open: bool,
 }
 
+impl Queue {
+    /// Frees the room of a source that cannot send and has no line. A queue keeps the room of
+    /// its largest burst, and a view of a workload whose pods come and go has a queue for each
+    /// pod that it had: each one would keep that room until the view closes.
+    fn release(&mut self) {
+        if !self.open && self.lines.is_empty() {
+            self.lines = VecDeque::new();
+        }
+    }
+}
+
 /// The lines of all sources of a view, before they go into its ring.
 pub(super) struct Merge {
     queues: Vec<Queue>,
@@ -44,6 +55,7 @@ impl Merge {
     pub(super) fn set_open(&mut self, source: u32, open: bool) {
         if let Some(queue) = self.queue(source) {
             queue.open = open;
+            queue.release();
         }
     }
 
@@ -69,9 +81,13 @@ impl Merge {
             if !each_has_one && !waited && self.held <= self.limit {
                 return;
             }
-            let Some((mut line, _)) = self.queues.get_mut(first).and_then(|queue| queue.lines.pop_front()) else {
+            let Some(queue) = self.queues.get_mut(first) else {
                 return;
             };
+            let Some((mut line, _)) = queue.lines.pop_front() else {
+                return;
+            };
+            queue.release();
             self.held = self.held.saturating_sub(line.weight());
             line.late = line.kind == LineKind::Log && self.latest.is_some_and(|latest| line.time < latest);
             self.latest = Some(self.latest.map_or(line.time, |latest| latest.max(line.time)));
@@ -169,6 +185,27 @@ mod tests {
         merge.push(1, vec![line(1, 150)], start);
         assert_eq!(drained(&mut merge, start), ["1@150 late"], "a line of the silent source is late");
         assert_eq!((drained(&mut merge, start + HOLD).len(), merge.held), (10, 0));
+    }
+
+    /// A pod that sends a burst while an other one is silent fills its queue. When its source
+    /// ends, the queue frees that room: a view keeps a queue for each pod that it had.
+    #[test]
+    fn the_queue_of_a_source_that_ended_frees_the_room_of_its_burst() {
+        let start = Instant::now();
+        let mut merge = Merge::new(HOLD, usize::MAX);
+        merge.set_open(0, true);
+        merge.set_open(1, true);
+        merge.push(0, (0..1000).map(|time| line(0, time)).collect(), start);
+        assert_eq!(drained(&mut merge, start + HOLD).len(), 1000);
+        assert!(merge.queues[0].lines.capacity() >= 1000, "an open source keeps its room");
+        merge.set_open(0, false);
+        assert_eq!(merge.queues[0].lines.capacity(), 0, "a source that ended with no line");
+
+        merge.push(1, vec![line(1, 2000), line(1, 2001)], start + HOLD);
+        merge.set_open(1, false);
+        assert!(merge.queues[1].lines.capacity() >= 2, "its lines wait for the drain");
+        assert_eq!(drained(&mut merge, start + HOLD), ["1@2000", "1@2001"]);
+        assert_eq!(merge.queues[1].lines.capacity(), 0, "the drain of its last line");
     }
 
     #[test]
