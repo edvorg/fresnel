@@ -35,7 +35,7 @@ fn each_cluster_shows_the_state_of_each_list_of_its_sampler_with_its_reason() {
          07:59:20; last answer 5 s ago",
         "waits for its first answer",
         "forbidden: nodes.metrics.k8s.io is forbidden since 07:59:00; no answer yet",
-        "A poll each 15 s, next in 10 s. History: 30 series, 116Ki.",
+        "A poll each 15 s, next in 10 s. History: 30 series, 315Ki.",
         "A poll each 15 s. History: 0 series, 0.",
         "A poll each 5 min 0 s. History: 0 series, 0.",
     ];
