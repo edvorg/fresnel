@@ -11,7 +11,6 @@ use fresnel_core::search::{Found, Hit};
 use super::Choice;
 use crate::shell::Scene;
 use crate::theme::{self, Palette, ROW_HEIGHT, SMALL};
-use crate::views::detail::actions;
 use crate::views::objects::{Link, old_text};
 use crate::widgets;
 
@@ -61,16 +60,15 @@ impl Row {
     }
 }
 
-/// The rows for a text: each command that this version runs and whose label has each word
-/// of the text, then the hits of the result. `key` gives the text of the key of a command.
+/// The rows for a text: each command whose label has each word of the text, then the hits of
+/// the result. `key` gives the text of the key of a command.
 pub(super) fn rows(found: Option<&Found>, text: &str, key: impl Fn(CommandId) -> Option<String>) -> Vec<Row> {
     let words: Vec<String> = text.split_whitespace().map(str::to_lowercase).collect();
     // A move of the focus is for the keys: the search itself has the focus.
     let runs = |id: CommandId| match id {
         CommandId::QuickSearch | CommandId::Focus(_) | CommandId::NextArea | CommandId::PreviousArea => false,
         CommandId::Back | CommandId::Forward | CommandId::Filter | CommandId::NewSecret | CommandId::FromYaml => true,
-        CommandId::Settings | CommandId::Forwards | CommandId::Help => true,
-        CommandId::Object(action) => actions::can_run(action),
+        CommandId::Settings | CommandId::Forwards | CommandId::Help | CommandId::Object(_) => true,
     };
     let matches = |label: &str| !words.is_empty() && words.iter().all(|word| label.to_lowercase().contains(word));
     let commands = commands::TABLE.iter().filter(|entry| runs(entry.id) && matches(entry.label));

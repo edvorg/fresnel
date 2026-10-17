@@ -163,8 +163,8 @@ dock (Operations, Forwards, Journal, Connections, a tab of each log, editor, ter
   panel: metadata, the sections of the kind (a folder of `views` for each sidebar group), its
   conditions, related objects as links, Events and the Manifest. A deleted object shows as such.
 - **Actions** (`views/act`): the panel, the menus, a key and the quick search ask for an action
-  of the command table. A gate closes it with the reason: a later milestone, the state of the
-  object, the rules, a read-only cluster. A change asks in a dialog: an order for each object.
+  of the command table. A gate closes it with the reason: the state of the object, the rules,
+  a read-only cluster. A change asks in a dialog: an order for each object.
 - **Quick search**: a dialog; its cursor holds a row by identity. A hit opens its object, with a
   note while its store lists, or "Show it" when a filter hides its row. One namespace filter.
 - **Keys** (`views/keys`): the panel of a Secret or a ConfigMap names its object (`ShowKeys`) and

@@ -15,10 +15,10 @@ use super::uid;
 use crate::shell::Scene;
 use crate::views::act::{
     Ask, Close, Commands, ConfirmDialog, Dialog, DrainDialog, Found, Gate, Permits, Subject, TerminalConfirm,
-    asks_first_on, facts, operation, over_room,
+    asks_first_on, facts, not_of_kind, operation, over_room,
 };
 use crate::views::detail::DetailPanel;
-use crate::views::detail::actions::{later, of_kind};
+use crate::views::detail::actions::of_kind;
 use crate::views::forwards::ForwardAsk;
 use crate::views::logs::LogAsk;
 use crate::views::terminal::TerminalAsk;
@@ -132,7 +132,7 @@ impl Acts {
             return None;
         }
         let Some(operation) = operation(action) else {
-            return Some((Tone::Warn, later(action)));
+            return Some((Tone::Warn, not_of_kind(action)));
         };
         if let Some(reason) = over_room(1, scene.view.jobs.room()) {
             return Some((Tone::Warn, format!("{} did not run: {reason}", action.label())));

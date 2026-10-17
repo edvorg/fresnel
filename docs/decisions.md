@@ -1282,8 +1282,8 @@ of the Job. Thus that order ends at once as not sent, with the number of the job
 ## An action passes a gate before it runs
 
 The header, the menus, the keys and the quick search ask `views/act` for each action. Its gate
-closes it for a later milestone, for a state that kubectl refuses (a restart or a rollback of a
-paused Deployment, a second suspend) and for a denial of the rules, each time with the reason.
+closes it for a state that kubectl refuses (a restart or a rollback of a paused Deployment, a
+second suspend) and for a denial of the rules, each time with the reason.
 A permission that the app does not know leaves the action on: the rules are a hint, the server
 decides, and the core handles HTTP 403.
 

@@ -38,7 +38,6 @@ pub(crate) use permits::Permits;
 pub(crate) use terminal::TerminalConfirm;
 pub(crate) use typed::TypedName;
 
-use crate::views::detail::actions::{can_run, later};
 use crate::widgets::table::model::ObjectId;
 
 /// An action that the user asked for on the object of the panel, with the choice of a part
@@ -116,11 +115,9 @@ pub(crate) enum Gate {
 
 impl Gate {
     /// The gate of an action on an object with these facts. `decide` gives the permission:
-    /// it asks the core for what it does not know, so it runs only for an action that runs.
+    /// it asks the core for what it does not know, so it runs only for an action that the
+    /// state of the object allows.
     pub(crate) fn of(action: Action, facts: &Facts, decide: impl FnOnce() -> Decision) -> Self {
-        if !can_run(action) {
-            return Self::Closed(later(action));
-        }
         if let Some(reason) = blocked(action, facts) {
             return Self::Closed(reason);
         }
@@ -139,7 +136,7 @@ impl Gate {
         (action, facts): (Action, &Facts),
         decide: impl FnOnce() -> Decision,
     ) -> Self {
-        match view.config.refusal(cluster).filter(|_| can_run(action) && asks_first(action)) {
+        match view.config.refusal(cluster).filter(|_| asks_first(action)) {
             Some(refusal) => Self::Closed(refusal),
             None => Self::of(action, facts, decide),
         }
@@ -174,6 +171,13 @@ fn blocked(action: Action, facts: &Facts) -> Option<String> {
         Action::Uncordon if facts.cordoned == Some(false) => Some("The node is not cordoned.".to_owned()),
         _ => None,
     }
+}
+
+/// Why an action has no job. Each action of a kind has a job, a dialog or a view of its own,
+/// but a key and the quick search ask for each action of the command table on each page: the
+/// key of Edit keys on a pod, for example.
+pub(crate) fn not_of_kind(action: Action) -> String {
+    format!("{} is no action of this kind.", action.label())
 }
 
 /// True for an action that asks before it acts, by its entry in the command table.

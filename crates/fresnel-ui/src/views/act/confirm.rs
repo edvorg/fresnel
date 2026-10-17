@@ -12,11 +12,10 @@ use fresnel_core::kinds::{Action, Kind};
 use fresnel_core::ops::{self, Operation, Order, Propagation, Target};
 
 use super::dialog::{Close, title, warning};
-use super::{Found, Gate, Permits, Subject, TypedName, operation, over_room};
+use super::{Found, Gate, Permits, Subject, TypedName, not_of_kind, operation, over_room};
 use crate::format::{self, short};
 use crate::shell::Scene;
 use crate::theme::{self, ROW_HEIGHT};
-use crate::views::detail::actions::later;
 use crate::views::detail::fields::VALUE_LIMIT;
 use crate::widgets::{self, dot};
 
@@ -81,7 +80,7 @@ impl Confirm {
             Input::Name(name) => valid_name(name.trim()).map(|()| Operation::Trigger(name.trim().to_owned())),
             Input::Propagation(propagation) => Ok(Operation::Delete(*propagation)),
             Input::Revision { to, .. } => Ok(Operation::Rollback(*to)),
-            Input::None => operation(self.action).ok_or_else(|| later(self.action)),
+            Input::None => operation(self.action).ok_or_else(|| not_of_kind(self.action)),
         }
     }
 

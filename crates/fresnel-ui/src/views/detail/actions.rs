@@ -1,6 +1,5 @@
-//! The actions on the object of the panel: the actions that this version runs, and the
-//! buttons of the header. The command table has each action; a later milestone gives the
-//! other ones their requests, and their entries are off until then.
+//! The actions on the object of the panel and the buttons of the header. The command table
+//! has each action.
 //!
 //! The header has a button for each operation of the kind and for Delete, each one with its
 //! gate, and the menu "More" with each entry of the command table for the kind. The keys of a
@@ -16,47 +15,6 @@ use crate::theme::SMALL;
 use crate::views::act::{Gate, asks_first_on};
 use crate::widgets;
 
-/// True for an action that this version runs.
-pub(crate) fn can_run(action: Action) -> bool {
-    matches!(
-        action,
-        Action::ViewManifest
-            | Action::EditManifest
-            | Action::Download
-            | Action::CopyName
-            | Action::CopyCommand
-            | Action::EditKeys
-            | Action::AddKey
-            | Action::RemoveKey
-            | Action::Scale
-            | Action::Restart
-            | Action::RolloutStatus
-            | Action::RevisionHistory
-            | Action::Rollback
-            | Action::Delete
-            | Action::ForceDelete
-            | Action::Evict
-            | Action::RunAgain
-            | Action::Suspend
-            | Action::Resume
-            | Action::Trigger
-            | Action::Cordon
-            | Action::Uncordon
-            | Action::Drain
-            | Action::Logs
-            | Action::Terminal
-            | Action::Attach
-            | Action::DebugContainer
-            | Action::NodeShell
-            | Action::Forward
-    )
-}
-
-/// Why an action does nothing in this version.
-pub(crate) fn later(action: Action) -> String {
-    format!("{} comes with a later milestone of the app.", action.label())
-}
-
 /// True for an action that also works on an object that its store does not have any more.
 pub(crate) fn works_on_gone(action: Action) -> bool {
     matches!(action, Action::ViewManifest | Action::CopyName | Action::CopyCommand)
@@ -66,7 +24,7 @@ pub(crate) fn works_on_gone(action: Action) -> bool {
 /// the manifest, its editor and its download are in the menu and in the tabs, the keys in the
 /// key view, and a forward on the Forward button of each port.
 fn on_header(action: Action) -> bool {
-    let elsewhere = matches!(
+    !matches!(
         action,
         Action::ViewManifest
             | Action::EditManifest
@@ -84,8 +42,7 @@ fn on_header(action: Action) -> bool {
             | Action::DebugContainer
             | Action::NodeShell
             | Action::Forward
-    );
-    can_run(action) && !elsewhere
+    )
 }
 
 /// The words of an entry on an object of `kind`: an action that asks before it acts ends
@@ -162,17 +119,12 @@ mod tests {
 
     use super::*;
 
-    /// The key map is complete: each command that the app runs has a key, an action of a
-    /// later milestone has none, and a change of a cluster needs Option or Shift, so no key
-    /// of a text field starts its dialog.
+    /// The key map is complete: each command has a key, and a change of a cluster needs
+    /// Option or Shift, so no key of a text field starts its dialog.
     #[test]
-    fn each_command_that_runs_has_a_default_key_and_a_change_needs_option_or_shift() {
+    fn each_command_has_a_default_key_and_a_change_needs_option_or_shift() {
         for entry in commands::TABLE {
-            let runs = match entry.id {
-                CommandId::Object(action) => can_run(action),
-                _ => true,
-            };
-            assert_eq!(entry.key.is_some(), runs, "{}", entry.name);
+            assert!(entry.key.is_some(), "{}", entry.name);
             if let Some(key) = entry.key.filter(|_| entry.confirm == Confirm::Always) {
                 assert!(key.alt || key.shift, "{}: {key}", entry.name);
             }

@@ -1,5 +1,5 @@
-//! The actions on an object (plan section 10). In M2, an action is a name: the command
-//! table gives it a key, and the operations of later milestones give it a request.
+//! The actions on an object (plan section 10). The command table gives each one its key, and
+//! an operation of `ops` or a view of the UI gives it its request.
 
 /// One action on the objects of a kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

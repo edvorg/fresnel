@@ -117,9 +117,8 @@ impl Entry {
 use Confirm::{Always, Never};
 
 /// The commands of the app and the actions on objects, in the sequence of a menu. Each
-/// command that the app runs has a default key; an action of a later milestone gets one
-/// with it. A change of a cluster uses Option or Shift, so no key of a text field and no
-/// key of macOS (Cmd+C, Cmd+Backspace) starts a dialog of a change.
+/// command has a default key. A change of a cluster uses Option or Shift, so no key of a
+/// text field and no key of macOS (Cmd+C, Cmd+Backspace) starts a dialog of a change.
 pub const TABLE: &[Entry] = &[
     Entry::app(CommandId::QuickSearch, "quick-search", "Quick search", Shortcut::command("K")),
     Entry::app(CommandId::Back, "back", "Back", Shortcut::command("OpenBracket")),

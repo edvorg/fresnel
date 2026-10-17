@@ -139,6 +139,19 @@ fn a_pod_evicts_deletes_and_force_deletes_with_the_warning_of_a_stateful_set() {
     assert_eq!(runs(&window), expected.map(|operation| Order::new(db.clone(), operation).expect("an order")));
 }
 
+/// A key asks for each action of the command table on each page. The key of Edit keys on a
+/// pod sends nothing, and its dialog tells why.
+#[test]
+fn the_key_of_an_action_of_an_other_kind_tells_why_it_sends_nothing() {
+    let pods = pods();
+    let mut window = opened::<Pod>(vec![allowed("ams-prod", &pods)], "db-0");
+    window.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::E);
+    window.run();
+    assert!(shows(&window, "Edit keys is no action of this kind."));
+    assert!(window.get_by_label("Confirm Edit keys").accesskit_node().is_disabled());
+    assert_eq!(runs(&window), []);
+}
+
 #[test]
 fn a_job_runs_again_and_a_suspended_job_resumes_but_does_not_suspend_again() {
     let jobs = scene::<Job>();
