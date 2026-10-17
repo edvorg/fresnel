@@ -98,7 +98,7 @@ fn a_gap_with_no_visible_state_a_growth_over_the_limit_and_a_lost_line_each_fail
     assert!(!report.verdict.passed);
     let reasons = [
         "1 gaps: a store showed \"live\" and was behind for more than 20 s",
-        "the floor of the heap grew by 17.0 MiB after the warm-up, at minute 6; the limit is 16 MiB",
+        "the floor of the heap with no buffer grew by 17.0 MiB after the warm-up, at minute 6; the limit is 16 MiB",
         "3 log lines did not come",
         "task soak check Pod failed",
     ];

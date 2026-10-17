@@ -18,10 +18,10 @@ It changes nothing in a cluster.
 
 The memory rule: the buffers of the core get small limits (the journal 1,000 entries, the
 ring of the log view 20,000 lines and 1 MiB, the history of the metrics 1 MiB, the store of
-the Events 500), so each one is full early, and a heap that grows after that is a leak. The
-floor of the heap, the lowest heap of 5 minutes, may rise by the memory limit at most after
-the warm-up: the limit is larger than the sum of the buffers, so a buffer that fills late
-does not fail the soak, and the floor takes no peak of a list after a fault.
+the Events 500), and each minute checks each buffer against its limit. The rest of the heap
+must stay flat: its floor, the lowest heap of 5 minutes with no buffer, may rise by the
+memory limit at most after the warm-up. A buffer that fills late thus fails nothing, and
+the floor takes no peak of a list after a fault.
 
 options:
   --context <name>        the cluster
@@ -34,8 +34,8 @@ options:
   --minutes <number>      the run time (default 60)
   --log <namespace/name>  a Deployment whose pods write lines \"soak <number>\": the soak
                           follows its log, and a number that does not come is a gap
-  --memory-limit <MiB>    the most growth of the floor of the heap after the warm-up
-                          (default 8)
+  --memory-limit <MiB>    the most growth of the floor of the heap with no buffer after
+                          the warm-up (default 4)
   --warm-up <minutes>     the minutes before the floor that the growth starts from
                           (default 10)
   --faults <file>         a file to which a harness adds one line for each fault that it
@@ -73,7 +73,7 @@ pub(super) struct Options {
 pub(super) fn parse(arguments: &[String]) -> Result<Options, String> {
     let (mut context, mut report, mut log, mut faults, mut forward) = (None, None, None, None, None);
     let (mut kubeconfig, mut compare) = (Vec::new(), Vec::new());
-    let (mut minutes, mut memory_limit_mib, mut warm_up) = (60, 8, 10);
+    let (mut minutes, mut memory_limit_mib, mut warm_up) = (60, 4, 10);
     let mut rest = arguments.iter();
     while let Some(option) = rest.next() {
         let mut value = || rest.next().ok_or_else(|| format!("the option {option} needs a value"));
@@ -125,7 +125,7 @@ mod tests {
     fn the_needed_options_and_each_default() {
         let options = parsed("--context k3s --kubeconfig /k/a --report /r").expect("good options");
         assert_eq!((options.context.as_str(), options.kubeconfig.len(), options.compare.len()), ("k3s", 1, 0));
-        assert_eq!((options.minutes, options.memory_limit_mib, options.warm_up), (60, 8, 10));
+        assert_eq!((options.minutes, options.memory_limit_mib, options.warm_up), (60, 4, 10));
         assert_eq!((options.log, options.faults, options.forward), (None, None, None));
 
         let line = "--context k3s --kubeconfig /k/a --compare /k/b --report /r --minutes 5 --log soak/logger \

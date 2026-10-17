@@ -135,7 +135,7 @@ impl Report {
                 verdict.gaps, verdict.gaps_without_state, verdict.gaps_stuck
             ),
             format!("faults of the harness: {}", verdict.faults),
-            format!("floor of the heap after the warm-up: {heap} (limit {} MiB)", self.memory_limit_mib),
+            format!("floor of the heap with no buffer after the warm-up: {heap} (limit {} MiB)", self.memory_limit_mib),
             format!(
                 "heap at the end: {}, open connections at the end: {}",
                 mib(last.map_or(0.0, |minute| minute.heap_bytes as f64)),

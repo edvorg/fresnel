@@ -23,7 +23,7 @@ pub(super) const QUIET: usize = 5;
 /// What the minutes are judged by.
 pub(super) struct Rules {
     pub(super) warm_up: usize,
-    /// The most growth of the floor of the heap after the warm-up, in MiB.
+    /// The most growth of the floor of the heap with no buffer after the warm-up, in MiB.
     pub(super) memory_limit_mib: u64,
     /// True when the soak follows a log view.
     pub(super) log: bool,
@@ -138,7 +138,7 @@ impl Verdict {
         let limit = i64::try_from(rules.memory_limit_mib).unwrap_or(i64::MAX) * 1024 * 1024;
         if let Some(heap) = self.heap.as_ref().filter(|heap| heap.growth_bytes > limit) {
             reasons.push(format!(
-                "the floor of the heap grew by {:.1} MiB after the warm-up, at minute {}; the limit is {} MiB",
+                "the floor of the heap with no buffer grew by {:.1} MiB after the warm-up, at minute {}; the limit is {} MiB",
                 heap.growth_bytes as f64 / MIB,
                 heap.growth_minute,
                 rules.memory_limit_mib

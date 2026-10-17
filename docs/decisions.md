@@ -1649,13 +1649,12 @@ The memory of the soak is the count of the bytes that the allocator of `fresnel-
 the resident size: a growth shows at once and the same in each run. The records of the soak
 itself are a copy that the soak measures, and they are no part of the heap that it judges.
 
-## The soak judges the floor of the heap after its buffers are full
+## The soak judges the floor of the heap with no buffer
 
 The buffers of the app have limits: 64 MiB of metrics, 128 MiB of log lines, 10,000 journal
-entries, 20,000 Events. A fixed limit of growth cannot tell a leak from a buffer that fills. The
-soak gives each buffer a small limit, so each one is full early; after the warm-up, the floor of
-the heap, its lowest value in 5 minutes, may rise by 8 MiB at most: a list after a fault is a
-peak.
+entries, 20,000 Events. A growth limit cannot tell a leak from a buffer that fills. The soak gives
+each buffer a small limit and checks it each minute. The heap with no buffer, its lowest value in
+5 minutes, may rise by 4 MiB at most after the warm-up: in six runs it rose by 0.8 MiB at most.
 
 ## Each minute of the soak has a memory account of the core
 

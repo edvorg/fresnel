@@ -24,11 +24,12 @@ use tokio::sync::Notify;
 use super::args::Options;
 
 /// The limits of the buffers of the core in the soak: far below those of the app, so that
-/// each buffer is full early and a heap that grows after the warm-up is a leak, not a buffer
-/// that fills (docs/decisions.md). The journal keeps 1,000 entries, the ring of the log view
-/// 1 MiB, the history of the metrics 1 MiB, the store of the Events 500. 1 MiB of the ring holds
-/// some 18,000 lines of the logger: the lines of the longest break of the harness, 3 minutes of
-/// the fast pace, come after it at once and fit, so none leaves before the soak reads it.
+/// each buffer is full early and each minute checks it against its limit. The floor of the
+/// heap leaves them out (docs/decisions.md). The journal keeps 1,000 entries, the ring of the
+/// log view 1 MiB, the history of the metrics 1 MiB, the store of the Events 500. 1 MiB of the
+/// ring holds some 18,000 lines of the logger: the lines of the longest break of the harness,
+/// 3 minutes of the fast pace, come after it at once and fit, so none leaves before the soak
+/// reads it.
 pub(super) const JOURNAL_LIMIT: usize = 1_000;
 pub(super) const RING: RingLimits = RingLimits { lines: 20_000, bytes: 1024 * 1024 };
 pub(super) const METRICS_MEMORY: usize = 1024 * 1024;
