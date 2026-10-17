@@ -98,8 +98,8 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 - A cursor and a selection hold an `ObjectId`, never a row number. A hidden view calls `rest`.
 - A view marks each row of a store that is not live and tells the state of that store with
   its reason. A list with no row says "none" only after a complete list of each store.
-- A command has one entry in `commands::TABLE` (identifier, label, a default key only when the
-  app runs it, confirm rule). Keys, menus and the quick search read it. `views/act` gates actions.
+- A command has one entry in `commands::TABLE` (identifier, label, default key, confirm rule).
+  Keys, menus and the quick search read it. `views/act` gates actions.
 - A setting is an entry of `config::table`: its key, default and bounds. The reader, `apply` and
   the settings view read it. A value that does not fit is a problem with its line and column.
 
@@ -146,5 +146,5 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 - `README.md` has 97 lines or fewer, `docs/architecture.md` 200 and this file 150. Each
   decision of `docs/decisions.md` has one paragraph of 80 words or fewer, changed with it.
 - Commit in small steps. The message says what changed and why, in plain words. For now, changes
-  go directly to `master`. A push there whose CI passes makes a release, so push seldom, and only
-  when the five checks pass. Test a change of a workflow on a branch `ci/<topic>`, and remove it.
+  go directly to `master`. A push there whose CI passes makes a release, if no newer push came, so
+  push seldom and after the five checks. Test a workflow change on a branch `ci/<topic>`; remove it.

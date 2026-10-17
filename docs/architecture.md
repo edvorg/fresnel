@@ -98,8 +98,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   new stream starts at the second of its latest line with a marker; `SaveLog` writes a new file.
 - **Terminal** (`terminal`): the screen of `alacritty_terminal` behind a fair lock and a guard of
   its parser; a session (`remote`) runs its exec or attach, and ends its shell at a close or a quit.
-- **Forwards** (`forward`): a task for each rule with its listener and a tunnel for each client;
-  the stores choose the pod, the channels tell the path. A forward keeps its cluster connected.
+- **Forwards** (`forward`): a task for each rule with its listener and a tunnel for each client,
+  to a limit; the stores choose the pod, the channels tell the path. The cluster stays connected.
 - **Operations** (`ops`): a function builds each request of plan section 10, with a unit test of
   its URL and body. An `Order` is a job in its own task, with steps and a state, not two at once;
   the jobs of a text run in turn. A write goes out one time; an unknown result gets a read. A

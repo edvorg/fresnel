@@ -22,25 +22,25 @@ The cluster overview in the light theme, and the connections of prod-us, which t
 
 ## Status
 
-Milestones M0 to M11 are complete. The core has the kubeconfig, gateway, journal, settings, 41
-kinds, stores, indexes, search, commands, jobs, metrics, logs, terminals, editors, forwards and
-notices, and the window a view of each with its actions.
+Milestones M0 to M11 are complete: 41 kinds, metrics, logs, terminals, editors and forwards.
 
 ## The app
 
-A green CI run of `master` makes a release: `gh release download -R edvorg/fresnel`.
+A green CI run of the newest commit of `master` makes a release. Download it with
+`gh release download -R edvorg/fresnel`.
 - macOS: the signature is ad hoc. Run `xattr -dr com.apple.quarantine Fresnel.app` before the first
   start, or start it once and then use Open Anyway in System Settings, Privacy & Security.
 - Windows: unzip, start `fresnel.exe`; at the first start SmartScreen asks: More info, Run anyway.
 
-The first start selects the current kubeconfig context, and `state.json` keeps it and the layouts.
-
-- A table shows each selected cluster. A row with an open ring is from a cluster that is
-  not live: its values are old, and a note above the table gives the reason.
+- The first start selects the current kubeconfig context, and `state.json` keeps it and the
+  layouts. A table shows each selected cluster. A row with an open ring is from a cluster that
+  is not live: its values are old, and a note above the table gives the reason.
 - Cmd+K opens the quick search, ? lists each key, Cmd+1 to Cmd+4 and F6 move the focus between
   the sidebar, the table, the panel and the dock. Cmd+[ and Cmd+] go back and forward. A right
-  click lists the actions of a row; a change asks, and a read-only cluster refuses it. Shell,
-  Attach, Debug and Node shell open a terminal in the dock, which a closed tab ends in the pod.
+  click lists the actions of a row; a change asks, and a read-only cluster refuses it.
+- Shell, Attach, Debug and Node shell open a terminal tab in the dock; a close ends it in the pod.
+  Edit manifest (Cmd+Shift+Y) opens an editor tab, whose save shows the diff of a dry run of the
+  server and merges a conflict. Cmd+Shift+I creates or applies YAML, a job for each document.
 - Settings folder: `~/Library/Application Support/fresnel`. A debug build uses `fresnel-debug`.
   Cmd+, opens the settings view, which edits `config.toml` and keeps its comments. The app reads
   it again after each change; the journal tells each problem with its line and column.
