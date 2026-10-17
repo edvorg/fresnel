@@ -76,6 +76,10 @@ pub struct K3s {
 }
 
 impl K3s {
+    /// The start of the name of each container and each network of the kit. A run on a
+    /// computer with other test runs can give it a start of its own.
+    pub const NAME_PREFIX: &str = NAME_PREFIX;
+
     /// Starts a cluster and waits until its API server is ready and a test can make a pod.
     /// `label` becomes a part of the container name, so that `docker ps` shows which test
     /// owns the container.

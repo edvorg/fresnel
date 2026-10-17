@@ -79,7 +79,7 @@ async fn the_helper_gives_the_kube_apiserver_and_keeps_its_address_and_removes_t
     let pod = ["run", "kit-pod", "--image=none", "--restart=Never", r#"--overrides={"spec":{"nodeName":"none"}}"#];
     cluster.kubectl(&pod).await.expect("a pod right after the start");
     let (name, api, kubeconfig) = (cluster.name().to_owned(), cluster.api_addr(), cluster.kubeconfig());
-    assert!(name.starts_with("fresnel-test-kit-"), "{name}");
+    assert!(name.starts_with(&format!("{}kit-", K3s::NAME_PREFIX)), "{name}");
     assert_eq!(docker(&["port", &name]), format!("6444/tcp -> {api}"), "only the kube-apiserver port is published");
     assert_eq!(server_line(&kubeconfig), format!("server: https://{api}"));
     let mode = std::fs::metadata(&kubeconfig).expect("metadata").permissions().mode();
