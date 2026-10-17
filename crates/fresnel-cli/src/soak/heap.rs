@@ -44,12 +44,13 @@ pub(super) fn heap(minutes: &[Minute], warm_up: usize) -> Option<Heap> {
 }
 
 /// The parts of a minute above the limit that the soak gave their buffer: the journal, the
-/// ring of the log view, the history of the metrics and the store of the Events.
-pub(super) fn over_limits(memory: &[Piece]) -> Vec<String> {
+/// ring of the log view, the history of the metrics and the store of the Events. Each one
+/// with its name and a text.
+pub(super) fn over_limits(memory: &[Piece]) -> Vec<(String, String)> {
     let mut over = Vec::new();
     for piece in memory {
         let name = piece.name.as_str();
-        let limit = |what: &str| format!("{name}: {what}");
+        let limit = |what: &str| (name.to_owned(), format!("{name}: {what}"));
         if name == "journal" && piece.items > JOURNAL_LIMIT {
             over.push(limit(&format!("{} entries, the limit is {JOURNAL_LIMIT}", piece.items)));
         } else if name.ends_with(": log ring") && (piece.items > RING.lines || piece.bytes > RING.bytes) {
@@ -88,7 +89,7 @@ mod tests {
     fn a_part_above_the_limit_of_its_buffer_is_named() {
         let piece = |name: &str, items, bytes| Piece { name: name.to_owned(), items, bytes };
         let inside = [piece("journal", 1000, 0), piece("k3s: log ring", 2000, MIB), piece("k3s: store Event", 500, 0)];
-        assert_eq!(over_limits(&inside), Vec::<String>::new());
+        assert_eq!(over_limits(&inside), Vec::<(String, String)>::new());
         let over = [
             piece("journal", 1001, 0),
             piece("k3s: log ring", 10, MIB + 1),
@@ -98,6 +99,7 @@ mod tests {
         ];
         let found = over_limits(&over);
         assert_eq!(found.len(), 4, "{found:?}");
-        assert!(found.iter().zip(&over).all(|(text, piece)| text.starts_with(&format!("{}: ", piece.name))));
+        let named = |((name, text), piece): (&(String, String), &Piece)| *name == piece.name && text.starts_with(name);
+        assert!(found.iter().zip(&over).all(named));
     }
 }

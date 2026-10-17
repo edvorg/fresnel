@@ -169,3 +169,25 @@ fn checks_lines_and_a_recovery_that_an_outage_of_the_environment_stops_fail_no_s
     judged(&mut report, minutes);
     assert_eq!(report.verdict.reasons.len(), 4, "{:?}", report.verdict.reasons);
 }
+
+/// Each part above the limit of its buffer is one reason, with the first minute of it.
+#[test]
+fn each_part_above_its_limit_fails_the_soak_one_time() {
+    use super::super::account::Piece;
+    let mut report = report(1);
+    let piece = |name: &str, items, bytes| Piece { name: name.to_owned(), items, bytes };
+    let mut minutes: Vec<Minute> = (1..=4).map(|number| minute(number, 10)).collect();
+    minutes[1].memory = vec![piece("k3s: log ring", 10, 2 * MIB_BYTES), piece("k3s: store Event", 501, 0)];
+    minutes[2].memory = vec![piece("k3s: log ring", 10, 3 * MIB_BYTES), piece("journal", 1001, 0)];
+    judged(&mut report, minutes);
+    let reasons: Vec<&str> =
+        report.verdict.reasons.iter().map(|reason| reason.split(" bytes").next().unwrap_or("")).collect();
+    assert_eq!(
+        reasons,
+        [
+            "a part above the limit of its buffer: k3s: log ring: 10 lines and 2097152",
+            "a part above the limit of its buffer: k3s: store Event: 501 Events, the limit is 500",
+            "a part above the limit of its buffer: journal: 1001 entries, the limit is 1000",
+        ]
+    );
+}

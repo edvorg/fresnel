@@ -3,6 +3,8 @@
 //! checks that stop, or a failure of the soak itself fails it. In an outage of the
 //! environment (`environment`), the checks and the lines that cannot come are counted apart.
 
+use std::collections::BTreeSet;
+
 use serde::Serialize;
 
 use super::check::{GIVE_UP, LIMIT};
@@ -76,9 +78,13 @@ impl Verdict {
         let lost = |minutes: &[&Minute]| -> u64 {
             minutes.iter().filter_map(|minute| minute.log.as_ref()).map(|log| log.lost).sum()
         };
-        let mut over_limits: Vec<String> =
-            minutes.iter().flat_map(|minute| heap::over_limits(&minute.memory)).collect();
-        over_limits.dedup_by(|later, earlier| later.split(':').next() == earlier.split(':').next());
+        // The first minute of each part above its limit.
+        let (mut over_limits, mut named) = (Vec::new(), BTreeSet::new());
+        for (name, text) in minutes.iter().flat_map(|minute| heap::over_limits(&minute.memory)) {
+            if named.insert(name) {
+                over_limits.push(text);
+            }
+        }
         let mut verdict = Self {
             checks: minutes.iter().map(|minute| minute.checks).sum(),
             gaps: gaps.clone().count(),
