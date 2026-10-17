@@ -41,12 +41,21 @@ impl LogLine {
         Self { time, source, text: text.into(), spans: None, kind: LineKind::Marker, late: false, cut: false }
     }
 
-    /// The bytes that the line holds in memory: the limit of a view counts them.
+    /// The bytes that the line holds in memory: the limit of a view counts them. The text and
+    /// the styles are each an allocation with the two counts of its shared pointer, and the
+    /// line has its place in a chunk of the ring. With the line alone, a ring of short lines
+    /// held a third more than its limit in a soak.
     pub(crate) fn weight(&self) -> usize {
-        let spans = self.spans.as_ref().map_or(0, |spans| spans.len() * size_of::<Span>());
-        size_of::<Self>() + self.text.len() + spans
+        let spans = self.spans.as_ref().map_or(0, |spans| SHARED + spans.len() * size_of::<Span>());
+        PLACE + SHARED + self.text.len() + spans
     }
 }
+
+/// The two counts of a shared pointer before its value.
+const SHARED: usize = 2 * size_of::<usize>();
+/// The place of a line in the vector of `imbl`: the chunks and the nodes of the tree add a
+/// sixth to the line, as the counting allocator measured 56 bytes for a line of 48.
+const PLACE: usize = size_of::<LogLine>() + size_of::<LogLine>() / 6;
 
 /// One style in a line: it holds from `start` to the start of the next span or to the end.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,4 +96,21 @@ pub enum Color {
     Palette(u8),
     /// A color with its red, green and blue values.
     Rgb(u8, u8, u8),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A ring of short lines held a third more than its limit in a soak when the weight
+    /// counted the line alone: 81 bytes for a line that weighed 58.
+    #[test]
+    fn the_weight_of_a_line_counts_its_text_its_styles_and_the_counts_of_their_pointers() {
+        let mut line = LogLine::marker(0, 0, "soak 123");
+        let place = size_of::<LogLine>() * 7 / 6;
+        assert_eq!(line.weight(), place + 2 * size_of::<usize>() + 8);
+        line.spans = Some(vec![Span { start: 0, style: Style::default() }; 2].into());
+        let spans = 2 * size_of::<usize>() + 2 * size_of::<Span>();
+        assert_eq!(line.weight(), place + 2 * size_of::<usize>() + 8 + spans);
+    }
 }
