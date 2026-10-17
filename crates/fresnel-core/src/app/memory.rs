@@ -25,8 +25,8 @@ impl Core {
         let view = self.view();
         let (commands, on_demand) = {
             let state = self.inner.state();
-            let on_demand: Vec<(ClusterId, Vec<Source>)> =
-                state.connected.iter().map(|(id, connected)| (id.clone(), connected.demand_sources())).collect();
+            let on_demand: Vec<(ClusterId, (Vec<Source>, usize))> =
+                state.connected.iter().map(|(id, connected)| (id.clone(), connected.memory())).collect();
             (state.commands.len(), on_demand)
         };
         let mut account = Account::new(scale);
@@ -47,8 +47,10 @@ impl Core {
                 if let Some(data) = &row.data {
                     cluster(data, account);
                 }
-                let demand = on_demand.iter().filter(|(id, _)| *id == row.id).flat_map(|(_, sources)| sources);
-                demand.for_each(|source| store("store on demand", source, account));
+                if let Some((_, (sources, lanes))) = on_demand.iter().find(|(id, _)| *id == row.id) {
+                    sources.iter().for_each(|source| store("store on demand", source, account));
+                    account.add("watch lane readers", *lanes, 0);
+                }
             });
         }
         account.parts()

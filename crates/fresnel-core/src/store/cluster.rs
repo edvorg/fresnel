@@ -83,6 +83,8 @@ pub struct ClusterStores {
     stores: Vec<Running>,
     demands: Demands,
     notice: Notice,
+    /// The sender of the lanes, for the count of their readers in the memory account.
+    lanes: Sender<LaneStates>,
     _lanes: TaskHandle,
 }
 
@@ -98,7 +100,7 @@ impl ClusterStores {
         let lanes = Lanes::new(states.subscribe());
         let lanes_task =
             tasks.start(TaskName::scoped("store lanes", cluster.as_str()), Restart::Always(Backoff::default()), {
-                let net = link.net.clone();
+                let (net, states) = (link.net.clone(), states.clone());
                 move || watch::follow(net.clone(), states.clone())
             });
         let notice = Notice::new();
@@ -115,7 +117,7 @@ impl ClusterStores {
         };
         let stores = Kind::ALL.iter().filter_map(|kind| kind.visit(AlwaysOn(&starter))).collect();
         let demands = Demands::start(starter, linger);
-        Ok(Self { cluster, stores, demands, notice, _lanes: lanes_task })
+        Ok(Self { cluster, stores, demands, notice, lanes: states, _lanes: lanes_task })
     }
 
     /// The cluster of the stores.
@@ -150,6 +152,12 @@ impl ClusterStores {
     /// stays some time after its last holder, and no view shows it then.
     pub fn demand_sources(&self) -> Vec<Source> {
         self.demands.sources()
+    }
+
+    /// The readers of the lanes of the cluster: the starter of the stores and the loop of
+    /// each store, for the memory account. A loop that ended and kept its reader shows here.
+    pub fn lane_readers(&self) -> usize {
+        self.lanes.receiver_count()
     }
 
     /// A reader of the store of a tier A kind, with its full objects. `None` for a kind of

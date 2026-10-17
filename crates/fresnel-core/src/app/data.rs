@@ -247,9 +247,10 @@ impl Connected {
         (self.gateway.clone(), self.pods.clone())
     }
 
-    /// The snapshot of each store on demand, for the memory account.
-    pub(super) fn demand_sources(&self) -> Vec<Source> {
-        self.stores.demand_sources()
+    /// The snapshot of each store on demand and the readers of the lanes, for the memory
+    /// account.
+    pub(super) fn memory(&self) -> (Vec<Source>, usize) {
+        (self.stores.demand_sources(), self.stores.lane_readers())
     }
 
     /// What the forwards of the cluster read.
