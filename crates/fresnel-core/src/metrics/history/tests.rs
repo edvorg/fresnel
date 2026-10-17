@@ -179,6 +179,34 @@ fn the_memory_limit_counts_a_chunk_for_a_short_tier() {
     assert_eq!(kept(&history, &SeriesKey::Pod(pod("web-50")), Tier::Fine), Some(50 * 60));
 }
 
+/// A cluster where pods come and go fast keeps the series of the deleted pods of the last
+/// hour: with more of them than the limit holds, the series of the pods that left first go.
+#[test]
+fn series_above_the_limit_lose_the_series_of_deleted_pods_that_left_first() {
+    let mut history = History::default();
+    for number in 0..20 {
+        history.record(SeriesKey::Pod(pod(&format!("web-{number:02}"))), sample(START), 1, &TIERS);
+    }
+    // The pods 10 to 19 leave their store, one each second.
+    for left in 10..20 {
+        let gone = |name: &str| ("web-10".."web-99").contains(&name) && *name <= *format!("web-{left}");
+        let exists = |key: &SeriesKey| Some(!matches!(key, SeriesKey::Pod(pod) if gone(&pod.name)));
+        history.sweep(exists, at(u64::from(START) + left - 10), HOUR);
+    }
+    history.limit(12 * SERIES_BYTES);
+    let names: Vec<String> = history.series.keys().map(|key| format!("{key:?}")).collect();
+    assert_eq!(history.len(), 12, "{names:?}");
+    for kept in ["web-00", "web-09", "web-18", "web-19"] {
+        assert!(history.get(&SeriesKey::Pod(pod(kept))).is_some(), "{kept} stays: {names:?}");
+    }
+    assert!(history.get(&SeriesKey::Pod(pod("web-17"))).is_none(), "{names:?}");
+    assert_eq!((history.samples, history.bytes()), (12, 12 * SERIES_BYTES), "one sample holds no chunk");
+
+    // Series of pods that exist stay, also above the limit: each has its last value.
+    history.limit(0);
+    assert_eq!(history.len(), 10);
+}
+
 /// The memory account measures a copy of the history.
 #[test]
 fn a_rebuilt_history_has_each_series_with_each_sample() {

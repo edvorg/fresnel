@@ -156,8 +156,10 @@ impl History {
     /// Drops the oldest samples until the history fits in `max_bytes` (research 11 section
     /// 4.3): first the coarse tiers, rank by rank from the containers to the cluster, then
     /// the fine tiers in the same sequence. One step drops the samples of the oldest minute
-    /// of one tier of one rank.
+    /// of one tier of one rank. A history whose series alone are above the limit first loses
+    /// series of objects that left their stores.
     pub(crate) fn limit(&mut self, max_bytes: usize) {
+        self.drop_gone(max_bytes);
         for tier in [Tier::Coarse, Tier::Fine] {
             for rank in 0..RANKS {
                 while self.bytes() > max_bytes {
@@ -175,6 +177,27 @@ impl History {
                         self.tiers = self.tiers - bytes + series.bytes();
                     }
                 }
+            }
+        }
+    }
+
+    /// Drops the series of objects that left their stores, the one that left first first,
+    /// while the series alone are above `max_bytes`. A series of an object that exists keeps
+    /// its key and its last value. Where pods come and go fast, the series of the last hour
+    /// of deleted pods can be more than the limit holds: with no drop, the limit would hold no
+    /// sample of any series and still be above its bytes.
+    fn drop_gone(&mut self, max_bytes: usize) {
+        let mut gone: Vec<(SystemTime, SeriesKey)> =
+            self.series.iter().filter_map(|(key, series)| Some((series.gone?, key.clone()))).collect();
+        gone.sort();
+        for (_, key) in gone {
+            if self.series.len() * SERIES_BYTES <= max_bytes {
+                break;
+            }
+            if let Some(series) = self.series.remove(&key) {
+                self.samples -= series.len();
+                self.tiers -= series.bytes();
+                self.dropped += series.len() as u64;
             }
         }
     }
