@@ -239,6 +239,24 @@ async fn a_cluster_that_went_back_to_an_older_version_gets_a_new_list_after_the_
     assert_eq!(bench.script.take_calls(), ["list of 1", "list of 500", "watch after 3 for 60 s"]);
 }
 
+/// A new cluster can pass the version of the store before the connection comes back: a soak
+/// with two recreates in a row saw a store "live" with the old object of a name for minutes.
+/// Its first object has the name of an object of the store and an other UID.
+#[tokio::test(start_paused = true)]
+async fn a_new_cluster_past_the_version_of_the_store_gets_a_new_list_after_the_lost_connection() {
+    let (mut bench, _events) = Bench::live(settings()).await;
+    bench.lanes.send_replace(LaneStates { watches: Path::NoChannel, requests: Path::NoChannel, ..LIVE });
+    bench.until_state("the lost channel", |state| *state == StoreState::Waiting(Wait::Channel)).await;
+    bench.script.new_cluster_now("a", "40");
+    bench.lanes.send_replace(LIVE);
+    bench.until_state("the new list", |state| matches!(state, StoreState::Listing { .. })).await;
+    bench.script.page(&[("a", "3"), ("c", "12")], Some("40"), None);
+    let _next = bench.script.watch_opens();
+    bench.until_state("the watch of the new cluster", StoreState::is_live).await;
+    assert_eq!(bench.objects(), pairs(&[("a", "3"), ("c", "12")]));
+    assert_eq!(bench.script.take_calls(), ["list of 1", "list of 500", "watch after 40 for 60 s"]);
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_store_waits_for_a_token_and_for_a_channel_before_its_first_request() {
     let mut bench = Bench::start(settings());

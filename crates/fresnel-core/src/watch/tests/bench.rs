@@ -136,6 +136,16 @@ impl Script {
         self.page(&[("now", version)], Some(version), None);
     }
 
+    /// The answer to the check of the cursor from a new cluster at the same address: a list
+    /// of its first object, which has the name of an object of the store and an other UID.
+    pub(super) fn new_cluster_now(&self, name: &str, version: &str) {
+        let mut first = object(name, version);
+        first.metadata.uid = Some(format!("new-uid-{name}"));
+        let metadata = format!(r#"{{"resourceVersion":"{version}"}}"#);
+        let metadata = serde_json::from_str(&metadata).expect("the metadata of a list");
+        self.add_page(Answer::Gives(Ok(Page { metadata, items: Some(vec![first]) })));
+    }
+
     /// The next list page is one object with no name.
     pub(super) fn page_with_no_name(&self) {
         let metadata = serde_json::from_str(r#"{"resourceVersion":"7"}"#).expect("the metadata of a list");

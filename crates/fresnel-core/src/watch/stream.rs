@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use tokio::time::{Instant, sleep_until};
 
 use super::lanes::Lane;
@@ -78,6 +79,8 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
     /// passes it, while the store shows "live" with the objects of the old cluster. A fast
     /// soak found that after a recreate of k3s. A list of one object gives the version of
     /// the server now; a version older than the cursor gives a new list, as HTTP 410 does.
+    /// A new cluster can pass the cursor before the check: its first object then has the name
+    /// of an object of the store and an other UID, which gives a new list too.
     async fn check_cursor(&mut self, from: &str) -> Result<(), Failure> {
         self.ready(Lane::Requests).await.map_err(Failure::Fault)?;
         self.start_request(StoreState::Waiting(Wait::Stream));
@@ -85,9 +88,15 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         let page = self.answer(source.list_page(1, None)).await?;
         let number = |version: &str| version.parse::<u128>().ok();
         let now = page.metadata.resource_version.as_deref().and_then(number);
-        match (now, number(from)) {
-            (Some(now), Some(from)) if now < from => Err(Failure::Gone(went_back(now, from))),
-            _ => Ok(()),
+        if let (Some(now), Some(from)) = (now, number(from))
+            && now < from
+        {
+            return Err(Failure::Gone(went_back(now, from)));
+        }
+        let first = page.items.iter().flatten().next();
+        match first.filter(|object| self.writer.holds_other(object.meta())) {
+            Some(object) => Err(Failure::Gone(other_uid(object.meta()))),
+            None => Ok(()),
         }
     }
 
@@ -156,6 +165,12 @@ fn stalled(limit: Duration) -> CoreError {
 
 fn went_back(now: u128, cursor: u128) -> CoreError {
     let text = format!("the cluster went back to the version {now}, before the version {cursor} of the store");
+    CoreError::new(ErrorClass::Server, text)
+}
+
+fn other_uid(meta: &ObjectMeta) -> CoreError {
+    let name = meta.name.as_deref().unwrap_or_default();
+    let text = format!("the object {name} of the cluster has an other UID than the object of the store");
     CoreError::new(ErrorClass::Server, text)
 }
 

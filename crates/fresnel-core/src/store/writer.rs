@@ -161,6 +161,13 @@ impl<T: Object> Writer<T> {
         Ok(())
     }
 
+    /// True when the store holds an object with the name of `meta` and an other UID: an
+    /// object of an other cluster, or one that the server deleted and created again.
+    pub(crate) fn holds_other(&self, meta: &ObjectMeta) -> bool {
+        let known = ObjectKey::of(meta).and_then(|key| self.items.items().get(&key).cloned());
+        known.is_some_and(|known| known.meta().uid != meta.uid)
+    }
+
     /// Removes the object of one event.
     pub(crate) fn delete(&mut self, object: &T) -> Result<(), CoreError> {
         let key = ObjectKey::of(object.meta()).ok_or_else(no_name)?;
