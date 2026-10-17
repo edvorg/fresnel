@@ -29,7 +29,7 @@ pub struct Connections {
     pub open: u64,
     /// Accepted in total.
     pub total: u64,
-    /// Ended with a reset: no target in the wait time, or a tunnel that broke.
+    /// Ended with a reset: no target in the wait time, a tunnel that broke, or above the limit.
     pub reset: u64,
 }
 

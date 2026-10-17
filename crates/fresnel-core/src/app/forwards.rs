@@ -16,7 +16,7 @@ use super::{Inner, Phase, State, data};
 use crate::cluster::{ClusterId, LinkState};
 use crate::config::Config;
 use crate::config::table::Setting;
-use crate::forward::{Feed, Forward, ForwardParts, ForwardRule, ForwardState, ForwardView};
+use crate::forward::{Feed, Forward, ForwardParts, ForwardRule, ForwardSettings, ForwardState, ForwardView};
 use crate::published::{Disposal, Held, Notice, Publisher};
 
 /// One forward of the view.
@@ -219,14 +219,9 @@ impl Inner {
         self.repaint.request();
     }
 
-    /// What a new forward gets: the settings of the program, with the wait of the settings
-    /// file, which acts at once.
+    /// What a new forward gets: the settings of the program, with those of the settings file.
     fn forward_parts(&self, state: &mut State) -> ForwardParts {
-        let mut settings = self.settings().forwards.clone();
-        let config: &Config = &state.config;
-        if config.set(Setting::ForwardWait).is_some() {
-            settings.wait = config.duration(Setting::ForwardWait);
-        }
+        let settings = settings_of(&self.settings().forwards, &state.config);
         let forwards = &mut state.forwards;
         if forwards.watch.is_none() {
             let (changes, repaint) = (forwards.notice.clone(), self.repaint.clone());
@@ -248,5 +243,45 @@ impl Inner {
     /// The bin of the values that the readers held: one thread for the life of the core.
     fn bin(&self) -> crate::published::Bin {
         self.disposal.get_or_init(|| Disposal::start(&self.tasks)).bin()
+    }
+}
+
+/// The settings of a new forward: those of the program, with the wait and the limit of the
+/// settings file, which act at once.
+fn settings_of(program: &ForwardSettings, config: &Config) -> ForwardSettings {
+    let mut settings = program.clone();
+    if config.set(Setting::ForwardWait).is_some() {
+        settings.wait = config.duration(Setting::ForwardWait);
+    }
+    if config.set(Setting::ForwardConnections).is_some() {
+        let limit = config.number(Setting::ForwardConnections);
+        settings.connections = usize::try_from(limit).unwrap_or(usize::MAX);
+    }
+    settings
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::config::Value;
+    use crate::config::table::{Form, spec};
+
+    /// The wait and the limit of the file reach a new forward, a file with neither keeps those
+    /// of the program, and the defaults of the table are those of the code.
+    #[test]
+    fn the_wait_and_the_limit_of_the_file_reach_a_new_forward() {
+        let program = ForwardSettings { wait: Duration::from_secs(9), connections: 9, ..ForwardSettings::default() };
+        assert_eq!(settings_of(&program, &Config::default()), program);
+        let (mut config, mut defaults) = (Config::default(), Config::default());
+        for (id, value) in [(Setting::ForwardWait, 7), (Setting::ForwardConnections, 3)] {
+            config.values.insert(id, Value::Number(value));
+            let Some(Form::Number(number)) = spec(id).map(|spec| spec.form) else { panic!("{id:?} is a number") };
+            defaults.values.insert(id, Value::Number(number.default));
+        }
+        let settings = settings_of(&program, &config);
+        assert_eq!((settings.wait, settings.connections), (Duration::from_secs(7), 3));
+        assert_eq!(settings_of(&ForwardSettings::default(), &defaults), ForwardSettings::default());
     }
 }

@@ -26,10 +26,13 @@ struct Bed {
 
 impl Bed {
     fn new(wait: Duration) -> Self {
+        Self::with(ForwardSettings { wait, ..ForwardSettings::default() })
+    }
+
+    fn with(settings: ForwardSettings) -> Self {
         let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("a task ended: {report}"));
         let disposal = Disposal::start(&tasks);
         let notice = Notice::new();
-        let settings = ForwardSettings { wait, ..ForwardSettings::default() };
         let journal = Journal::new(100, WallClock::system());
         let parts = ForwardParts { tasks, journal, clock: WallClock::system(), bin: disposal.bin(), notice, settings };
         Self { changes: parts.notice.changes(), parts, _disposal: disposal }
@@ -134,4 +137,34 @@ async fn a_stop_closes_the_port_and_resets_each_local_connection() {
         }
     };
     timeout(LIMIT, closed).await.expect("the port closes");
+}
+
+/// Each local connection holds a tunnel and an upgrade connection to the API server, so a
+/// forward has a limit of open ones. A connection above it gets a reset at once, not after the
+/// wait, and the journal gets one entry for the connections above it in a minute.
+#[tokio::test]
+async fn a_local_connection_above_the_limit_gets_a_reset_at_once_and_one_entry() {
+    let wait = Duration::from_secs(30);
+    let mut bed = Bed::with(ForwardSettings { wait, connections: 2, ..ForwardSettings::default() });
+    let forward = bed.start(LocalPort::Automatic);
+    let view = bed.until(&forward, "a local address", |view| view.address().is_some()).await;
+    let address = view.address().expect("an address");
+    let mut waiting = Vec::new();
+    for _ in 0..2 {
+        waiting.push(TcpStream::connect(address).await.expect("the port is open"));
+    }
+    bed.until(&forward, "two open connections", |view| view.connections.open == 2).await;
+    for _ in 0..2 {
+        let connected = Instant::now();
+        let (seen, at) = end_of(TcpStream::connect(address).await.expect("the port is open")).await;
+        assert_eq!(seen, "reset", "above the limit");
+        assert!(at - connected < wait, "the reset came at once, not after the wait");
+    }
+    let view = bed.until(&forward, "the counts", |view| view.connections.reset == 2).await;
+    assert_eq!((view.connections.open, view.connections.total), (2, 4));
+    let rule = rule(LocalPort::Automatic);
+    let text = format!("{rule}: a new local connection got a reset: 2 are open, the limit of the forward");
+    let entries = bed.parts.journal.view().entries.iter().map(|entry| entry.text.clone()).collect::<Vec<_>>();
+    assert_eq!(entries.iter().filter(|entry| entry.contains("the limit")).collect::<Vec<_>>(), [&text]);
+    drop(waiting);
 }

@@ -151,6 +151,7 @@ pub enum Setting {
     NotifyForward,
     StartSaved,
     ForwardWait,
+    ForwardConnections,
 }
 
 /// The unit of a number. The key of the file ends with it, so the file tells it.
@@ -327,6 +328,7 @@ pub const TABLE: &[Spec] = &[
     other(S::NotifyForward, Notifications, "failed_forwards", "A failed port forward", Form::Flag(true)),
     other(S::StartSaved, Forwards, "start_saved", "Start the saved forwards with the app", Form::Flag(true)),
     time(S::ForwardWait, Forwards, "wait_secs", [5, 1, 60], Seconds, "Wait of a local connection in a break"),
+    num(S::ForwardConnections, Forwards, "connections", [64, 1, 1024], Count, "Open local connections at most"),
 ];
 
 /// The entry of a setting. Each setting has one: a test holds it.

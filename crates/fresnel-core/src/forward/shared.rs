@@ -85,6 +85,12 @@ impl Counts {
         self.reset.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// A connection above the limit: it counts in the total, and its end is a reset.
+    pub(super) fn refused(&self) {
+        self.total.fetch_add(1, Ordering::Relaxed);
+        self.reset();
+    }
+
     pub(super) fn sent(&self, bytes: usize) {
         self.sent.fetch_add(u64::try_from(bytes).unwrap_or(u64::MAX), Ordering::Relaxed);
     }

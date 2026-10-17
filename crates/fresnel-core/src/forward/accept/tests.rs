@@ -1,5 +1,5 @@
 //! The pause after a failed accept and its entries in the journal, with injected errors and
-//! paused time.
+//! paused time. The limit of the open connections has its test on a forward (`forward/tests`).
 
 use std::net::{IpAddr, Ipv4Addr, TcpStream};
 
@@ -7,7 +7,7 @@ use fresnel_net::WallClock;
 
 use super::*;
 use crate::cluster::ClusterId;
-use crate::forward::{Bind, LocalPort};
+use crate::forward::{Bind, Connections, LocalPort};
 use crate::kinds::Kind;
 use crate::store::ObjectKey;
 
@@ -47,10 +47,10 @@ async fn pause(accepts: &Accepts, listener: &LocalListener, clients: &mut Vec<Tc
 #[tokio::test(start_paused = true)]
 async fn a_failed_accept_pauses_longer_each_time_and_the_journal_gets_one_entry_a_minute() {
     let listener = LocalListener::bind(&[IpAddr::V4(Ipv4Addr::LOCALHOST)], 0).await.expect("a listener");
-    let (rule, journal) = (rule(), Journal::new(100, WallClock::system()));
-    let (mut accepts, mut clients, mut pauses) = (Accepts::new(), Vec::new(), Vec::new());
+    let (rule, journal, counts) = (rule(), Journal::new(100, WallClock::system()), Counts::default());
+    let (mut accepts, mut clients, mut pauses) = (Accepts::new(8), Vec::new(), Vec::new());
     for _ in 0..7 {
-        assert!(accepts.take(Err(too_many_files())).is_none(), "no connection");
+        assert!(accepts.take(Err(too_many_files()), 0, &counts).is_none(), "no connection");
         accepts.note(&rule, &journal);
         pauses.push(pause(&accepts, &listener, &mut clients).await.0);
     }
@@ -61,11 +61,12 @@ async fn a_failed_accept_pauses_longer_each_time_and_the_journal_gets_one_entry_
     assert_eq!(entries(&journal), std::slice::from_ref(&first), "one entry in a minute");
 
     let (_, local) = pause(&accepts, &listener, &mut clients).await;
-    assert!(accepts.take(Ok(local)).is_some(), "an accept that works");
-    assert!(accepts.take(Err(too_many_files())).is_none());
+    assert!(accepts.take(Ok(local), 0, &counts).is_some(), "an accept that works");
+    assert!(accepts.take(Err(too_many_files()), 0, &counts).is_none());
     assert_eq!(pause(&accepts, &listener, &mut clients).await.0, ms(100), "the first pause again");
     tokio::time::sleep(ENTRY_GAP).await;
     accepts.note(&rule, &journal);
     let text = "7 accepts of a local connection failed since the last entry, the last: too many open files";
     assert_eq!(entries(&journal), [first, format!("Warning ams: {rule}: {text}")]);
+    assert_eq!(counts.read().0, Connections::default(), "a failed accept is no connection");
 }

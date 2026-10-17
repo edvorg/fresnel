@@ -9,8 +9,8 @@
 //!
 //! - `rule`: what the user asks for. `resolve`: from the stores to one pod and one port.
 //! - `state`: the facts and the state. `view`: what the view shows. `feed`: what a
-//!   connected cluster gives. `run`: the task. `accept`: its accepts. `conn`: one local
-//!   connection. `shared`: what the task and the connections share.
+//!   connected cluster gives. `run`: the task. `accept`: its accepts and their limit. `conn`:
+//!   one local connection. `shared`: what the task and the connections share.
 
 mod accept;
 mod conn;
@@ -51,6 +51,9 @@ pub struct ForwardSettings {
     pub linger: Duration,
     /// The pause before a local connection tries a tunnel again after a failure.
     pub retry_pause: Duration,
+    /// The open local connections at most. Each one holds a tunnel and an upgrade connection
+    /// to the API server; a new one above the limit gets a reset.
+    pub connections: usize,
     /// The pauses before the task of a forward starts again after a fault of its own.
     pub restart: Backoff,
 }
@@ -61,6 +64,7 @@ impl Default for ForwardSettings {
             wait: Duration::from_secs(5),
             linger: Duration::from_secs(1),
             retry_pause: Duration::from_millis(500),
+            connections: 64,
             restart: Backoff::default(),
         }
     }
@@ -109,6 +113,7 @@ impl Forward {
             publisher: publisher.clone(),
             feeds,
             retries: retries_seen,
+            limit: settings.connections,
             listener: Mutex::new(None),
             clock: parts.clock.clone(),
         });

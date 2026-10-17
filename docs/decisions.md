@@ -326,6 +326,13 @@ An accept that fails, for example with too many open files, fails again at once.
 after each failure in a row to 2 s, and the journal gets the first failure at once and the later
 ones in one entry a minute, with their count.
 
+## A forward has a limit of open local connections
+
+Each local connection holds a tunnel and an upgrade connection (TCP and TLS) to the API server
+(design rules 3 and 12). Above `connections` of `[forwards]`, 64 by default, a new client gets a
+reset at once. The journal gets the first reset at once and the later ones in one entry a
+minute, as for a failed accept: a client can connect again in a loop.
+
 ## Saved forwards are tables of config.toml
 
 The plan named a file `forwards.toml`. The settings view of M8 edits `config.toml` and keeps its
