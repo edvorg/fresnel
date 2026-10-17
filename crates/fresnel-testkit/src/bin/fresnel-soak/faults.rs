@@ -47,6 +47,8 @@ pub(crate) struct Faults<'a> {
     pace: &'a Pace,
     /// The time of the recreate of the cluster, until it came.
     recreate_at: Option<Instant>,
+    /// The last restart of the API server.
+    restarted_at: Option<Instant>,
     keeper: Keeper<'a>,
     /// The faults of the round that did not come yet.
     round: Vec<Fault>,
@@ -58,7 +60,7 @@ impl<'a> Faults<'a> {
         let (recreate_at, keeper) =
             (pace.recreate_after.map(|after| Instant::now() + after), Keeper::new(k3s, pace.line_pause));
         let (file, round, made) = (file.to_owned(), Vec::new(), BTreeMap::new());
-        Self { k3s, proxy, file, rng, pace, recreate_at, keeper, round, made }
+        Self { k3s, proxy, file, rng, pace, recreate_at, restarted_at: None, keeper, round, made }
     }
 
     /// Makes faults until the environment cannot be restored: the error tells why.
@@ -75,7 +77,13 @@ impl<'a> Faults<'a> {
                 self.round = ROUND.to_vec();
                 self.rng.shuffle(&mut self.round);
             }
-            match self.round.pop().unwrap_or(Fault::Reset) {
+            let mut fault = self.round.pop().unwrap_or(Fault::Reset);
+            if matches!(fault, Fault::Restart)
+                && self.restarted_at.is_some_and(|at| at.elapsed() < self.pace.restart_gap)
+            {
+                fault = Fault::Reset;
+            }
+            match fault {
                 Fault::Silence => {
                     self.note("silence", "each open connection is silent");
                     self.proxy.silence_open();
@@ -107,6 +115,7 @@ impl<'a> Faults<'a> {
                 Fault::Restart => {
                     self.note("restart", "a restart of the API server");
                     let start = Instant::now();
+                    self.restarted_at = Some(start);
                     let restarted = self.k3s.restart().await;
                     let result =
                         restarted.as_ref().map_or_else(|error| format!("failed: {error}"), |()| "ready".to_owned());

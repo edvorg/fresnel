@@ -1678,7 +1678,7 @@ jump of the wall clock is a sleep.
 `--fast` gives four times the changes and the faults, ten times the log lines, and a recreate of
 the cluster in the middle of the run: each object gets a new UID, and the resource versions start
 again, as after a restore of a backup. A part of the core that a UID, a pod or a connection keys
-and that keeps its entries shows in a short run.
+and keeps shows in a short run. Restarts of k3s keep their pace: each start loads the machine.
 
 ## Each difference of the systems is in a platform module
 

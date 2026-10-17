@@ -14,20 +14,32 @@ pub(crate) struct Pace {
     pub(crate) fault_pause: (u64, u64),
     /// When the faults recreate the cluster, from the start of the soak.
     pub(crate) recreate_after: Option<Duration>,
+    /// The shortest time between two restarts of the API server: in its place, a reset of
+    /// each connection comes.
+    pub(crate) restart_gap: Duration,
 }
 
 impl Pace {
     /// One change each 2 s, two lines each second, one fault each 2 to 6 minutes.
-    pub(crate) const NORMAL: Self =
-        Self { step: Duration::from_secs(2), line_pause: "0.5", fault_pause: (120, 360), recreate_after: None };
+    pub(crate) const NORMAL: Self = Self {
+        step: Duration::from_secs(2),
+        line_pause: "0.5",
+        fault_pause: (120, 360),
+        recreate_after: None,
+        restart_gap: Duration::ZERO,
+    };
 
-    /// Four times the changes and the faults, ten times the lines, and one recreate.
+    /// Four times the changes and the faults, ten times the lines, and one recreate. The
+    /// restarts of the API server keep their pace of the normal soak, one each 20 minutes at
+    /// most: k3s on a busy machine panicked at its start with a slow datastore, and with a
+    /// restart each 6 minutes the environment had more outages than minutes of the app.
     pub(crate) fn fast(minutes: u64) -> Self {
         Self {
             step: Duration::from_millis(500),
             line_pause: "0.05",
             fault_pause: (30, 90),
             recreate_after: Some(Duration::from_secs(minutes * 60 / 2)),
+            restart_gap: Duration::from_secs(20 * 60),
         }
     }
 }

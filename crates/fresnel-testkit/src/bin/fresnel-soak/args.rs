@@ -15,7 +15,8 @@ options:
   --seed <number>     the seed of the random changes and faults (default: from the clock)
   --fast              four times the changes and the faults, ten times the log lines, and
                       one recreate of the cluster in the middle of the run: each object
-                      gets a new UID
+                      gets a new UID. A restart of the API server comes each 20 minutes
+                      at most
   --cli <file>        the program fresnel-cli (default: the one next to this program)";
 
 pub(crate) struct Options {
