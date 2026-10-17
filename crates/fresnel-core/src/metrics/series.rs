@@ -225,6 +225,12 @@ impl Series {
         while samples.front().is_some_and(|sample| sample.at <= last) {
             samples.pop_front();
         }
+        // A vector of `imbl` keeps its chunks when its samples go. A tier with fewer chunks
+        // by `tier_bytes` gets a new vector, so the limit counts what the tier holds: a soak
+        // measured the series of deleted pods with each sample gone and a full chunk each.
+        if tier_bytes(samples.len()) < tier_bytes(before) {
+            *samples = samples.iter().copied().collect();
+        }
         before - samples.len()
     }
 

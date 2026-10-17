@@ -87,6 +87,21 @@ fn a_drop_removes_the_samples_of_a_tier_up_to_a_time() {
     assert_eq!((series.oldest(Tier::Coarse), series.len()), (None, 3));
 }
 
+/// A vector keeps its chunks when its samples go: a drop to a size of fewer chunks makes a
+/// new tier, so the memory limit counts what the tier holds.
+#[test]
+fn a_tier_that_drops_to_two_samples_holds_no_chunk() {
+    let mut series = Series::default();
+    for step in 0..100 {
+        series.push(sample(START + step * 15, 1, 1), &TIERS);
+    }
+    assert!(!series.fine.is_inline());
+    assert_eq!(series.drop_through(Tier::Fine, START + 97 * 15), 98);
+    assert!(series.fine.is_inline(), "two samples need no chunk");
+    assert_eq!((series.oldest(Tier::Fine), series.fine.len()), (Some(START + 98 * 15), 2));
+    assert_eq!(series.bytes(), tier_bytes(series.coarse.len()));
+}
+
 #[test]
 fn a_cover_never_expects_fewer_objects_than_it_has_and_stops_at_its_largest_count() {
     assert_eq!(Cover::new(3, 4), Cover { sampled: 3, of: 4 });

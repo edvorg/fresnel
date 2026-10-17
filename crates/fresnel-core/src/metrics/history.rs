@@ -50,10 +50,11 @@ impl SeriesKey {
 }
 
 const RANKS: usize = 6;
-/// The part that one series costs besides its tiers: the series, its key, the node of the
-/// map and the names of the key, two times: the sampler keeps one map of the series and
-/// publishes a copy of it. An estimate: the limit is a setting, not a measure.
-pub(crate) const SERIES_BYTES: usize = 2 * (size_of::<Series>() + size_of::<SeriesKey>() + 96);
+/// The part that one series costs besides its tiers: the series and its key in a node of the
+/// map, two times: the sampler keeps one map of the series and publishes a copy of it. A node
+/// holds 11 entries and is a part full: a measure gave 1.8 times the entry for each one. The
+/// names of the key add some bytes. An estimate: the limit is a setting, not a measure.
+pub(crate) const SERIES_BYTES: usize = 2 * 2 * (size_of::<Series>() + size_of::<SeriesKey>()) + 96;
 /// The most that a sample of the last answer can be older than the last sample of its
 /// series and still be of now, in seconds: the same sample again, or the one of a second
 /// replica of the server, which scrapes on its own within the longest period of 60 s
