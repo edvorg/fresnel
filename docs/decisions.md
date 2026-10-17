@@ -1653,10 +1653,10 @@ peak.
 ## Each minute of the soak has a memory account of the core
 
 `Core::memory` gives the items and the bytes of each bounded part: each store, index, log ring
-and metrics history, the journal, the tasks, the jobs, the forwards and the channels. A buffer
-gives the bytes that its limit counts. For the objects of a store, the bytes that a copy
-allocates on the thread of the walk are the measure: the counting allocator counts for each
-thread. The report names the parts that grew most.
+and metrics history, the journal, the tasks, the jobs, the forwards and the channels. For a store,
+a ring and a history, the measure is the bytes that a copy allocates on the thread of the walk,
+which the allocator counts for each thread. A part above the limit of its buffer fails the soak;
+the report names the parts that grew.
 
 ## The harness of the soak is a program of the test kit
 
