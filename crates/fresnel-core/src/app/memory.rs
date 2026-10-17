@@ -6,6 +6,8 @@
 //! has: the stores on demand and the commands that wait. The copies of the objects of the
 //! stores then take their time outside each lock.
 
+use std::hint::black_box;
+
 use fresnel_net::ClusterStatus;
 use fresnel_net::task::TaskStatus;
 
@@ -76,7 +78,8 @@ fn cluster(data: &ClusterData, account: &mut Account) {
     }
     data.metrics.account(account);
     for view in data.logs.iter() {
-        account.add("log ring", view.lines.len(), view.bytes);
+        let bytes = account.measure(&mut || drop(black_box(view.lines.rebuilt())));
+        account.add("log ring", view.lines.len(), bytes);
         account.add("log sources", view.sources.len(), view.sources.len() * size_of::<SourceView>());
     }
     account.add("log saves", data.saves.len(), 0);

@@ -6,6 +6,7 @@
 //! leave the ring: a scroll position, a selection and a search hit hold a number.
 
 use std::fmt;
+use std::sync::Arc;
 
 use imbl::Vector;
 
@@ -52,6 +53,17 @@ impl Lines {
     pub fn get(&self, number: u64) -> Option<&LogLine> {
         let index = number.checked_sub(self.first)?;
         self.lines.get(usize::try_from(index).ok()?)
+    }
+
+    /// A copy that shares no line and no text with these lines: the memory account measures
+    /// the ring with it.
+    pub(crate) fn rebuilt(&self) -> Self {
+        let line = |line: &LogLine| LogLine {
+            text: Arc::from(&*line.text),
+            spans: line.spans.as_deref().map(Arc::from),
+            ..line.clone()
+        };
+        Self { lines: self.lines.iter().map(line).collect(), first: self.first }
     }
 
     /// The lines from the number `from` to the number before `to`, with their numbers. The
@@ -181,6 +193,19 @@ mod tests {
         huge.text = "x".repeat(10 * weight).into();
         ring.push(huge);
         assert_eq!((ring.lines().len(), ring.lines().first(), ring.dropped()), (1, 10, 10));
+    }
+
+    /// The memory account measures a copy with texts of its own.
+    #[test]
+    fn a_rebuilt_copy_has_each_line_with_its_number_and_a_text_of_its_own() {
+        let mut ring = Ring::new(RingLimits { lines: 3, bytes: usize::MAX });
+        (0..5).for_each(|number| ring.push(line(number)));
+        let (lines, copy) = (ring.lines(), ring.lines().rebuilt());
+        assert_eq!((copy.first(), copy.end()), (2, 5));
+        for ((number, line), (copied, copy)) in lines.range(0, 5).zip(copy.range(0, 5)) {
+            assert_eq!((number, line), (copied, copy));
+            assert!(!Arc::ptr_eq(&line.text, &copy.text));
+        }
     }
 
     #[test]
