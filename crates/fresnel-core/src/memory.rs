@@ -1,10 +1,11 @@
 //! The memory account of the core: the size of each bounded part at one moment (design
 //! rule 12). A soak records it each minute, so a part that grows tells its name.
 //!
-//! A part gives its items and its bytes. A buffer that counts its bytes for its limit, as
-//! the ring of a log view and the history of the metrics, gives that count; a record of a
-//! known shape gives its count times its size. The objects of a store have no known size:
-//! a [`Scale`] of the program measures a copy of them.
+//! A part gives its items and its bytes. A record of a known shape gives its count times its
+//! size, and the journal the lengths of its texts. The objects of a store, the ring of a log
+//! view and the history of the metrics hold chunks and nodes whose size their types do not
+//! tell: a [`Scale`] of the program measures a copy of them, so a soak sees whether a buffer
+//! holds more than its limit counts.
 
 /// One part of the core at one moment.
 #[derive(Clone, Debug, PartialEq, Eq)]
