@@ -40,6 +40,28 @@ async fn a_tunnel_carries_the_bytes_of_a_port_in_each_direction_in_their_sequenc
     assert_eq!((sockets.closed, sockets.sent, sockets.received), (1, pieces, pieces + 2 * 3));
 }
 
+/// A tunnel is open when the node starts its data channel with the port, not at the answer
+/// HTTP 101: a forward limits the time of an open, so a node that starts no stream is a
+/// stalled open, not a tunnel that carries nothing.
+#[tokio::test]
+async fn a_tunnel_opens_when_the_node_starts_its_data_channel() {
+    let bed = Bed::start(NetSettings::default()).await;
+    bed.server.mute_forwards(true);
+    let web = pod();
+    let opening = Tunnel::open(&bed.link.gateway, &web, 8080, journal());
+    tokio::pin!(opening);
+    tokio::select! {
+        opened = &mut opening => panic!("a tunnel before its stream: {opened:?}"),
+        _upgraded = bed.server.wait_for(|counters| counters.upgrades == 1) => {}
+    }
+    let early = tokio::time::timeout(SECOND / 2, &mut opening).await;
+    assert!(early.is_err(), "a tunnel before its stream: {early:?}");
+    bed.server.mute_forwards(false);
+    let mut tunnel = in_time("the start of the stream", opening).await.expect("a tunnel");
+    tunnel.writer().send(b"one").await.expect("the data");
+    assert_eq!(in_time("the data", tunnel.next()).await.as_deref(), Some(&b"one"[..]));
+}
+
 /// A node writes the failure of its dial on the error channel and ends the connection. A
 /// forward needs the text: three of them in sequence make a port that is closed.
 #[tokio::test]

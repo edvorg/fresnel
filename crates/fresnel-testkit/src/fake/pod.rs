@@ -10,7 +10,9 @@
 //!
 //! The end of a process or of a port closes the TLS connection with no close message, as
 //! the API server does. While the test holds the streams, the peer reads nothing: a pod
-//! that reads no input, whose buffers are full, so that no ping is answered either.
+//! that reads no input, whose buffers are full, so that no ping is answered either. While
+//! the test mutes the port forwards, a new one gets no port on its channels: a node that
+//! does not start the stream after the answer HTTP 101.
 
 use std::sync::Arc;
 
@@ -156,6 +158,7 @@ fn status(code: i32) -> String {
 }
 
 async fn forward(shared: &Shared, socket: &mut Socket, ports: &[u16]) -> Result<(), WsError> {
+    shared.until_forwards_start().await;
     for (data, port) in (0_u8..).step_by(2).zip(ports) {
         socket.send(message(data, &port.to_le_bytes())).await?;
         socket.send(message(data + 1, &port.to_le_bytes())).await?;

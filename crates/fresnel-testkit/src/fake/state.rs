@@ -36,6 +36,8 @@ pub(super) struct Shared {
     exec_protocols: Mutex<&'static [&'static str]>,
     /// True while the WebSocket peers read nothing.
     streams_held: watch::Sender<bool>,
+    /// True while a node starts no new port forward.
+    forwards_muted: watch::Sender<bool>,
     script: Mutex<Script>,
 }
 
@@ -75,6 +77,7 @@ impl Shared {
             ends_unauthenticated: AtomicBool::new(false),
             exec_protocols: Mutex::new(&[pod::V5, pod::V4]),
             streams_held: watch::Sender::new(false),
+            forwards_muted: watch::Sender::new(false),
             script: Mutex::new(Script::default()),
         }
     }
@@ -103,6 +106,19 @@ impl Shared {
     pub(super) async fn until_streams_held(&self) {
         let mut held = self.streams_held.subscribe();
         if held.wait_for(|held| *held).await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+
+    pub(super) fn mute_forwards(&self, muted: bool) {
+        self.forwards_muted.send_replace(muted);
+    }
+
+    /// Waits until a node starts the streams of a port forward. The sender lives in `self`,
+    /// so the wait cannot fail.
+    pub(super) async fn until_forwards_start(&self) {
+        let mut muted = self.forwards_muted.subscribe();
+        if muted.wait_for(|muted| !muted).await.is_err() {
             std::future::pending::<()>().await;
         }
     }

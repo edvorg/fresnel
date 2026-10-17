@@ -143,6 +143,12 @@ impl FakeApiServer {
         self.shared.hold_streams(held);
     }
 
+    /// While `muted` is true, a new port forward gets HTTP 101 and then no byte: a node that
+    /// does not start its stream. Each one starts when the mute ends.
+    pub fn mute_forwards(&self, muted: bool) {
+        self.shared.mute_forwards(muted);
+    }
+
     /// Sends GOAWAY on each open HTTP/2 connection. Such a connection takes no new stream
     /// and closes after its last open stream ends.
     pub fn go_away(&self) {

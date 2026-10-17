@@ -6,6 +6,10 @@
 //! (0) and its error (1). The server starts each channel with the port, two bytes in little
 //! endian. The node dials the port in the pod at once, and writes a failure on the error
 //! channel, for example "connection refused", before the end of the socket.
+//!
+//! A tunnel is open when the port arrives on its data channel: the node has the stream then,
+//! before it dials the pod. A forward limits the time of an open, so an answer HTTP 101 with
+//! no stream behind it is a stalled open too, not a tunnel that carries nothing.
 
 use std::sync::Arc;
 
@@ -18,6 +22,7 @@ use crate::cluster::{ClusterId, Gateway};
 use crate::error::CoreError;
 use crate::journal::Journal;
 use crate::kinds::Kind;
+use crate::net::ErrorClass;
 use crate::store::ObjectKey;
 
 /// A tunnel has one port: one TCP connection in the pod.
@@ -46,14 +51,19 @@ pub struct Tunnel {
     error_port: Prefix,
     error: Vec<u8>,
     invalid: Option<String>,
+    /// Data of the port that came in the message that ended the port at the start of the
+    /// channel, for the next call of [`Tunnel::next`].
+    pending: Option<Bytes>,
     what: Arc<str>,
     cluster: ClusterId,
     journal: Journal,
 }
 
 impl Tunnel {
-    /// Opens a tunnel to `port` of the pod on a warm or a new upgrade connection. The journal
-    /// gets each abnormal end of its socket; a forward with many tunnels tells the rest.
+    /// Opens a tunnel to `port` of the pod on a warm or a new upgrade connection, and waits
+    /// until the node starts its data channel. The caller sets the time limit of that wait.
+    /// The journal gets each abnormal end of its socket; a forward with many tunnels tells
+    /// the rest.
     pub async fn open(gateway: &Gateway, pod: &ObjectKey, port: u16, journal: Journal) -> Result<Self, CoreError> {
         if pod.namespace.is_empty() {
             return Err(CoreError::invalid("a pod is in a namespace, and the port forward has none"));
@@ -69,17 +79,41 @@ impl Tunnel {
             on_end: Some(journaled(&journal, &cluster, &what)),
         };
         let socket = gateway.upgrade(request, spec).await?;
-        Ok(Self {
+        let mut tunnel = Self {
             socket,
             port,
             data_port: Prefix::default(),
             error_port: Prefix::default(),
             error: Vec::new(),
             invalid: None,
+            pending: None,
             what: what.into(),
             cluster,
             journal,
-        })
+        };
+        tunnel.started().await?;
+        Ok(tunnel)
+    }
+
+    /// Reads until the port arrived on the data channel. An end before it is an error: the
+    /// text of the node, or the end of the socket.
+    async fn started(&mut self) -> Result<(), CoreError> {
+        while !self.data_port.is_complete() {
+            match self.receive().await {
+                Some(data) => self.pending = data,
+                None => {
+                    let text = match self.end() {
+                        Some(TunnelEnd::Refused(text)) => format!("the node refused it: {}", text.trim()),
+                        Some(TunnelEnd::Invalid(text)) => text,
+                        Some(TunnelEnd::Socket(end)) => format!("the socket ended: {end}"),
+                        None => "the socket ended".to_owned(),
+                    };
+                    let text = format!("{} ended before the node started it: {text}", self.what);
+                    return Err(CoreError::new(ErrorClass::Network, text));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The handle that sends data to the port.
@@ -89,33 +123,44 @@ impl Tunnel {
 
     /// The next data of the port. `None` after the end, which [`Tunnel::end`] then tells.
     pub async fn next(&mut self) -> Option<Bytes> {
+        if let Some(data) = self.pending.take() {
+            return Some(data);
+        }
         loop {
-            let message = self.socket.recv().await?;
-            let Some((number, data)) = channel::split(&message) else { continue };
-            let prefix = match number {
-                DATA => &mut self.data_port,
-                ERROR => &mut self.error_port,
-                other => {
-                    self.refuse(format!("the server sent data on channel {other}, and a tunnel has two"));
-                    continue;
-                }
-            };
-            let data = match prefix.strip(data, self.port) {
-                Ok(data) => data,
-                Err(text) => {
-                    self.refuse(text);
-                    continue;
-                }
-            };
-            match number {
-                _ if data.is_empty() || self.invalid.is_some() => {}
-                DATA => return Some(data),
-                _ => {
-                    let room = MAX_ERROR.saturating_sub(self.error.len());
-                    self.error.extend(data.iter().take(room));
-                }
+            if let Some(data) = self.receive().await? {
+                return Some(data);
             }
         }
+    }
+
+    /// Reads one message: the data of the port in it, if any. `None` after the end.
+    async fn receive(&mut self) -> Option<Option<Bytes>> {
+        let message = self.socket.recv().await?;
+        let Some((number, data)) = channel::split(&message) else { return Some(None) };
+        let prefix = match number {
+            DATA => &mut self.data_port,
+            ERROR => &mut self.error_port,
+            other => {
+                self.refuse(format!("the server sent data on channel {other}, and a tunnel has two"));
+                return Some(None);
+            }
+        };
+        let data = match prefix.strip(data, self.port) {
+            Ok(data) => data,
+            Err(text) => {
+                self.refuse(text);
+                return Some(None);
+            }
+        };
+        match number {
+            _ if data.is_empty() || self.invalid.is_some() => {}
+            DATA => return Some(Some(data)),
+            _ => {
+                let room = MAX_ERROR.saturating_sub(self.error.len());
+                self.error.extend(data.iter().take(room));
+            }
+        }
+        Some(None)
     }
 
     /// The end, once the socket ended.
@@ -175,6 +220,11 @@ impl TunnelWriter {
 struct Prefix(Vec<u8>);
 
 impl Prefix {
+    /// True after both bytes of the port arrived.
+    fn is_complete(&self) -> bool {
+        self.0.len() == 2
+    }
+
     /// Takes the bytes of the port from the start of `data` and gives the rest. The port
     /// must be the one of the request.
     fn strip(&mut self, data: Bytes, port: u16) -> Result<Bytes, String> {
