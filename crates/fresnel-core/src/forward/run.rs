@@ -10,11 +10,10 @@ use std::time::Duration;
 use fresnel_net::local::LocalListener;
 use fresnel_net::{Cause, WallClock};
 use tokio::sync::watch;
-use tokio::task::{JoinError, JoinSet};
 use tokio::time::{Instant, MissedTickBehavior, interval};
 
 use super::accept::Accepts;
-use super::conn;
+use super::clients::Clients;
 use super::feed::{Feed, FeedChanges, StoreFacts};
 use super::resolve::{Inputs, Owner, Resolution, resolve};
 use super::rule::ForwardRule;
@@ -67,7 +66,7 @@ pub(super) async fn run(parts: Arc<Parts>) -> Result<(), CoreError> {
     let mut changes = feed.as_ref().ok().map(|feed| feed.changes());
     // The warm set of the cluster keeps upgrade connections ready for the next tunnels.
     let mut _warm = feed.as_ref().ok().map(|feed| feed.net.keep_upgrades_warm());
-    let mut connections = JoinSet::new();
+    let mut clients = Clients::new(parts.rule.clone(), Arc::clone(&parts.shared));
     let mut accepts = Accepts::new(parts.limit);
     let mut retries = parts.retries.clone();
     let mut tick = interval(TICK);
@@ -76,16 +75,8 @@ pub(super) async fn run(parts: Arc<Parts>) -> Result<(), CoreError> {
         run.step(feed.as_ref());
         accepts.note(&parts.rule, &parts.shared.journal);
         tokio::select! {
-            accepted = accepts.next(&listener) => {
-                // A connection that ended leaves the count before the check of the limit.
-                while let Some(done) = connections.try_join_next() {
-                    joined(&parts, done);
-                }
-                if let Some(local) = accepts.take(accepted, connections.len(), &parts.shared.counts) {
-                    connections.spawn(conn::serve(local, Arc::clone(&parts.shared), run.gate.subscribe()));
-                }
-            }
-            Some(done) = connections.join_next(), if !connections.is_empty() => joined(&parts, done),
+            accepted = accepts.next(&listener) => clients.admit(accepted, &mut accepts, &run.gate),
+            () = clients.ended() => {}
             () = parts.shared.changed.notified() => {}
             // An error: the owner of the forward is gone, and its drop stops this task next.
             Ok(()) = feeds.changed() => {
@@ -97,17 +88,6 @@ pub(super) async fn run(parts: Arc<Parts>) -> Result<(), CoreError> {
             Ok(()) = retries.changed() => run.retry_now(feed.as_ref()),
             _ = tick.tick() => {}
         }
-    }
-}
-
-/// Takes the end of the task of a local connection. It ends with no result; its outcome went
-/// to the reports.
-fn joined(parts: &Parts, done: Result<(), JoinError>) {
-    if let Err(error) = done
-        && error.is_panic()
-    {
-        let text = format!("{}: the task of a local connection panicked: {error}", parts.rule);
-        parts.shared.journal.error(parts.rule.cluster.as_str(), text);
     }
 }
 

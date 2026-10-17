@@ -9,10 +9,12 @@
 //!
 //! - `rule`: what the user asks for. `resolve`: from the stores to one pod and one port.
 //! - `state`: the facts and the state. `view`: what the view shows. `feed`: what a
-//!   connected cluster gives. `run`: the task. `accept`: its accepts and their limit. `conn`:
-//!   one local connection. `shared`: what the task and the connections share.
+//!   connected cluster gives. `run`: the task. `accept`: its accepts and their limit.
+//!   `clients`: the tasks of the connections. `conn`: one local connection. `shared`: what
+//!   the task and the connections share.
 
 mod accept;
+mod clients;
 mod conn;
 mod feed;
 mod resolve;
