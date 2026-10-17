@@ -22,6 +22,7 @@ use super::starter::{Form, Running, Starter};
 use crate::error::CoreError;
 use crate::kinds::{Describe, Kind};
 use crate::published::{Held, Reader};
+use crate::search::Source;
 use idle::Entries;
 
 /// A reader of the full objects of one kind, for a view. The store stays on while a
@@ -118,6 +119,11 @@ impl Demands {
         let restart = Restart::Always(Backoff::default());
         let task = tasks.start(name, restart, move || stop_idle(weak.clone(), Arc::clone(&released)));
         Self { _idle_stop: task, shared }
+    }
+
+    /// The snapshot of each store on demand, also of one with no holder in its last time.
+    pub(super) fn sources(&self) -> Vec<Source> {
+        self.shared.entries().running().map(Running::source).collect()
     }
 
     pub(super) fn settings(&self) -> &StoreSettings {

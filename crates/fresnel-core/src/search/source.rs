@@ -8,6 +8,7 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use super::score::Matcher;
 use crate::cluster::ClusterId;
 use crate::kinds::{Describe, Kind, Meta, Object};
+use crate::memory::Account;
 use crate::published::Held;
 use crate::store::{ObjectKey, Snapshot, StoreStatus};
 
@@ -41,6 +42,9 @@ trait Searchable: Send + Sync {
     /// Gives the metadata of each object.
     fn each_meta(&self, visit: &mut dyn FnMut(&ObjectKey, &ObjectMeta));
 
+    /// The bytes of the objects, for the memory account.
+    fn bytes(&self, account: &Account) -> usize;
+
     /// Gives each object that matches, with its score. False when `cancel` stopped the walk.
     fn find<'s>(
         &'s self,
@@ -50,7 +54,7 @@ trait Searchable: Send + Sync {
     ) -> bool;
 }
 
-impl<T: Searched> Searchable for Held<Snapshot<T>> {
+impl<T: Searched + Clone> Searchable for Held<Snapshot<T>> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -61,6 +65,10 @@ impl<T: Searched> Searchable for Held<Snapshot<T>> {
 
     fn each_meta(&self, visit: &mut dyn FnMut(&ObjectKey, &ObjectMeta)) {
         self.items.iter().for_each(|(key, object)| visit(key, object.meta()));
+    }
+
+    fn bytes(&self, account: &Account) -> usize {
+        self.items.bytes(account)
     }
 
     fn find<'s>(
@@ -103,7 +111,7 @@ impl Source {
     }
 
     /// The snapshot of the store of a kind, with the objects of its type.
-    pub(crate) fn of<T: Searched>(kind: Kind, snapshot: Held<Snapshot<T>>) -> Self {
+    pub(crate) fn of<T: Searched + Clone>(kind: Kind, snapshot: Held<Snapshot<T>>) -> Self {
         Self { status: snapshot.status(kind), objects: Arc::new(snapshot) }
     }
 
@@ -123,6 +131,12 @@ impl Source {
     /// a list of the API.
     pub fn each_meta(&self, visit: &mut dyn FnMut(&ObjectKey, &ObjectMeta)) {
         self.objects.each_meta(visit);
+    }
+
+    /// The bytes of the objects on the heap, as the scale of `account` measures a copy of
+    /// them (the memory account).
+    pub fn bytes(&self, account: &Account) -> usize {
+        self.objects.bytes(account)
     }
 
     pub(super) fn find<'s>(

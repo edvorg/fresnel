@@ -184,6 +184,15 @@ impl Journal {
         view
     }
 
+    /// The entries in memory and their bytes: each entry with its two texts, its counts of
+    /// the shared pointer, and its place in the list (the memory account).
+    pub(crate) fn size(&self) -> (usize, usize) {
+        let ring = lock(&self.shared.ring);
+        let each = size_of::<Entry>() + 2 * size_of::<usize>() + size_of::<Arc<Entry>>();
+        let texts: usize = ring.entries.iter().map(|entry| entry.source.capacity() + entry.text.capacity()).sum();
+        (ring.entries.len(), ring.entries.len() * each + texts)
+    }
+
     /// Puts the entry into the list, with a short text if its text is long. Gives the
     /// entry with its full text for the sink.
     fn store(&self, level: Level, source: String, text: String) -> Arc<Entry> {

@@ -73,6 +73,11 @@ impl<R> Entries<R> {
         (stopped, next)
     }
 
+    /// Each running store.
+    pub(super) fn running(&self) -> impl Iterator<Item = &R> {
+        self.stores.values().map(|entry| &entry.running)
+    }
+
     /// Takes each store out of the map.
     pub(super) fn take_all(&mut self) -> Vec<R> {
         self.stores.drain().map(|(_, entry)| entry.running).collect()

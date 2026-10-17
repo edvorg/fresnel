@@ -50,9 +50,9 @@ impl Sidebar {
 /// A value of the description comes from the object alone, with no clock and no other
 /// object. Thus a row of a table changes only when its own object changes. A view writes
 /// the status of an object as JSON to read the parts that each kind has, such as its
-/// conditions.
+/// conditions. A copy of an object is the measure of its bytes in the memory account.
 pub trait Describe:
-    Resource<Scope: Scope> + Metadata<Ty = ObjectMeta> + DeserializeOwned + Serialize + Send + Sync + 'static
+    Resource<Scope: Scope> + Metadata<Ty = ObjectMeta> + DeserializeOwned + Serialize + Clone + Send + Sync + 'static
 {
     /// The identity of the kind. The list of the kinds checks that it names this type.
     /// (The name `KIND` is the name of the kind in a manifest, from `Resource`.)

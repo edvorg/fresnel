@@ -22,6 +22,7 @@ use super::links::Links;
 use super::source::{SourceStatus, Tracked};
 use super::task::{Answer, Index, IndexState, Indexer, Read};
 use crate::kinds::Kind;
+use crate::memory::Account;
 use crate::published::Reader;
 use crate::store::{Change, Items, ObjectKey, Snapshot};
 
@@ -35,6 +36,15 @@ pub struct ObjectEvents {
     by_name: Links<(Kind, ObjectKey), ObjectKey>,
     /// The Events of the last read, so that an answer and its relation are of one moment.
     events: Items<Event>,
+}
+
+impl super::Measured for ObjectEvents {
+    /// The Events are those of their store: they count, with no bytes.
+    fn account(&self, index: &str, account: &mut Account) {
+        super::links(&format!("{index} by UID"), &self.by_uid, account);
+        super::links(&format!("{index} by name"), &self.by_name, account);
+        account.add(&format!("{index} Events"), self.events.len(), 0);
+    }
 }
 
 impl Index<ObjectEvents> {

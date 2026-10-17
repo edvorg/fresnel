@@ -54,3 +54,16 @@ async fn the_commands_that_wait_have_a_limit_and_a_lost_command_is_in_the_journa
     let waiting = core.inner.state().commands.len();
     assert_eq!((waiting, journal(&core).len()), (0, 1));
 }
+
+#[tokio::test]
+async fn the_memory_account_names_the_journal_the_tasks_and_the_commands_of_a_core_with_no_cluster() {
+    let core = core();
+    core.inner.journal.info(APP, "one entry");
+    (0..3).for_each(|_| core.send(Command::RetryNow(ClusterId::new("ams"))));
+    let parts = core.memory(&crate::memory::NoScale);
+    let items = |name: &str| parts.iter().find(|part| part.name == name).map(|part| part.items);
+    assert_eq!((items("journal"), items("commands"), items("jobs")), (Some(1), Some(3), Some(0)));
+    let journal = parts.iter().find(|part| part.name == "journal").map_or(0, |part| part.bytes);
+    assert!(journal >= "one entry".len() + APP.len(), "{journal}");
+    assert!(parts.iter().all(|part| !part.name.contains(": ")), "no cluster: {parts:?}");
+}

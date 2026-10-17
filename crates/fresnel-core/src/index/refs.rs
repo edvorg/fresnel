@@ -19,6 +19,7 @@ use super::links::Links;
 use super::source::{SourceStatus, Tracked};
 use super::task::{Answer, Index, IndexState, Indexer, Read};
 use crate::kinds::Kind;
+use crate::memory::Account;
 use crate::published::Reader;
 use crate::store::{Change, Items, ObjectKey, Snapshot};
 
@@ -37,6 +38,12 @@ pub struct Target {
 pub struct References {
     /// From an object to each pod that uses it.
     users: Links<Target, ObjectKey>,
+}
+
+impl super::Measured for References {
+    fn account(&self, index: &str, account: &mut Account) {
+        super::links(&format!("{index} users"), &self.users, account);
+    }
 }
 
 impl Index<References> {

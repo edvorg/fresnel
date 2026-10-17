@@ -20,6 +20,7 @@
 //! - `repaint`: the notifier. `health`: the one state of a cluster. `view`: the copies.
 //! - `parts`: what the program gives to the core, and the settings of the core.
 //! - `notices`: the notices of the system for a failed operation and a lost cluster.
+//! - `memory`: the size of each bounded part, for a soak.
 
 mod access;
 mod command;
@@ -34,6 +35,7 @@ mod jobs;
 mod keys;
 mod logs;
 mod manifest;
+mod memory;
 mod notices;
 mod objects;
 mod parts;

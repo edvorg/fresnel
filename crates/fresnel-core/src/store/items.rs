@@ -5,6 +5,7 @@
 //! For the same reason, the differences between two snapshots cost a time that follows the
 //! count of the changes and not the count of the objects.
 
+use std::hint::black_box;
 use std::sync::Arc;
 
 use imbl::OrdMap;
@@ -12,6 +13,7 @@ use imbl::ordmap::DiffItem;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
 use crate::kinds::Object;
+use crate::memory::Account;
 
 /// The identity of one object in the store of its kind: namespace and name. The sequence
 /// is the sequence of a list by namespace and name.
@@ -142,6 +144,21 @@ impl<T> Items<T> {
     }
 }
 
+impl<T: Clone> Items<T> {
+    /// The bytes of the objects (the memory account): a copy of each object and of its key
+    /// by the scale of the account, and for each one its shared pointer and its entry in
+    /// the map. A copy that a reader holds shares these bytes.
+    pub(crate) fn bytes(&self, account: &Account) -> usize {
+        let copies = account.measure(&mut || {
+            for (key, object) in self.iter() {
+                black_box((ObjectKey::new(&key.namespace, &key.name), T::clone(object)));
+            }
+        });
+        let each = size_of::<(ObjectKey, Entry<T>)>() + 2 * size_of::<usize>() + size_of::<T>();
+        copies + self.len() * each
+    }
+}
+
 impl<T: Object> FromIterator<Arc<T>> for Items<T> {
     /// The objects of a list as a store holds them. A test of a reader builds the snapshot
     /// of each state with it. An object with no name is not an entry, as in a store.
@@ -212,5 +229,37 @@ mod tests {
         assert_eq!(keys, ["lab/web", "shop/api", "shop/web"]);
         let counts = ["", "lab", "sho", "shop", "shop2"].map(|namespace| items.count_in(namespace));
         assert_eq!(counts, [0, 1, 0, 2, 0], "a namespace counts its own objects only");
+    }
+
+    /// An object that counts its copies.
+    struct Counted(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Clone for Counted {
+        fn clone(&self) -> Self {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Self(Arc::clone(&self.0))
+        }
+    }
+
+    /// The scale of the test: 100 bytes for each copy of the walk.
+    struct Hundred;
+
+    impl crate::memory::Scale for Hundred {
+        fn bytes(&self, copy: &mut dyn FnMut()) -> usize {
+            copy();
+            100
+        }
+    }
+
+    #[test]
+    fn the_bytes_of_the_objects_are_the_measure_of_a_copy_of_each_one_and_their_entries() {
+        let copies = Arc::default();
+        let mut items = Items::default();
+        for name in ["a", "b", "c"] {
+            items.insert(key(name), Arc::new(Counted(Arc::clone(&copies))));
+        }
+        let each = size_of::<(ObjectKey, Entry<Counted>)>() + 2 * size_of::<usize>() + size_of::<Counted>();
+        assert_eq!(items.bytes(&Account::new(&Hundred)), 100 + 3 * each);
+        assert_eq!(copies.load(std::sync::atomic::Ordering::Relaxed), 3, "a copy of each object");
     }
 }

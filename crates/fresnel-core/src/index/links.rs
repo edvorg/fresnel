@@ -57,6 +57,13 @@ impl<K: Ord + Clone, V: Ord + Clone> Links<K, V> {
         self.map.get(from).into_iter().flatten()
     }
 
+    /// The count of links and their bytes: each key and each value in the nodes of the map,
+    /// with no text, which the keys share with the stores (the memory account).
+    pub(super) fn size(&self) -> (usize, usize) {
+        let links: usize = self.map.values().map(OrdSet::len).sum();
+        (links, self.map.len() * size_of::<(K, OrdSet<V>)>() + links * size_of::<V>())
+    }
+
     /// The count of keys with a link.
     #[cfg(test)]
     pub(super) fn keys(&self) -> usize {

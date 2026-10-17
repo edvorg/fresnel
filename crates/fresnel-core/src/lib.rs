@@ -13,7 +13,8 @@
 //! - [`ops`]: the operations on objects, as jobs, and the permissions of the user.
 //! - [`metrics`]: the sampler of each cluster and the history of its CPU and memory.
 //! - [`published`]: the one type that publishes a state to its readers.
-//! - [`journal`]: the list of events, warnings and errors.
+//! - [`journal`]: the list of events, warnings and errors. [`memory`]: the size of each
+//!   bounded part of the core, for a soak.
 //! - [`config`]: the settings file of the user. [`state_file`]: what the app keeps from one
 //!   run to the next.
 //!
@@ -36,6 +37,7 @@ pub mod kinds;
 pub mod kubeconfig;
 pub mod logs;
 pub mod manifest;
+pub mod memory;
 pub mod metrics;
 pub mod ops;
 pub mod published;

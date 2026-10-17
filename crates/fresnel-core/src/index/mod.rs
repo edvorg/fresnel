@@ -33,9 +33,11 @@ pub use task::{Answer, Basis, Index, IndexState};
 use crate::cluster::ClusterId;
 use crate::error::CoreError;
 use crate::kinds::Describe;
+use crate::memory::Account;
 use crate::published::{Bin, Changes, Notice, Publisher, Reader};
 use crate::store::{ClusterStores, Snapshot};
 use events::EventIndexer;
+use links::Links;
 use owner::OwnerIndexer;
 use refs::ReferenceIndexer;
 use task::Indexer;
@@ -83,6 +85,23 @@ impl Starter<'_> {
         });
         Running { publisher, _task: task }
     }
+}
+
+/// The relations of an index in the memory account.
+pub(crate) trait Measured {
+    /// Adds each relation, with `index` before its name.
+    fn account(&self, index: &str, account: &mut Account);
+}
+
+/// Adds the relations of an index to the memory account, with `name` before each part.
+pub(crate) fn account<R: Measured>(index: &Index<R>, name: &str, account: &mut Account) {
+    index.relations().account(name, account);
+}
+
+/// Adds the links of one relation.
+fn links<K: Ord + Clone, V: Ord + Clone>(name: &str, links: &Links<K, V>, account: &mut Account) {
+    let (items, bytes) = links.size();
+    account.add(name, items, bytes);
 }
 
 /// The store of a tier A kind that an index reads.

@@ -146,6 +146,12 @@ impl ClusterStores {
         self.stores.iter().map(Running::source).collect()
     }
 
+    /// The snapshot of each store on demand that runs, for the memory account: a store
+    /// stays some time after its last holder, and no view shows it then.
+    pub fn demand_sources(&self) -> Vec<Source> {
+        self.demands.sources()
+    }
+
     /// A reader of the store of a tier A kind, with its full objects. `None` for a kind of
     /// an other tier, and for the Events when the settings give them no store.
     pub fn full<K: Describe>(&self) -> Option<Reader<Snapshot<K>>> {

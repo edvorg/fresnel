@@ -247,6 +247,11 @@ impl Connected {
         (self.gateway.clone(), self.pods.clone())
     }
 
+    /// The snapshot of each store on demand, for the memory account.
+    pub(super) fn demand_sources(&self) -> Vec<Source> {
+        self.stores.demand_sources()
+    }
+
     /// What the forwards of the cluster read.
     pub(super) fn feed(&self) -> Option<Arc<Feed>> {
         self.feed.clone()

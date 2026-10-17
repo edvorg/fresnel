@@ -35,7 +35,7 @@ struct Store<T> {
     clock: WallClock,
 }
 
-impl<T: Searched> AnyStore for Store<T> {
+impl<T: Searched + Clone> AnyStore for Store<T> {
     fn status(&self) -> StoreStatus {
         self.publisher.read().status(self.kind)
     }
@@ -111,7 +111,7 @@ impl Starter {
 
     /// Starts the store of one kind with one task. `fields` is the field selector of its
     /// requests, and `max_items` the most objects that it keeps.
-    pub(super) fn start<T: Searched>(
+    pub(super) fn start<T: Searched + Clone>(
         &self,
         kind: Kind,
         form: Form,

@@ -20,6 +20,7 @@ pub(super) use follow::OwnerIndexer;
 use super::links::Links;
 use super::task::{Answer, Index};
 use crate::kinds::{Kind, is_ready};
+use crate::memory::Account;
 use crate::store::{Items, ObjectKey};
 
 /// One object of the cluster of the index: its kind, its identity in the store of the
@@ -54,6 +55,15 @@ pub struct Owners {
     /// The EndpointSlices of the last read. The index reads the pods of a Service from
     /// them, so the slices and the relation to them are of one moment.
     endpoints: Items<EndpointSlice>,
+}
+
+impl super::Measured for Owners {
+    /// The EndpointSlices are those of their store: the slices count, with no bytes.
+    fn account(&self, index: &str, account: &mut Account) {
+        super::links(&format!("{index} children"), &self.children, account);
+        super::links(&format!("{index} slices"), &self.slices, account);
+        account.add(&format!("{index} endpoints"), self.endpoints.len(), 0);
+    }
 }
 
 /// The stores that the objects below an owner of this kind come from, in the sequence
