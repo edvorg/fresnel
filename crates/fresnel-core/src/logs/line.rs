@@ -53,9 +53,10 @@ impl LogLine {
 
 /// The two counts of a shared pointer before its value.
 const SHARED: usize = 2 * size_of::<usize>();
-/// The place of a line in the vector of `imbl`: the chunks and the nodes of the tree add a
-/// sixth to the line, as the counting allocator measured 56 bytes for a line of 48.
-const PLACE: usize = size_of::<LogLine>() + size_of::<LogLine>() / 6;
+/// The place of a line in the vector of `imbl`: the chunks and the nodes of the tree add to
+/// the line. The counting allocator measured 56.5 bytes for a line of 48 in a full ring that
+/// adds at its back and drops at its front; a fourth more is the bound.
+const PLACE: usize = size_of::<LogLine>() + size_of::<LogLine>() / 4;
 
 /// One style in a line: it holds from `start` to the start of the next span or to the end.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,7 +108,7 @@ mod tests {
     #[test]
     fn the_weight_of_a_line_counts_its_text_its_styles_and_the_counts_of_their_pointers() {
         let mut line = LogLine::marker(0, 0, "soak 123");
-        let place = size_of::<LogLine>() * 7 / 6;
+        let place = size_of::<LogLine>() * 5 / 4;
         assert_eq!(line.weight(), place + 2 * size_of::<usize>() + 8);
         line.spans = Some(vec![Span { start: 0, style: Style::default() }; 2].into());
         let spans = 2 * size_of::<usize>() + 2 * size_of::<Span>();
