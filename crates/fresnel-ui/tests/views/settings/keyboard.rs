@@ -6,7 +6,7 @@ use egui::{Key, Modifiers};
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 
 use crate::data::{live, pods};
-use crate::fake::{Window, shows, view, window};
+use crate::fake::{Window, shows, until, view, window};
 
 fn focused(window: &Window, role: Role, label: &str) -> bool {
     window.get_by_role_and_label(role, label).accesskit_node().is_focused()
@@ -52,6 +52,8 @@ fn the_focus_keys_move_through_the_sidebar_the_table_the_panel_and_the_dock() {
     press(&mut window, Modifiers::NONE, Key::ArrowUp);
     press(&mut window, Modifiers::NONE, Key::Space);
     assert!(open(&window, "Pods"), "Space too");
+    // The new page has no row until its worker thread gives them: an arrow then moves nothing.
+    until(&mut window, "the rows of the Pod table", |window| shows(window, "25 pods"));
     press(&mut window, Modifiers::COMMAND, Key::Num2);
     press(&mut window, Modifiers::NONE, Key::ArrowDown);
     assert!(shows(&window, "Overview"), "the first row and its panel");
