@@ -7,10 +7,20 @@ use nix::libc;
 use socket2::Socket;
 use tokio::net::TcpStream;
 
-/// The first bind of a listener: with no `SO_REUSEADDR`, so that a listener of an other
-/// program on `0.0.0.0` makes the port "in use" on macOS too.
+/// The first bind of a listener on macOS: with no `SO_REUSEADDR`, so that a listener of an
+/// other program on `0.0.0.0` makes the port "in use". With the option, macOS gives the app
+/// the port and the connections of that program (port forward prototype, P7).
+#[cfg(target_vendor = "apple")]
 pub(crate) fn own_port(socket: &Socket) -> io::Result<()> {
     socket.set_reuse_address(false)
+}
+
+/// The first bind of a listener on Linux: with `SO_REUSEADDR`. Linux refuses each bind next
+/// to a listener, with the option too, and lets a bind take a port of old connections in
+/// time-wait only when each of them has the option: they get it from their listener.
+#[cfg(not(target_vendor = "apple"))]
+pub(crate) fn own_port(socket: &Socket) -> io::Result<()> {
+    socket.set_reuse_address(true)
 }
 
 /// The second bind, for a port that only old connections in time-wait hold.

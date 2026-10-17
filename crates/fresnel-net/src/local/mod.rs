@@ -4,9 +4,10 @@
 //! `TcpListener::bind` of tokio sets `SO_REUSEADDR`. With it, macOS lets the app bind
 //! `127.0.0.1:P` while an other program holds `0.0.0.0:P`, and the app takes the connections
 //! of that program (port forward prototype, P7). Windows lets an other program take the port
-//! of the app with the same option. So the first bind is exclusive on each system. Only a
-//! port that no program listens on, with old connections in time-wait, gets a second bind
-//! that shares the port: a forward that starts again gets its port back at once.
+//! of the app with the same option. So the first bind is exclusive on each system; Linux
+//! refuses a port with a listener also with the option, which it needs for the next point.
+//! Only a port that no program listens on, with old connections in time-wait, gets a second
+//! bind that shares the port: a forward that starts again gets its port back at once.
 //!
 //! - `stream`: one local connection, and its close with an error for the client.
 
@@ -17,7 +18,7 @@ mod tests;
 use std::fmt::{self, Display};
 use std::future::poll_fn;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::task::Poll;
 use std::time::Duration;
 
@@ -33,6 +34,8 @@ use crate::platform;
 const BACKLOG: i32 = 1024;
 /// A program that listens on this computer answers a connect in much less time.
 const LISTENER_LIMIT: Duration = Duration::from_millis(500);
+/// The time in which a connect that no program took ends with its reset.
+const RESET_LIMIT: Duration = Duration::from_millis(100);
 /// The tries of an automatic port: the system gives a port that is free on the first address,
 /// and an other program can hold it on a later one.
 const AUTOMATIC_TRIES: usize = 8;
@@ -130,6 +133,9 @@ impl LocalListener {
 
 /// Binds one address: exclusive first, and shared only when no program listens there.
 async fn bind_one(address: SocketAddr) -> Result<TcpListener, BindError> {
+    if wildcard_taken(address) && something_listens(address).await {
+        return Err(BindError::InUse(address));
+    }
     match socket(address, false) {
         Ok(listener) => Ok(listener),
         Err(error) if error.kind() == io::ErrorKind::AddrInUse => {
@@ -150,9 +156,32 @@ fn refusal(address: SocketAddr, error: &io::Error) -> BindError {
     }
 }
 
-/// A listening socket. A socket of IPv6 takes IPv6 only, so `::` and `0.0.0.0` are two
-/// sockets on each system.
+/// True when a socket has the port of `address` on the address of each interface. Windows
+/// gives the app `127.0.0.1:P` while an other program listens on `0.0.0.0:P`, and the app
+/// would take the local clients of that program. Old connections in time-wait can hold the
+/// port too, so only a connect that a program answers then makes the port "in use".
+fn wildcard_taken(address: SocketAddr) -> bool {
+    if address.port() == 0 || address.ip().is_unspecified() {
+        return false;
+    }
+    let wildcard = match address {
+        SocketAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        SocketAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+    };
+    // The probe never listens, and it closes at once.
+    matches!(bound(SocketAddr::new(wildcard, address.port()), false), Err(error) if error.kind() == io::ErrorKind::AddrInUse)
+}
+
+/// A listening socket.
 fn socket(address: SocketAddr, shared: bool) -> io::Result<TcpListener> {
+    let socket = bound(address, shared)?;
+    socket.listen(BACKLOG)?;
+    TcpListener::from_std(socket.into())
+}
+
+/// A socket bound to the address that does not listen yet. A socket of IPv6 takes IPv6 only,
+/// so `::` and `0.0.0.0` are two sockets on each system.
+fn bound(address: SocketAddr, shared: bool) -> io::Result<Socket> {
     let socket = Socket::new(Domain::for_address(address), Type::STREAM, Some(Protocol::TCP))?;
     if address.is_ipv6() {
         socket.set_only_v6(true)?;
@@ -163,11 +192,20 @@ fn socket(address: SocketAddr, shared: bool) -> io::Result<TcpListener> {
     }
     socket.set_nonblocking(true)?;
     socket.bind(&address.into())?;
-    socket.listen(BACKLOG)?;
-    TcpListener::from_std(socket.into())
+    Ok(socket)
 }
 
-/// True when a program accepts a connect on the address.
+/// True when a program accepts a connect on the address. macOS can report a connect to a
+/// port of old connections in time-wait as made and reset it at once (in 4 of 25 runs of
+/// the unit tests), so a connection that ends with an error at once has no program.
 async fn something_listens(address: SocketAddr) -> bool {
-    matches!(timeout(LISTENER_LIMIT, TcpStream::connect(address)).await, Ok(Ok(_)))
+    let Ok(Ok(stream)) = timeout(LISTENER_LIMIT, TcpStream::connect(address)).await else {
+        return false;
+    };
+    // A connection in the queue of a listener gets no byte and no error.
+    if timeout(RESET_LIMIT, stream.readable()).await.is_err() {
+        return true;
+    }
+    let mut byte = [0_u8; 1];
+    !matches!(stream.try_read(&mut byte), Err(error) if error.kind() != io::ErrorKind::WouldBlock)
 }
