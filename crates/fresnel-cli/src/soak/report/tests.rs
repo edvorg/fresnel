@@ -191,3 +191,21 @@ fn each_part_above_its_limit_fails_the_soak_one_time() {
         ]
     );
 }
+
+/// The measure of the records is all the heap that they hold: a record has no free room in
+/// its texts, and the free room of their list counts.
+#[test]
+fn the_records_have_no_free_room_and_the_room_of_their_list_counts() {
+    let mut report = report(1);
+    let mut first = minute(1, 10);
+    first.time = String::with_capacity(4096);
+    first.time.push_str("2027-01-15T08:01:00Z");
+    report.push(first);
+    let time = &report.minutes[0].time;
+    assert_eq!(time.capacity(), time.len());
+    report.minutes.reserve_exact(9);
+    let room = (report.minutes.capacity() - 1) * size_of::<Minute>();
+    let copy = Copies.bytes(&mut || drop(black_box(report.minutes.clone())));
+    report.push(minute(2, 10));
+    assert_eq!(report.minutes[1].records_bytes, copy + room);
+}

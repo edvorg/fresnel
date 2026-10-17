@@ -1647,7 +1647,8 @@ so 5 minutes with no line is a view that stopped; no line at all fails too.
 
 The memory of the soak is the count of the bytes that the allocator of `fresnel-cli` holds, not
 the resident size: a growth shows at once and the same in each run. The records of the soak
-itself are a copy that the soak measures, and they are no part of the heap that it judges.
+itself are copies with no free room, which the soak measures with the free room of their list:
+they are no part of the heap that it judges, also after a day.
 
 ## The soak judges the floor of the heap with no buffer
 

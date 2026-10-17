@@ -57,11 +57,14 @@ impl Report {
 
     /// Adds a minute, and marks each minute with a part in an outage of the environment: an
     /// outage starts before the line that tells it, so an earlier minute can be in it. The
-    /// minute gets the bytes of the earlier records, as a copy of them measures them.
+    /// minute gets the bytes of the earlier records: a copy of them, and the free room of
+    /// their list. A record is a copy too, with no free room in its texts and lists: the
+    /// measure is then all the heap of the records, so no growth of a long soak is its own.
     pub(super) fn push(&mut self, mut minute: Minute) {
-        minute.records_bytes = Copies.bytes(&mut || drop(black_box(self.minutes.clone())));
+        let room = (self.minutes.capacity() - self.minutes.len()) * size_of::<Minute>();
+        minute.records_bytes = Copies.bytes(&mut || drop(black_box(self.minutes.clone()))) + room;
         minute.faults.iter().for_each(|line| self.outages.read(line));
-        self.minutes.push(minute);
+        self.minutes.push(minute.clone());
         for minute in &mut self.minutes {
             let start = minute.epoch.saturating_sub(60 + minute.slept_seconds);
             minute.outage = self.outages.covers(start, minute.epoch);
