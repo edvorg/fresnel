@@ -119,7 +119,10 @@ impl Report {
         let mib = |bytes: f64| format!("{:.1} MiB", bytes / MIB);
         let heap = verdict.heap.as_ref().map_or_else(
             || "-".to_owned(),
-            |heap| format!("{}, growth after it {}", mib(heap.base_bytes as f64), mib(heap.growth_bytes as f64)),
+            |heap| {
+                let (base, growth) = (mib(heap.base_bytes as f64), mib(heap.growth_bytes as f64));
+                format!("{base} at minute {}, growth after it {growth}", heap.base_minute)
+            },
         );
         let last = self.minutes.last();
         vec![
