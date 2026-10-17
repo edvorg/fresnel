@@ -12,9 +12,9 @@ view. Each minute, it records the state of each store, each gap between a store 
 API, the lag of the stores, the heap, the size of each bounded part of the core and the
 open connections, in soak.json and soak.txt of the report folder. The exit status is 1 when
 a store shows \"live\" and is behind the API for more than 20 s, when a store is behind for
-5 minutes, when a log line does not come, when the log view or the checks stop for 5
-minutes, when a part of the core is above the limit of its buffer, or when the heap grows.
-It changes nothing in a cluster.
+5 minutes, when a log line does not come or leaves the ring before the soak reads it, when
+the log view or the checks stop for 5 minutes, when a part of the core is above the limit of
+its buffer, or when the heap grows. It changes nothing in a cluster.
 
 The memory rule: the buffers of the core get small limits (the journal 1,000 entries, the
 ring of the log view 20,000 lines and 1 MiB, the history of the metrics 1 MiB, the store of

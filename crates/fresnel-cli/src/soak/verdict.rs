@@ -1,7 +1,8 @@
 //! The verdict of the soak from its minutes. A gap with no visible state, a store that does
-//! not recover, a heap that grows, a part above its limit, a lost log line, a log view or
-//! checks that stop, or a failure of the soak itself fails it. In an outage of the
-//! environment (`environment`), the checks and the lines that cannot come are counted apart.
+//! not recover, a heap that grows, a part above its limit, a log line that is lost or that
+//! the soak could not read, a log view or checks that stop, or a failure of the soak itself
+//! fails it. In an outage of the environment (`environment`), the checks and the lines that
+//! cannot come are counted apart.
 
 use std::collections::BTreeSet;
 
@@ -49,8 +50,9 @@ pub(super) struct Verdict {
     /// Each part of the memory account that was above the limit of its buffer.
     pub(super) over_limits: Vec<String>,
     pub(super) lost_log_lines: u64,
-    /// The lines that left the ring of the view before the soak read them: no number after
-    /// them counts as lost, so the ring of the soak holds the lines of the longest break.
+    /// The lines that left the ring of the view before the soak read them, out of an outage of
+    /// the environment. No number after them counts as lost, so they fail the soak: its ring
+    /// holds the lines of the longest break of the harness.
     pub(super) unread_log_lines: u64,
     /// The most minutes in a row with no line of the log view, after its first line, with no
     /// minute of an outage of the environment.
@@ -63,6 +65,7 @@ pub(super) struct Verdict {
     pub(super) outage_unchecked_minutes: usize,
     pub(super) outage_gaps_stuck: usize,
     pub(super) outage_lost_log_lines: u64,
+    pub(super) outage_unread_log_lines: u64,
     pub(super) slept_seconds: u64,
 }
 
@@ -75,9 +78,12 @@ impl Verdict {
             let gaps = minutes.iter().flat_map(|minute| &minute.gaps);
             gaps.filter(|gap| gap.open && !gap.without_state).count()
         };
-        let lost = |minutes: &[&Minute]| -> u64 {
-            minutes.iter().filter_map(|minute| minute.log.as_ref()).map(|log| log.lost).sum()
+        // The lines that did not come and those that left the ring before a read.
+        let logs = |minutes: &[&Minute]| -> (u64, u64) {
+            let counts = minutes.iter().filter_map(|minute| minute.log.as_ref());
+            counts.fold((0, 0), |(lost, unread), log| (lost + log.lost, unread + log.unread))
         };
+        let ((lost, unread), (outage_lost, outage_unread)) = (logs(&outside), logs(&inside));
         // The first minute of each part above its limit.
         let (mut over_limits, mut named) = (Vec::new(), BTreeSet::new());
         for (name, text) in minutes.iter().flat_map(|minute| heap::over_limits(&minute.memory)) {
@@ -93,15 +99,16 @@ impl Verdict {
             lag_max_ms: minutes.iter().map(|minute| minute.lag_max_ms).max().unwrap_or_default(),
             heap: heap::heap(minutes, rules.warm_up),
             over_limits,
-            lost_log_lines: lost(&outside),
-            unread_log_lines: minutes.iter().filter_map(|minute| minute.log.as_ref()).map(|log| log.unread).sum(),
+            lost_log_lines: lost,
+            unread_log_lines: unread,
             unchecked_minutes: longest_quiet(minutes, |minute| minute.checks == 0),
             log_quiet_minutes: longest_quiet(minutes, |minute| minute.log.as_ref().is_none_or(|log| log.lines == 0)),
             faults: minutes.iter().map(|minute| minute.faults.len()).sum(),
             outage_minutes: inside.len(),
             outage_unchecked_minutes: inside.iter().filter(|minute| minute.checks == 0).count(),
             outage_gaps_stuck: stuck(&inside),
-            outage_lost_log_lines: lost(&inside),
+            outage_lost_log_lines: outage_lost,
+            outage_unread_log_lines: outage_unread,
             slept_seconds: minutes.iter().map(|minute| minute.slept_seconds).sum(),
             ..Self::default()
         };
@@ -147,6 +154,10 @@ impl Verdict {
         reasons.extend(self.over_limits.iter().map(|part| format!("a part above the limit of its buffer: {part}")));
         if self.lost_log_lines > 0 {
             reasons.push(format!("{} log lines did not come", self.lost_log_lines));
+        }
+        if self.unread_log_lines > 0 {
+            let lines = self.unread_log_lines;
+            reasons.push(format!("{lines} log lines left the ring of the view before the soak read them"));
         }
         let lines: u64 = minutes.iter().filter_map(|minute| minute.log.as_ref()).map(|log| log.lines).sum();
         if rules.log && !minutes.is_empty() && lines == 0 {

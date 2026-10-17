@@ -92,7 +92,7 @@ fn a_gap_with_no_visible_state_a_growth_over_the_limit_and_a_lost_line_each_fail
     let mut report = report(1);
     let mut minutes: Vec<Minute> = (1..=6).map(|number| minute(number, if number < 2 { 10 } else { 27 })).collect();
     minutes[5].gaps.push(gap(true));
-    minutes[5].log = Some(LogCounts { lost: 3, ..LogCounts::default() });
+    minutes[5].log = Some(LogCounts { lost: 3, unread: 4, ..LogCounts::default() });
     report.problems.push("task soak check Pod failed".to_owned());
     judged(&mut report, minutes);
     assert!(!report.verdict.passed);
@@ -100,6 +100,7 @@ fn a_gap_with_no_visible_state_a_growth_over_the_limit_and_a_lost_line_each_fail
         "1 gaps: a store showed \"live\" and was behind for more than 20 s",
         "the floor of the heap with no buffer grew by 17.0 MiB after the warm-up, at minute 6; the limit is 16 MiB",
         "3 log lines did not come",
+        "4 log lines left the ring of the view before the soak read them",
         "task soak check Pod failed",
     ];
     assert_eq!(report.verdict.reasons, reasons);
@@ -144,7 +145,7 @@ fn checks_lines_and_a_recovery_that_an_outage_of_the_environment_stops_fail_no_s
     let mut report = report(1);
     let mut minutes: Vec<Minute> = (1..=12).map(|number| minute(number, 10)).collect();
     for minute in &mut minutes[3..10] {
-        (minute.checks, minute.log) = (0, Some(LogCounts { lost: 2, ..LogCounts::default() }));
+        (minute.checks, minute.log) = (0, Some(LogCounts { lost: 2, unread: 3, ..LogCounts::default() }));
     }
     minutes[4].gaps.push(Gap { open: true, ..gap(false) });
     let (from, to) = (minutes[3].epoch - 30, minutes[9].epoch - 10);
@@ -155,7 +156,8 @@ fn checks_lines_and_a_recovery_that_an_outage_of_the_environment_stops_fail_no_s
     let verdict = &report.verdict;
     assert!(verdict.passed, "{:?}", verdict.reasons);
     let apart = (verdict.outage_minutes, verdict.outage_unchecked_minutes, verdict.outage_gaps_stuck);
-    assert_eq!((apart, verdict.outage_lost_log_lines, verdict.slept_seconds), ((7, 7, 1), 14, 30));
+    let lines = (verdict.outage_lost_log_lines, verdict.outage_unread_log_lines);
+    assert_eq!((apart, lines, verdict.slept_seconds), ((7, 7, 1), (14, 21), 30));
     assert!(report.text().contains("OUTAGE OF THE ENVIRONMENT"), "{}", report.text());
 
     // The gap rule holds in an outage.
@@ -167,7 +169,7 @@ fn checks_lines_and_a_recovery_that_an_outage_of_the_environment_stops_fail_no_s
     minutes[5].gaps.clear();
     report = self::report(1);
     judged(&mut report, minutes);
-    assert_eq!(report.verdict.reasons.len(), 4, "{:?}", report.verdict.reasons);
+    assert_eq!(report.verdict.reasons.len(), 5, "{:?}", report.verdict.reasons);
 }
 
 /// Each part above the limit of its buffer is one reason, with the first minute of it.

@@ -157,11 +157,13 @@ impl Report {
             }),
             format!(
                 "outages of the environment: {} minutes; in them, minutes with no check: {}, gaps with no \
-                 recovery: {}, log lines that did not come: {}; the computer slept {} s",
+                 recovery: {}, log lines that did not come: {}, that left the ring before a read: {}; the \
+                 computer slept {} s",
                 verdict.outage_minutes,
                 verdict.outage_unchecked_minutes,
                 verdict.outage_gaps_stuck,
                 verdict.outage_lost_log_lines,
+                verdict.outage_unread_log_lines,
                 verdict.slept_seconds
             ),
         ]

@@ -1657,6 +1657,13 @@ entries, 20,000 Events. A growth limit cannot tell a leak from a buffer that fil
 each buffer a small limit and checks it each minute. The heap with no buffer, its lowest value in
 5 minutes, may rise by 4 MiB at most after the warm-up: in six runs it rose by 0.8 MiB at most.
 
+## A log line that the soak could not read fails it
+
+The ring of the log view is small in the soak. After a line that left it before a read, which can
+be of each source, no number counts as lost. The ring holds the lines of the longest break of the
+harness, so such a line out of an outage of the environment fails the soak: it could hide a lost
+line.
+
 ## Each minute of the soak has a memory account of the core
 
 `Core::memory` gives the items and the bytes of each bounded part: each store, index, log ring
