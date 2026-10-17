@@ -2,21 +2,27 @@
 //! with a check of each store against the API and a record of each minute.
 //!
 //! - `args`: the options. `app`: the core in the folders of the report. `look`: the copy of
-//!   the core that the tasks read. `api` and `cover`: the lists of the comparison, and the
-//!   test of a store against one. `check`: the task of each kind. `logs`: the numbers of the
-//!   log view. `forward`: the forward and its check. `minute` and `report`: the records and
-//!   the files.
+//!   the core that the tasks read. `account`: the memory account of the core.
+//! - `api` and `cover`: the lists of the comparison, and the test of a store against one.
+//!   `check`: the task of each kind. `logs`: the numbers of the log view. `forward`: the
+//!   forward and its check.
+//! - `minute` and `report`: the records and the files. `verdict`: the rules, with `heap`, the
+//!   memory rule, and `environment`, the outages of k3s and the sleeps of the computer.
 
+mod account;
 mod api;
 mod app;
 mod args;
 mod check;
 mod cover;
+mod environment;
 mod forward;
+mod heap;
 mod logs;
 mod look;
 mod minute;
 mod report;
+mod verdict;
 
 use std::fs::File;
 use std::process::ExitCode;
@@ -25,15 +31,13 @@ use std::time::Duration;
 
 use fresnel_core::app::Command;
 use fresnel_core::kinds::Kind;
-use fresnel_core::logs::{LogOptions, LogRequest};
 use fresnel_core::net::task::{TaskReport, Tasks};
-use fresnel_core::store::{ObjectKey, StoreState};
+use fresnel_core::store::StoreState;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
 use tokio::time::{Instant, sleep_until, timeout};
 
 use api::Api;
-use app::App;
 use args::Options;
 use look::Look;
 use minute::{Minute, Recorder};
@@ -75,14 +79,16 @@ async fn soak(options: &Options, runtime: Handle) -> Result<bool, String> {
     let app = app::start(options, runtime.clone())?;
     let compare = if options.compare.is_empty() { &options.kubeconfig } else { &options.compare };
     let api = Api::connect(&tasks, runtime, compare, &options.context)?;
-    let (look_task, mut looks) = look::start(&tasks, &app);
+    let heap = Arc::new(look::HeapRange::default());
+    let (look_task, mut looks) = look::start(&tasks, &app, &heap);
     let started = Instant::now();
     let mut report = Report::new(options, minute::now());
     let kinds = until_stores(&mut looks).await?;
-    if let Some((namespace, name)) = &options.log {
-        let look = Arc::clone(&looks.borrow());
-        show_log(&app, &look, namespace, name).unwrap_or_else(|problem| report.problems.push(problem));
-    }
+    let log = options.log.clone().map(|target| {
+        let follow = logs::Follow { core: Arc::clone(&app.core), cluster: app.id.clone(), target };
+        logs::start(&tasks, follow, &looks)
+    });
+    let (log_task, log) = log.unzip();
     let tally = check::Shared::default();
     let checks = check::start(&tasks, &kinds, &api.gateway(), &looks, &tally);
     let forward = options.forward.as_ref().map(|target| {
@@ -91,20 +97,20 @@ async fn soak(options: &Options, runtime: Handle) -> Result<bool, String> {
         (forward::start(&tasks, rule.clone(), &looks, &checks), (rule, checks))
     });
     let (forward_task, forward) = forward.unzip();
-    let mut recorder = Recorder::new(journal, options.faults.clone(), forward);
+    let mut recorder = Recorder::new(journal, options.faults.clone(), (forward, log), heap);
     for number in 1..=options.minutes {
         sleep_until(started + Duration::from_secs(60 * number)).await;
         let tally = std::mem::take(&mut *tally.lock().unwrap_or_else(PoisonError::into_inner));
         let look = Arc::clone(&looks.borrow());
-        let minute = recorder.record(number, &look, tally);
+        let minute = recorder.record(number, &look, account::take(&app.core), tally);
         println!("{}", progress(&minute));
-        report.minutes.push(minute);
+        report.push(minute);
         report.problems.extend(std::mem::take(&mut *ended.lock().unwrap_or_else(PoisonError::into_inner)));
         report.judge();
         report.write(folder)?;
     }
     // The checks stop before the connections of the comparison and the core.
-    drop((checks, forward_task, look_task));
+    drop((checks, forward_task, log_task, look_task));
     app.core.stop();
     print!("\n{}", report.text());
     Ok(report.verdict.passed)
@@ -136,29 +142,14 @@ async fn until_stores(looks: &mut watch::Receiver<Arc<Look>>) -> Result<Vec<Kind
     waited.map_err(|_| format!("the stores of the cluster were not live after {} s", START_LIMIT.as_secs()))?
 }
 
-/// Opens the log view of the Deployment, with its UID from its store.
-fn show_log(app: &App, look: &Look, namespace: &str, name: &str) -> Result<(), String> {
-    let key = (namespace.into(), name.into());
-    let store = look.store(Kind::Deployment).ok_or("the cluster has no store of the Deployments")?;
-    let version = store.versions.get(&key).ok_or_else(|| format!("no Deployment {namespace}/{name}"))?;
-    let request = LogRequest {
-        cluster: app.id.clone(),
-        kind: Kind::Deployment,
-        key: ObjectKey::new(namespace, name),
-        uid: Arc::clone(&version.uid),
-        options: LogOptions::default(),
-    };
-    app.core.send(Command::ShowLogs(vec![request]));
-    Ok(())
-}
-
 /// One line of progress for the terminal.
 fn progress(minute: &Minute) -> String {
     let silent = minute.gaps.iter().filter(|gap| gap.without_state).count();
     format!(
-        "minute {}: heap {:.1} MiB, {} connections, {} stores live, {} not live, {} checks, lag {}/{} ms, {} gaps ({silent} with no visible state)",
+        "minute {}: heap {:.1} MiB (low {:.1}), {} connections, {} stores live, {} not live, {} checks, lag {}/{} ms, {} gaps ({silent} with no visible state)",
         minute.minute,
         minute.heap_bytes as f64 / (1024.0 * 1024.0),
+        minute.heap_low as f64 / (1024.0 * 1024.0),
         minute.open_connections,
         minute.stores_live,
         minute.stores_not_live.len(),

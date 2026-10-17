@@ -70,12 +70,16 @@ fn the_verdict_fails_a_gap_with_no_state_a_closed_port_and_a_forward_that_does_n
     let minute = |checks| Minute { state: "active".to_owned(), connections: String::new(), checks };
     let good = minute(vec![check(true, false, false)]);
     let visible = minute(vec![check(false, false, false)]);
-    let (verdict, reasons) = Verdict::of(&[Some(&good), Some(&visible), Some(&good), None], 5);
+    let (verdict, reasons) =
+        Verdict::of(&[(Some(&good), false), (Some(&visible), false), (Some(&good), false), (None, false)], 5);
     assert_eq!((verdict.checks, verdict.failed, verdict.quiet_minutes), (3, 1, 1));
     assert_eq!(reasons, Vec::<String>::new(), "a failure with a visible state that recovers passes");
 
     let gap = minute(vec![check(false, true, true)]);
-    let (_, reasons) = Verdict::of(&[Some(&gap), Some(&visible), Some(&visible), Some(&visible), Some(&visible)], 5);
+    let minutes = [Some(&gap), Some(&visible), Some(&visible), Some(&visible), Some(&visible)];
+    let in_outage =
+        |at: usize| minutes.iter().enumerate().map(|(index, minute)| (*minute, index == at)).collect::<Vec<_>>();
+    let (_, reasons) = Verdict::of(&in_outage(usize::MAX), 5);
     assert_eq!(
         reasons,
         [
@@ -84,4 +88,7 @@ fn the_verdict_fails_a_gap_with_no_state_a_closed_port_and_a_forward_that_does_n
             "the forward gave no page for 5 minutes in a row",
         ]
     );
+    let (verdict, reasons) = Verdict::of(&in_outage(2), 5);
+    assert_eq!(verdict.quiet_minutes, 2, "a minute of an outage of the environment ends a run");
+    assert_eq!(reasons.len(), 2, "the check with no visible state fails also in an outage");
 }

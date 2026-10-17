@@ -11,17 +11,28 @@ use std::sync::Arc;
 use fresnel_core::app::{Core, CoreParts, CoreSettings};
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::journal::Journal;
+use fresnel_core::logs::{LogSettings, RingLimits};
+use fresnel_core::metrics::MetricsSettings;
 use fresnel_core::net::WallClock;
 use fresnel_core::net::detect::system_detectors;
 use fresnel_core::net::env::ProcessEnv;
 use fresnel_core::state_file::{self, SavedState};
+use fresnel_core::store::StoreSettings;
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
 use super::args::Options;
 
-/// The entries of the journal in memory: the count of the app.
-const JOURNAL_LIMIT: usize = 10_000;
+/// The limits of the buffers of the core in the soak: far below those of the app, so that
+/// each buffer is full early and a heap that grows after the warm-up is a leak, not a buffer
+/// that fills (docs/decisions.md). The journal keeps 1,000 entries, the ring of the log view
+/// 1 MiB, the history of the metrics 1 MiB, the store of the Events 500. 1 MiB of the ring holds
+/// some 18,000 lines of the logger: the lines of the longest break of the harness, 3 minutes of
+/// the fast pace, come after it at once and fit, so none leaves before the soak reads it.
+pub(super) const JOURNAL_LIMIT: usize = 1_000;
+pub(super) const RING: RingLimits = RingLimits { lines: 20_000, bytes: 1024 * 1024 };
+pub(super) const METRICS_MEMORY: usize = 1024 * 1024;
+pub(super) const MAX_EVENTS: usize = 500;
 /// The `PATH` of a program that starts from Finder.
 const FINDER_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
 
@@ -57,12 +68,23 @@ pub(super) fn start(options: &Options, runtime: Handle) -> Result<App, String> {
         config_file: data.join("config.toml"),
         downloads: data.join("downloads"),
         detectors: system_detectors(),
-        settings: CoreSettings::default(),
+        settings: small_limits(),
     });
     let changed = Arc::new(Notify::new());
     let wake = Arc::clone(&changed);
     core.start(move || wake.notify_one());
     Ok(App { core: Arc::new(core), id, changed })
+}
+
+/// The settings of the app with the small limits of the soak.
+fn small_limits() -> CoreSettings {
+    let defaults = CoreSettings::default();
+    CoreSettings {
+        stores: StoreSettings { max_events: MAX_EVENTS, ..defaults.stores },
+        metrics: MetricsSettings { memory_limit: METRICS_MEMORY, ..defaults.metrics },
+        logs: LogSettings { ring: RING, ..defaults.logs },
+        ..defaults
+    }
 }
 
 /// The profile of each shell that the core can run: the kubeconfig files of the options and

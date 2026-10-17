@@ -2,9 +2,12 @@
 //!
 //! One task takes a copy at each repaint that the core asks for, and each second when no
 //! repaint comes, and shares it. A check then waits for a new copy, not for a fixed time.
+//! At each copy, the task reads the heap too: the lowest heap of a minute is free of the
+//! short peaks of a list or a copy, which the heap at the end of a minute can catch.
 
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use fresnel_core::app::{ClusterRow, Core, ForwardRow};
@@ -60,13 +63,39 @@ impl Look {
     }
 }
 
+/// The lowest and the highest heap since the last minute.
+pub(super) struct HeapRange {
+    low: AtomicUsize,
+    high: AtomicUsize,
+}
+
+impl Default for HeapRange {
+    fn default() -> Self {
+        Self { low: AtomicUsize::new(usize::MAX), high: AtomicUsize::new(0) }
+    }
+}
+
+impl HeapRange {
+    fn see(&self, bytes: usize) {
+        self.low.fetch_min(bytes, Ordering::Relaxed);
+        self.high.fetch_max(bytes, Ordering::Relaxed);
+    }
+
+    /// The lowest and the highest heap since the last call, with the heap of now in each.
+    pub(super) fn take(&self) -> (usize, usize) {
+        self.see(crate::memory::live());
+        (self.low.swap(usize::MAX, Ordering::Relaxed), self.high.swap(0, Ordering::Relaxed))
+    }
+}
+
 /// Starts the task of the copies. It stops when the handle drops.
-pub(super) fn start(tasks: &Tasks, app: &App) -> (TaskHandle, watch::Receiver<Arc<Look>>) {
+pub(super) fn start(tasks: &Tasks, app: &App, heap: &Arc<HeapRange>) -> (TaskHandle, watch::Receiver<Arc<Look>>) {
     let (core, id, changed) = (Arc::clone(&app.core), app.id.clone(), Arc::clone(&app.changed));
     let (sender, receiver) = watch::channel(Arc::new(take(&core, &id)));
     let name = TaskName::new("soak copy of the core");
+    let heap = Arc::clone(heap);
     let task = tasks.start(name, Restart::Always(Backoff::default()), move || {
-        copies(Arc::clone(&core), id.clone(), Arc::clone(&changed), sender.clone())
+        copies(Arc::clone(&core), id.clone(), Arc::clone(&changed), sender.clone(), Arc::clone(&heap))
     });
     (task, receiver)
 }
@@ -76,6 +105,7 @@ async fn copies(
     id: ClusterId,
     changed: Arc<Notify>,
     sender: watch::Sender<Arc<Look>>,
+    heap: Arc<HeapRange>,
 ) -> Result<(), Infallible> {
     loop {
         // A quiet cluster asks for no repaint: its copy comes after the longest time.
@@ -83,6 +113,7 @@ async fn copies(
             () = changed.notified() => {}
             () = sleep(LONGEST) => {}
         }
+        heap.see(crate::memory::live());
         sender.send_replace(Arc::new(take(&core, &id)));
     }
 }

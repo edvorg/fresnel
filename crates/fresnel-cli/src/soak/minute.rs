@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
 use std::path::PathBuf;
-use std::sync::PoisonError;
+use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use fresnel_core::app::ClusterRow;
@@ -14,18 +14,35 @@ use fresnel_core::journal::JournalView;
 use fresnel_core::net::{ChannelState, ClusterStatus};
 use serde::Serialize;
 
+use super::account::Piece;
 use super::check::{Gap, Tally};
+use super::environment;
 use super::forward::{self, Checks};
-use super::logs::{LogCheck, LogCounts};
-use super::look::Look;
+use super::logs::{Counts, LogCounts};
+use super::look::{HeapRange, Look};
 
 /// One minute of the soak.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub(super) struct Minute {
     pub(super) minute: u64,
     pub(super) time: String,
+    /// The seconds of the wall clock since 1970 at the end of the minute.
+    pub(super) epoch: u64,
+    /// The seconds that the computer slept since the last minute: the minutes count the
+    /// time awake, and the wall clock jumps (`environment`).
+    pub(super) slept_seconds: u64,
+    /// True when the minute has a part in an outage of the environment.
+    pub(super) outage: bool,
     /// The bytes on the heap of the process at the end of the minute.
     pub(super) heap_bytes: usize,
+    /// The lowest and the highest heap of the minute, from a read at each copy of the core.
+    pub(super) heap_low: usize,
+    pub(super) heap_high: usize,
+    /// The bounded parts of the core at the end of the minute.
+    pub(super) memory: Vec<Piece>,
+    /// The bytes of the records of the earlier minutes, which the soak holds for its report:
+    /// a part of the heap that grows with each minute and is not the core.
+    pub(super) records_bytes: usize,
     /// The open file descriptors of the process, sockets among them. `None` where the
     /// system does not list them.
     pub(super) descriptors: Option<usize>,
@@ -66,19 +83,29 @@ pub(super) struct Recorder {
     next_entry: u64,
     counts: (u64, u64),
     faults: Option<(PathBuf, u64)>,
-    log: LogCheck,
+    /// The counts of the log view, which its task adds to.
+    log: Option<Counts>,
     /// The rule of the forward, and the checks that its task adds.
     forward: Option<(ForwardRule, Checks)>,
+    heap: Arc<HeapRange>,
+    /// The end of the last minute on the wall clock.
+    last_epoch: Option<u64>,
 }
 
 impl Recorder {
-    pub(super) fn new(journal: File, faults: Option<PathBuf>, forward: Option<(ForwardRule, Checks)>) -> Self {
+    pub(super) fn new(
+        journal: File,
+        faults: Option<PathBuf>,
+        (forward, log): (Option<(ForwardRule, Checks)>, Option<Counts>),
+        heap: Arc<HeapRange>,
+    ) -> Self {
         let faults = faults.map(|file| (file, 0));
-        Self { journal, next_entry: 0, counts: (0, 0), faults, log: LogCheck::default(), forward }
+        Self { journal, next_entry: 0, counts: (0, 0), faults, log, forward, heap, last_epoch: None }
     }
 
-    /// The record of one minute from a copy of the core and the tally of the checks.
-    pub(super) fn record(&mut self, minute: u64, look: &Look, tally: Tally) -> Minute {
+    /// The record of one minute from a copy of the core, its memory account and the tally
+    /// of the checks.
+    pub(super) fn record(&mut self, minute: u64, look: &Look, memory: Vec<Piece>, tally: Tally) -> Minute {
         let row = look.row.as_ref();
         let status = row.and_then(ClusterRow::status);
         let (live, not_live): (Vec<_>, Vec<_>) = look.statuses().iter().partition(|store| store.state.is_live());
@@ -92,10 +119,20 @@ impl Recorder {
         });
         let view = data.and_then(|data| data.logs.first());
         let (warnings, errors) = self.write_journal(&look.journal);
+        let (heap_low, heap_high) = self.heap.take();
+        let epoch = jiff::Timestamp::now().as_second().try_into().unwrap_or_default();
+        let slept_seconds = environment::slept(self.last_epoch.replace(epoch), epoch);
         Minute {
             minute,
             time: now(),
+            epoch,
+            slept_seconds,
+            outage: false,
             heap_bytes: crate::memory::live(),
+            heap_low,
+            heap_high,
+            memory,
+            records_bytes: 0,
             descriptors: descriptors(),
             health: row.map_or_else(|| "no cluster".to_owned(), |row| format!("{:?}", row.health())),
             open_connections: status.map_or(0, open),
@@ -108,7 +145,10 @@ impl Recorder {
             gaps: tally.gaps,
             failed_lists: tally.failed,
             metrics,
-            log: view.map(|view| self.log.read(view)),
+            log: self
+                .log
+                .as_ref()
+                .map(|counts| std::mem::take(&mut *counts.lock().unwrap_or_else(PoisonError::into_inner))),
             log_sources: view.map_or_else(Vec::new, |view| {
                 view.sources.iter().map(|source| format!("{}: {}", source.pod.name, source.state)).collect()
             }),

@@ -196,13 +196,18 @@ pub(super) struct Verdict {
 }
 
 impl Verdict {
-    /// The verdict of the minutes so far, and its reasons for a failure. `quiet` is the most
-    /// minutes in a row with no good check that pass.
-    pub(super) fn of(minutes: &[Option<&Minute>], quiet: usize) -> (Self, Vec<String>) {
-        let checks: Vec<&Check> = minutes.iter().flatten().flat_map(|minute| &minute.checks).collect();
+    /// The verdict of the minutes so far, each with true in an outage of the environment, and
+    /// its reasons for a failure. `quiet` is the most minutes in a row with no good check that
+    /// pass; a minute of an outage ends a run. A check with no visible state or a closed port
+    /// fails also in an outage.
+    pub(super) fn of(minutes: &[(Option<&Minute>, bool)], quiet: usize) -> (Self, Vec<String>) {
+        let checks: Vec<&Check> = minutes.iter().filter_map(|(minute, _)| *minute).flat_map(|m| &m.checks).collect();
         let (mut longest, mut run) = (0, 0);
-        for minute in minutes.iter().flatten().filter(|minute| !minute.checks.is_empty()) {
-            run = if minute.checks.iter().any(|check| check.ok) { 0 } else { run + 1 };
+        for (minute, outage) in minutes {
+            let Some(minute) = minute.filter(|minute| !minute.checks.is_empty()) else {
+                continue;
+            };
+            run = if *outage || minute.checks.iter().any(|check| check.ok) { 0 } else { run + 1 };
             longest = longest.max(run);
         }
         let verdict = Self {
