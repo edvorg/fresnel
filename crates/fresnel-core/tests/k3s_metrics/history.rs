@@ -2,26 +2,34 @@
 //! and the drop of the series of a deleted pod. Each check runs one more sampler of `b`
 //! with settings of its own, next to the sampler with the defaults.
 
-use std::mem::size_of;
 use std::time::Duration;
 
 use fresnel_core::kinds::Kind;
-use fresnel_core::metrics::{Metrics, MetricsSettings, Sample, SeriesKey};
+use fresnel_core::metrics::{Metrics, MetricsSettings, SeriesKey};
 use fresnel_core::store::ObjectKey;
 use serde_json::json;
 use tokio::time::Instant;
 
 use crate::bed::{Bed, until};
 
-/// The history of a new sampler grows past the size that it had after its first answer;
-/// the limit then drops the oldest samples of the containers first.
+/// The history of a new sampler grows past the size of a probe whose series each hold one
+/// chunk; the limit then drops the oldest samples of the containers first. A tier holds its
+/// samples in chunks of 64 from its third sample on, so the size of a history grows by a
+/// chunk, not by a sample: the limit is one byte below the size of the probe.
 pub(crate) async fn the_memory_limit_holds_and_the_containers_lose_first(bed: &Bed) {
     let b = &bed.b;
+    let text = b
+        .kubectl(&["get", "pods", "--namespace", "kube-system", "--selector", "k8s-app=kube-dns", "--output", "name"])
+        .await;
+    let coredns = ObjectKey::new("kube-system", text.trim().trim_start_matches("pod/"));
+    let of_cluster =
+        |metrics: &Metrics| metrics.series(&b.id, &SeriesKey::Cluster).map_or(0, |series| series.samples().count());
+    let of_coredns =
+        |metrics: &Metrics| metrics.containers(&b.id, &coredns).map(|(_, series)| series.samples().count()).next();
+    let chunked = |metrics: &Metrics| of_cluster(metrics) >= 3 && of_coredns(metrics).is_some_and(|count| count >= 3);
     let probe = bed.sampler(b, MetricsSettings::default());
-    let one_answer = |metrics: &Metrics| metrics.pods.answers == 1 && metrics.nodes.answers == 1;
-    let first = until(&probe.reader(), "the first answer of a new sampler", one_answer).await;
+    let limit = until(&probe.reader(), "three samples of the cluster and of coredns", chunked).await.bytes() - 1;
     drop(probe);
-    let limit = first.bytes() + 8 * size_of::<Sample>();
     let small = bed.sampler(b, MetricsSettings { memory_limit: limit, ..MetricsSettings::default() });
     let mut reader = small.reader();
     let trimmed = until(&reader, "a sample that the limit dropped", |metrics| metrics.dropped() > 0).await;
@@ -30,14 +38,9 @@ pub(crate) async fn the_memory_limit_holds_and_the_containers_lose_first(bed: &B
         let metrics = Metrics::clone(&reader.read());
         assert!(metrics.bytes() <= limit, "{} bytes of {limit}", metrics.bytes());
     }
-    let text = b
-        .kubectl(&["get", "pods", "--namespace", "kube-system", "--selector", "k8s-app=kube-dns", "--output", "name"])
-        .await;
-    let coredns = ObjectKey::new("kube-system", text.trim().trim_start_matches("pod/"));
-    let samples = |key: &SeriesKey| trimmed.series(&b.id, key).map_or(0, |series| series.samples().count());
-    let container = trimmed.containers(&b.id, &coredns).map(|(_, series)| series.samples().count()).next();
+    let container = of_coredns(&trimmed);
     assert!(container.is_some(), "the series of the container of coredns");
-    assert!(samples(&SeriesKey::Cluster) > container.unwrap_or_default(), "the containers lose their samples first");
+    assert!(of_cluster(&trimmed) > container.unwrap_or_default(), "the containers lose their samples first");
 }
 
 /// A sampler with a fine tier of 30 s, a coarse tier of 90 s in steps of 30 s, and 20 s for
