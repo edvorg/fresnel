@@ -20,13 +20,20 @@ pub struct Soak {
     /// The folder of the report. `None`: a new folder below the target folder.
     pub report: Option<PathBuf>,
     pub seed: Option<u64>,
+    /// The pace of `--fast` in the harness: more changes, lines and faults in each minute,
+    /// and a recreate of the cluster.
+    pub fast: bool,
 }
 
 /// Reads the options after `soak`. The error is a text for the user.
 pub fn parse(arguments: &[&str]) -> Result<Soak, String> {
-    let mut soak = Soak { minutes: 0, label: None, report: None, seed: None };
+    let mut soak = Soak { minutes: 0, label: None, report: None, seed: None, fast: false };
     let mut rest = arguments.iter();
     while let Some(option) = rest.next() {
+        if *option == "--fast" {
+            soak.fast = true;
+            continue;
+        }
         let value = rest.next().ok_or_else(|| format!("the option {option} needs a value"))?;
         match *option {
             "--hours" => soak.minutes = minutes(value)?,
@@ -74,6 +81,9 @@ pub fn run(root: &Path, soak: &Soak) -> Result<ExitStatus, String> {
     if let Some(seed) = soak.seed {
         harness.args(["--seed", &seed.to_string()]);
     }
+    if soak.fast {
+        harness.arg("--fast");
+    }
     harness.status().map_err(|error| format!("cannot start the harness: {error}"))
 }
 
@@ -88,13 +98,10 @@ mod tests {
     #[test]
     fn the_hours_can_have_a_fraction_and_each_other_option_is_optional() {
         let soak = parse(&["--hours", "0.25"]).expect("good options");
-        assert_eq!(soak, Soak { minutes: 15, label: None, report: None, seed: None });
-        let soak =
-            parse(&["--hours", "24", "--label", "m8-soak", "--report", "/r", "--seed", "7"]).expect("good options");
-        assert_eq!(
-            soak,
-            Soak { minutes: 1440, label: Some("m8-soak".to_owned()), report: Some(PathBuf::from("/r")), seed: Some(7) }
-        );
+        assert_eq!(soak, Soak { minutes: 15, label: None, report: None, seed: None, fast: false });
+        let arguments = ["--hours", "24", "--label", "m8-soak", "--report", "/r", "--seed", "7", "--fast"];
+        let (label, report) = (Some("m8-soak".to_owned()), Some(PathBuf::from("/r")));
+        assert_eq!(parse(&arguments), Ok(Soak { minutes: 1440, label, report, seed: Some(7), fast: true }));
     }
 
     #[test]

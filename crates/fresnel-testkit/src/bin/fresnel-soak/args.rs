@@ -13,6 +13,9 @@ options:
   --report <folder>   the folder of the report
   --label <text>      a part of the name of the containers (default soak)
   --seed <number>     the seed of the random changes and faults (default: from the clock)
+  --fast              four times the changes and the faults, ten times the log lines, and
+                      one recreate of the cluster in the middle of the run: each object
+                      gets a new UID
   --cli <file>        the program fresnel-cli (default: the one next to this program)";
 
 pub(crate) struct Options {
@@ -20,13 +23,19 @@ pub(crate) struct Options {
     pub(crate) report: PathBuf,
     pub(crate) label: String,
     pub(crate) seed: u64,
+    pub(crate) fast: bool,
     pub(crate) cli: PathBuf,
 }
 
 pub(crate) fn parse(arguments: &[String]) -> Result<Options, String> {
     let (mut minutes, mut report, mut label, mut seed, mut cli) = (None, None, "soak".to_owned(), None, None);
+    let mut fast = false;
     let mut rest = arguments.iter();
     while let Some(option) = rest.next() {
+        if option == "--fast" {
+            fast = true;
+            continue;
+        }
         let mut value = || rest.next().ok_or_else(|| format!("the option {option} needs a value"));
         match option.as_str() {
             "--minutes" => minutes = Some(number(option, value()?)?),
@@ -43,7 +52,7 @@ pub(crate) fn parse(arguments: &[String]) -> Result<Options, String> {
         Some(cli) => cli,
         None => next_to_this_program()?,
     };
-    Ok(Options { minutes, report, label, seed: seed.unwrap_or_else(|| fastrand::u64(..)), cli })
+    Ok(Options { minutes, report, label, seed: seed.unwrap_or_else(|| fastrand::u64(..)), fast, cli })
 }
 
 fn number(option: &str, text: &str) -> Result<u64, String> {

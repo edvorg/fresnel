@@ -21,6 +21,9 @@ const READY_REQUEST_LIMIT: &str = "--request-timeout=5s";
 const LOG_LINES: &str = "30";
 /// The seconds that Docker waits for the end of k3s before it kills the process.
 const STOP_SECONDS: &str = "3";
+/// The datastore of the k3s server: each object of the cluster. Its certificates and its
+/// token are in other folders of the same volume.
+const DATASTORE: &str = "/var/lib/rancher/k3s/server/db";
 /// The variable of the token with which an agent joins the server. k3s reads it as `--token`.
 const TOKEN: &str = "K3S_TOKEN";
 /// The kubelet of k3s evicts the pods of its node below 5 percent of free disk, and then
@@ -148,6 +151,15 @@ impl Container {
 
     pub(super) async fn stop(&self) -> Result<(), KitError> {
         docker(&["stop", "--time", STOP_SECONDS, &self.name]).await.map(drop)
+    }
+
+    /// Removes the datastore of the stopped container, with a second container on its
+    /// volumes, which ends at once: the program of the image is k3s, and its `rm` runs here.
+    /// Its name starts with the name of the cluster, so `docker ps` tells whose it is.
+    pub(super) async fn remove_datastore(&self) -> Result<(), KitError> {
+        let name = format!("{}-remove", self.name);
+        let run = ["run", "--rm", "--name", &name, "--volumes-from", &self.name, "--entrypoint", "/bin/rm"];
+        docker(&[&run[..], &[IMAGE, "-rf", DATASTORE]].concat()).await.map(drop)
     }
 
     pub(super) async fn start_again(&self) -> Result<(), KitError> {

@@ -17,9 +17,10 @@ commands:
                          build Fresnel.app and install it into /Applications or into
                          <folder>; the earlier bundle stays as Fresnel.app.prev
   windows --to <folder>  build fresnel.exe with its icon and its version (on Windows)
-  soak --hours <number> [--label <text>] [--report <folder>] [--seed <number>]
+  soak --hours <number> [--label <text>] [--report <folder>] [--seed <number>] [--fast]
                          run the app core for some hours on k3s in Docker with changes
-                         and random faults, and write a report of each minute
+                         and random faults, and write a report of each minute; --fast
+                         gives more changes, lines and faults, and a recreate of the cluster
   screenshots            draw the pictures of the README into docs/screenshots
 
 The variable FRESNEL_BUILD of install and windows is the build number of a release: the

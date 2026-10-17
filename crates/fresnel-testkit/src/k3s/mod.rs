@@ -169,6 +169,16 @@ impl K3s {
         self.container.restart().await
     }
 
+    /// Makes a new cluster in the same container: the stop, the remove of the datastore and
+    /// a start, then the wait until the API server is ready. The address, the certificates
+    /// and the kubeconfig files stay; each object of the old cluster is gone, and a new
+    /// object of the same name gets a new UID and a new resource version from 1 on.
+    pub async fn recreate(&self) -> Result<(), KitError> {
+        self.container.stop().await?;
+        self.container.remove_datastore().await?;
+        self.container.start_again().await
+    }
+
     /// Stops the container. The API address then refuses each connection.
     pub async fn stop(&self) -> Result<(), KitError> {
         self.container.stop().await

@@ -20,15 +20,28 @@ const PAGE: &str = "mkdir -p /www && echo soak-echo > /www/index.html && exec ht
 const BUSYBOX: &str = "rancher/mirrored-library-busybox:1.36.1";
 /// The image of each other pod: it does nothing and starts fast.
 pub(crate) const PAUSE: &str = "rancher/mirrored-pause:3.6";
-/// Two lines each second, each with its number: "soak 0", "soak 1" and so on.
-const LINES: &str = "i=0; while true; do echo \"soak $i\"; i=$((i+1)); sleep 0.5; done";
 
-pub(crate) async fn create(k3s: &K3s) -> Result<(), String> {
+/// The first objects. The logger writes lines with a number, "soak 0", "soak 1" and so on,
+/// with `pause` seconds between two lines. A recreate of the cluster creates them again.
+pub(crate) async fn create(k3s: &K3s, pause: &str) -> Result<(), String> {
+    let lines = format!("i=0; while true; do echo \"soak $i\"; i=$((i+1)); sleep {pause}; done");
     let echo = ["--namespace", NAMESPACE, "create", "deployment", ECHO, "--image", BUSYBOX, "--replicas", "2"];
     let echo = [&echo[..], &["--port", "8080", "--", "sh", "-c", PAGE]].concat();
     let steps: [&[&str]; 8] = [
         &["create", "namespace", NAMESPACE],
-        &["--namespace", NAMESPACE, "create", "deployment", "soak-logger", "--image", BUSYBOX, "--", "sh", "-c", LINES],
+        &[
+            "--namespace",
+            NAMESPACE,
+            "create",
+            "deployment",
+            "soak-logger",
+            "--image",
+            BUSYBOX,
+            "--",
+            "sh",
+            "-c",
+            &lines,
+        ],
         &["--namespace", NAMESPACE, "create", "deployment", WEB, "--image", PAUSE, "--replicas", "2"],
         &echo,
         &["--namespace", NAMESPACE, "expose", "deployment", ECHO, "--port", "80", "--target-port", "8080"],

@@ -1,5 +1,5 @@
 //! The changes of the soak: ConfigMaps, pods and Deployments that come, change and go, one
-//! change each 2 s, so each store of the app has new events at each check. A restart of the
+//! change each step of the pace, so each store of the app has new events at each check. A restart of the
 //! Deployment of the forward moves its tunnels to new pods. A change that fails, for example
 //! during a restart of the API server, counts and the next one follows.
 
@@ -12,8 +12,6 @@ use tokio::time::sleep;
 use super::Never;
 use super::scene::{ECHO, NAMESPACE, PAUSE, WEB};
 
-/// The time between two changes.
-const STEP: Duration = Duration::from_secs(2);
 /// The most ConfigMaps, bare pods and extra Deployments at one time.
 const CONFIG_MAPS: u64 = 40;
 const PODS: usize = 10;
@@ -21,6 +19,7 @@ const DEPLOYMENTS: usize = 3;
 
 pub(crate) struct Churn<'a> {
     k3s: &'a K3s,
+    step: Duration,
     rng: fastrand::Rng,
     count: u64,
     /// The numbers of the ConfigMaps that exist, so that a change finds its object.
@@ -33,15 +32,15 @@ pub(crate) struct Churn<'a> {
 }
 
 impl<'a> Churn<'a> {
-    pub(crate) fn new(k3s: &'a K3s, rng: fastrand::Rng) -> Self {
+    pub(crate) fn new(k3s: &'a K3s, rng: fastrand::Rng, step: Duration) -> Self {
         let (pods, deployments) = (VecDeque::new(), VecDeque::new());
         let config_maps = BTreeSet::new();
-        Self { k3s, rng, count: 0, config_maps, pods, deployments, done: 0, failed: 0, first_failure: None }
+        Self { k3s, step, rng, count: 0, config_maps, pods, deployments, done: 0, failed: 0, first_failure: None }
     }
 
     pub(crate) async fn run(&mut self) -> Never {
         loop {
-            sleep(STEP).await;
+            sleep(self.step).await;
             self.count += 1;
             let change = self.next_change();
             let arguments: Vec<&str> = change.iter().map(String::as_str).collect();
