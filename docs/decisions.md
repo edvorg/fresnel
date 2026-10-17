@@ -732,6 +732,13 @@ container starts well. Thus the helper makes a new container for a k3s that ende
 itself, 3 times at most, and each such end is a line of the test output. A restart of a
 cluster gets no second attempt: the cluster has data.
 
+## k3s runs with 4 threads of Go
+
+Go gives k3s a thread for each CPU of the Docker VM. On a Mac with 18 CPUs and other work,
+the threads of k3s waited for each other in the kernel: a start took minutes or ended in a
+panic, and the soak had more outages than minutes of the app. With `GOMAXPROCS=4`, a start
+takes 15 to 20 s on that Mac.
+
 ## An index follows its stores by the differences of two snapshots
 
 The task of an index compares the last snapshot that it read with the current one, and

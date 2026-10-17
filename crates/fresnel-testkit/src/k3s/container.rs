@@ -24,6 +24,10 @@ const STOP_SECONDS: &str = "3";
 /// The datastore of the k3s server: each object of the cluster. Its certificates and its
 /// token are in other folders of the same volume.
 const DATASTORE: &str = "/var/lib/rancher/k3s/server/db";
+/// The Go runtime of k3s runs a thread for each CPU of the Docker VM. On a busy Mac with 18
+/// CPUs, k3s then took 52 s to a panic or 163 s to a start, with queries of its datastore of
+/// up to 55 s; with 4 threads, each start took 15 to 20 s.
+const THREADS: &str = "GOMAXPROCS=4";
 /// The variable of the token with which an agent joins the server. k3s reads it as `--token`.
 const TOKEN: &str = "K3S_TOKEN";
 /// The kubelet of k3s evicts the pods of its node below 5 percent of free disk, and then
@@ -67,7 +71,8 @@ impl Container {
             "--kubelet-arg=registry-qps=0",
             EVICTION,
         ];
-        let arguments = [&run[..], &["--publish", &publish, "--env", TOKEN, IMAGE], &k3s[..], extra].concat();
+        let options = ["--publish", &publish, "--env", THREADS, "--env", TOKEN, IMAGE];
+        let arguments = [&run[..], &options, &k3s[..], extra].concat();
         docker_with_secret(&arguments, (TOKEN, token)).await?;
         Ok(container)
     }
@@ -87,7 +92,8 @@ impl Container {
         let run = ["run", "--detach", "--privileged", "--name", name, "--network", network, "--ip", &address];
         let node = format!("--node-name={node}");
         let k3s = ["agent", "--server", &server, &node, "--kubelet-arg=registry-qps=0", EVICTION];
-        docker_with_secret(&[&run[..], &["--env", TOKEN, IMAGE], &k3s[..], extra].concat(), (TOKEN, token)).await?;
+        let options = ["--env", THREADS, "--env", TOKEN, IMAGE];
+        docker_with_secret(&[&run[..], &options, &k3s[..], extra].concat(), (TOKEN, token)).await?;
         Ok(container)
     }
 
