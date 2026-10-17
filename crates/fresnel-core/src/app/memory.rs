@@ -74,7 +74,7 @@ fn cluster(data: &ClusterData, account: &mut Account) {
     if let Some(events) = &data.events {
         index::account(events, "event index", account);
     }
-    account.add("metrics history", data.metrics.series_count(), data.metrics.bytes());
+    data.metrics.account(account);
     for view in data.logs.iter() {
         account.add("log ring", view.lines.len(), view.bytes);
         account.add("log sources", view.sources.len(), view.sources.len() * size_of::<SourceView>());

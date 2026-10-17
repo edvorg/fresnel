@@ -154,3 +154,15 @@ fn the_memory_limit_drops_the_oldest_coarse_samples_of_the_containers_first() {
     assert_eq!((history.samples, history.len()), (0, 6));
     assert_eq!(history.get(&SeriesKey::Cluster).and_then(Series::latest), Some(sample(START + 479 * 15)));
 }
+
+/// The memory account measures a copy of the history.
+#[test]
+fn a_rebuilt_history_has_each_series_with_each_sample() {
+    let history = full_history();
+    let copy = history.rebuilt();
+    assert_eq!((copy.len(), copy.samples, copy.bytes()), (history.len(), history.samples, history.bytes()));
+    for (key, series) in &history.series {
+        let rebuilt = copy.get(key).expect("each series");
+        assert!(series.samples().eq(rebuilt.samples()), "{key:?}");
+    }
+}

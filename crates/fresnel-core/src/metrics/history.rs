@@ -100,6 +100,12 @@ impl History {
         self.samples * SAMPLE_BYTES + self.series.len() * SERIES_BYTES
     }
 
+    /// A copy that shares no part of a series, for the measure of the memory account.
+    pub(crate) fn rebuilt(&self) -> Self {
+        let series = self.series.iter().map(|(key, series)| (key.clone(), series.rebuilt())).collect();
+        Self { series, ..*self }
+    }
+
     /// The count of samples that the memory limit dropped.
     pub(crate) fn dropped(&self) -> u64 {
         self.dropped

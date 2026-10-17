@@ -1,6 +1,7 @@
 //! The metrics of one cluster as a reader holds them, and the step of one poll.
 
 use std::collections::BTreeMap;
+use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -13,6 +14,7 @@ use super::world::{NodeLoad, World};
 use super::{MetricsSettings, rollup};
 use crate::cluster::ClusterId;
 use crate::error::CoreError;
+use crate::memory::Account;
 use crate::store::ObjectKey;
 
 /// The longest time between two polls that the window of the server sets. metrics-server
@@ -109,6 +111,14 @@ impl Metrics {
     /// The count of samples that the memory limit dropped.
     pub fn dropped(&self) -> u64 {
         self.history.dropped()
+    }
+
+    /// Adds the history to the memory account: its series, with the bytes of a copy of the
+    /// series and their tiers that the scale measures. The limit of the settings counts
+    /// `bytes`, and the account shows whether the history holds more.
+    pub(crate) fn account(&self, account: &mut Account) {
+        let bytes = account.measure(&mut || drop(black_box(self.history.rebuilt())));
+        account.add("metrics history", self.history.len(), bytes);
     }
 
     fn of(&self, cluster: &ClusterId) -> Option<&Self> {

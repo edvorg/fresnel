@@ -199,6 +199,12 @@ impl Series {
         before - samples.len()
     }
 
+    /// A copy that shares no part of the tiers, which a push of each sample builds: the
+    /// memory account measures the bytes of the series with it.
+    pub(crate) fn rebuilt(&self) -> Self {
+        Self { fine: self.fine.iter().copied().collect(), coarse: self.coarse.iter().copied().collect(), ..*self }
+    }
+
     fn tier(&self, tier: Tier) -> &Vector<Sample> {
         match tier {
             Tier::Fine => &self.fine,
