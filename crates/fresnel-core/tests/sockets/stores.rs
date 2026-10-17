@@ -1,6 +1,7 @@
 //! The stores of one cluster on the fake API server: the requests of the watch loops, the
 //! way of an event to a reader, and the states for a server that refuses.
 
+use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
 use fresnel_core::kinds::{Kind, Tier};
@@ -200,7 +201,9 @@ async fn a_server_that_refuses_or_throttles_shows_as_the_state_of_the_store() {
 
 /// Plan section 6.8: old data must not show as current. A connection that carries no data
 /// and gives no error shows in each store in 20 seconds or less, and the stores continue
-/// on a new connection with no new list: a list of one object checks the version.
+/// on a new connection with no new list: a list of one object checks the version. A check
+/// that goes into the silent connection of requests before its channel finds the silence
+/// fails, and the store checks again: 4 of 24 runs at once had two checks of each store.
 #[tokio::test]
 async fn a_silent_connection_shows_in_each_store_in_20_seconds_or_less() {
     let bed = ProxyBed::start("silent-stores", NetSettings::default()).await;
@@ -224,6 +227,7 @@ async fn a_silent_connection_shows_in_each_store_in_20_seconds_or_less() {
     let lists = requests.iter().filter(|seen| seen.uri.path() != "/version" && !seen.is_watch());
     let (checked, listed): (Vec<&SeenRequest>, Vec<_>) = lists.partition(|seen| is_version_check(seen));
     assert_eq!(listed.len(), STORES, "each watch continued from its last version: no new list");
-    assert_eq!(checked.len(), STORES, "each store checked the version of the server one time");
+    let checked: BTreeSet<&str> = checked.iter().map(|seen| seen.uri.path()).collect();
+    assert_eq!(checked.len(), STORES, "each store checked the version of the server");
     assert_eq!(bed.proxy.task_failures(), Vec::<String>::new());
 }
