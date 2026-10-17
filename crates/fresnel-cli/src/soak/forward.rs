@@ -140,14 +140,15 @@ async fn check(rule: &ForwardRule, looks: &watch::Receiver<Arc<Look>>, limit: Du
     let (mut error, mut port_closed) = (None, false);
     while started.elapsed() < limit {
         let address = row(&looks.borrow(), rule).and_then(|row| row.view.address());
+        let one_try = ONE_TRY.min(limit);
         match address {
-            Some(address) => match timeout(ONE_TRY.min(limit), fetch(address)).await {
+            Some(address) => match timeout(one_try, fetch(address)).await {
                 Ok(Ok(())) => {
                     error = None;
                     break;
                 }
                 Ok(Err((text, refused))) => (error, port_closed) = (Some(text), port_closed || refused),
-                Err(_) => error = Some(format!("no page in {} s", ONE_TRY.as_secs())),
+                Err(_) => error = Some(format!("no page in {:.1} s", one_try.as_secs_f64())),
             },
             None => error = Some("the forward has no local address".to_owned()),
         }

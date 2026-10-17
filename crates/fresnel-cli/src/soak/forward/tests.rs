@@ -30,10 +30,11 @@ fn the_target_reads_its_option() {
 }
 
 /// A page through the local port passes; a port that refuses the connect while the forward
-/// shows "active" is a gap with no visible state and a closed port.
+/// shows "active" is a gap with no visible state and a closed port. Windows refuses a connect
+/// to a closed port after about 2 s, so a try has more time.
 #[tokio::test]
 async fn a_check_fetches_the_page_and_a_closed_port_while_active_fails_with_no_visible_state() {
-    let limit = Duration::from_secs(1);
+    let limit = Duration::from_secs(4);
     let tasks = Tasks::new(Handle::current(), |report: TaskReport| panic!("{report}"));
     let disposal = Disposal::start(&tasks);
     let server = TcpListener::bind("127.0.0.1:0").await.expect("a listener");
