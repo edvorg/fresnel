@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use tokio::time::{Instant, sleep};
 
-use super::docker::{docker, docker_blocking, docker_with_errors, docker_with_secret};
+use super::docker::{docker, docker_with_errors, docker_with_secret, remove_in_drop};
 use super::network::Network;
 use crate::KitError;
 
@@ -176,8 +176,6 @@ impl Container {
 
 impl Drop for Container {
     fn drop(&mut self) {
-        if let Err(error) = docker_blocking(&["rm", "--force", "--volumes", &self.name]) {
-            eprintln!("fresnel-testkit: {error}");
-        }
+        remove_in_drop(&["rm", "--force", "--volumes", &self.name]);
     }
 }

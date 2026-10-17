@@ -6,7 +6,7 @@
 
 use std::net::Ipv4Addr;
 
-use super::docker::{docker, docker_blocking};
+use super::docker::{docker, remove_in_drop};
 use crate::KitError;
 
 /// The subnets `10.199.N.0/24`. The default pools of Docker are in other ranges.
@@ -51,8 +51,6 @@ impl Network {
 
 impl Drop for Network {
     fn drop(&mut self) {
-        if let Err(error) = docker_blocking(&["network", "rm", &self.name]) {
-            eprintln!("fresnel-testkit: {error}");
-        }
+        remove_in_drop(&["network", "rm", &self.name]);
     }
 }
