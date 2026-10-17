@@ -55,6 +55,17 @@ async fn a_check_fetches_the_page_and_a_closed_port_while_active_fails_with_no_v
     let bad = check(&rule, &looks, limit).await;
     assert!(!bad.ok && bad.without_state && bad.port_closed, "{bad:?}");
     assert!(bad.seconds >= limit.as_secs_f64(), "the check tried for its limit");
+
+    // A forward that shows a fault in the check and "active" at its end, as after a restart of
+    // the API server, failed with a visible state.
+    let (sender, looks) =
+        watch::channel(look(ForwardState::Degraded("a tunnel failed".to_owned()), address, &disposal));
+    let back = async {
+        sleep(limit / 4).await;
+        sender.send_replace(look(ForwardState::Active, address, &disposal));
+    };
+    let ((), back) = tokio::join!(back, check(&rule, &looks, limit));
+    assert!(!back.ok && !back.without_state && back.port_closed && back.state == "active", "{back:?}");
 }
 
 #[test]

@@ -2,8 +2,9 @@
 //! pods serve a page, and a check each minute that fetches the page through the local port.
 //!
 //! A check tries for 20 s: the time in which a silent path shows. A check that fails while
-//! the forward shows "active" at its end is a gap with no visible state (design rule 4). A
-//! check in a fault fails with a visible state, and the forward must work again in 5 minutes.
+//! the forward shows "active" for all that time is a gap with no visible state (design rule
+//! 4). A check in a fault fails with a visible state, and the forward must work again in 5
+//! minutes.
 //! The local port stays open in each fault: a connect that the port refuses fails the soak.
 
 use std::convert::Infallible;
@@ -78,7 +79,7 @@ pub(super) struct Check {
     /// The state of the forward at the end of the check.
     pub(super) state: String,
     pub(super) error: Option<String>,
-    /// The check failed while the forward showed "active".
+    /// The check failed while the forward showed "active" for its whole time.
     pub(super) without_state: bool,
     /// The local port refused the connect.
     pub(super) port_closed: bool,
@@ -134,11 +135,17 @@ async fn each_minute(rule: ForwardRule, looks: watch::Receiver<Arc<Look>>, check
     }
 }
 
-/// Fetches the page until it comes, for `limit` at most.
+/// Fetches the page until it comes, for `limit` at most. The forward has a visible state when
+/// it shows an other state than "active" before a try or at the end: a forward that comes back
+/// from "reconnecting" in a fault shows "active" at once, while a tunnel of the fault fails.
 async fn check(rule: &ForwardRule, looks: &watch::Receiver<Arc<Look>>, limit: Duration) -> Check {
     let started = Instant::now();
-    let (mut error, mut port_closed) = (None, false);
+    let (mut error, mut port_closed, mut shown) = (None, false, false);
+    let mut see = |looks: &watch::Receiver<Arc<Look>>| {
+        shown |= row(&looks.borrow(), rule).is_none_or(|row| row.view.state != ForwardState::Active);
+    };
     while started.elapsed() < limit {
+        see(looks);
         let address = row(&looks.borrow(), rule).and_then(|row| row.view.address());
         let one_try = ONE_TRY.min(limit);
         match address {
@@ -154,8 +161,9 @@ async fn check(rule: &ForwardRule, looks: &watch::Receiver<Arc<Look>>, limit: Du
         }
         sleep((limit / 20).min(Duration::from_secs(1))).await;
     }
+    see(looks);
     let state = row(&looks.borrow(), rule).map(|row| row.view.state.clone());
-    let without_state = error.is_some() && state == Some(ForwardState::Active);
+    let without_state = error.is_some() && !shown;
     Check {
         ok: error.is_none(),
         seconds: started.elapsed().as_secs_f64(),
