@@ -3,9 +3,9 @@ name: release
 # Each commit of master that passes the workflow ci makes a release: the app for macOS on Apple
 # silicon and the program for Windows x64 of that commit. Its version is the workspace version
 # and the run number of this workflow, as in 0.1.0+build.7, and its tag is v0.1.0-build.7. A
-# commit with a failed test never becomes the latest release. GitHub reads the trigger
-# workflow_run from the file on master only; a manual run builds the commit of its branch, and
-# only a run on master publishes.
+# commit with a failed test never becomes the latest release, and a commit that is no longer the
+# head of master makes none. GitHub reads the trigger workflow_run from the file on master only;
+# a manual run builds the commit of its branch, and only a run on master publishes.
 on:
   workflow_run:
     workflows: [ci]
@@ -178,8 +178,30 @@ jobs:
         with:
           path: zips
           merge-multiple: true
+      # Only the head of master publishes, so an older build never becomes "Latest" after a newer
+      # one. The tag of an older commit whose workflow files differ from master needs the
+      # permission workflows, which the token has not: run 38985614286 failed with HTTP 403. The
+      # newer commit makes the release after its ci. The repository is private, so a `git
+      # ls-remote` would need the token that may write in git; gh reads the head instead.
+      - name: Head of master
+        id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq .object.sha)
+          if ! [[ "$head" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::the head of master is \"$head\""
+            exit 1
+          fi
+          if [ "$head" = "$COMMIT" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$COMMIT is no longer the head of master: $head makes the release after its ci"
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          fi
       # The commits since the tag of the release before, which is the nearest one in the history.
       - name: Notes
+        if: steps.head.outputs.current == 'true'
         run: |
           if [ "$VERSION" != "$WINDOWS_VERSION" ]; then
             echo "::error::the macOS build is $VERSION and the Windows build is $WINDOWS_VERSION"
@@ -201,6 +223,7 @@ jobs:
           if [ "$count" -eq 0 ]; then echo "- no new commit" >> notes.md; fi
           cat notes.md
       - name: Release
+        if: steps.head.outputs.current == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -208,6 +231,7 @@ jobs:
             --target "$COMMIT" --title "Fresnel $VERSION" --notes-file notes.md --latest
       # Each zip file of the release downloads, with the bytes of the build.
       - name: Check the download
+        if: steps.head.outputs.current == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -216,6 +240,7 @@ jobs:
           (cd downloaded && sha256sum --check ../sums.txt)
       # Only the releases of this workflow: a tag of an other form stays.
       - name: Keep the 20 newest releases
+        if: steps.head.outputs.current == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -1803,6 +1803,14 @@ branch, builds and checks the zip files and makes no release. Its release would 
 `gh release download` would get it as "Latest", and it would push a release of master out of
 the 20 that stay. A release that is not "Latest" would still take one of the 20 places.
 
+## Only the head of master publishes a release
+
+Run 38985614286 failed at `gh release create` with HTTP 403: a push changed `.github/workflows`
+after its ci, and a tag on an older commit whose workflow files differ from master needs the
+permission workflows. An older build could also become "Latest" after a newer one. The job that
+publishes now reads the head of master with gh, as `git ls-remote` would need the token in git,
+and an older commit ends with a notice: the newer one makes the release.
+
 ## The version of a release has the run number of its workflow
 
 A release is `0.1.0+build.N`: the workspace version and the run number of the workflow, which grows
