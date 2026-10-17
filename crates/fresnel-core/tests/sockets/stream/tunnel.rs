@@ -53,30 +53,37 @@ async fn a_closed_port_ends_the_tunnel_with_the_text_of_the_node() {
     assert_eq!(entries(&journal), Vec::<String>::new(), "a tunnel has no entry of its own: its forward has");
 }
 
-/// Plan section 15, M5: an upload to a slow pod completes. The pod reads in short bursts with
-/// pauses longer than the limit of a ping, while the channels of the cluster answer. A pod of
-/// the fake server that pauses reads nothing at all, also no ping, so the pauses end with the
-/// upload: a real one reads on until its buffers are full.
+/// Plan section 15, M5: an upload to a slow pod completes. The pod reads in bursts of 6 MiB with
+/// pauses of 3 s, longer than the limit of a ping, while the channels of the cluster answer. A
+/// pod of the fake server that pauses reads nothing at all, also no ping, so the pauses end with
+/// the upload: a real one reads on until its buffers are full. The bytes that came back end a
+/// burst, not a time: at a load above 20, one burst of 50 ms carried the rest of the upload.
 #[tokio::test]
 async fn an_upload_to_a_pod_that_reads_in_bursts_completes_with_no_break() {
+    const BURST: usize = 6 * 1024 * 1024;
     let bed = Bed::start(short_pings()).await;
     let mut tunnel = Tunnel::open(&bed.link.gateway, &pod(), 8080, journal()).await.expect("a tunnel");
     let sent: Vec<u8> = (0..16 * 1024 * 1024).map(|byte: u32| byte.to_le_bytes()[2]).collect();
     let writer = tunnel.writer();
     let write = async { writer.send(&sent).await.expect("the data") };
-    let waited = std::cell::Cell::new(0);
+    let (paused, waited) = (tokio::sync::Notify::new(), std::cell::Cell::new(0));
     let slow_pod = async {
         loop {
-            bed.server.hold_streams(true);
+            paused.notified().await;
             tokio::time::sleep(3 * SECOND).await;
             waited.set(waited.get() + bed.link.net.status().upgrade.sockets.write_waits);
             bed.server.hold_streams(false);
-            tokio::time::sleep(SECOND / 20).await;
         }
     };
     let read = async {
-        let mut back = Vec::new();
+        let (mut back, mut burst_end) = (Vec::new(), 0);
         while back.len() < sent.len() {
+            // The pod stops at once; only the bytes on the way back still come.
+            if back.len() >= burst_end {
+                burst_end += BURST;
+                bed.server.hold_streams(true);
+                paused.notify_one();
+            }
             back.extend_from_slice(&in_time("the data of the port", tunnel.next()).await.expect("data"));
         }
         back
