@@ -9,9 +9,10 @@ use fresnel_core::kinds::Kind;
 use fresnel_testkit::ProxyMode;
 use tokio::io::AsyncWriteExt as _;
 use tokio::net::TcpStream;
-use tokio::time::{Instant, sleep};
+use tokio::time::{Instant, sleep, timeout};
 
 use crate::bed::{Bed, forward, page, rule};
+use crate::gaps::longest_hidden_failure;
 
 const SECOND: Duration = Duration::from_secs(1);
 /// The bytes of the upload: 200 MB (plan section 15, M5).
@@ -112,6 +113,35 @@ pub(crate) async fn an_upload_of_200_mb_to_a_pod_that_reads_nothing_for_30_s_com
     assert_eq!((row.view.state.name(), row.view.connections.reset), ("active", 0), "{row:?}");
     assert!(row.view.bytes.sent >= UPLOAD as u64, "{:?}", row.view.bytes);
     drop(client);
+}
+
+/// Plan section 12.3 and the fast soaks, which found the forward "active" with no page for
+/// 20 s after a reset storm, while the API server was slow. A reset of each connection each
+/// 5 s for 60 s, and then 30 s in which each new connection gets no answer for 12 s: the
+/// path stays live, and only the opens of the tunnels can tell. A client asks the page of the
+/// Service each second, as the soak does; each run of failed pages shows a state in less
+/// than 10 s, and the page comes after the faults.
+pub(crate) async fn each_run_of_failed_pages_in_a_reset_storm_and_held_connects_shows_a_state(bed: &Bed) {
+    let service = rule(Kind::Service, "svc", 80);
+    let address = bed.active(&service).await;
+    let fetch =
+        || async move { matches!(timeout(8 * SECOND, page(address)).await, Ok(Ok(body)) if body == "Deployment") };
+    let active = || forward(&bed.core.view(), &service).is_some_and(|row| row.view.state.name() == "active");
+    let faults = async {
+        bed.proxy.set(ProxyMode::ResetEach(5 * SECOND));
+        sleep(60 * SECOND).await;
+        bed.proxy.set(ProxyMode::Pass);
+        sleep(10 * SECOND).await;
+        bed.proxy.set(ProxyMode::HoldNew { probability: 1.0, min: 12 * SECOND, max: 12 * SECOND });
+        sleep(30 * SECOND).await;
+        bed.proxy.set(ProxyMode::Pass);
+        sleep(20 * SECOND).await;
+    };
+    let (hidden, failed) = longest_hidden_failure(fetch, active, faults).await;
+    println!("{failed} pages failed in the faults; the longest run with no state lasted {hidden:?}");
+    assert!(failed >= 3, "the held connects failed pages: {failed}");
+    assert!(hidden < 10 * SECOND, "the forward showed \"active\" for {hidden:?} of failed pages");
+    until_page(address, "Deployment", 10 * SECOND).await;
 }
 
 /// Plan section 15, M5: each forward shows a silent path in 20 s or less, its local port
