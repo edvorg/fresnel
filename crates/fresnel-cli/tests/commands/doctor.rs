@@ -228,6 +228,9 @@ async fn a_plugin_that_hangs_shows_a_timeout_and_leaves_no_process() {
         &kubeconfig(&home, &[("fake", server.addr(), &server, User::Plugin { token: "doctor" })]),
     );
     home.write("state/mode", "hang\n");
+    // The first start of the program in a test process took 1 to 6 s on a busy Mac, before
+    // its `main`, and each later start some milliseconds. That time is no part of the command.
+    assert_eq!(home.run("--version", &[]).await.status, Some(0), "the program starts");
 
     let started = Instant::now();
     let run = home.run("doctor", &["--context", "fake", "--samples", "0", "--idle-close", "30"]).await;
