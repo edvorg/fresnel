@@ -17,6 +17,9 @@ use crate::gaps::longest_hidden_failure;
 const SECOND: Duration = Duration::from_secs(1);
 /// The bytes of the upload: 200 MB (plan section 15, M5).
 const UPLOAD: usize = 200 * 1024 * 1024;
+/// The break of the network: longer than the first part of an outage, after which the
+/// channels connect in turns.
+const BREAK: Duration = Duration::from_secs(120);
 
 /// Waits until the page of a local address comes, and gives the time of the wait.
 async fn until_page(address: SocketAddr, word: &str, limit: Duration) -> Duration {
@@ -182,28 +185,41 @@ pub(crate) async fn each_run_of_failed_pages_in_a_reset_storm_and_held_connects_
 }
 
 /// Plan section 15, M5: each forward shows a silent path in 20 s or less, its local port
-/// stays open, and it works again 10 s or less after the network returns.
-pub(crate) async fn the_local_ports_stay_open_in_a_break_and_work_again_10_s_or_less_after_it(
+/// stays open through a break of 2 minutes, and it works again 10 s or less after it. After
+/// the first minute of a break, the channels connect in turns; a local connection waits for
+/// its tunnel, gets a reset, and the forward stays "reconnecting".
+pub(crate) async fn the_ports_stay_open_in_a_break_of_2_minutes_and_work_10_s_or_less_after_it(
     bed: &Bed,
     forwards: &[(ForwardRule, SocketAddr)],
 ) {
-    let silent = SystemTime::now();
+    let silent = (SystemTime::now(), Instant::now());
     bed.proxy.set(ProxyMode::Freeze);
-    for (rule, address) in forwards {
-        let reconnecting = |view: &fresnel_core::app::CoreView| {
-            forward(view, rule).is_some_and(|row| row.view.state.name() == "reconnecting")
-        };
-        let view = bed.until(&format!("{rule} shows the break"), reconnecting).await;
+    for (rule, _) in forwards {
+        let view = bed.until(&format!("{rule} shows the break"), |view| reconnecting(view, rule)).await;
         let since = forward(&view, rule).map(|row| row.view.since).expect("the forward");
-        let after = since.duration_since(silent).unwrap_or_default();
+        let after = since.duration_since(silent.0).unwrap_or_default();
         assert!(after <= 20 * SECOND, "{rule} showed the break after {after:?}");
-        assert!(TcpStream::connect(address).await.is_ok(), "the local port of {rule} stays open");
     }
-    sleep(10 * SECOND).await;
+    while silent.1.elapsed() < BREAK {
+        let clients = forwards.iter().map(|(rule, address)| async move {
+            let (connected, end) = (Instant::now(), end_seen(*address).await);
+            assert_eq!(end, Ok("reset"), "a client of {rule} {:?} into the break", silent.1.elapsed());
+            let waited = connected.elapsed();
+            assert!((5 * SECOND..10 * SECOND).contains(&waited), "{rule}: the reset came after {waited:?}");
+            assert!(reconnecting(&bed.core.view(), rule), "{rule} {:?} into the break", silent.1.elapsed());
+        });
+        futures_util::future::join_all(clients).await;
+        sleep(30 * SECOND).await;
+    }
     let back = Instant::now();
     bed.proxy.set(ProxyMode::Pass);
     each_page(forwards, "the network returned").await;
     assert!(back.elapsed() <= 10 * SECOND, "the forwards worked again after {:?}", back.elapsed());
+}
+
+/// True when the forward of `rule` shows the state "reconnecting".
+fn reconnecting(view: &fresnel_core::app::CoreView, rule: &ForwardRule) -> bool {
+    forward(view, rule).is_some_and(|row| row.view.state.name() == "reconnecting")
 }
 
 /// How a local client saw its connection end, with no byte of its own.
