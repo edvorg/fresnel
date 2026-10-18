@@ -128,7 +128,7 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 - A cluster test has `#[ignore = "needs k3s in Docker"]`, and `cargo test --workspace -- --ignored`
   runs it. A store test asserts a recovery time and, after each fault, `assert_equal_to_the_api`.
 - `fresnel_testkit::K3s` publishes only the kube-apiserver port of `rancher/k3s:v1.33.5-k3s1`.
-  Its drop removes the container: `docker ps --all --filter name=fresnel-test-` shows the rest.
+  Its drop removes the container or fails the test: `docker ps -a -f name=fresnel-test-` is empty.
 - No test uses a real cluster or the kubeconfig of the user. No object of a real cluster goes
   into the repository: `fixtures/k3s` and `fixtures/kinds` are copies of the scenes of the
   tests `indexes` and `kinds`, which write them again when `FRESNEL_WRITE_FIXTURE` is set.
