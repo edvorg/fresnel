@@ -4,9 +4,10 @@
 //! A connection that arrives during a break waits for the wait time, 5 s by default, and
 //! then gets a reset. An open of a tunnel has the same time: in fast soaks, after a reset
 //! storm or a restart, the API server held upgrade requests, and each client waited 10 s for
-//! nothing while the forward showed "active". A tunnel that breaks gives the client a reset too, never a
-//! silent end: only a clean end of the pod gives the end of the data. The two directions run
-//! at the same time, so a pod that waits for the app to read its answer never stops the upload.
+//! nothing while the forward showed "active". A tunnel that breaks gives the client a reset
+//! too, never a silent end: only a clean end of the pod gives the end of the data. The two
+//! directions run at the same time, so a pod that waits for the app to read its answer never
+//! stops the upload. The first bytes of the pod in a tunnel end a run of failures.
 //!
 //! The WebSocket protocol has no half close. After the end of the local input, the tunnel
 //! stays while the pod sends, and closes after the pod is silent for the linger time, 1 s,
@@ -166,7 +167,7 @@ async fn carry(local: &mut LocalStream, tunnel: &mut Tunnel, shared: &Shared) ->
         }
     };
     let down = async {
-        let mut last = Instant::now();
+        let (mut last, mut carried) = (Instant::now(), false);
         loop {
             let quiet = async {
                 // The linger time starts after the end of the input and after each message:
@@ -183,6 +184,9 @@ async fn carry(local: &mut LocalStream, tunnel: &mut Tunnel, shared: &Shared) ->
                 () = quiet => return Down::Quiet,
             };
             let Some(data) = data else { return Down::Tunnel(tunnel.end()) };
+            if !std::mem::replace(&mut carried, true) {
+                shared.report(Outcome::Carried);
+            }
             last = Instant::now();
             if writer.write_all(&data).await.is_err() {
                 return Down::Client;

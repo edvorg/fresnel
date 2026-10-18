@@ -327,6 +327,13 @@ open now ends after `wait_secs`, 5 s, with no port on its data channel. A connec
 got no tunnel degrades the forward until a good open, for 30 s at most: an idle forward drops an
 old fault.
 
+## The first bytes of a pod end a run of failed tunnels
+
+The node starts the data channel of a tunnel before it dials the port in the pod, and writes a
+refusal after that. When an open ended the failures in a row, a forward to a port that refuses
+each connection stayed "active": each tunnel opened and then failed. An open now ends only the
+state of a connection with no tunnel; the first bytes of the pod, or "retry now", end the failures.
+
 ## A failed accept of a forward pauses, and the journal counts the failures
 
 An accept that fails, for example with too many open files, fails again at once. A warning each

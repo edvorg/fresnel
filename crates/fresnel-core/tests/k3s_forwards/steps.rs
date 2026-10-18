@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use fresnel_core::forward::ForwardRule;
 use fresnel_core::kinds::Kind;
 use fresnel_testkit::ProxyMode;
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpStream;
 use tokio::time::{Instant, sleep, timeout};
 
@@ -80,6 +80,25 @@ pub(crate) async fn a_forward_works_again_5_s_or_less_after_its_pod_restarts(bed
     let new_ready =
         |view: &fresnel_core::app::CoreView| target(view).is_some_and(|new| new.ready && new.pod != old.pod);
     bed.until("the new ready pod is the target", new_ready).await;
+}
+
+/// Plan section 12.3: "degraded" when each of the last connections failed. The node starts
+/// the data channel of a tunnel before it dials the port in the pod, and then writes the
+/// refusal: each tunnel to a port that nothing listens on opens and fails, so an open alone
+/// may end no run of failures.
+pub(crate) async fn a_forward_to_a_closed_port_degrades_after_three_failed_tunnels(bed: &Bed) {
+    let closed = rule(Kind::Pod, "web", 9999);
+    let address = bed.active(&closed).await;
+    for client in 1..=3 {
+        assert_eq!(end_seen(address).await, Ok("reset"), "client {client}");
+    }
+    let reset =
+        |view: &fresnel_core::app::CoreView| forward(view, &closed).is_some_and(|row| row.view.connections.reset == 3);
+    let view = bed.until("three failed tunnels", reset).await;
+    let state = forward(&view, &closed).map(|row| row.view.state.to_string()).expect("the forward");
+    println!("{closed}: {state}");
+    assert!(state.starts_with("degraded: each of the last 3 tunnels failed: the node refused a tunnel: "), "{state}");
+    assert!(state.contains("9999") && state.contains("connection refused"), "{state}");
 }
 
 /// Plan section 15, M5: an upload of 200 MB to a slow pod completes. The pod reads nothing
@@ -167,6 +186,18 @@ pub(crate) async fn the_local_ports_stay_open_in_a_break_and_work_again_10_s_or_
     bed.proxy.set(ProxyMode::Pass);
     each_page(forwards, "the network returned").await;
     assert!(back.elapsed() <= 10 * SECOND, "the forwards worked again after {:?}", back.elapsed());
+}
+
+/// How a local client saw its connection end, with no byte of its own.
+async fn end_seen(address: SocketAddr) -> Result<&'static str, String> {
+    let mut client = TcpStream::connect(address).await.map_err(|error| format!("the port is closed: {error}"))?;
+    let mut buffer = [0_u8; 16];
+    Ok(match timeout(30 * SECOND, client.read(&mut buffer)).await {
+        Ok(Ok(0)) => "end of data",
+        Ok(Ok(_)) => "data",
+        Ok(Err(_)) => "reset",
+        Err(_) => "nothing in 30 s",
+    })
 }
 
 /// Plan section 15, M5: each forward works again 10 s or less after a wake. In the sleep,

@@ -38,8 +38,12 @@ pub(super) enum Outcome {
     NoTarget(String),
     /// A connection that tried got no tunnel in its wait, and a reset with this text.
     NoTunnel(String),
-    /// A tunnel opened in its time: the failures end.
+    /// A connection got its tunnel in its time: the last one that tried has a tunnel.
     Opened,
+    /// The first bytes of the pod came through a tunnel: the failures in a row end. An open
+    /// alone ends none: the node starts the data channel before it dials the port in the pod,
+    /// so a tunnel to a port that refuses each connection opens and then fails.
+    Carried,
     /// The open of a tunnel failed.
     OpenFailed { target: TargetPod, error: CoreError },
     /// The open of a tunnel had no answer in the wait time, and stopped.
@@ -51,8 +55,8 @@ pub(super) enum Outcome {
 /// The outcomes since the last read of the task.
 #[derive(Debug, Default)]
 pub(super) struct Reports {
-    /// The opens and tunnels that failed in a row, with no good open between them, and the
-    /// time of the last one: the run ends [`WINDOW`] after it.
+    /// The opens and tunnels that failed in a row, with no tunnel between them that carried
+    /// bytes of the pod, and the time of the last one: the run ends [`WINDOW`] after it.
     pub(super) failures: u32,
     failed_at: Option<Instant>,
     /// The last connection that tried and got no tunnel, with the reason of its last open,
@@ -86,7 +90,7 @@ impl Reports {
         self.failed_at = Some(now);
     }
 
-    /// The end of the failures: a good open, or "retry now" of the user.
+    /// The end of the failures: the first bytes of a pod, or "retry now" of the user.
     pub(super) fn clear(&mut self) {
         (self.failures, self.failed_at, self.no_tunnel) = (0, None, None);
     }
@@ -186,7 +190,8 @@ impl Shared {
                     reports.no_tunnel = Some((at, reason));
                     reports.last_error = Some((now, text));
                 }
-                Outcome::Opened => reports.clear(),
+                Outcome::Opened => reports.no_tunnel = None,
+                Outcome::Carried => reports.clear(),
                 Outcome::OpenFailed { target, error } => {
                     let text = format!("a tunnel to pod {} did not open: {error}", target.pod.name);
                     match (error.class(), error.status()) {

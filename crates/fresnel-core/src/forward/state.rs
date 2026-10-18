@@ -18,8 +18,9 @@ use fresnel_net::{ChannelState, ClusterStatus};
 use super::resolve::Resolution;
 use crate::app::Health;
 
-/// The tunnels that fail in a row, with no good one between them, before the state degrades.
-/// A connection tries again after a failure in its wait, so one failure is no failed client.
+/// The tunnels that fail in a row, with no tunnel between them that carried bytes of the pod,
+/// before the state degrades. A connection tries again after a failure in its wait, so one
+/// failure is no failed client.
 pub(super) const FAILURES: u32 = 3;
 
 /// The state of one forward.
@@ -193,7 +194,8 @@ impl Facts {
     }
 
     /// Why a local connection gets no tunnel to the pod of the stores: the last one that
-    /// tried got none, or each of the last tunnels failed. A good tunnel ends both.
+    /// tried got none, or each of the last tunnels failed. An open ends the first, and the
+    /// first bytes of a pod end both.
     fn tunnel_fault(&self) -> Option<String> {
         if let Some(reason) = &self.no_tunnel {
             return Some(format!("the last local connection got no tunnel: {reason}"));
@@ -203,7 +205,8 @@ impl Facts {
     }
 
     /// True when a local connection can open a tunnel now: the path is up and the stores give
-    /// a pod. A target whose tunnels failed stays open, so one good tunnel ends that state.
+    /// a pod. A target whose tunnels failed stays open, so one tunnel that carries bytes of
+    /// the pod ends that state.
     pub(super) fn opens(&self) -> bool {
         matches!(self.listener, Listener::Bound(_))
             && self.refused.is_none()

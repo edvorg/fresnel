@@ -24,9 +24,11 @@ fn read(shared: &Shared) -> (u32, Option<String>) {
 }
 
 /// A stalled open is a failure, and a connection with no tunnel keeps the reason of its last
-/// open. Both end at a good open: a long tunnel that works no longer has to end first.
+/// open. An open ends the connection with no tunnel, and the first bytes of a pod end the
+/// failures: a long tunnel that works does not have to end first, and a tunnel that opens and
+/// then fails, as each one to a port that refuses connections, ends no run.
 #[tokio::test(start_paused = true)]
-async fn a_stalled_open_and_a_connection_with_no_tunnel_count_until_a_good_open() {
+async fn a_stalled_open_and_a_connection_with_no_tunnel_count_until_the_first_bytes_of_a_pod() {
     let shared = shared();
     shared.report(Outcome::Stalled { target: target() });
     let network = CoreError::new(ErrorClass::Network, "reset");
@@ -39,6 +41,11 @@ async fn a_stalled_open_and_a_connection_with_no_tunnel_count_until_a_good_open(
     assert_eq!(text.as_deref(), Some("a local connection got no tunnel before the end of its wait: a reset"));
 
     shared.report(Outcome::Opened);
+    assert_eq!(read(&shared), (2, None), "a tunnel opened");
+    shared.report(Outcome::Broke { text: "the node refused a tunnel: connection refused".to_owned(), path: false });
+    shared.report(Outcome::Opened);
+    assert_eq!(read(&shared).0, 3, "an open after a refusal");
+    shared.report(Outcome::Carried);
     assert_eq!(read(&shared), (0, None));
     shared.report(Outcome::Stalled { target: target() });
     let text = shared.reports().last_error.as_ref().map(|(_, text)| text.clone());

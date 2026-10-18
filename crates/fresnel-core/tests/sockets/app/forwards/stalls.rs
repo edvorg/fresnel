@@ -1,6 +1,7 @@
-//! Plan section 12.3: a forward whose new connections get no tunnel is never "active". Five
-//! fast soaks found the forward "active" with no page for 20 s and more: after a reset storm
-//! and a restart of the API server, which then held the answers to the upgrade requests.
+//! Plan section 12.3: a forward whose new connections get no tunnel, or tunnels that fail,
+//! is never "active". Five fast soaks found the forward "active" with no page for 20 s and
+//! more: after a reset storm and a restart of the API server, which then held the answers to
+//! the upgrade requests.
 
 use std::time::SystemTime;
 
@@ -55,6 +56,25 @@ async fn tunnels_with_no_answer_degrade_the_forward_in_its_wait_and_a_good_tunne
         let error = row.view.last_error.as_ref().map(|(_, text)| text.as_str());
         assert_eq!(error, Some("a local connection got no tunnel before the end of its wait: a reset"));
     }
+}
+
+/// Plan section 12.3: "degraded" when each of the last connections failed. The node starts
+/// the data channel of a tunnel before it dials the port in the pod, so each tunnel to a port
+/// that refuses connections opens and then fails: an open alone ends no run of failures.
+#[tokio::test(flavor = "multi_thread")]
+async fn tunnels_that_open_and_then_fail_degrade_the_forward() {
+    let bed = Bed::start("forward-closed-port").await;
+    // The fake pod refuses each connection to its port 1, as a node does.
+    let closed = rule(Kind::Pod, "web-1", 1);
+    bed.start_forward(&closed);
+    let address = bed.active(&closed).await;
+    for client in 1..=3 {
+        assert_eq!(end_seen(address).await, Ok("reset"), "client {client}");
+    }
+    let row = bed.until(&closed, "three failed tunnels", |view| view.connections.reset == 3).await;
+    let text = "degraded: each of the last 3 tunnels failed: the node refused a tunnel: error forwarding port 1 to \
+                pod web: dial tcp4 127.0.0.1:1: connection refused";
+    assert_eq!(row.view.state.to_string(), text);
 }
 
 /// The faults of the fast soaks, while a client asks a page each second as the soak does: a
