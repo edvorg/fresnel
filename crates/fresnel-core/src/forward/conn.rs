@@ -2,9 +2,9 @@
 //! bytes in each direction and ends with a clear signal for the client (plan section 12.3).
 //!
 //! A connection that arrives during a break waits for the wait time, 5 s by default, and
-//! then gets a reset. An open of a tunnel has the same time: in fast soaks, an API server
-//! after a restart held the upgrade requests, and each client waited 10 s for nothing while
-//! the forward showed "active". A tunnel that breaks gives the client a reset too, never a
+//! then gets a reset. An open of a tunnel has the same time: in fast soaks, after a reset
+//! storm or a restart, the API server held upgrade requests, and each client waited 10 s for
+//! nothing while the forward showed "active". A tunnel that breaks gives the client a reset too, never a
 //! silent end: only a clean end of the pod gives the end of the data. The two directions run
 //! at the same time, so a pod that waits for the app to read its answer never stops the upload.
 //!
