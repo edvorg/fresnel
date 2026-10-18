@@ -4,9 +4,9 @@
 //! A connection that arrives during a break waits for the wait time, 5 s by default, and
 //! then gets a reset. An open of a tunnel has the same time: in fast soaks, an API server
 //! after a restart held the upgrade requests, and each client waited 10 s for nothing while
-//! the forward showed "active". A tunnel that breaks gives the client a reset too, never a silent end:
-//! only a clean end of the pod gives the end of the data. The two directions run at the same
-//! time, so a pod that waits for the app to read its answer never stops the upload.
+//! the forward showed "active". A tunnel that breaks gives the client a reset too, never a
+//! silent end: only a clean end of the pod gives the end of the data. The two directions run
+//! at the same time, so a pod that waits for the app to read its answer never stops the upload.
 //!
 //! The WebSocket protocol has no half close. After the end of the local input, the tunnel
 //! stays while the pod sends, and closes after the pod is silent for the linger time, 1 s,
@@ -117,10 +117,14 @@ async fn open(shared: &Shared, gate: &mut watch::Receiver<Gate>, deadline: Insta
             Err(_) => shared.report(Outcome::Stalled { target }),
         }
         // The report can give a new target at once; else the pause keeps a refusal from a loop.
-        // An end of the gate needs no step here: the task of the forward stops each connection.
         let pause = (Instant::now() + shared.retry_pause).min(deadline);
         match timeout_at(pause, gate.changed()).await {
-            Ok(Ok(()) | Err(_)) | Err(_) => {}
+            Ok(Ok(())) | Err(_) => {}
+            // The task of the forward is gone: the connection ends now, with its reset.
+            Ok(Err(_)) => {
+                shared.report(no_tunnel(shared, tried));
+                return None;
+            }
         }
     }
 }
