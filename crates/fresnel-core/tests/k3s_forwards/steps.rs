@@ -109,24 +109,42 @@ pub(crate) async fn an_upload_of_200_mb_to_a_pod_that_reads_nothing_for_30_s_com
     let address = bed.active(&sink).await;
     let started = Instant::now();
     let mut client = TcpStream::connect(address).await.expect("a connect");
-    let piece = vec![7_u8; 1024 * 1024];
-    for _ in 0..UPLOAD / piece.len() {
-        client.write_all(&piece).await.expect("the upload goes on");
-    }
-    let written = started.elapsed();
-    // The first byte goes to a file of its own: the pause of the pod starts with it.
-    let size = (UPLOAD - 1).to_string();
-    loop {
-        let stat =
-            bed.k3s.kubectl(&["--namespace", "forwards", "exec", "slow", "--", "stat", "-c", "%s", "/tmp/upload"]);
-        let stat = stat.await;
-        if stat.as_ref().is_ok_and(|text| text.trim() == size) {
-            break;
+    let upload = async {
+        let piece = vec![7_u8; 1024 * 1024];
+        for _ in 0..UPLOAD / piece.len() {
+            client.write_all(&piece).await.expect("the upload goes on");
         }
-        assert!(started.elapsed() < 300 * SECOND, "the pod has the 200 MB in 300 s: {stat:?}");
-        sleep(SECOND).await;
+        let written = started.elapsed();
+        // The first byte goes to a file of its own: the pause of the pod starts with it.
+        let size = (UPLOAD - 1).to_string();
+        loop {
+            let stat =
+                bed.k3s.kubectl(&["--namespace", "forwards", "exec", "slow", "--", "stat", "-c", "%s", "/tmp/upload"]);
+            let stat = stat.await;
+            if stat.as_ref().is_ok_and(|text| text.trim() == size) {
+                break;
+            }
+            assert!(started.elapsed() < 300 * SECOND, "the pod has the 200 MB in 300 s: {stat:?}");
+            sleep(SECOND).await;
+        }
+        println!("the client wrote 200 MB in {written:?}, and the pod had them after {:?}", started.elapsed());
+    };
+    // A slow pod is no break: each look of the upload sees "active".
+    let other_state = std::cell::Cell::new(None);
+    let looks = async {
+        loop {
+            let state = forward(&bed.core.view(), &sink).map(|row| row.view.state.to_string());
+            if let Some(state) = state.filter(|state| state != "active") {
+                other_state.set(Some(state));
+            }
+            sleep(SECOND / 10).await;
+        }
+    };
+    tokio::select! {
+        () = upload => {}
+        () = looks => unreachable!("the looks run until the end of the upload"),
     }
-    println!("the client wrote 200 MB in {written:?}, and the pod had them after {:?}", started.elapsed());
+    assert_eq!(other_state.take(), None, "the state in the upload");
     let view = bed.core.view();
     let row = forward(&view, &sink).expect("the forward");
     assert_eq!((row.view.state.name(), row.view.connections.reset), ("active", 0), "{row:?}");

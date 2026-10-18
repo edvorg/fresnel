@@ -92,7 +92,8 @@ async fn a_pod_that_goes_gives_way_to_a_new_ready_pod_in_5_s() {
 }
 
 /// Plan section 15, M5: an upload to a slow pod completes. The pod reads in bursts with pauses
-/// of 3 s, longer than the limit of a ping, and a write that waits for it is no break.
+/// of 3 s, longer than the limit of a ping, and a write that waits for it is no break: the
+/// forward shows "active" at each look of the upload.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_upload_to_a_pod_that_reads_in_bursts_completes_through_the_forward() {
     let bed = Bed::start("forward-upload").await;
@@ -116,15 +117,27 @@ async fn an_upload_to_a_pod_that_reads_in_bursts_completes_through_the_forward()
             tokio::time::sleep(SECOND / 20).await;
         }
     };
+    let other_state = std::cell::Cell::new(None);
+    let looks = async {
+        loop {
+            let state = forward(&bed.app.core.view(), &pod).map(|row| row.view.state.clone());
+            if let Some(state) = state.filter(|state| state.name() != "active") {
+                other_state.set(Some(state.to_string()));
+            }
+            tokio::time::sleep(SECOND / 20).await;
+        }
+    };
     let until_read = async {
         tokio::select! {
             back = read => back,
             () = slow_pod => unreachable!("the pod pauses until the end of the read"),
+            () = looks => unreachable!("the looks run until the end of the read"),
         }
     };
     let ((), back) = tokio::join!(write, until_read);
     bed.server.hold_streams(false);
     assert!(back == sent, "each byte came back in its sequence");
+    assert_eq!(other_state.take(), None, "a slow pod is no break");
     let view = bed.until(&pod, "the counts", |view| view.bytes.received == sent.len() as u64).await;
     assert_eq!((view.view.state.name(), view.view.connections.reset), ("active", 0));
 }
