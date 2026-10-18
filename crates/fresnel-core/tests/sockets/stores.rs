@@ -16,6 +16,8 @@ use crate::common::{LIMIT, in_time};
 use crate::store_bed::Stores;
 
 pub(crate) const PODS: &str = "/api/v1/pods";
+/// The Namespace whose UID tells after a lost connection that the cluster is the same one.
+pub(crate) const KUBE_SYSTEM: &str = "/api/v1/namespaces/kube-system";
 const SECRETS: &str = "/api/v1/secrets";
 /// The kinds of tier A and tier B.
 pub(crate) const STORES: usize = 39;
@@ -25,6 +27,12 @@ pub(crate) const STORES: usize = 39;
 pub(crate) fn is_version_check(seen: &SeenRequest) -> bool {
     let limit = seen.uri.query().and_then(|query| query.split('&').find_map(|pair| pair.strip_prefix("limit=")));
     !seen.is_watch() && limit == Some("1")
+}
+
+/// True for a list of a store or a check of its version: no watch, and no read of the
+/// version of the server or of the identity of the cluster.
+pub(crate) fn is_list(seen: &SeenRequest) -> bool {
+    !seen.is_watch() && !["/version", KUBE_SYSTEM].contains(&seen.uri.path())
 }
 
 pub(crate) fn of_path<'a>(requests: &'a [SeenRequest], path: &str) -> Vec<&'a SeenRequest> {
@@ -224,7 +232,7 @@ async fn a_silent_connection_shows_in_each_store_in_20_seconds_or_less() {
     stores.until_live(Duration::from_secs(10)).await;
     println!("each store was live again {:?} after that", found.elapsed());
     let requests = bed.server.requests();
-    let lists = requests.iter().filter(|seen| seen.uri.path() != "/version" && !seen.is_watch());
+    let lists = requests.iter().filter(|seen| is_list(seen));
     let (checked, listed): (Vec<&SeenRequest>, Vec<_>) = lists.partition(|seen| is_version_check(seen));
     assert_eq!(listed.len(), STORES, "each watch continued from its last version: no new list");
     let checked: BTreeSet<&str> = checked.iter().map(|seen| seen.uri.path()).collect();

@@ -16,6 +16,7 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
     /// version of the data, and a list of two versions can lose an object.
     pub(super) async fn list(&mut self) -> Result<(), Failure> {
         let _slot = self.list_slot().await.map_err(Failure::Fault)?;
+        self.cluster = self.lanes.cluster();
         self.start_request(StoreState::Listing { loaded: 0 });
         self.writer.begin_list();
         let mut token: Option<String> = None;

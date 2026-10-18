@@ -86,6 +86,7 @@ pub struct ClusterStores {
     /// The sender of the lanes, for the count of their readers in the memory account.
     lanes: Sender<LaneStates>,
     _lanes: TaskHandle,
+    _identity: TaskHandle,
 }
 
 impl ClusterStores {
@@ -103,6 +104,11 @@ impl ClusterStores {
                 let (net, states) = (link.net.clone(), states.clone());
                 move || watch::follow(net.clone(), states.clone())
             });
+        let identity =
+            tasks.start(TaskName::scoped("cluster identity", cluster.as_str()), Restart::Always(Backoff::default()), {
+                let (gateway, states) = (link.gateway.clone(), states.clone());
+                move || watch::identify(gateway.clone(), states.clone())
+            });
         let notice = Notice::new();
         let linger = parts.settings.linger;
         let starter = Starter {
@@ -117,7 +123,7 @@ impl ClusterStores {
         };
         let stores = Kind::ALL.iter().filter_map(|kind| kind.visit(AlwaysOn(&starter))).collect();
         let demands = Demands::start(starter, linger);
-        Ok(Self { cluster, stores, demands, notice, lanes: states, _lanes: lanes_task })
+        Ok(Self { cluster, stores, demands, notice, lanes: states, _lanes: lanes_task, _identity: identity })
     }
 
     /// The cluster of the stores.

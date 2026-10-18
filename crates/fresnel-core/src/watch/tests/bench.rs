@@ -24,8 +24,13 @@ pub(super) const SECOND: Duration = Duration::from_secs(1);
 /// Longer than each wait of the loop. Paused time jumps to it when no signal arrives.
 const LIMIT: Duration = Duration::from_secs(7200);
 /// Each lane is live and the server takes requests.
-pub(super) const LIVE: LaneStates =
-    LaneStates { requests: Path::Live, watches: Path::Live, credential_failed: false, throttled_until: None };
+pub(super) const LIVE: LaneStates = LaneStates {
+    requests: Path::Live,
+    watches: Path::Live,
+    credential_failed: false,
+    throttled_until: None,
+    cluster: 0,
+};
 
 /// The settings of the tests: pauses of 100, 200, 400 ms and then 3 s with no random part,
 /// and a watch that the server ends after 60 s.

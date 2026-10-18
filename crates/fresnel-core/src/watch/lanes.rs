@@ -44,6 +44,9 @@ pub(crate) struct LaneStates {
     pub(crate) credential_failed: bool,
     /// The server takes no request until this time (HTTP 429). A time in the past is over.
     pub(crate) throttled_until: Option<SystemTime>,
+    /// The number of the cluster behind the connections: one more each time it is an other
+    /// cluster after a lost connection (`identity`). Each store lists again then.
+    pub(crate) cluster: u32,
 }
 
 /// What a request of one lane can do now.
@@ -56,15 +59,22 @@ pub(crate) enum Readiness {
 
 impl LaneStates {
     /// The state before the first copy of the connection layer.
-    pub(crate) const UNKNOWN: Self =
-        Self { requests: Path::NoChannel, watches: Path::NoChannel, credential_failed: false, throttled_until: None };
+    pub(crate) const UNKNOWN: Self = Self {
+        requests: Path::NoChannel,
+        watches: Path::NoChannel,
+        credential_failed: false,
+        throttled_until: None,
+        cluster: 0,
+    };
 
-    pub(crate) fn of(status: &ClusterStatus) -> Self {
+    /// The states of the connections of the cluster with this number.
+    pub(crate) fn of(status: &ClusterStatus, cluster: u32) -> Self {
         Self {
             requests: path(&status.requests),
             watches: path(&status.watches),
             credential_failed: credential_failed(status),
             throttled_until: status.throttle.until,
+            cluster,
         }
     }
 
@@ -108,12 +118,16 @@ fn credential_failed(status: &ClusterStatus) -> bool {
     }
 }
 
-/// The body of the task of the cluster: publishes a copy after each change of a state.
+/// The body of the task of the cluster: publishes a copy after each change of a state. The
+/// number of the cluster is the one of the task of its identity.
 pub(crate) async fn follow(net: fresnel_net::Cluster, states: watch::Sender<LaneStates>) -> Result<(), CoreError> {
     let mut changes = net.changes();
     loop {
-        let current = LaneStates::of(&net.status());
-        states.send_if_modified(|states| std::mem::replace(states, current) != current);
+        let status = net.status();
+        states.send_if_modified(|states| {
+            let current = LaneStates::of(&status, states.cluster);
+            std::mem::replace(states, current) != current
+        });
         changes.next().await;
     }
 }
@@ -162,6 +176,27 @@ impl Lanes {
         if lost.is_err() {
             std::future::pending::<()>().await;
         }
+    }
+
+    /// The number of the cluster behind the connections now.
+    pub(crate) fn cluster(&self) -> u32 {
+        self.states.borrow().cluster
+    }
+
+    /// Waits until the cluster behind the connections is not the one with this number.
+    pub(crate) async fn other_cluster(&mut self, number: u32) {
+        let other = self.states.wait_for(|states| states.cluster != number).await.map(drop);
+        if other.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+
+    /// Waits until a request of the lane can go out: its channel is live and the credential
+    /// works. A throttle of the server holds the request in the connection layer.
+    pub(crate) async fn open(&mut self, lane: Lane) -> Result<(), CoreError> {
+        let open = |states: &LaneStates| states.path(lane) == Path::Live && !states.credential_failed;
+        let opened = self.states.wait_for(open).await.map(drop);
+        opened.map_err(|_| CoreError::invalid("the task that follows the connections of the cluster is gone"))
     }
 
     /// Waits until the two lanes are live after one of them was not. This is the moment a

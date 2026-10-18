@@ -661,6 +661,14 @@ connection, a list of one object gives a new list when its version is older than
 or when its object has the name of one of the store and an other UID: a new cluster can pass
 the cursor first.
 
+## The UID of kube-system tells that the cluster is an other one
+
+A new cluster can pass the checks of each store: its version past the cursor, its first object
+with no namesake in the store. So a task of each cluster reads the UID of the Namespace
+kube-system, which a cluster keeps for its life, at the connect and after each lost connection.
+An other UID gives the cluster a new number, and each store lists again. A user who cannot read
+that Namespace gets no such check.
+
 ## A second HTTP 410 gives a pause
 
 After HTTP 410, only a new list gives the current objects, and the first one starts at once.

@@ -9,9 +9,10 @@
 //!
 //! - `list`: the list in pages. `stream`: one watch. `recover`: what follows a failure.
 //! - `source`: the two requests. `lanes`: the connections of the cluster. `gate`: the
-//!   limit for lists.
+//!   limit for lists. `identity`: the cluster behind the connections.
 
 mod gate;
+mod identity;
 mod lanes;
 mod list;
 mod recover;
@@ -30,6 +31,7 @@ use futures_util::FutureExt as _;
 pub(crate) use gate::ListGate;
 #[cfg(test)]
 pub(crate) use gate::Turn;
+pub(crate) use identity::identify;
 pub(crate) use lanes::{LaneStates, Lanes, follow};
 pub(crate) use source::{GatewaySource, Page, Source};
 
@@ -134,6 +136,9 @@ struct Loop<'a, T, S> {
     /// True after a lost connection, until a list or a check of the cursor: the server can
     /// have started again with an older datastore (`stream`).
     lost: bool,
+    /// The number of the cluster at the start of the last list: an other number is a new
+    /// cluster, which needs a new list (`identity`).
+    cluster: u32,
     attempts: Attempts,
 }
 
@@ -176,6 +181,7 @@ async fn keep_current<T: Object, S: Source<T>>(parts: &Parts<T, S>) -> Result<()
         listed_before: false,
         renewal: false,
         lost: false,
+        cluster: parts.lanes.cluster(),
         attempts: Attempts::default(),
     };
     loop {

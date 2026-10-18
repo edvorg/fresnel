@@ -28,6 +28,9 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
     pub(super) async fn watch(&mut self, from: &str) -> Result<(), Failure> {
         let renewal = std::mem::take(&mut self.renewal);
         self.ready(Lane::Watches).await.map_err(Failure::Fault)?;
+        if self.lanes.cluster() != self.cluster {
+            return Err(Failure::Gone(other_cluster()));
+        }
         if self.lost {
             self.check_cursor(from).await?;
             self.lost = false;
@@ -104,6 +107,7 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
     /// bookmark: the watch then showed that it works.
     async fn follow(&mut self, events: &mut S::Events, stall: Duration, proved: &mut bool) -> Result<End, Failure> {
         let mut stalled_at = Instant::now() + stall;
+        let mut identity = self.lanes.clone();
         loop {
             let due = self.writer.due();
             tokio::select! {
@@ -115,6 +119,7 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
                 }
                 () = wait_until(due) => self.writer.publish_if_due(),
                 () = self.lanes.lost(Lane::Watches) => return Ok(End::ChannelLost),
+                () = identity.other_cluster(self.cluster) => return Err(Failure::Gone(other_cluster())),
                 () = sleep_until(stalled_at) => return Err(Failure::Failed(stalled(stall))),
             }
         }
@@ -172,6 +177,10 @@ fn other_uid(meta: &ObjectMeta) -> CoreError {
     let name = meta.name.as_deref().unwrap_or_default();
     let text = format!("the object {name} of the cluster has an other UID than the object of the store");
     CoreError::new(ErrorClass::Server, text)
+}
+
+fn other_cluster() -> CoreError {
+    CoreError::new(ErrorClass::Server, "the cluster is an other one: its Namespace kube-system has an other UID")
 }
 
 fn ended_early(after: Duration) -> CoreError {

@@ -257,6 +257,32 @@ async fn a_new_cluster_past_the_version_of_the_store_gets_a_new_list_after_the_l
     assert_eq!(bench.script.take_calls(), ["list of 1", "list of 500", "watch after 40 for 60 s"]);
 }
 
+/// A new cluster can also pass the check of one object: its first object can have no
+/// namesake in the store. The cluster then gets a new number (`identity`), and the open watch
+/// ends with a new list; so does the next watch of a store that waits in a pause.
+#[tokio::test(start_paused = true)]
+async fn an_other_cluster_ends_the_watch_and_the_next_one_with_a_new_list() {
+    let (mut bench, _events) = Bench::live(settings()).await;
+    bench.script.page(&[("x", "2")], Some("3"), None);
+    let next = bench.script.watch_opens();
+    bench.lanes.send_modify(|lanes| lanes.cluster = 1);
+    bench
+        .until("the objects of the other cluster", |snapshot| snapshot.state.is_live() && snapshot.items.len() == 1)
+        .await;
+    assert_eq!(bench.script.take_calls(), ["list of 500", "watch after 3 for 60 s"]);
+
+    next.send(Err(CoreError::new(ErrorClass::Network, "reset"))).expect("the watch is open");
+    bench
+        .until_state("the pause", |state| matches!(state, StoreState::Attempt { .. } | StoreState::Backoff { .. }))
+        .await;
+    bench.lanes.send_modify(|lanes| lanes.cluster = 2);
+    bench.script.page(&[("y", "1")], Some("2"), None);
+    let _last = bench.script.watch_opens();
+    bench.until_state("the watch of the third cluster", StoreState::is_live).await;
+    assert_eq!(bench.objects(), pairs(&[("y", "1")]));
+    assert_eq!(bench.script.take_calls(), ["list of 500", "watch after 2 for 60 s"], "no watch after the old cursor");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_store_waits_for_a_token_and_for_a_channel_before_its_first_request() {
     let mut bench = Bench::start(settings());

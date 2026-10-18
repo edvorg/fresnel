@@ -13,7 +13,7 @@ use k8s_openapi::api::core::v1::Pod;
 use crate::bed::{Bed, ProxyBed};
 use crate::common::{LIMIT, in_time};
 use crate::store_bed::Stores;
-use crate::stores::{PODS, STORES, is_version_check, of_path, state_of};
+use crate::stores::{KUBE_SYSTEM, PODS, STORES, is_list, is_version_check, of_path, state_of};
 
 /// Plan section 15: each store is live 10 seconds or less after the network returns.
 const RECOVERY: Duration = Duration::from_secs(10);
@@ -147,8 +147,7 @@ async fn a_connection_that_goes_silent_at_the_renewal_of_each_watch_shows_in_20_
     let recovery = live_again_after(&stores, found, RECOVERY).await;
     println!("each store was live again {recovery:?} after that");
     let requests = bed.server.requests();
-    let lists = requests.iter().filter(|seen| seen.uri.path() != "/version" && !seen.is_watch());
-    let lists = lists.filter(|seen| !is_version_check(seen)).count();
+    let lists = requests.iter().filter(|seen| is_list(seen) && !is_version_check(seen)).count();
     assert_eq!(lists, STORES, "each watch continued from its last version: no new list");
     assert_eq!(bed.proxy.task_failures(), Vec::<String>::new());
 }
@@ -274,4 +273,40 @@ async fn a_bad_line_of_a_watch_starts_the_watch_again_after_the_last_good_versio
     for (before, after) in before.iter().zip(&after).filter(|(before, _)| before.kind != Kind::Pod) {
         assert_eq!((&after.state, after.since), (&before.state, before.since), "{:?}", after.kind);
     }
+}
+
+/// A new cluster at the same address can pass the checks of each store after a lost
+/// connection: its versions can be past the cursors, and its first objects can have no
+/// namesake in the stores. Its Namespace kube-system has an other UID, and each store lists
+/// again; a lost connection to the same cluster costs no list.
+#[tokio::test]
+async fn an_other_uid_of_kube_system_after_a_lost_connection_gives_each_store_a_new_list() {
+    let body = |uid: &str| format!(r#"{{"metadata":{{"name":"kube-system","uid":"{uid}","resourceVersion":"4"}}}}"#);
+    let bed = ProxyBed::start("new-cluster", NetSettings::default()).await;
+    bed.server.set_body(KUBE_SYSTEM, &body("first"));
+    let stores = Stores::start(&bed.tasks, &bed.link, StoreSettings::default());
+    stores.until_live(LIMIT).await;
+    let server = &bed.server;
+    let reads = |count: usize| server.wait_for(move |_| of_path(&server.requests(), KUBE_SYSTEM).len() >= count);
+    in_time("the read at the connect", reads(1)).await;
+    let lists =
+        || -> Vec<usize> { Kind::ALL.iter().map(|kind| lists_and_watches(server, &kind.info().path()).0).collect() };
+    let first = lists();
+    assert_eq!(first.iter().filter(|count| **count == 1).count(), STORES, "one list for each store: {first:?}");
+
+    let lost = SystemTime::now();
+    in_time("a reset", bed.proxy.reset_all()).await;
+    in_time("the read after the lost connection", reads(2)).await;
+    live_again_after(&stores, lost, RECOVERY).await;
+    assert_eq!(lists(), first, "the same cluster: no list");
+
+    bed.server.set_body(KUBE_SYSTEM, &body("second"));
+    let lost = SystemTime::now();
+    in_time("a reset", bed.proxy.reset_all()).await;
+    let again = |all: &[StoreStatus]| all.iter().all(|store| store.state.is_live() && store.since >= lost);
+    stores
+        .until("each store is live after a new list", RECOVERY, |all| {
+            again(all) && lists().iter().zip(&first).all(|(now, before)| *now == before * 2)
+        })
+        .await;
 }
