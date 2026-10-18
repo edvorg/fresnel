@@ -14,7 +14,7 @@ pub struct Keys {
 impl Default for Keys {
     /// The default keys of the table.
     fn default() -> Self {
-        Self { keys: TABLE.iter().filter_map(|entry| Some((entry.id, entry.key?))).collect() }
+        Self { keys: TABLE.iter().map(|entry| (entry.id, entry.key)).collect() }
     }
 }
 

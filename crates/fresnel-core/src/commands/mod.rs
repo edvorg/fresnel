@@ -78,17 +78,17 @@ pub struct Entry {
     pub name: &'static str,
     /// The words of a menu entry and of a result of the quick search.
     pub label: &'static str,
-    /// The key of the command, unless the settings give an other one.
-    pub key: Option<Shortcut>,
+    /// The key of the command, unless the settings give an other one or none.
+    pub key: Shortcut,
     pub confirm: Confirm,
 }
 
 impl Entry {
     const fn app(id: CommandId, name: &'static str, label: &'static str, key: Shortcut) -> Self {
-        Self { id, name, label, key: Some(key), confirm: Confirm::Never }
+        Self { id, name, label, key, confirm: Confirm::Never }
     }
 
-    const fn object(action: Action, name: &'static str, key: Option<Shortcut>, confirm: Confirm) -> Self {
+    const fn object(action: Action, name: &'static str, key: Shortcut, confirm: Confirm) -> Self {
         Self { id: CommandId::Object(action), name, label: action.label(), key, confirm }
     }
 
@@ -135,35 +135,35 @@ pub const TABLE: &[Entry] = &[
     Entry::app(CommandId::Focus(Area::Dock), "focus-dock", "Focus the dock", Shortcut::command("4")),
     Entry::app(CommandId::NextArea, "next-area", "Next area", Shortcut::plain("F6")),
     Entry::app(CommandId::PreviousArea, "previous-area", "Area before", Shortcut::plain("F6").shift()),
-    Entry::object(Action::ViewManifest, "view-manifest", Some(Shortcut::command("M").shift()), Never),
-    Entry::object(Action::CopyName, "copy-name", Some(Shortcut::command("C").shift()), Never),
-    Entry::object(Action::CopyCommand, "copy-command", Some(Shortcut::command("K").shift()), Never),
-    Entry::object(Action::Download, "download", Some(Shortcut::command("D").shift()), Never),
-    Entry::object(Action::EditManifest, "edit-manifest", Some(Shortcut::command("Y").shift()), Always),
-    Entry::object(Action::Logs, "logs", Some(Shortcut::command("L").shift()), Never),
-    Entry::object(Action::Terminal, "terminal", Some(Shortcut::command("T").shift()), Never),
-    Entry::object(Action::Attach, "attach", Some(Shortcut::command("A").shift()), Never),
-    Entry::object(Action::DebugContainer, "debug-container", Some(Shortcut::command("G").alt()), Always),
-    Entry::object(Action::Forward, "forward-port", Some(Shortcut::command("P").shift()), Never),
-    Entry::object(Action::Scale, "scale", Some(Shortcut::command("S").shift()), Always),
-    Entry::object(Action::Restart, "restart", Some(Shortcut::command("R").shift()), Always),
-    Entry::object(Action::RolloutStatus, "rollout-status", Some(Shortcut::command("U").shift()), Never),
-    Entry::object(Action::RevisionHistory, "revision-history", Some(Shortcut::command("H").shift()), Never),
-    Entry::object(Action::Rollback, "rollback", Some(Shortcut::command("B").shift()), Always),
-    Entry::object(Action::RunAgain, "run-again", Some(Shortcut::command("A").alt()), Always),
-    Entry::object(Action::Suspend, "suspend", Some(Shortcut::command("S").alt()), Always),
-    Entry::object(Action::Resume, "resume", Some(Shortcut::command("R").alt()), Always),
-    Entry::object(Action::Trigger, "trigger", Some(Shortcut::command("T").alt()), Always),
-    Entry::object(Action::Cordon, "cordon", Some(Shortcut::command("C").alt()), Always),
-    Entry::object(Action::Uncordon, "uncordon", Some(Shortcut::command("U").alt()), Always),
-    Entry::object(Action::Drain, "drain", Some(Shortcut::command("D").alt()), Always),
-    Entry::object(Action::NodeShell, "node-shell", Some(Shortcut::command("J").shift()), Always),
-    Entry::object(Action::EditKeys, "edit-keys", Some(Shortcut::command("E").shift()), Always),
-    Entry::object(Action::AddKey, "add-key", Some(Shortcut::command("N").alt()), Always),
-    Entry::object(Action::RemoveKey, "remove-key", Some(Shortcut::command("Delete").alt()), Always),
-    Entry::object(Action::Evict, "evict", Some(Shortcut::command("E").alt()), Always),
-    Entry::object(Action::Delete, "delete", Some(Shortcut::command("Backspace").alt()), Always),
-    Entry::object(Action::ForceDelete, "force-delete", Some(Shortcut::command("Backspace").alt().shift()), Always),
+    Entry::object(Action::ViewManifest, "view-manifest", Shortcut::command("M").shift(), Never),
+    Entry::object(Action::CopyName, "copy-name", Shortcut::command("C").shift(), Never),
+    Entry::object(Action::CopyCommand, "copy-command", Shortcut::command("K").shift(), Never),
+    Entry::object(Action::Download, "download", Shortcut::command("D").shift(), Never),
+    Entry::object(Action::EditManifest, "edit-manifest", Shortcut::command("Y").shift(), Always),
+    Entry::object(Action::Logs, "logs", Shortcut::command("L").shift(), Never),
+    Entry::object(Action::Terminal, "terminal", Shortcut::command("T").shift(), Never),
+    Entry::object(Action::Attach, "attach", Shortcut::command("A").shift(), Never),
+    Entry::object(Action::DebugContainer, "debug-container", Shortcut::command("G").alt(), Always),
+    Entry::object(Action::Forward, "forward-port", Shortcut::command("P").shift(), Never),
+    Entry::object(Action::Scale, "scale", Shortcut::command("S").shift(), Always),
+    Entry::object(Action::Restart, "restart", Shortcut::command("R").shift(), Always),
+    Entry::object(Action::RolloutStatus, "rollout-status", Shortcut::command("U").shift(), Never),
+    Entry::object(Action::RevisionHistory, "revision-history", Shortcut::command("H").shift(), Never),
+    Entry::object(Action::Rollback, "rollback", Shortcut::command("B").shift(), Always),
+    Entry::object(Action::RunAgain, "run-again", Shortcut::command("A").alt(), Always),
+    Entry::object(Action::Suspend, "suspend", Shortcut::command("S").alt(), Always),
+    Entry::object(Action::Resume, "resume", Shortcut::command("R").alt(), Always),
+    Entry::object(Action::Trigger, "trigger", Shortcut::command("T").alt(), Always),
+    Entry::object(Action::Cordon, "cordon", Shortcut::command("C").alt(), Always),
+    Entry::object(Action::Uncordon, "uncordon", Shortcut::command("U").alt(), Always),
+    Entry::object(Action::Drain, "drain", Shortcut::command("D").alt(), Always),
+    Entry::object(Action::NodeShell, "node-shell", Shortcut::command("J").shift(), Always),
+    Entry::object(Action::EditKeys, "edit-keys", Shortcut::command("E").shift(), Always),
+    Entry::object(Action::AddKey, "add-key", Shortcut::command("N").alt(), Always),
+    Entry::object(Action::RemoveKey, "remove-key", Shortcut::command("Delete").alt(), Always),
+    Entry::object(Action::Evict, "evict", Shortcut::command("E").alt(), Always),
+    Entry::object(Action::Delete, "delete", Shortcut::command("Backspace").alt(), Always),
+    Entry::object(Action::ForceDelete, "force-delete", Shortcut::command("Backspace").alt().shift(), Always),
 ];
 
 /// The entry of a command. Each command has one: a test holds it.
@@ -209,7 +209,7 @@ mod tests {
         let unique = |values: Vec<String>| values.iter().collect::<BTreeSet<_>>().len() == values.len();
         assert!(unique(TABLE.iter().map(|entry| entry.name.to_owned()).collect()));
         assert!(unique(TABLE.iter().map(|entry| entry.label.to_owned()).collect()));
-        assert!(unique(TABLE.iter().filter_map(|entry| entry.key).map(|key| key.to_string()).collect()));
+        assert!(unique(TABLE.iter().map(|entry| entry.key.to_string()).collect()));
         let well_formed =
             |name: &str| !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'-');
         assert!(TABLE.iter().all(|entry| well_formed(entry.name)));
@@ -221,10 +221,9 @@ mod tests {
     #[test]
     fn each_default_key_is_a_key_of_the_list_and_reads_back_from_its_text() {
         for entry in TABLE {
-            if let Some(key) = entry.key {
-                assert_eq!(Key::named(key.key.name()), Some(key.key), "{}", entry.name);
-                assert_eq!(Shortcut::parse(&key.to_string()), Ok(key), "{}", entry.name);
-            }
+            let key = entry.key;
+            assert_eq!(Key::named(key.key.name()), Some(key.key), "{}", entry.name);
+            assert_eq!(Shortcut::parse(&key.to_string()), Ok(key), "{}", entry.name);
         }
     }
 

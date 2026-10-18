@@ -23,7 +23,7 @@ pub(super) fn show(ui: &mut Ui, palette: &Palette, keys: &Keys, draft: &mut Draf
                     text => Shortcut::parse(text).map(|shortcut| EditValue::Text(shortcut.to_string())),
                 }
             });
-            draft.reset(ui, (&key, entry.label), entry.key.map(|key| key.to_string()).unwrap_or_default() != now);
+            draft.reset(ui, (&key, entry.label), entry.key.to_string() != now);
             ui.end_row();
         }
     });

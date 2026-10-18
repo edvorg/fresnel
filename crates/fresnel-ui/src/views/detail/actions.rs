@@ -119,15 +119,12 @@ mod tests {
 
     use super::*;
 
-    /// The key map is complete: each command has a key, and a change of a cluster needs
-    /// Option or Shift, so no key of a text field starts its dialog.
+    /// A change of a cluster needs Option or Shift, so no key of a text field starts its
+    /// dialog. Each command has a default key: the type of the table holds that.
     #[test]
-    fn each_command_has_a_default_key_and_a_change_needs_option_or_shift() {
-        for entry in commands::TABLE {
-            assert!(entry.key.is_some(), "{}", entry.name);
-            if let Some(key) = entry.key.filter(|_| entry.confirm == Confirm::Always) {
-                assert!(key.alt || key.shift, "{}: {key}", entry.name);
-            }
+    fn the_default_key_of_a_change_needs_option_or_shift() {
+        for entry in commands::TABLE.iter().filter(|entry| entry.confirm == Confirm::Always) {
+            assert!(entry.key.alt || entry.key.shift, "{}: {}", entry.name, entry.key);
         }
     }
 }
