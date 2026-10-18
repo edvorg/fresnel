@@ -116,3 +116,15 @@ async fn a_client_of_a_forward_sees_a_state_for_each_run_of_failed_pages_in_the_
     .await;
     bed.until(&service, "the state active", |view| view.state.name() == "active").await;
 }
+
+/// A state that shows for a moment and goes back to "active" while each fetch still fails
+/// hides the rest of the run: the gap counts from the last look that saw it, not from the
+/// start of the run.
+#[tokio::test(start_paused = true)]
+async fn a_gap_counts_from_the_last_look_that_saw_a_state() {
+    let start = Instant::now();
+    let active = || !(SECOND..2 * SECOND).contains(&start.elapsed());
+    let (hidden, failed) = longest_hidden_failure(|| async { false }, active, sleep(20 * SECOND)).await;
+    assert!((17 * SECOND..19 * SECOND).contains(&hidden), "the gap after the state: {hidden:?}");
+    assert!(failed >= 19, "{failed} fetches failed");
+}

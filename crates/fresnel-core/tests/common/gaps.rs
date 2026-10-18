@@ -2,7 +2,9 @@
 //! again and again, and a look at the state of the forward each 50 ms.
 //!
 //! A run of failed fetches in which each look saw "active" is a gap with no visible state
-//! (design rule 4, plan section 12.3): the soak fails for one of 20 s.
+//! (design rule 4, plan section 12.3): the soak fails for one of 20 s. A state that shows for
+//! a moment and goes back to "active" while the fetches still fail hides the rest of the
+//! run, so the gap counts from the last look that saw it.
 
 use std::cell::Cell;
 use std::time::Duration;
@@ -14,9 +16,10 @@ const LOOK: Duration = Duration::from_millis(50);
 /// The pause after each fetch.
 const PAUSE: Duration = Duration::from_secs(1);
 
-/// Fetches with `fetch` and looks with `active` until `faults` ends. Gives the longest run
-/// of failed fetches, from the start of its first one to the end of its last one, in which
-/// no look saw an other state than "active", and the count of the fetches that failed.
+/// Fetches with `fetch` and looks with `active` until `faults` ends. Gives the longest time
+/// in a run of failed fetches in which each look saw "active": from the start of the run, or
+/// from a later look that saw an other state, to the end of a failed fetch. Also gives the
+/// count of the fetches that failed.
 pub(crate) async fn longest_hidden_failure<Fetched: Future<Output = bool>>(
     fetch: impl Fn() -> Fetched,
     active: impl Fn() -> bool,
@@ -42,9 +45,8 @@ pub(crate) async fn longest_hidden_failure<Fetched: Future<Output = bool>>(
             } else {
                 failed.set(failed.get() + 1);
                 let start = *run.get_or_insert(started);
-                if shown.get().is_none_or(|at| at < start) {
-                    longest.set(longest.get().max(start.elapsed()));
-                }
+                let hidden_since = shown.get().map_or(start, |at: Instant| at.max(start));
+                longest.set(longest.get().max(hidden_since.elapsed()));
             }
             sleep(PAUSE).await;
         }
