@@ -4,6 +4,7 @@
 use egui::accesskit::Role;
 use egui::{Key, Modifiers};
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use fresnel_core::commands::COMMAND_KEY;
 
 use crate::data::{live, pods};
 use crate::fake::{Window, shows, until, view, window};
@@ -24,6 +25,8 @@ fn the_question_mark_shows_the_keys_and_a_text_field_keeps_it_as_text() {
     assert!(shows(&window, "Keys") && shows(&window, "Quick search") && shows(&window, "Focus the table"));
     assert!(shows(&window, "Restart…") || shows(&window, "Restart"), "an action with its key");
     assert!(shows(&window, "Move the cursor of a table; Shift selects a range"));
+    // The keys of the areas name the command key of the system: Ctrl on Windows.
+    assert!(shows(&window, &format!("{COMMAND_KEY}+A, Escape")), "the command key of the system");
     press(&mut window, Modifiers::SHIFT, Key::Questionmark);
     assert!(!shows(&window, "Focus the table"), "? closes the overlay");
 

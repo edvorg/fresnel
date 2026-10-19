@@ -1,9 +1,12 @@
-//! A key with its modifiers, and its text in the settings: `Cmd+Shift+K`, `Cmd+[`, `F5`.
+//! A key with its modifiers, and its text in the settings: `Cmd+Shift+K`, `Cmd+[`, `F5`. The
+//! text names the command key as the system does: `Ctrl+Shift+K` on Windows.
 //!
 //! The core has no GUI toolkit, so a key is a name of the list `NAMES`. Each name is a name
 //! that egui reads with `Key::from_name`, and a test of `fresnel-ui` holds that rule.
 
 use std::fmt::{self, Display};
+
+use crate::platform::{COMMAND_KEY, CONTROL_IS_COMMAND};
 
 /// The keys that a shortcut can use, by the name in the text. A letter can be small in the text.
 const NAMES: &[&str] = &[
@@ -145,7 +148,8 @@ impl Key {
 pub struct Shortcut {
     /// Command on macOS and Control on the other systems.
     pub command: bool,
-    /// The Control key of macOS. On the other systems, it is the same key as `command`.
+    /// The Control key of macOS. On the other systems, it is the key of `command`, and a text
+    /// gives `command` for it.
     pub ctrl: bool,
     /// Option on macOS, Alt on the other systems.
     pub alt: bool,
@@ -155,7 +159,7 @@ pub struct Shortcut {
 
 impl Shortcut {
     /// Command and a key: the default keys of the command table.
-    pub(super) const fn command(key: &'static str) -> Self {
+    pub(crate) const fn command(key: &'static str) -> Self {
         Self { command: true, ctrl: false, alt: false, shift: false, key: Key(key) }
     }
 
@@ -181,7 +185,8 @@ impl Shortcut {
     }
 
     /// Reads the text of a shortcut, for example `Cmd+Shift+K`. The modifiers come first,
-    /// in any sequence, and each part can be in small letters.
+    /// in any sequence, and each part can be in small letters. Where Control is the command
+    /// key, `Cmd` and `Ctrl` both name it.
     ///
     /// A shortcut needs Command, Control or Option, except a function key: the text of a
     /// field arrives as text, so a plain key would act while the user types into a field.
@@ -195,6 +200,7 @@ impl Shortcut {
         for modifier in modifiers {
             let flag = match modifier.to_ascii_lowercase().as_str() {
                 "cmd" | "command" => &mut shortcut.command,
+                "ctrl" | "control" if CONTROL_IS_COMMAND => &mut shortcut.command,
                 "ctrl" | "control" => &mut shortcut.ctrl,
                 "alt" | "option" | "opt" => &mut shortcut.alt,
                 "shift" => &mut shortcut.shift,
@@ -213,11 +219,12 @@ impl Shortcut {
 }
 
 impl Display for Shortcut {
-    /// The text that [`Shortcut::parse`] reads.
+    /// The text that [`Shortcut::parse`] reads, with the name of the command key of the
+    /// system, and Alt for Option.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let modifiers = [(self.command, "Cmd+"), (self.ctrl, "Ctrl+"), (self.alt, "Alt+"), (self.shift, "Shift+")];
+        let modifiers = [(self.command, COMMAND_KEY), (self.ctrl, "Ctrl"), (self.alt, "Alt"), (self.shift, "Shift")];
         for (_, text) in modifiers.iter().filter(|(on, _)| *on) {
-            f.write_str(text)?;
+            write!(f, "{text}+")?;
         }
         f.write_str(self.key.text())
     }
@@ -227,16 +234,36 @@ impl Display for Shortcut {
 mod tests {
     use super::*;
 
+    /// The text of a shortcut with the name of the command key of the system.
+    fn system(text: &str) -> String {
+        text.replace("Cmd", COMMAND_KEY)
+    }
+
     #[test]
     fn a_shortcut_reads_its_text_and_writes_it_again() {
         for text in ["Cmd+K", "Cmd+Shift+K", "Cmd+[", "Ctrl+Alt+Delete", "F5", "Alt+Up", "Cmd+Shift+Backspace"] {
             let shortcut = Shortcut::parse(text).unwrap_or_else(|error| panic!("{text}: {error}"));
-            assert_eq!(shortcut.to_string(), text);
+            assert_eq!(shortcut.to_string(), system(text));
+            assert_eq!(Shortcut::parse(&system(text)), Ok(shortcut), "the text of the system");
         }
         let spoken = Shortcut::parse(" command + shift + k ").expect("small letters and spaces");
         assert_eq!(spoken, Shortcut::command("K").shift());
-        assert_eq!(Shortcut::parse("Cmd+OpenBracket").map(|shortcut| shortcut.to_string()), Ok("Cmd+[".to_owned()));
-        assert_eq!(Shortcut::parse("Option+Cmd+P").map(|shortcut| shortcut.to_string()), Ok("Cmd+Alt+P".to_owned()));
+        let text = |text: &str| Shortcut::parse(text).map(|shortcut| shortcut.to_string());
+        assert_eq!(text("Cmd+OpenBracket"), Ok(system("Cmd+[")));
+        assert_eq!(text("Option+Cmd+P"), Ok(system("Cmd+Alt+P")), "Alt for Option");
+    }
+
+    /// The command key has the name of the system, and on Windows `Ctrl` names it too: a label
+    /// says `Ctrl+K` there, not `Cmd+K`.
+    #[test]
+    fn the_command_key_has_the_name_of_the_system() {
+        let control = Shortcut::parse("Ctrl+K").expect("a shortcut");
+        if cfg!(target_os = "macos") {
+            assert_eq!((Shortcut::command("K").to_string(), control.ctrl), ("Cmd+K".to_owned(), true));
+        } else {
+            assert_eq!((Shortcut::command("K").to_string(), control), ("Ctrl+K".to_owned(), Shortcut::command("K")));
+            assert_eq!(Shortcut::parse("Cmd+Ctrl+K"), Err("`Ctrl` comes two times".to_owned()), "one key");
+        }
     }
 
     #[test]

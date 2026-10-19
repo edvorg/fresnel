@@ -174,7 +174,8 @@ impl Reader<'_> {
                 continue;
             };
             let Some(text) = value.get_ref().as_str() else {
-                self.problem(value.span(), format!("the key of `{name}` is a text, for example \"Cmd+K\""));
+                let example = Shortcut::command("K");
+                self.problem(value.span(), format!("the key of `{name}` is a text, for example \"{example}\""));
                 continue;
             };
             match text.trim() {

@@ -50,7 +50,7 @@ fresnel-testkit ------------------------------------------------> fresnel-net
   network, server, invalid. An item is private to its crate unless `lib.rs` lists it.
 - The `platform` module of a crate holds each difference of macOS and Windows: the environment,
   the process tree of a child, the time asleep, the bind and the reset of a local port, folders,
-  the lock, App Nap, notices, fonts and the browser.
+  the lock, App Nap, notices, fonts, the browser and the name of the command key.
 
 ## Background tasks
 
@@ -86,7 +86,7 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 `fresnel-core` makes a connected cluster from a kubeconfig context. Its name is the `ClusterId`.
 
 - **Kubeconfig**: `kubeconfig::load` reads each file of `KUBECONFIG`, then `.kube/config` of the
-  home folder and the files of the settings. The first file wins a name.
+  home folder of kubectl and the files of the settings. The first file wins a name.
 - **Registry**: one entry for each context. **Gateway**: get, list page, watch stream, log stream,
   send and upgrade. A failed write tells its fate, and each read has a size limit. **Streams**
   (`stream`): exec, attach and the tunnel of a port forward, each on a socket of `upgrade`.

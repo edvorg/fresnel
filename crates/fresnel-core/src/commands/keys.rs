@@ -112,9 +112,9 @@ mod tests {
         assert_eq!(
             problems,
             [
-                (3, "Cmd+K was the default key of `quick-search`, which now has no key".to_owned()),
-                (4, "Cmd+K is the key of `back` already, so `delete` has no key".to_owned()),
-                (5, "Cmd+Shift+K was the default key of `copy-command`, which now has no key".to_owned()),
+                (3, format!("{} was the default key of `quick-search`, which now has no key", key("Cmd+K"))),
+                (4, format!("{} is the key of `back` already, so `delete` has no key", key("Cmd+K"))),
+                (5, format!("{} was the default key of `copy-command`, which now has no key", key("Cmd+Shift+K"))),
             ]
         );
         let mut seen: Vec<Shortcut> = keys.iter().map(|(_, key)| key).collect();

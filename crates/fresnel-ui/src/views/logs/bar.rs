@@ -10,6 +10,7 @@ use std::time::Duration;
 use egui::containers::menu::{MenuButton, MenuConfig};
 use egui::{Button, ComboBox, Key, PopupCloseBehavior, RichText, TextEdit, Ui};
 use fresnel_core::app::ClusterData;
+use fresnel_core::commands::COMMAND_KEY;
 use fresnel_core::kinds::Kind;
 use fresnel_core::logs::{Containers, LogOptions, LogRequest, LogView, SavePart, SaveState, SaveView, Since};
 use k8s_openapi::api::core::v1::Pod;
@@ -81,7 +82,8 @@ pub(super) fn show(ui: &mut Ui, state: &mut State<'_>, request: &LogRequest, par
         ui.spacing_mut().item_spacing.x = 6.0;
         asked.extend(search(ui, state.find, parts.view));
         let copy = ui.add_enabled(state.selected, Button::new("Copy"));
-        let copy = copy.on_disabled_hover_text("Select some text first: a drag, a double click or Cmd+A.");
+        let copy =
+            copy.on_disabled_hover_text(format!("Select some text first: a drag, a double click or {COMMAND_KEY}+A."));
         if copy.clicked() {
             asked.push(Asked::Copy);
         }

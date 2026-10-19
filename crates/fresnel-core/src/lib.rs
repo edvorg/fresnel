@@ -16,7 +16,7 @@
 //! - [`journal`]: the list of events, warnings and errors. [`memory`]: the size of each
 //!   bounded part of the core, for a soak.
 //! - [`config`]: the settings file of the user. [`state_file`]: what the app keeps from one
-//!   run to the next.
+//!   run to the next. `platform`: the differences of the systems.
 //!
 //! This crate has no dependency on egui. Only this crate and the programs can use kube, and
 //! in this crate only `cluster/gateway.rs` holds a kube client.
@@ -40,6 +40,7 @@ pub mod manifest;
 pub mod memory;
 pub mod metrics;
 pub mod ops;
+mod platform;
 pub mod published;
 pub mod search;
 pub mod state_file;

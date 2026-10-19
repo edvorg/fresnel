@@ -37,7 +37,7 @@ fn each_unknown_key_and_each_value_that_does_not_fit_is_a_problem_at_its_line_an
         [
             "line 2, column 1: unknown key `theme`; the app ignores it",
             "line 6, column 3: unknown command `jump` in `shortcuts`; the app ignores it",
-            "line 7, column 11: the key of `forward` is a text, for example \"Cmd+K\"",
+            &format!("line 7, column 11: the key of `forward` is a text, for example \"{}\"", key("Cmd+K")),
             "line 8, column 16: the key of `quick-search`: `Hyper` is not a modifier: use Cmd, Ctrl, Alt or Shift",
             "line 10, column 2: unknown key `shortcut`; the app ignores it",
         ]
@@ -81,7 +81,8 @@ fn a_file_of_a_newer_version_is_not_used_and_a_file_with_no_version_is_read_as_v
 fn two_commands_with_one_key_give_the_key_to_the_first_one_in_the_file() {
     let text = "version = 1\n[shortcuts]\nforward = \"Cmd+J\"\nback = \"Cmd+J\"\n";
     let loaded = parse(text);
-    assert_eq!(texts(&loaded), ["line 4, column 1: Cmd+J is the key of `forward` already, so `back` has no key"]);
+    let text = format!("line 4, column 1: {} is the key of `forward` already, so `back` has no key", key("Cmd+J"));
+    assert_eq!(texts(&loaded), [text]);
     assert_eq!(loaded.config.keys.of(CommandId::Forward), Some(key("Cmd+J")));
     assert_eq!(loaded.config.keys.of(CommandId::Back), None);
 }

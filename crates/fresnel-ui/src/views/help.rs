@@ -3,7 +3,7 @@
 //! `?` opens it, and Escape or `?` closes it.
 
 use egui::{Context, Grid, Id, Modal, RichText, ScrollArea, Ui};
-use fresnel_core::commands::{CommandId, Keys, TABLE};
+use fresnel_core::commands::{COMMAND_KEY, CommandId, Keys, TABLE};
 
 use crate::shell::keys;
 use crate::theme;
@@ -11,7 +11,8 @@ use crate::theme;
 /// The width of the column of the keys, so the three lists align.
 const KEY_WIDTH: f32 = 220.0;
 
-/// The keys of the areas, which the command table does not have.
+/// The keys of the areas, which the command table does not have. `Cmd` stands for the name of
+/// the command key of the system.
 const AREA_KEYS: &[(&str, &str)] = &[
     ("Up, Down, Page Up, Page Down, Home, End", "Move the cursor of a table; Shift selects a range"),
     ("Cmd+A, Escape", "Select each row of a table, or no row"),
@@ -44,7 +45,7 @@ pub(crate) fn show(ctx: &Context, keys: &Keys, open: &mut bool) {
                 ui,
                 |ui| {
                     for (keys, what) in AREA_KEYS {
-                        ui.label(RichText::new(*keys).monospace());
+                        ui.label(RichText::new(keys.replace("Cmd", COMMAND_KEY)).monospace());
                         ui.label(*what);
                         ui.end_row();
                     }

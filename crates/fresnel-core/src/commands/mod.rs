@@ -13,6 +13,10 @@ mod shortcut;
 pub use keys::Keys;
 pub use shortcut::{Key, Shortcut};
 
+/// The name of the command key in a text: `Cmd` on macOS and `Ctrl` on Windows. Each text of
+/// a key that names it takes it from here.
+pub use crate::platform::COMMAND_KEY;
+
 use crate::kinds::{Action, Kind};
 
 /// The identity of one command.
