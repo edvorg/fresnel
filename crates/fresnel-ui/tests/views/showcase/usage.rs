@@ -31,7 +31,7 @@ fn wave(seed: u64, poll: u32, depth: f64) -> f64 {
 }
 
 /// The usage of one pod of an app at a poll.
-fn usage(app: &App, pod: &str, poll: u32) -> Amount {
+pub(super) fn usage(app: &App, pod: &str, poll: u32) -> Amount {
     let seed = hash(&[pod]);
     let own = 0.8 + (seed % 400) as f64 / 1000.0;
     // The shop gets more visits from 07:30 on.

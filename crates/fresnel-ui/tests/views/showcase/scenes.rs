@@ -14,8 +14,8 @@ use fresnel_core::ops::{JobState, Operation, Outcome, StepState};
 use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::core::v1::Pod;
 
-use super::objects::suffix;
-use super::world::{DRAINED, PROD_EU, PROD_US};
+use super::clusters::PROD_US_REASON;
+use super::world::{DRAINED, PROD_EU, PROD_US, evicted};
 use super::{MARGIN, TO_THE_END, save, target, window};
 use crate::fake::{JOB_WIDENING, Window, assert_dragged, grow_dock, move_edge, open_page, open_tab, until, widen_job};
 use crate::frame_time::wheel;
@@ -64,9 +64,9 @@ fn drain(window: &Window) -> Arc<JobView> {
         };
         super::pods_of(window, PROD_EU.name, on).pop().expect("a pod on the node")
     };
-    let evicted = |namespace: &str, set: &str| {
-        let name = format!("{set}-{}", suffix(&[set, "evicted"], 5));
-        DrainPod { key: ObjectKey::new(namespace, &name), verdict: Verdict::Evict(None), state: PodState::Gone }
+    let gone = |namespace: &str, set: &str| {
+        let key = ObjectKey::new(namespace, &evicted(set));
+        DrainPod { key, verdict: Verdict::Evict(None), state: PodState::Gone }
     };
     let budget = "The disruption budget postgres needs 2 healthy pods and has 2 currently";
     let pods = [
@@ -75,9 +75,9 @@ fn drain(window: &Window) -> Arc<JobView> {
             verdict: Verdict::Keep("a pod of a DaemonSet"),
             state: PodState::Kept,
         },
-        evicted("shop", "cart-5c8f7b9d6"),
-        evicted("monitoring", "grafana-7f5b6c8d4"),
-        evicted("kube-system", "coredns-5d78c9869d"),
+        gone("shop", "cart-5c8f7b9d6"),
+        gone("monitoring", "grafana-7f5b6c8d4"),
+        gone("kube-system", "coredns-5d78c9869d"),
         DrainPod {
             key: ObjectKey::new("payments", &on_node("postgres")),
             verdict: Verdict::Evict(None),
@@ -163,9 +163,6 @@ fn a_node_drain_in_the_operations_tab() {
 fn card_top(window: &Window, cluster: &str) -> f32 {
     window.get_by_label_contains(&format!("{cluster}.k8s.example")).rect().top()
 }
-
-/// The reason in the head of the card of prod-us of the overview.
-const PROD_US_REASON: &str = "watches: connect: no answer in 3s";
 
 /// Scrolls the page to its end: the middle of the window is on it.
 fn to_the_end(window: &mut Window) {

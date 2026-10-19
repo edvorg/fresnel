@@ -26,7 +26,10 @@ use crate::data::{event_index, held, store};
 use crate::fake::{SECOND, channel, connected, journal_of, live_status, now, status, valid, view};
 
 /// The seconds since prod-us lost its connection: its stores have no data since then.
-const LOST: u32 = 48;
+pub(super) const LOST: u32 = 48;
+/// Why prod-us is not live, as the core tells it: the purpose and the last error of its first
+/// channel that is not live.
+pub(super) const PROD_US_REASON: &str = "watches: connect: no answer in 3s";
 /// The seconds since the last answer of the metrics API of prod-us: it polls each 15 s, and
 /// the poll after that answer came after the loss.
 const LAST_ANSWER: u32 = LOST + 7;

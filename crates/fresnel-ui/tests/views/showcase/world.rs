@@ -35,7 +35,7 @@ pub(super) const CANDIDATE: (&str, &str) = ("8b5d7c9f4", "shop/checkout-api:1.43
 /// That release candidate: a new image with the resources of the release.
 pub(super) const CHECKOUT_NEXT: App =
     App { owner: Owner::Deployment("59f7c4d8b", RC_REVISION), image: "shop/checkout-api:1.43.0-rc.1", ..CHECKOUT };
-const CART: App = App {
+pub(super) const CART: App = App {
     namespace: "shop",
     name: "cart",
     owner: Owner::Deployment("5c8f7b9d6", 12),
@@ -225,6 +225,11 @@ pub(super) const STAGING: Site = Site {
 /// the new pods of its evicted ones are younger.
 pub(super) const DRAINED: &str = "general-bw9fd";
 pub(super) const CORDONED: u64 = 84;
+/// The name of the pod of a ReplicaSet of prod-eu that the drain evicted.
+pub(super) fn evicted(set: &str) -> String {
+    format!("{set}-{}", suffix(&[set, "evicted"], 5))
+}
+
 /// The Job of the CronJob of today, at 02:00: its name has the minute of its start.
 pub(super) const REPORT_JOB: &str = "nightly-report-29999640";
 /// Why the scheduler finds no node for the new pod of cart.

@@ -4,13 +4,17 @@
 //!
 //! - `world`: the apps and the clusters. `stores`: the objects of each kind of a cluster.
 //!   `objects`: their JSON. `usage`: the metrics. `clusters`: the view of the core.
-//! - `scenes`: the pictures of the pages. `panels`: the pictures of a panel.
+//! - `scenes`: the pictures of the pages. `panels`: the pictures of a panel. `terminal`,
+//!   `editor` and `forwards`: the pictures of a tab of the dock.
 
 mod clusters;
+mod editor;
+mod forwards;
 mod objects;
 mod panels;
 mod scenes;
 mod stores;
+mod terminal;
 mod usage;
 mod world;
 

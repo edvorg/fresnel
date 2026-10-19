@@ -89,20 +89,23 @@ fn whole_rows_at_top(window: &mut Window, first: f32) {
     assert_eq!(cut_at_top(window, first), Vec::<f32>::new(), "a row under the tabs of the panel");
 }
 
-/// Empties the filter of the page, so its table shows each row of the three clusters again;
-/// `count` is the count of the rows then. The row of the panel stays selected.
-fn clear_filter(window: &mut Window, count: &str) {
+/// Gives the filter of the page a new text: an empty one shows each row of the three clusters
+/// again. `count` is the count of the rows then. The row of the panel stays selected.
+pub(super) fn set_filter(window: &mut Window, text: &str, count: &str) {
     window.get_by_role(Role::TextInput).click();
     window.run();
     window.key_press_modifiers(Modifiers::COMMAND, Key::A);
     window.key_press(Key::Backspace);
+    if !text.is_empty() {
+        window.get_by_role(Role::TextInput).type_text(text);
+    }
     until(window, count, |window| shows(window, count));
 }
 
 /// Opens the panel of checkout-api of a cluster. The filter leaves the row of checkout-api
 /// of each cluster, and the panel of the first row opens; a click then goes to the row whose
 /// Cluster cell names `cluster`.
-fn checkout_of(window: &mut Window, cluster: &str) {
+pub(super) fn checkout_of(window: &mut Window, cluster: &str) {
     open(window, "Deployments", "checkout-api");
     let started = Instant::now();
     while !in_panel(window, cluster) {
@@ -115,7 +118,7 @@ fn checkout_of(window: &mut Window, cluster: &str) {
         }
         window.run();
     }
-    clear_filter(window, "19 Deployments");
+    set_filter(window, "", "19 Deployments");
 }
 
 /// The CPU and the memory of checkout-api in the last 30 minutes, with a line for each pod.
@@ -254,7 +257,7 @@ fn the_logs_of_a_deployment() {
 fn an_edit_of_the_keys_of_a_secret() {
     let mut window = window(egui::Theme::Dark);
     open(&mut window, "Secrets", "postgres-credentials");
-    clear_filter(&mut window, "12 Secrets");
+    set_filter(&mut window, "", "12 Secrets");
     grow_dock(&mut window, SECRET_DOCK);
     let first = first_section(&window);
     // The open of the page scrolled the sidebar to put Secrets in its middle; it was there.

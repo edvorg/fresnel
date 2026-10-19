@@ -35,7 +35,8 @@ test results. The user then decides if and how the work continues.
 The user chose a permissive license, so the repository can become public: MIT OR Apache-2.0, the
 convention of Rust, with the texts in `LICENSE-MIT` and `LICENSE-APACHE`. Each manifest takes its
 `license` from the workspace. `docs/third-party.md` names the licenses of the fonts and the crates
-of others, in 24 lines. The License section adds 8 lines to the README, so its limit is 105.
+of others, in 24 lines. The License section adds 8 lines to the README and the pictures 19,
+so its limit is 107.
 
 ## Research and prototypes stay outside the repository
 
@@ -1887,11 +1888,11 @@ way past each.
 
 ## The pictures of the README come from the view tests
 
-`cargo xtask screenshots` draws eight pictures with the harness of the view tests, on made-up
+`cargo xtask screenshots` draws eleven pictures with the harness of the view tests, on made-up
 clusters with one fixed time, so a run needs no cluster and two runs give the same bytes. A
 picture leaves out the margin of the harness: the window has none, and each pixel is opaque.
 oxipng compresses them with no loss: at scale 1.5 each one has less than 450 KB. The pictures
-add 17 lines to the README.
+add 19 lines to the README.
 
 ## The legend of a chart is beside its heading
 
