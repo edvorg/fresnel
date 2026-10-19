@@ -3,6 +3,7 @@
 //! - [`sizes`]: the size limits of the documents and the source files.
 //! - [`borders`]: what a crate of the workspace must not depend on.
 //! - [`install`]: the macOS bundle and its install. [`windows`]: the program for Windows.
+//! - [`notices`]: the license files that go with the bundle and the program for Windows.
 //! - [`version`]: the version of a build. `program`: its build. `icon`: the icon of the app.
 //! - [`soak`]: the soak with k3s, faults and `fresnel-cli soak`.
 //! - [`screenshots`]: the pictures of the README.
@@ -10,6 +11,7 @@
 pub mod borders;
 mod icon;
 pub mod install;
+pub mod notices;
 mod program;
 pub mod screenshots;
 pub mod sizes;

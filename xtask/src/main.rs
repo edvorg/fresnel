@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use xtask::notices::{self, Notices};
 use xtask::version::Version;
 use xtask::{borders, install, screenshots, sizes, soak, windows};
 
@@ -17,6 +18,9 @@ commands:
                          build Fresnel.app and install it into /Applications or into
                          <folder>; the earlier bundle stays as Fresnel.app.prev
   windows --to <folder>  build fresnel.exe with its icon and its version (on Windows)
+  notices --to <folder>  write LICENSE-MIT, LICENSE-APACHE and THIRD-PARTY-LICENSES, the
+                         licenses of fresnel and of the crates and the font in the program,
+                         which install and windows put next to the program
   soak --hours <number> [--label <text>] [--report <folder>] [--seed <number>] [--fast]
                          run the app core for some hours on k3s in Docker with changes
                          and random faults, and write a report of each minute; --fast
@@ -35,6 +39,7 @@ fn main() -> ExitCode {
         ["install"] => install(Path::new(install::APPLICATIONS)),
         ["install", "--to", folder] => install(Path::new(folder)),
         ["windows", "--to", folder] => windows(Path::new(folder)),
+        ["notices", "--to", folder] => write_notices(Path::new(folder)),
         ["soak", options @ ..] => soak(options),
         ["screenshots"] => draw_screenshots(),
         _ => {
@@ -109,6 +114,26 @@ fn windows(destination: &Path) -> ExitCode {
         }
         Err(error) => {
             eprintln!("windows: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn write_notices(destination: &Path) -> ExitCode {
+    let written = Notices::of_workspace(&root()).and_then(|notices| {
+        std::fs::create_dir_all(destination)?;
+        notices.write_into(destination)?;
+        Ok(notices)
+    });
+    match written {
+        Ok(notices) => {
+            let (crates, texts) = (notices.crates(), notices.texts());
+            println!("notices: {} in {}", notices::FILES.join(", "), destination.display());
+            println!("notices: {crates} crates of others with {texts} different license texts");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("notices: {error}");
             ExitCode::FAILURE
         }
     }

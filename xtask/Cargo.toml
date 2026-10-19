@@ -13,6 +13,9 @@ license.workspace = true
 oxipng.workspace = true
 # The PNG files of the app icon.
 png.workspace = true
+# The output of `cargo metadata`, for the license files of a release.
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
