@@ -2017,9 +2017,9 @@ the diff then shows a new text, and a merge with such a text is a conflict.
 ## The diff of a large save dialog runs on a worker
 
 Within its limit of 1,000 changes, Myers' diff of 7,000 equal lines of 400 characters took 38
-ms in a frame of a release build: each step follows the equal lines on each diagonal. The diff
-of texts of more than 1,000 lines in all runs on a worker thread, and the dialog keeps its Save
-button off until the rows come. A smaller diff, as of a usual manifest, comes in the frame.
+ms in a frame of a release build, and 1,000 lines of 6,000 characters that differ at their end
+41 ms: each compare reads two lines to their first difference. The diff of texts of more than
+1,000 lines or 128 KiB in all runs on a worker, and Save stays off until its rows come.
 
 ## The save dialog of a Secret hides its values until the user shows them
 

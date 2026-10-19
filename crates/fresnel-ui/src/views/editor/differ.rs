@@ -15,9 +15,12 @@ use fresnel_core::net::task::{TaskName, Tasks};
 use super::diff::{self, Row};
 use crate::widgets::worker::{Cancel, RequestId, Wake, Worker};
 
-/// The most lines of the two texts whose diff the frame computes: the work of Myers' diff
-/// grows with the lines, and a usual manifest has some hundred lines.
-const IN_FRAME: usize = 1_000;
+/// The most lines and bytes of the two texts whose diff the frame computes. The work of Myers'
+/// diff grows with the lines, and each compare reads two lines up to their first difference:
+/// 1,000 lines of 6,000 characters that a save changes at their end took 41 ms in a frame of a
+/// release build, and 1,000 such lines in 128 KiB 3 ms. A usual manifest has some hundred
+/// short lines.
+const IN_FRAME: (usize, usize) = (1_000, 128 * 1024);
 
 /// The two texts of a diff, and true for a Secret.
 #[derive(Clone)]
@@ -51,7 +54,8 @@ impl Differ {
     /// The rows of the diff of `old` and `new`, of a Secret when `secret` is true: in this
     /// frame for small texts, else on the worker.
     pub(super) fn rows(&mut self, (old, new): (&EditText, &EditText), secret: bool) -> Rows {
-        if old.lines + new.lines <= IN_FRAME {
+        let (lines, bytes) = IN_FRAME;
+        if old.lines + new.lines <= lines && old.text.len() + new.text.len() <= bytes {
             return Rows::Ready(diff::rows(&old.text, &new.text, secret));
         }
         self.asked += 1;
@@ -92,7 +96,7 @@ impl Differ {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc::channel;
+    use std::sync::mpsc::{Receiver, channel};
 
     use super::*;
     use crate::testing::{LIMIT, TestTasks};
@@ -103,6 +107,14 @@ mod tests {
         let line = |number: usize| if new(number) { "new\n".to_owned() } else { format!("{number}\n") };
         let text: String = (0..lines).map(line).collect();
         EditText { text: text.into(), version: None, lines, decoded: None }
+    }
+
+    /// Waits until the worker gives the rows.
+    fn ready(differ: &Differ, woken: &Receiver<()>, rows: &mut Rows) {
+        while matches!(rows, Rows::Waiting(_)) {
+            woken.recv_timeout(LIMIT).expect("the rows of the worker");
+            differ.take(rows);
+        }
     }
 
     fn added(rows: &[Row]) -> usize {
@@ -123,12 +135,17 @@ mod tests {
         let mut first = differ.rows((&old, &new), false);
         differ.forget(&first);
         let mut second = differ.rows((&old, &new), false);
-        while matches!(second, Rows::Waiting(_)) {
-            woken.recv_timeout(LIMIT).expect("the rows of the worker");
-            differ.take(&mut second);
-        }
+        ready(&differ, &woken, &mut second);
         differ.take(&mut first);
         assert!(matches!(first, Rows::Waiting(1)), "the rows of the first dialog went");
         assert!(matches!(second, Rows::Ready(rows) if added(&rows) == 20));
+
+        // Few lines, but long ones: each compare reads them, so the worker computes them too.
+        let long =
+            |end: &str| EditText { text: format!("{}{end}\n", "a".repeat(70_000)).into(), lines: 1, ..text(0, 0) };
+        let mut rows = differ.rows((&long("old"), &long("new")), false);
+        assert!(matches!(rows, Rows::Waiting(3)), "two long lines");
+        ready(&differ, &woken, &mut rows);
+        assert!(matches!(rows, Rows::Ready(rows) if added(&rows) == 1));
     }
 }

@@ -87,15 +87,23 @@ fn notes(lines: usize, (first, last): (&str, &str)) -> String {
     )
 }
 
-/// The longest diff of 8,000 lines: a save that removes 1,000 of 7,000 equal lines and changes
-/// the lines around them. Each of the 1,000 steps of Myers' diff follows the equal lines on
-/// each of its diagonals, and the diff then shows a new text. In the frame, it took 38 ms.
-#[test]
-fn the_save_dialog_of_a_diff_of_8_000_lines_stays_in_the_frame_limit() {
-    let yaml = notes(7_000, ("first", "last"));
+/// A Deployment with a note of `lines` lines of about `width` characters that differ only at
+/// their end, by `mark`.
+fn long_notes((lines, width): (usize, usize), mark: char) -> String {
+    let start = "the same start of each line; ".repeat(width / 29);
+    let notes: String = (0..lines).map(|line| format!("      {start}{mark}{line:04}\n")).collect();
+    format!(
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  annotations:\n    notes: |\n{notes}  name: web\n  \
+         namespace: scene\nspec:\n  replicas: 2\n"
+    )
+}
+
+/// Opens the save dialog of an editor of `old` whose dry run gives `new`, and checks its frames
+/// until the diff shows the removed line that starts with `removed`.
+fn save_dialog(step: &'static str, (old, new): (&str, &str), removed: &str) {
     let mut window = window_with_no_gpu(view(vec![allowed("ams-prod", &scene::<Deployment>())]), 2.0);
     open(&mut window, "Deployments", "web");
-    edit(&mut window, text(&yaml, None));
+    edit(&mut window, text(old, None));
     checked(&mut window, "No error");
     click_row(&mut window, "kind: Deployment");
     window.event(key(Key::Enter, Modifiers::NONE));
@@ -104,11 +112,41 @@ fn the_save_dialog_of_a_diff_of_8_000_lines_stays_in_the_frame_limit() {
     window.get_by_label("Save the text").click();
     window.run();
     let check = saves(&window).pop().expect("the dry run");
-    put(&mut window, &check, SaveState::Checked(text(&notes(6_000, ("start", "end")), None)));
+    put(&mut window, &check, SaveState::Checked(text(new, None)));
 
-    let mut dialog = Step::new("editor, the save dialog");
+    let mut dialog = Step::new(step);
+    let row = format!("-       {removed}");
     dialog.until(&mut window, "the rows of the diff", |window| {
-        shows(window, "Save this Deployment?") && window.query_by_label_contains("-       first").is_some()
+        shows(window, "Save this Deployment?") && window.query_all_by_label_contains(&row).next().is_some()
     });
     dialog.check();
+}
+
+/// The longest diff of 8,000 lines: a save that removes 1,000 of 7,000 equal lines and changes
+/// the lines around them. Each of the 1,000 steps of Myers' diff follows the equal lines on
+/// each of its diagonals, and the diff then shows a new text. In the frame, it took 38 ms.
+#[test]
+fn the_save_dialog_of_a_diff_of_8_000_lines_stays_in_the_frame_limit() {
+    let (old, new) = (notes(7_000, ("first", "last")), notes(6_000, ("start", "end")));
+    save_dialog("editor, the save dialog", (&old, &new), "first");
+}
+
+/// A diff of 1,000 lines in all, as many as a diff in the frame has, of lines of 6,000
+/// characters: a save changes the end of each one. Each of the 1,000 steps of Myers' diff
+/// compares the long equal start of two lines on each diagonal. In the frame, it took 41 ms.
+#[test]
+fn the_save_dialog_of_a_diff_of_long_lines_stays_in_the_frame_limit() {
+    let (old, new) = (long_notes((491, 6_000), 'a'), long_notes((491, 6_000), 'b'));
+    assert_eq!(old.lines().count() + new.lines().count(), 1_000);
+    save_dialog("editor, the save dialog of long lines", (&old, &new), "the same start");
+}
+
+/// The largest diff that the frame computes: 1,000 lines in all, of 128 characters that a
+/// save changes at their end, within the 128 KiB of its limit.
+#[test]
+fn the_save_dialog_of_the_largest_diff_in_the_frame_stays_in_the_frame_limit() {
+    let (old, new) = (long_notes((491, 128), 'a'), long_notes((491, 128), 'b'));
+    assert_eq!(old.lines().count() + new.lines().count(), 1_000);
+    assert!(old.len() + new.len() <= 128 * 1024, "{} bytes", old.len() + new.len());
+    save_dialog("editor, the save dialog of the largest diff in the frame", (&old, &new), "the same start");
 }
