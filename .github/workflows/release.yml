@@ -66,7 +66,8 @@ jobs:
       - name: Zip file
         run: ditto -c -k --keepParent dist/Fresnel.app fresnel-macos-arm64.zip
       # The checks read the content of the zip file, as a user gets it. The licenses of fresnel
-      # are the files of the commit, and THIRD-PARTY-LICENSES has the OFL of JetBrains Mono.
+      # are the files of the commit, and THIRD-PARTY-LICENSES has the OFL of JetBrains Mono: its
+      # copyright line, as the OFL of the Noto Emoji font of egui is in the file too.
       - name: Check the zip file
         id: check
         run: |
@@ -79,8 +80,8 @@ jobs:
               exit 1
             fi
           done
-          if ! grep -q "SIL OPEN FONT LICENSE Version 1.1" "$resources/THIRD-PARTY-LICENSES"; then
-            echo "::error::Fresnel.app has no Contents/Resources/THIRD-PARTY-LICENSES with the OFL"
+          if ! grep -qF "Copyright 2020 The JetBrains Mono Project Authors" "$resources/THIRD-PARTY-LICENSES"; then
+            echo "::error::Fresnel.app has no Contents/Resources/THIRD-PARTY-LICENSES with the OFL of JetBrains Mono"
             exit 1
           fi
           text=$(unzipped/Fresnel.app/Contents/MacOS/fresnel --version)
@@ -147,8 +148,8 @@ jobs:
           foreach ($file in 'LICENSE-MIT', 'LICENSE-APACHE') {
             if ((Get-FileHash "unzipped/$file").Hash -ne (Get-FileHash $file).Hash) { throw "$file of the zip file is not $file of the commit" }
           }
-          if (-not (Select-String -Path unzipped/THIRD-PARTY-LICENSES -SimpleMatch 'SIL OPEN FONT LICENSE Version 1.1' -Quiet)) {
-            throw 'THIRD-PARTY-LICENSES of the zip file has no OFL'
+          if (-not (Select-String -Path unzipped/THIRD-PARTY-LICENSES -SimpleMatch 'Copyright 2020 The JetBrains Mono Project Authors' -Quiet)) {
+            throw 'THIRD-PARTY-LICENSES of the zip file has no OFL of JetBrains Mono'
           }
           $program = (Resolve-Path unzipped/fresnel.exe).Path
           $run = Start-Process $program -ArgumentList '--version' -NoNewWindow -Wait -PassThru -RedirectStandardOutput version.txt
