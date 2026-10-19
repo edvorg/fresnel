@@ -96,15 +96,9 @@ fn add_answer(class: &AnyClass) -> Result<(), String> {
 }
 
 /// The answer to `applicationShouldTerminate:`, on the main thread, with the app as the
-/// sender. An end of the session ends the app at once; each other quit takes the decision of
-/// the window, and its question brings the app to the front.
+/// sender. The question of the window brings the app to the front.
 extern "C" fn should_terminate(_delegate: &AnyObject, _selector: Sel, app: Option<&AnyObject>) -> usize {
-    let quit = if ends_the_session(current_event().as_deref()) {
-        Quit::Now
-    } else {
-        DECIDE.with_borrow(|decide| decide.as_ref().map_or(Quit::Now, |decide| decide()))
-    };
-    match quit {
+    match quit_decision(current_event().as_deref()) {
         Quit::Now => NOW,
         Quit::Ask => {
             if let Some(app) = app {
@@ -113,6 +107,16 @@ extern "C" fn should_terminate(_delegate: &AnyObject, _selector: Sel, app: Optio
             CANCEL
         }
     }
+}
+
+/// The decision of a quit with its Apple Event. An end of the session ends the app before the
+/// window decides: the decision of the window opens the question, and a cancel would stop the
+/// log out. Each other quit takes the decision of the window.
+fn quit_decision(event: Option<&AnyObject>) -> Quit {
+    if ends_the_session(event) {
+        return Quit::Now;
+    }
+    DECIDE.with_borrow(|decide| decide.as_ref().map_or(Quit::Now, |decide| decide()))
 }
 
 /// The Apple Event that AppKit handles now: the quit of the Dock, of a script or of the
@@ -270,6 +274,29 @@ mod tests {
         assert_eq!(asked.get(), 2);
         drop(answer);
         assert_eq!(quit(&delegate), NOW, "the window ended");
+        assert_eq!(asked.get(), 2);
+    }
+
+    /// While a forward runs, a log out, a restart and a shut down end the app, and the window
+    /// does not decide: its decision opens the question, and its cancel would stop the log
+    /// out. The Dock, a script and the menu take the decision of the window.
+    #[test]
+    fn an_end_of_the_session_ends_the_app_with_no_question_and_each_other_quit_asks() {
+        let asked = Rc::new(Cell::new(0));
+        let _answer = QuitAnswer::new({
+            let asked = Rc::clone(&asked);
+            move || {
+                asked.set(asked.get() + 1);
+                Quit::Ask
+            }
+        });
+        for text in [b"rlgo", b"rest", b"shut"] {
+            let end = event(QUIT_EVENT, Some(Reason::Attribute(text)));
+            assert_eq!(quit_decision(Some(&end)), Quit::Now, "{text:?}");
+        }
+        assert_eq!(asked.get(), 0, "the window opened no question");
+        assert_eq!(quit_decision(Some(&event(QUIT_EVENT, None))), Quit::Ask, "the Dock or a script");
+        assert_eq!(quit_decision(None), Quit::Ask, "the Quit item or Cmd+Q");
         assert_eq!(asked.get(), 2);
     }
 
