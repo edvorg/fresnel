@@ -2023,10 +2023,11 @@ ms in a frame of a release build, and 1,000 lines of 6,000 characters that diffe
 
 ## The save dialog of a Secret hides its values until the user shows them
 
-The editor of a Secret shows its values decoded, and a dialog is often seen by others. As in the
-save dialog of the keys, each value in the diff shows as dots, with its key, until a click on
-"Show the values". The two texts come from the YAML writer, so a value is each indented line
-after `data:` or `stringData:`.
+The editor of a Secret shows its values decoded, and others can see a dialog. As in the save
+dialog of the keys, each value in the diff shows as dots, with its key, until a click on "Show
+the values". The texts come from the YAML writer: a value is a line under `data:` or
+`stringData:` with the lines below it. The copy of `kubectl apply` in the annotations hides: it
+has each value, of `stringData` as plain text.
 
 ## The text of an editor waits for the answer of its save
 
