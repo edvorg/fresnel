@@ -6,7 +6,7 @@ use egui_kittest::kittest::NodeT as _;
 use fresnel_core::config::forwards::{forget_edit, save_edits};
 
 use super::*;
-use crate::fake::{absent, in_one_frame, press, shows};
+use crate::fake::{absent, drag_chosen, in_one_frame, open_tab, press, shows};
 use crate::logs::copied;
 
 /// The URL that the views asked the system to open in the last frame.
@@ -134,4 +134,35 @@ fn the_status_bar_and_the_key_open_the_tab() {
     in_one_frame(&mut window, press(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::F));
     window.run();
     assert!(shows(&window, "127.0.0.1:8080, [::1]:8080"), "Cmd+Shift+F opens the tab");
+}
+
+/// A context of EKS with no alias: its name is longer than the panel of the chosen forward.
+const EKS: &str = "arn:aws:eks:eu-west-1:123456789012:cluster/checkout-production-eu";
+/// A user drags the edge of the chosen forward this much to the right.
+const NARROWING: f32 = 100.0;
+
+/// The rects of the labels with this text.
+fn rects(window: &Window, text: &str) -> Vec<egui::Rect> {
+    window.query_all_by_label(text).map(|label| label.rect()).collect()
+}
+
+/// The title of the chosen forward breaks before the dot of its cluster, as a dot alone at
+/// the end of a line reads as a state. A long name ends in an ellipsis, so the panel still
+/// gets narrower.
+#[test]
+fn the_name_of_the_cluster_keeps_its_dot_and_lets_the_panel_get_narrower() {
+    let rule = rule(EKS, Kind::Service, "web", 80, LocalPort::Fixed(8080));
+    let row = ForwardRow { id: 1, saved: false, view: held(ForwardView::new(rule, ForwardState::Active, now())) };
+    let mut window = window(CoreView { forwards: vec![row].into(), ..view(vec![live(EKS, &pods())]) });
+    open_tab(&mut window, "Forwards");
+    // The list has the target and the cluster too: the title is the label at the right, and
+    // the line of the list is the lower label, beside the edge of the panel.
+    let target = "Service shop/web port 80";
+    let title = |window: &Window| rects(window, target).into_iter().max_by(|a, b| a.left().total_cmp(&b.left()));
+    let line = rects(&window, target).iter().map(|label| label.center().y).reduce(f32::max).expect("the line");
+    drag_chosen(&mut window, |window| title(window).expect("the title").left(), line, -NARROWING);
+    let title = title(&window).expect("the title");
+    let name = rects(&window, EKS).into_iter().find(|name| name.left() >= title.left()).expect("the name");
+    assert!(name.top() >= title.bottom() && name.left() > title.left(), "a line of the dot and the name: {name:?}");
+    assert!(name.right() <= window.ctx.content_rect().right(), "the name ends in the panel: {name:?}");
 }

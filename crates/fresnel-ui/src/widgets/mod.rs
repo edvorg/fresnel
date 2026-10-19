@@ -22,10 +22,13 @@ pub(crate) fn one_line(ui: &Ui, text: &str, font: FontId, color: Color32, width:
     ui.painter().layout_job(job)
 }
 
+/// The width of a `dot`.
+pub(crate) const DOT: f32 = 7.0;
+
 /// A filled circle that aligns with the text: the mark of a state.
 pub(crate) fn dot(ui: &mut Ui, color: Color32) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(7.0, 7.0), Sense::hover());
-    ui.painter().circle_filled(rect.center(), 3.5, color);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(DOT, DOT), Sense::hover());
+    ui.painter().circle_filled(rect.center(), DOT / 2.0, color);
 }
 
 /// Gives a widget a name in the accessibility tree. Screen readers and the UI tests find a

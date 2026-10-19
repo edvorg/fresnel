@@ -3,7 +3,9 @@
 //! data of its target and its last error. The list has one short line of each forward, so
 //! the long texts are here.
 
-use egui::{Button, Label, OpenUrl, RichText, ScrollArea, Ui};
+use egui::{
+    Align, Button, Color32, Label, Layout, OpenUrl, RichText, ScrollArea, TextStyle, TextWrapMode, Ui, WidgetText,
+};
 use fresnel_core::app::{Command, ForwardRow};
 use fresnel_core::config::forwards::{forget_edit, save_edits};
 use fresnel_core::forward::ForwardState;
@@ -15,7 +17,7 @@ use crate::theme::{self, Palette};
 use crate::views::detail::fields::{self, VALUE_LIMIT};
 use crate::views::operations::TEXT_LIMIT;
 use crate::widgets::tone::Tone;
-use crate::widgets::{self, dot};
+use crate::widgets::{self, DOT, dot};
 
 /// The panel scrolls as one part: the dock can be short, and the buttons stay in reach.
 pub(super) fn show(ui: &mut Ui, scene: &mut Scene<'_>, row: &ForwardRow) {
@@ -26,9 +28,8 @@ pub(super) fn show(ui: &mut Ui, scene: &mut Scene<'_>, row: &ForwardRow) {
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(view.rule.target()).strong());
             ui.add_space(6.0);
-            dot(ui, scene.colors.color(cluster, palette));
             let alias = scene.view.config.alias(cluster).unwrap_or(cluster.as_str());
-            ui.label(RichText::new(alias).color(palette.text_muted));
+            cluster_name(ui, scene.colors.color(cluster, palette), RichText::new(alias).color(palette.text_muted));
         });
         let (state, tone) = texts::state(view, scene.clock);
         ui.horizontal_wrapped(|ui| {
@@ -49,6 +50,22 @@ pub(super) fn show(ui: &mut Ui, scene: &mut Scene<'_>, row: &ForwardRow) {
         toned(ui, "Last error", texts::last_error(view, scene.clock));
         let saved = if row.saved { "yes, in config.toml" } else { "no" };
         toned(ui, "Saved", (saved.to_owned(), Tone::Normal));
+    });
+}
+
+/// The dot and the name of the cluster as one item of the wrapped title: the line breaks
+/// before the dot, as a dot alone at the end of a line reads as a state. A nested
+/// `horizontal` takes the rest of the line before it knows its width, so it would not break.
+/// A name wider than the panel, as a context of EKS with no alias, ends in an ellipsis, and
+/// the label shows it in full under the pointer.
+fn cluster_name(ui: &mut Ui, color: Color32, name: RichText) {
+    let gap = ui.spacing().item_spacing.x;
+    let width = ui.max_rect().width() - DOT - gap;
+    let galley = WidgetText::from(name).into_galley(ui, Some(TextWrapMode::Truncate), width, TextStyle::Body);
+    let size = egui::vec2(DOT + gap + galley.size().x, ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+        dot(ui, color);
+        ui.label(galley);
     });
 }
 
