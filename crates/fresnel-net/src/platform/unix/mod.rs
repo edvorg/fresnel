@@ -26,6 +26,8 @@ use crate::env::ProcessEnv;
 
 /// The variable of the home folder.
 pub(crate) const HOME: &str = "HOME";
+/// The environment of a child comes from the login shell of the user.
+pub const LOGIN_SHELL: bool = true;
 /// Where a credential plugin most often is, also when the login shell gave nothing.
 pub const FIXED_FOLDERS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin"];
 /// A fixed folder below the home folder, after the others.

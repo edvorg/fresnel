@@ -346,6 +346,11 @@ pub fn of_group(group: Group) -> impl Iterator<Item = &'static Spec> {
     TABLE.iter().filter(move |spec| spec.group == group)
 }
 
+/// False for a setting with no use on this system: Windows runs no login shell.
+pub fn applies(spec: &Spec) -> bool {
+    spec.id != Setting::ShellLimit || fresnel_net::env::LOGIN_SHELL
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;

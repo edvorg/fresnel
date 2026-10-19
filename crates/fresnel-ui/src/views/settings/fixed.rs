@@ -10,14 +10,14 @@ use super::draft::{Draft, Path, lines, path};
 use crate::theme::{Palette, SMALL};
 use crate::widgets;
 
-/// Draws the rows of a group.
+/// Draws the rows of a group, with no row for a setting that has no use on this system.
 pub(super) fn group(ui: &mut Ui, palette: &Palette, config: &Config, draft: &mut Draft, group: Group) {
     if group.at_start() {
         let note = "These settings act at the next start of the app.";
         ui.label(RichText::new(note).size(SMALL).color(palette.text_muted));
     }
     Grid::new(("settings group", group.name())).num_columns(3).spacing([16.0, 6.0]).show(ui, |ui| {
-        for spec in table::of_group(group) {
+        for spec in table::of_group(group).filter(|spec| table::applies(spec)) {
             let key = path(&[group.name(), spec.key]);
             ui.label(spec.label).on_hover_text(format!("[{}] {}", group.name(), spec.key));
             ui.horizontal(|ui| control(ui, palette, config, draft, (spec, &key)));

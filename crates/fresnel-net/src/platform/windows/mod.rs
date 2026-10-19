@@ -20,6 +20,8 @@ use crate::env::{EnvSettings, EnvSource, ProcessEnv};
 
 /// The variable of the home folder: `C:\Users\<name>`.
 pub(crate) const HOME: &str = "USERPROFILE";
+/// No login shell runs: the environment of the process is complete (see [`environment`]).
+pub const LOGIN_SHELL: bool = false;
 /// None: the process has the full `PATH` of the user (see [`environment`]).
 pub const FIXED_FOLDERS: &[&str] = &[];
 /// None, for the same reason.

@@ -152,3 +152,17 @@ fn a_text_that_is_no_name_of_a_namespace_keeps_save_off() {
     crate::keys::typed(&mut window, "Favorite namespaces of ams-prod", "shop\nkube-system");
     assert!(shows(&window, "2 changes to save.") && !save_is_off(&window));
 }
+
+/// Windows runs no login shell, so the view has no row for its time limit there.
+#[test]
+fn the_time_limit_of_the_login_shell_shows_only_where_a_login_shell_runs() {
+    let mut window = window(read("version = 1\n"));
+    open_page(&mut window, "Settings");
+    window.get_by_label("Credential plugins").scroll_to_me();
+    window.run();
+    window.get_by_label("Credential plugins").click();
+    window.run();
+    assert!(shows(&window, "Folders before PATH"), "the group is open");
+    let shown = shows(&window, "Time limit of the login shell");
+    assert_eq!(shown, fresnel_core::net::env::LOGIN_SHELL);
+}

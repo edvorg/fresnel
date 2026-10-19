@@ -1756,7 +1756,8 @@ one system says so with a `cfg`.
 On macOS a program from Finder has a short `PATH`, and the login shell gives the rest. On
 Windows, Explorer gives each program the variables of the user and of the system from the
 registry, so the environment of the process is complete. The app uses it as it is
-(`EnvSource::Process`), and the list of fixed folders after `PATH` is empty there.
+(`EnvSource::Process`), the list of fixed folders after `PATH` is empty there, and the settings
+view has no row for the time limit of the login shell.
 
 ## A child on Windows starts suspended in a job object
 

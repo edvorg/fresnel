@@ -21,7 +21,7 @@ mod system;
 #[path = "windows/mod.rs"]
 mod system;
 
-pub use self::system::FIXED_FOLDERS;
+pub use self::system::{FIXED_FOLDERS, LOGIN_SHELL};
 pub(crate) use self::system::{
     HOME, HOME_FOLDERS, Started, Tree, environment, interface_addresses, is_bare, is_program, kube_homes, own_port,
     program_files, share_port, start, time_asleep, unacknowledged, variable_key,

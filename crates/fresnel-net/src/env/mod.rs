@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
-pub use crate::platform::FIXED_FOLDERS;
 use crate::platform::{self, HOME_FOLDERS};
+pub use crate::platform::{FIXED_FOLDERS, LOGIN_SHELL};
 pub use shell::{ShellFailure, ShellProblem};
 pub use vars::ProcessEnv;
 
