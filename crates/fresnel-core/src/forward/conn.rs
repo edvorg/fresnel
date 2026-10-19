@@ -55,7 +55,7 @@ pub(super) async fn serve(mut local: LocalStream, shared: Arc<Shared>, mut gate:
         local.reset().await;
         return;
     };
-    let end = carry(&mut local, &mut tunnel, &shared).await;
+    let end = carry(&mut local, (&mut tunnel, &pod), &shared).await;
     match end {
         Down::Tunnel(Some(TunnelEnd::Socket(end))) if end.is_clean() => local.finish().await,
         Down::Tunnel(Some(TunnelEnd::Socket(end @ SocketEnd::Failed(_)))) => {
@@ -140,8 +140,9 @@ fn no_tunnel(shared: &Shared, tried: bool) -> Outcome {
     Outcome::NoTarget(format!("a local connection got no tunnel in {wait:.1} s: a reset"))
 }
 
-/// Carries the bytes in each direction to the end of the tunnel or of the client.
-async fn carry(local: &mut LocalStream, tunnel: &mut Tunnel, shared: &Shared) -> Down {
+/// Carries the bytes in each direction to the end of the tunnel to the pod with the UID `pod`
+/// or of the client.
+async fn carry(local: &mut LocalStream, (tunnel, pod): (&mut Tunnel, &Arc<str>), shared: &Shared) -> Down {
     let Some((mut reader, mut writer)) = local.split() else {
         return Down::Client;
     };
@@ -185,7 +186,7 @@ async fn carry(local: &mut LocalStream, tunnel: &mut Tunnel, shared: &Shared) ->
             };
             let Some(data) = data else { return Down::Tunnel(tunnel.end()) };
             if !std::mem::replace(&mut carried, true) {
-                shared.report(Outcome::Carried);
+                shared.report(Outcome::Carried { pod: Arc::clone(pod) });
             }
             last = Instant::now();
             if writer.write_all(&data).await.is_err() {

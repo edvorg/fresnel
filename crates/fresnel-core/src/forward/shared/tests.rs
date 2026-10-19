@@ -56,7 +56,7 @@ async fn a_stalled_open_and_a_connection_with_no_tunnel_count_until_the_first_by
     shared.report(Outcome::Broke { text: refused, path: false, pod: Arc::from("u1") });
     shared.report(Outcome::Opened);
     assert_eq!(read(&shared).0, 3, "an open after a refusal");
-    shared.report(Outcome::Carried);
+    shared.report(Outcome::Carried { pod: Arc::from("u1") });
     assert_eq!(read(&shared), (0, None));
     shared.report(Outcome::Stalled { target: target() });
     let text = shared.reports().last_error.as_ref().map(|(_, text)| text.clone());
@@ -84,7 +84,7 @@ async fn the_failures_hold_until_the_next_connection_also_long_after_the_last_on
 }
 
 /// A new target pod ends the failures, and a failure of an other pod, as a tunnel to the old
-/// pod that ends after the change, is no failure of the target.
+/// pod that ends after the change, is no failure of the target; its bytes end none either.
 #[tokio::test(start_paused = true)]
 async fn a_new_target_pod_ends_the_failures_and_a_failure_of_an_other_pod_does_not_count() {
     let shared = shared();
@@ -102,4 +102,11 @@ async fn a_new_target_pod_ends_the_failures_and_a_failure_of_an_other_pod_does_n
     assert_eq!(read(&shared).0, 0, "failures of the old pod");
     shared.report(broke("u2"));
     assert_eq!(read(&shared).0, 1);
+
+    // Bytes of the old pod tell nothing of the new one: its failures hold.
+    shared.report(broke("u2"));
+    shared.report(Outcome::Carried { pod: Arc::from("u1") });
+    assert_eq!(read(&shared).0, 2, "the first bytes of the old pod");
+    shared.report(Outcome::Carried { pod: Arc::from("u2") });
+    assert_eq!(read(&shared).0, 0, "the first bytes of the target");
 }

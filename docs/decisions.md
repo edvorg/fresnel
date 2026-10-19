@@ -340,12 +340,13 @@ client waited 10 s, three failed opens took 30 s, and the forward showed "active
 open now ends after `wait_secs`, 5 s, with no port on its data channel. A connection that tried and
 got no tunnel degrades the forward until a good open.
 
-## The first bytes of a pod end a run of failed tunnels, and no clock does
+## The first bytes of the target pod end a run of failed tunnels, and no clock does
 
-The node starts the data channel of a tunnel before it dials the port in the pod, and then
-writes a refusal: an open ends no failures. They end at the first bytes of a pod, "retry now" or
-a new target pod. With an end 30 s after the last one, a refused port showed "active" to clients
-further apart. The state gives the age of the last failure, so an idle forward looks old.
+The node starts the data channel of a tunnel before it dials the port in the pod, so an open
+ends no failures. They end at the first bytes of the target pod, "retry now" or a new target
+pod; an other pod counts for nothing. With an end 30 s after the last one, a refused port showed
+"active" to clients further apart. The state gives the age of the last failure, so an idle
+forward looks old.
 
 ## A failed accept of a forward pauses, and the journal counts the failures
 

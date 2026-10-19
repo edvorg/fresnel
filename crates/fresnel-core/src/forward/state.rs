@@ -205,7 +205,7 @@ impl Facts {
 
     /// Why a local connection gets no tunnel to the pod of the stores: the last one that
     /// tried got none, or each of the last tunnels failed, with the time of the last failure.
-    /// An open ends the first, and the first bytes of a pod end both.
+    /// An open ends the first, and the first bytes of the target pod end both.
     fn tunnel_fault(&self) -> Option<ForwardState> {
         let degraded = |reason, at| ForwardState::Degraded { reason, last_failure: Some(at) };
         if let Some((at, reason)) = &self.no_tunnel {

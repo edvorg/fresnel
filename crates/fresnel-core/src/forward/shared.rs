@@ -37,10 +37,11 @@ pub(super) enum Outcome {
     NoTunnel(String),
     /// A connection got its tunnel in its time: the last one that tried has a tunnel.
     Opened,
-    /// The first bytes of the pod came through a tunnel: the failures in a row end. An open
-    /// alone ends none: the node starts the data channel before it dials the port in the pod,
-    /// so a tunnel to a port that refuses each connection opens and then fails.
-    Carried,
+    /// The first bytes of the pod with this UID came through a tunnel: the failures in a row
+    /// of the target end. An open alone ends none: the node starts the data channel before it
+    /// dials the port in the pod, so a tunnel to a port that refuses each connection opens and
+    /// then fails. Bytes of an other pod tell nothing of the target.
+    Carried { pod: Arc<str> },
     /// The open of a tunnel failed.
     OpenFailed { target: TargetPod, error: CoreError },
     /// The open of a tunnel had no answer in the wait time, and stopped.
@@ -56,7 +57,7 @@ pub(super) type Failure = (SystemTime, String);
 /// The outcomes since the last read of the task.
 ///
 /// The failures follow the last connections, not a clock: they hold until the first bytes
-/// of a pod, "retry now" or a new target pod. A forward to a port that refuses each
+/// of the target pod, "retry now" or a new target pod. A forward to a port that refuses each
 /// connection thus stays degraded also when its clients come minutes apart; the view gives
 /// the age of the last failure, so an idle forward does not look like a fresh fault.
 #[derive(Debug, Default)]
@@ -86,9 +87,14 @@ impl Reports {
         self.suspects.retain(|(_, until)| *until > now);
     }
 
+    /// True for the pod of the target, and for each pod before the first target.
+    fn is_target(&self, pod: &Arc<str>) -> bool {
+        self.target.as_ref().is_none_or(|target| target == pod)
+    }
+
     /// One more failure in the run, unless it is of an other pod than the target.
     fn failed(&mut self, pod: &Arc<str>, failure: Failure) {
-        if self.target.as_ref().is_none_or(|target| target == pod) {
+        if self.is_target(pod) {
             self.failures = self.failures.saturating_add(1);
             self.last_failure = Some(failure);
         }
@@ -104,7 +110,7 @@ impl Reports {
         new
     }
 
-    /// The end of the failures: the first bytes of a pod, "retry now" of the user, or a new
+    /// The end of the failures: the first bytes of the target, "retry now" of the user, or a new
     /// target pod.
     pub(super) fn clear(&mut self) {
         (self.failures, self.last_failure, self.no_tunnel) = (0, None, None);
@@ -206,7 +212,8 @@ impl Shared {
                     reports.last_error = Some((now, text));
                 }
                 Outcome::Opened => reports.no_tunnel = None,
-                Outcome::Carried => reports.clear(),
+                Outcome::Carried { pod } if reports.is_target(&pod) => reports.clear(),
+                Outcome::Carried { .. } => {}
                 Outcome::OpenFailed { target, error } => {
                     let text = format!("a tunnel to pod {} did not open: {error}", target.pod.name);
                     match (error.class(), error.status()) {
