@@ -18,6 +18,9 @@ pub enum Wait {
     /// The start of its watch after a list or after a fault: a free stream of the
     /// connection and the answer of the server.
     Stream,
+    /// The check after a lost connection that the cluster behind the new one is still the
+    /// cluster of its objects: its identity and its version.
+    Cluster,
 }
 
 /// The state of one store. In each state, the store shows the objects that it has.
@@ -90,6 +93,7 @@ impl Display for StoreState {
             Self::Waiting(Wait::Credential) => f.write_str("waits for a credential"),
             Self::Waiting(Wait::ListSlot) => f.write_str("waits for a list slot"),
             Self::Waiting(Wait::Stream) => f.write_str("waits for the start of its watch"),
+            Self::Waiting(Wait::Cluster) => f.write_str("checks the cluster"),
             Self::Listing { loaded } => write!(f, "list in progress, {loaded} objects"),
             Self::Live => f.write_str("live"),
             Self::Attempt { failures, reason } => write!(f, "attempt after {failures} failures: {reason}"),
@@ -116,6 +120,7 @@ mod tests {
             (StoreState::Waiting(Wait::Credential), "waits for a credential"),
             (StoreState::Waiting(Wait::ListSlot), "waits for a list slot"),
             (StoreState::Waiting(Wait::Stream), "waits for the start of its watch"),
+            (StoreState::Waiting(Wait::Cluster), "checks the cluster"),
             (StoreState::Listing { loaded: 500 }, "list in progress, 500 objects"),
             (StoreState::Live, "live"),
             (

@@ -124,7 +124,9 @@ fn note(row: &ClusterRow, facts: Option<Facts<'_>>, nouns: &Nouns, clock: &Clock
             let reason = row.reason().map_or_else(String::new, |reason| format!(": {reason}"));
             (Tone::of_health(row.health()).0, format!("{state}{reason}"))
         }
-        StoreState::Waiting(Wait::ListSlot | Wait::Stream) | StoreState::Listing { .. } => (Tone::Info, state),
+        StoreState::Waiting(Wait::ListSlot | Wait::Stream | Wait::Cluster) | StoreState::Listing { .. } => {
+            (Tone::Info, state)
+        }
         StoreState::Attempt { .. } => (Tone::Warn, state),
         StoreState::Backoff { until, .. } => {
             (Tone::Warn, format!("{state}; next attempt in {}", format::span(clock.until(*until))))

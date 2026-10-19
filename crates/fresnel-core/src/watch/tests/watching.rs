@@ -86,7 +86,8 @@ async fn a_store_stays_live_while_the_renewal_of_its_watch_starts() {
 }
 
 /// A renewal that gets no watch is a failure like each other one. The store leaves the
-/// state "live" at once, and the watch after the failure is no renewal.
+/// state "live" at once, and the watch after the failure is no renewal. A request with no
+/// answer in its time limit can have lost its connection, so the cluster gets a check.
 #[tokio::test(start_paused = true)]
 async fn a_renewal_that_gets_no_watch_shows_as_a_failure() {
     let (mut bench, events) = Bench::live(settings()).await;
@@ -96,10 +97,11 @@ async fn a_renewal_that_gets_no_watch_shows_as_a_failure() {
     let paused = bench.until_state("the pause", |state| matches!(state, StoreState::Backoff { failures: 1, .. })).await;
     assert_eq!((paused.since, paused.items.len()), (bench.clock.now(), 2), "the objects stay");
 
+    bench.script.version_now("7");
     let _events = bench.script.watch_opens();
     let live = bench.until_state("the open watch", StoreState::is_live).await;
     assert_eq!((live.since, bench.elapsed()), (bench.clock.now(), 60 * SECOND + 100 * MS), "live from this moment");
-    assert_eq!(bench.script.take_calls(), ["watch after 7 for 60 s", "watch after 7 for 60 s"]);
+    assert_eq!(bench.script.take_calls(), ["watch after 7 for 60 s", "list of 1", "watch after 7 for 60 s"]);
 }
 
 /// Plan section 9.2. At 200 changes in one second, the readers get 30 snapshots and not 200.
@@ -216,71 +218,6 @@ async fn a_store_is_not_live_while_no_channel_for_watches_is_live() {
     let calls = ["list of 1", "watch after 7 for 60 s"];
     assert_eq!(bench.script.take_calls(), calls, "at once, with a check of the version and no full list");
     assert_eq!(bench.elapsed(), 620 * SECOND);
-}
-
-/// A server that starts again with an older datastore, after a restore of a backup or as a
-/// new cluster at the same address, takes a watch from a version that it does not have yet
-/// and sends nothing. A fast soak found stores that showed "live" with the objects of the old
-/// cluster for minutes after a recreate of k3s. The check after the lost connection finds the
-/// older version of the server, and a new list follows at once.
-#[tokio::test(start_paused = true)]
-async fn a_cluster_that_went_back_to_an_older_version_gets_a_new_list_after_the_lost_connection() {
-    let (mut bench, _events) = Bench::live(settings()).await;
-    bench.lanes.send_replace(LaneStates { watches: Path::NoChannel, requests: Path::NoChannel, ..LIVE });
-    bench.until_state("the lost channel", |state| *state == StoreState::Waiting(Wait::Channel)).await;
-    bench.script.version_now("3");
-    bench.lanes.send_replace(LIVE);
-    let listing = bench.until_state("the new list", |state| matches!(state, StoreState::Listing { .. })).await;
-    assert_eq!(listing.items.len(), 2, "the old objects stay until the list ends, with a visible state");
-    bench.script.page(&[("x", "2")], Some("3"), None);
-    let _next = bench.script.watch_opens();
-    bench.until_state("the watch of the new cluster", StoreState::is_live).await;
-    assert_eq!(bench.objects(), pairs(&[("x", "2")]));
-    assert_eq!(bench.script.take_calls(), ["list of 1", "list of 500", "watch after 3 for 60 s"]);
-}
-
-/// A new cluster can pass the version of the store before the connection comes back: a soak
-/// with two recreates in a row saw a store "live" with the old object of a name for minutes.
-/// Its first object has the name of an object of the store and an other UID.
-#[tokio::test(start_paused = true)]
-async fn a_new_cluster_past_the_version_of_the_store_gets_a_new_list_after_the_lost_connection() {
-    let (mut bench, _events) = Bench::live(settings()).await;
-    bench.lanes.send_replace(LaneStates { watches: Path::NoChannel, requests: Path::NoChannel, ..LIVE });
-    bench.until_state("the lost channel", |state| *state == StoreState::Waiting(Wait::Channel)).await;
-    bench.script.new_cluster_now("a", "40");
-    bench.lanes.send_replace(LIVE);
-    bench.until_state("the new list", |state| matches!(state, StoreState::Listing { .. })).await;
-    bench.script.page(&[("a", "3"), ("c", "12")], Some("40"), None);
-    let _next = bench.script.watch_opens();
-    bench.until_state("the watch of the new cluster", StoreState::is_live).await;
-    assert_eq!(bench.objects(), pairs(&[("a", "3"), ("c", "12")]));
-    assert_eq!(bench.script.take_calls(), ["list of 1", "list of 500", "watch after 40 for 60 s"]);
-}
-
-/// A new cluster can also pass the check of one object: its first object can have no
-/// namesake in the store. The cluster then gets a new number (`identity`), and the open watch
-/// ends with a new list; so does the next watch of a store that waits in a pause.
-#[tokio::test(start_paused = true)]
-async fn an_other_cluster_ends_the_watch_and_the_next_one_with_a_new_list() {
-    let (mut bench, _events) = Bench::live(settings()).await;
-    bench.script.page(&[("x", "2")], Some("3"), None);
-    let next = bench.script.watch_opens();
-    bench.lanes.send_modify(|lanes| lanes.identity.number = 1);
-    bench
-        .until("the objects of the other cluster", |snapshot| snapshot.state.is_live() && snapshot.items.len() == 1)
-        .await;
-    assert_eq!(bench.script.take_calls(), ["list of 500", "watch after 3 for 60 s"]);
-
-    next.send(Err(CoreError::new(ErrorClass::Network, "reset"))).expect("the watch is open");
-    bench
-        .until_state("the pause", |state| matches!(state, StoreState::Attempt { .. } | StoreState::Backoff { .. }))
-        .await;
-    bench.lanes.send_modify(|lanes| lanes.identity.number = 2);
-    bench.script.page(&[("y", "1")], Some("2"), None);
-    let _last = bench.script.watch_opens();
-    bench.until_state("the watch of the third cluster", StoreState::is_live).await;
-    assert_eq!(bench.objects(), pairs(&[("y", "1")]));
-    assert_eq!(bench.script.take_calls(), ["list of 500", "watch after 2 for 60 s"], "no watch after the old cursor");
 }
 
 #[tokio::test(start_paused = true)]

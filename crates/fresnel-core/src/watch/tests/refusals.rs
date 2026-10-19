@@ -41,6 +41,7 @@ async fn http_403_is_the_state_forbidden_and_the_store_asks_again_with_a_list() 
     // The permission goes while the watch is open. The objects are old then, so the
     // next try is a list. "Retry now" starts it at once.
     events.send(Err(CoreError::new(ErrorClass::Network, "the stream ended"))).expect("the watch is open");
+    bench.script.version_now("7");
     bench.script.watch_fails(forbidden());
     let refused = bench.until_state("the refusal", |state| matches!(state, StoreState::Forbidden { .. })).await;
     assert_eq!(refused.items.len(), 1, "the objects stay");

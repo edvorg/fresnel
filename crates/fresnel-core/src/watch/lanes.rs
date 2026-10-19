@@ -202,12 +202,30 @@ impl Lanes {
         self.states.borrow().identity.number
     }
 
+    /// The count of connections that the cluster opened until now.
+    pub(crate) fn connects(&self) -> u64 {
+        self.states.borrow().connects
+    }
+
     /// Waits until the cluster behind the connections is not the one with this number.
     pub(crate) async fn other_cluster(&mut self, number: u32) {
         let other = self.states.wait_for(|states| states.identity.number != number).await.map(drop);
         if other.is_err() {
             std::future::pending::<()>().await;
         }
+    }
+
+    /// True when the task of the identity read the cluster after the first `connects`
+    /// connections opened.
+    pub(crate) fn is_identified(&self, connects: u64) -> bool {
+        self.states.borrow().identity.checked >= connects
+    }
+
+    /// Waits until the task of the identity read the cluster after the first `connects`
+    /// connections opened.
+    pub(crate) async fn identified(&mut self, connects: u64) -> Result<(), CoreError> {
+        let identified = self.states.wait_for(|states| states.identity.checked >= connects).await.map(drop);
+        identified.map_err(|_| gone())
     }
 
     /// Waits until a request of the lane can go out and, unless `due`, until a connection

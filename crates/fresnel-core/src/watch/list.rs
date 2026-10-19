@@ -22,7 +22,7 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         let mut token: Option<String> = None;
         loop {
             let (source, limit) = (&self.parts.source, self.parts.settings.page_size);
-            let mut page = self.answer(source.list_page(limit, token.as_deref())).await?;
+            let mut page = self.answer(Lane::Requests, source.list_page(limit, token.as_deref())).await?;
             token = page.next_token(token.as_deref())?;
             let version = page.metadata.resource_version.filter(|version| !version.is_empty());
             // With no version, the watch would start at "now" and lose each change

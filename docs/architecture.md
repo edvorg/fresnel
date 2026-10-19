@@ -119,10 +119,10 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
   each kind implements `Describe`: sidebar group, tier, columns as `kubectl get`, search, health
   and actions; tier B has the metadata only, tier C none. A `Witness` judges a warning Event now.
 - **Watch loop**: one task for each store: a list in pages, 4 lists of a cluster at a time, then
-  a watch with bookmarks, which the server ends after 60 to 90 s. HTTP 410, a cluster that went
-  back or a new one (kube-system) gives a list. A failure pauses up to 3 s, which the signal ends.
-- **States**: waiting (for a channel, a credential, a list slot or its watch), list in progress,
-  live, attempt, pause, throttled, forbidden, not supported, internal error and stopped.
+  a watch with bookmarks that the server ends in 60 to 90 s. HTTP 410, and after a lost connection
+  a new cluster (kube-system) or one that went back, give a list. A signal ends a pause (3 s).
+- **States**: waiting (a channel, a credential, a list slot, the check of the cluster, its watch),
+  list in progress, live, attempt, pause, throttled, forbidden, not supported, internal error, stopped.
 - **Snapshot**: published each 30 ms at most; its generation grows only when an object changes.
   No `managedFields`, no value of a Secret, a limit of Events. `Publisher` copies one pointer.
 - **On demand**: `ClusterStores::demand` gives a view the full objects of any kind. The store of

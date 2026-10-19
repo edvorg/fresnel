@@ -24,11 +24,13 @@ async fn the_count_of_failures_starts_again_at_the_first_answer() {
         bench.until_state("the pause", is_pause(failures)).await;
         assert_eq!(bench.elapsed(), at * MS, "the pause grows with each failure in sequence");
     }
-    // The answer to the list ends the sequence. The next failure is the first one again.
+    // The answer to the list ends the sequence. The next failure is the first one again. A
+    // watch that failed for the network gets a check of the cluster before the next one.
     bench.script.page(&[("a", "5")], Some("7"), None);
     bench.script.watch_fails(broke());
     bench.until_state("the pause", is_pause(1)).await;
     assert_eq!(bench.elapsed(), 700 * MS);
+    bench.script.version_now("7");
 
     // Eight resets of a watch that works. The channel counts the loss of a connection, so
     // the store takes no pause of its own: the next watch starts at once (plan section 8.13),

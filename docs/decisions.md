@@ -409,6 +409,14 @@ hyper gives the socket loop and the future of each request to an executor. The e
 function, and the drop of a connection ends each of its streams. After GOAWAY, the task keeps
 the old connection until its open streams end.
 
+## A request that a dropped connection took with it tells why
+
+The task of a channel drops a connection after a failure, a reset or a light request with no
+answer, and hyper ends each request on it with "dispatch task is gone: runtime dropped the
+dispatch task". That reads as a fault of the app; a soak showed it in each store. The task
+notes the reason before the drop, and such a request gets "the connection ended before the
+answer" with that reason.
+
 ## The stream budget fits into the windows
 
 The windows are fixed: an adaptive window lets one body that nobody reads stop each other
@@ -694,6 +702,14 @@ with no namesake in the store. So a task of each cluster reads the UID of the Na
 kube-system, which a cluster keeps for its life, after each new connection. An other UID, or
 none after one, gives the cluster a new number, and each store lists again. A user who cannot
 read that Namespace gets no such check.
+
+## No store is live after a lost connection before the check of its cluster
+
+In a 24-hour soak, a store resumed its watch on a new cluster and showed "live" with old
+objects for 20 s, while the read of kube-system was on its way. Each read now covers the
+connections that opened before it. After a lost connection, a store starts a watch only after
+a read that covers those of now, and shows "checks the cluster". A wait for a channel and a
+request that failed for the network are lost connections.
 
 ## A second HTTP 410 gives a pause
 

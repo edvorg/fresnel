@@ -40,7 +40,7 @@ use crate::kinds::{Kind, Object};
 use crate::published::Publisher;
 use crate::store::{Snapshot, StoreState, Wait, Writer};
 use lanes::{Lane, Readiness};
-use recover::Attempts;
+use recover::{Attempts, Failure};
 
 /// The numbers of the watch loop. Each one is a first value (plan section 16).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,8 +133,8 @@ struct Loop<'a, T, S> {
     /// True after a watch that worked and that the server ended at its timeout. The next
     /// watch is then a renewal: the store stays live while it starts.
     renewal: bool,
-    /// True after a lost connection, until a list or a check of the cursor: the server can
-    /// have started again with an older datastore (`stream`).
+    /// True after a lost connection, until a list or a check of the cluster: the server can
+    /// have started again with an older datastore, or be an other cluster (`stream`).
     lost: bool,
     /// The number of the cluster at the start of the last list: an other number is a new
     /// cluster, which needs a new list (`identity`).
@@ -203,6 +203,8 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
             match self.lanes.readiness(lane, self.parts.clock.now()) {
                 Readiness::Ready => return Ok(()),
                 Readiness::Wait(wait) => {
+                    // The next connection can reach an other cluster.
+                    self.lost |= wait == Wait::Channel;
                     self.enter(StoreState::Waiting(wait));
                     self.lanes.changed().await?;
                 }
@@ -211,14 +213,21 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         }
     }
 
-    /// Waits for the answer to a request. The connection layer holds a request while the
-    /// server throttles the cluster (HTTP 429), and the store shows that state then.
-    async fn answer<R>(&mut self, request: impl Future<Output = Result<R, CoreError>>) -> Result<R, CoreError> {
+    /// Waits for the answer to a request on the lane. The connection layer holds a request
+    /// while the server throttles the cluster (HTTP 429), and the store shows that state then.
+    /// A request whose lane has no channel waits for the next connection in that layer, and
+    /// a renewal of a watch would show "live" in that time, so the loop drops it.
+    async fn answer<R>(
+        &mut self,
+        lane: Lane,
+        request: impl Future<Output = Result<R, CoreError>>,
+    ) -> Result<R, Failure> {
         tokio::pin!(request);
-        let mut shown = None;
+        let (mut shown, mut lanes) = (None, self.lanes.clone());
         loop {
             tokio::select! {
-                answer = &mut request => return answer,
+                answer = &mut request => return answer.map_err(Failure::from),
+                () = lanes.lost(lane) => return Err(Failure::ChannelLost),
                 until = self.lanes.throttled(self.parts.clock.now(), shown) => {
                     self.enter(StoreState::Throttled { until });
                     shown = Some(until);

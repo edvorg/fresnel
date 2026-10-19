@@ -9,7 +9,7 @@
 //! - `registry`: the list of the clusters and their connections.
 //! - `stores`: the stores of a cluster and their watch loops. `store_faults`: the stores with
 //!   a second fault during a recovery, a fault at the worst moment, a slow server and bad data.
-//!   `demand`: the stores on demand.
+//!   `demand`: the stores on demand. `identity`: a new cluster behind the same address.
 //! - `indexes`: the indexes of a cluster on its stores.
 //! - `metrics`: the reads of the metrics sampler and the state of each refusal.
 //! - `stream`: exec, attach and the tunnels of a port forward, with faults of their sockets.
@@ -25,6 +25,7 @@ mod drain;
 #[path = "../common/gaps.rs"]
 mod gaps;
 mod gateway;
+mod identity;
 mod indexes;
 mod manifest;
 mod metrics;

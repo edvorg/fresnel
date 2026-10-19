@@ -139,25 +139,30 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
                     self.pause(self.attempts.gone - 1, error).await;
                 }
             }
-            Failure::Failed(error) => match remedy(&error, throttled_until.is_some()) {
-                // A refusal can end, so the store asks again, with a list: after a watch
-                // that the server refused, the objects of the store are old.
-                Remedy::Forbidden => {
-                    self.cursor = None;
-                    self.writer.set_state(StoreState::Forbidden { reason: error });
-                    self.rest(self.parts.settings.forbidden_retry).await;
+            Failure::Failed(error) => {
+                // A request with no answer for the network or for its time limit can have
+                // lost its connection, and the next connection can reach an other cluster.
+                self.lost |= matches!(error.class(), ErrorClass::Network | ErrorClass::Timeout);
+                match remedy(&error, throttled_until.is_some()) {
+                    // A refusal can end, so the store asks again, with a list: after a watch
+                    // that the server refused, the objects of the store are old.
+                    Remedy::Forbidden => {
+                        self.cursor = None;
+                        self.writer.set_state(StoreState::Forbidden { reason: error });
+                        self.rest(self.parts.settings.forbidden_retry).await;
+                    }
+                    Remedy::NotSupported => {
+                        self.cursor = None;
+                        self.writer.set_state(StoreState::NotSupported { reason: error });
+                        self.rest(self.parts.settings.unsupported_retry).await;
+                    }
+                    Remedy::Throttled => self.wait_for_server(throttled_until.unwrap_or(now + NO_RETRY_AFTER)).await,
+                    Remedy::Backoff => {
+                        self.attempts.count(error.clone());
+                        self.pause(self.attempts.failures, error).await;
+                    }
                 }
-                Remedy::NotSupported => {
-                    self.cursor = None;
-                    self.writer.set_state(StoreState::NotSupported { reason: error });
-                    self.rest(self.parts.settings.unsupported_retry).await;
-                }
-                Remedy::Throttled => self.wait_for_server(throttled_until.unwrap_or(now + NO_RETRY_AFTER)).await,
-                Remedy::Backoff => {
-                    self.attempts.count(error.clone());
-                    self.pause(self.attempts.failures, error).await;
-                }
-            },
+            }
         }
         Ok(())
     }

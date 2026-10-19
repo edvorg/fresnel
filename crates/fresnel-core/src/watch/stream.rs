@@ -32,7 +32,7 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
             return Err(Failure::Gone(other_cluster()));
         }
         if self.lost {
-            self.check_cursor(from).await?;
+            self.check_cluster(from).await?;
             self.lost = false;
         }
         // A store stays live while the renewal of its watch starts. Each other start of a
@@ -43,7 +43,7 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         let range = self.parts.settings.server_timeout.clone();
         let timeout = fastrand::u32(range);
         let source = &self.parts.source;
-        let mut events = self.answer(source.watch(from, timeout)).await?;
+        let mut events = self.answer(Lane::Watches, source.watch(from, timeout)).await?;
         // The good status of the server is the answer. From now on each change arrives.
         self.writer.set_state(StoreState::Live);
 
@@ -76,19 +76,30 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         }
     }
 
-    /// Tells after a lost connection whether the cluster went back to an older version: a
-    /// restore of a backup, or a new cluster at the same address. Such a server takes a watch
-    /// from a version that it does not have yet and sends nothing until its own version
-    /// passes it, while the store shows "live" with the objects of the old cluster. A fast
-    /// soak found that after a recreate of k3s. A list of one object gives the version of
-    /// the server now; a version older than the cursor gives a new list, as HTTP 410 does.
-    /// A new cluster can pass the cursor before the check: its first object then has the name
-    /// of an object of the store and an other UID, which gives a new list too.
-    async fn check_cursor(&mut self, from: &str) -> Result<(), Failure> {
+    /// Tells after a lost connection whether the cluster behind the connections is still the
+    /// cluster of the objects of the store. The store shows "checks the cluster" until then:
+    /// a soak saw a store "live" with the objects of an old cluster for 20 s after a recreate.
+    ///
+    /// First the task of the identity reads the UID of `kube-system` over the connections of
+    /// now: an other UID gives a new list (`identity`). Then a list of one object gives the
+    /// version of the server now. A restored cluster takes a watch from a version that it does
+    /// not have yet and sends nothing until its own version passes it; a version older than
+    /// the cursor gives a new list, as HTTP 410 does. A new cluster that a user cannot read
+    /// `kube-system` of can pass the cursor first: its first object then has the name of an
+    /// object of the store and an other UID, which gives a new list too.
+    async fn check_cluster(&mut self, from: &str) -> Result<(), Failure> {
         self.ready(Lane::Requests).await.map_err(Failure::Fault)?;
-        self.start_request(StoreState::Waiting(Wait::Stream));
+        let connects = self.lanes.connects();
+        if !self.lanes.is_identified(connects) {
+            self.enter(StoreState::Waiting(Wait::Cluster));
+            self.lanes.identified(connects).await.map_err(Failure::Fault)?;
+        }
+        if self.lanes.cluster() != self.cluster {
+            return Err(Failure::Gone(other_cluster()));
+        }
+        self.start_request(StoreState::Waiting(Wait::Cluster));
         let source = &self.parts.source;
-        let page = self.answer(source.list_page(1, None)).await?;
+        let page = self.answer(Lane::Requests, source.list_page(1, None)).await?;
         let number = |version: &str| version.parse::<u128>().ok();
         let now = page.metadata.resource_version.as_deref().and_then(number);
         if let (Some(now), Some(from)) = (now, number(from))
@@ -183,7 +194,8 @@ fn other_cluster() -> CoreError {
     CoreError::new(ErrorClass::Server, "the cluster is an other one: its Namespace kube-system has an other UID")
 }
 
+/// The server ended the stream: the connection works, so this is no lost connection.
 fn ended_early(after: Duration) -> CoreError {
     let text = format!("the server ended the watch after {} ms with no event", after.as_millis());
-    CoreError::new(ErrorClass::Network, text)
+    CoreError::new(ErrorClass::Server, text)
 }

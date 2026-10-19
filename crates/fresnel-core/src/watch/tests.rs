@@ -2,6 +2,7 @@
 //! of these tests is exact: the pauses have no random part, and each watch has one timeout.
 
 mod bench;
+mod clusters;
 mod failures;
 mod listing;
 mod refusals;
