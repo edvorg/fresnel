@@ -1,16 +1,17 @@
 //! What the worker of an overview counts in one cluster (plan section 7.3): the objects of
-//! each kind by health, the pods by phase, the nodes, and the warning Events with the newest
-//! ones. A count reads the snapshots of one request, so the counts of a cluster are of one
-//! moment. The namespace filter holds for each kind with a namespace, as in a table: the
-//! table that a link opens then has the rows of the count.
+//! each kind by health, the pods by phase, the nodes, and the warning Events of the last hour
+//! with the state of each problem now. A count reads the snapshots of one request, so the
+//! counts of a cluster are of one moment. The namespace filter holds for each kind with a
+//! namespace, as in a table: the table that a link opens then has the rows of the count.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use fresnel_core::app::Objects;
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::index::last_seen;
-use fresnel_core::kinds::{Describe, Kind, ObjectHealth, Sidebar, Visit};
+use fresnel_core::kinds::{Describe, Kind, ObjectHealth, ProblemNow, ProblemState, Sidebar, Visit, Witness};
 use fresnel_core::metrics::{Amount, Metrics};
 use fresnel_core::published::Held;
 use fresnel_core::store::{ObjectKey, Snapshot};
@@ -19,8 +20,14 @@ use k8s_openapi::api::core::v1::{Event, Node, Pod};
 use crate::views::metrics::gauge::Resource;
 use crate::widgets::worker::Cancel;
 
-/// The most warning Events that a block lists: the newest ones.
+/// The most warning Events that a block lists: the ongoing ones, then the newest ones.
 const NEWEST: usize = 8;
+/// The warnings whose last report is in this time before now count. The cluster keeps an
+/// Event for about one hour after its last report (`--event-ttl`); some keep it longer.
+const HOUR: Duration = Duration::from_secs(3600);
+/// The start of that hour moves in steps of this many seconds, so the counts follow the time
+/// with no new count in each frame.
+const HOUR_STEP: u64 = 10;
 
 /// The phases of a pod, in the sequence of a block. A pod with no phase is `Unknown`.
 const PHASES: [&str; 5] = ["Running", "Pending", "Succeeded", "Failed", "Unknown"];
@@ -34,6 +41,8 @@ pub(super) struct Input {
     pub(super) objects: Objects,
     /// The requests on each node at the last poll.
     pub(super) metrics: Held<Metrics>,
+    /// The stores that tell the state of the problem of each warning now.
+    pub(super) witness: Witness,
 }
 
 impl Input {
@@ -45,6 +54,7 @@ impl Input {
         self.cluster == other.cluster
             && std::ptr::eq::<Snapshot<Pod>>(&*self.pods, &*other.pods)
             && std::ptr::eq::<Metrics>(&*self.metrics, &*other.metrics)
+            && self.witness.is_same(&other.witness)
             && kinds(self) == kinds(other)
             && kinds(self).into_iter().all(|kind| kind.visit(Same(&self.objects, &other.objects)))
     }
@@ -118,12 +128,23 @@ pub(super) struct Nodes {
     pub(super) requests: Amount,
 }
 
-/// The warning Events of a cluster.
+/// One warning Event with the state of its problem now.
+#[derive(Clone, Debug)]
+pub(super) struct Warning {
+    pub(super) event: Arc<Event>,
+    pub(super) now: ProblemNow,
+}
+
+/// The warning Events of a cluster whose last report is in the last hour.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Warnings {
     pub(super) count: u32,
-    /// The newest ones, the newest first.
-    pub(super) newest: Vec<Arc<Event>>,
+    /// Of them, the ones whose problem is ongoing now, and the ones whose state the app
+    /// cannot tell: "none ongoing" would be false while some are unknown.
+    pub(super) ongoing: u32,
+    pub(super) unknown: u32,
+    /// The ongoing ones first, then the newest, the newest first in each part.
+    pub(super) shown: Vec<Warning>,
 }
 
 /// What the worker counted in one cluster.
@@ -141,8 +162,22 @@ pub(super) struct Counted {
     pub(super) warnings: Option<Warnings>,
 }
 
-/// Counts each cluster of a request. `None` when a newer request waits.
-pub(super) fn count(inputs: &[Input], namespaces: &BTreeSet<Arc<str>>, cancel: &Cancel<'_>) -> Option<Vec<Counted>> {
+/// The start of the last hour at `now`, in its steps: a warning reported after it counts.
+/// The step goes up, so each warning that counts is of the last hour.
+pub(super) fn hour_start(now: SystemTime) -> SystemTime {
+    let seconds = now.duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    let step = SystemTime::UNIX_EPOCH + Duration::from_secs(seconds.div_ceil(HOUR_STEP) * HOUR_STEP);
+    step.checked_sub(HOUR).unwrap_or(SystemTime::UNIX_EPOCH)
+}
+
+/// Counts each cluster of a request, with the warnings reported after `since`. `None` when
+/// a newer request waits.
+pub(super) fn count(
+    inputs: &[Input],
+    namespaces: &BTreeSet<Arc<str>>,
+    since: SystemTime,
+    cancel: &Cancel<'_>,
+) -> Option<Vec<Counted>> {
     inputs
         .iter()
         .map(|input| {
@@ -154,7 +189,7 @@ pub(super) fn count(inputs: &[Input], namespaces: &BTreeSet<Arc<str>>, cancel: &
             let workloads = input.objects.kinds().filter(|kind| kind.info().sidebar == Sidebar::Workloads);
             let kinds = workloads.filter_map(|kind| Some((kind, kind.visit(Tallied(input, &shows))?)));
             let nodes = input.objects.get::<Node>().map(|snapshot| self::nodes(snapshot, input));
-            let warnings = input.objects.get::<Event>().map(|snapshot| self::warnings(snapshot, &shows));
+            let warnings = input.objects.get::<Event>().map(|events| self::warnings(events, input, since, &shows));
             Some(Counted { cluster: input.cluster.clone(), pods, phases, kinds: kinds.collect(), nodes, warnings })
         })
         .collect()
@@ -212,22 +247,34 @@ fn nodes(snapshot: &Snapshot<Node>, input: &Input) -> Nodes {
     nodes
 }
 
-fn warnings(snapshot: &Snapshot<Event>, shows: &impl Fn(&ObjectKey) -> bool) -> Warnings {
-    let mut found: Vec<&Arc<Event>> = snapshot
+fn warnings(
+    snapshot: &Snapshot<Event>,
+    input: &Input,
+    since: SystemTime,
+    shows: &impl Fn(&ObjectKey) -> bool,
+) -> Warnings {
+    let recent = |event: &Event| last_seen(event).is_some_and(|last| SystemTime::from(last) >= since);
+    let mut found: Vec<Warning> = snapshot
         .items
         .iter()
-        .filter(|(key, event)| shows(key) && event.type_.as_deref() == Some("Warning"))
-        .map(|(_, event)| event)
+        .filter(|(key, event)| shows(key) && recent(event))
+        .filter_map(|(_, event)| Some(Warning { now: input.witness.judge(event)?, event: Arc::clone(event) }))
         .collect();
-    let count = u32::try_from(found.len()).unwrap_or(u32::MAX);
-    // The newest first: a partial sort, as a cluster can keep 20,000 Events.
-    let newest_first = |a: &&Arc<Event>, b: &&Arc<Event>| last_seen(b).cmp(&last_seen(a));
+    let count_of = |state: ProblemState| found.iter().filter(|warning| warning.now.state == state).count();
+    let number = |count: usize| u32::try_from(count).unwrap_or(u32::MAX);
+    let (ongoing, unknown) = (number(count_of(ProblemState::Ongoing)), number(count_of(ProblemState::Unknown)));
+    let count = number(found.len());
+    // A partial sort, as a cluster can keep 20,000 Events.
+    let first = |a: &Warning, b: &Warning| {
+        let later = (b.now.state == ProblemState::Ongoing).cmp(&(a.now.state == ProblemState::Ongoing));
+        later.then_with(|| last_seen(&b.event).cmp(&last_seen(&a.event)))
+    };
     if found.len() > NEWEST {
-        found.select_nth_unstable_by(NEWEST, newest_first);
+        found.select_nth_unstable_by(NEWEST, first);
         found.truncate(NEWEST);
     }
-    found.sort_by(newest_first);
-    Warnings { count, newest: found.into_iter().cloned().collect() }
+    found.sort_by(first);
+    Warnings { count, ongoing, unknown, shown: found }
 }
 
 #[cfg(test)]

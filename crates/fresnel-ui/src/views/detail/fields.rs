@@ -20,8 +20,18 @@ pub(crate) const ITEM_LIMIT: usize = 100;
 pub(crate) const NONE: &str = "–";
 
 pub(crate) fn heading(ui: &mut Ui, palette: &Palette, title: &str) {
-    ui.label(RichText::new(title).size(11.0).color(palette.text_faint));
+    heading_label(ui, palette, title);
+}
+
+/// A heading with a hint that tells how to read its section, while the pointer is on it.
+pub(crate) fn heading_with_hint(ui: &mut Ui, palette: &Palette, title: &str, hint: &str) {
+    heading_label(ui, palette, title).on_hover_text(hint);
+}
+
+fn heading_label(ui: &mut Ui, palette: &Palette, title: &str) -> egui::Response {
+    let label = ui.label(RichText::new(title).size(11.0).color(palette.text_faint));
     ui.add_space(2.0);
+    label
 }
 
 /// One line of a section: the label at the left and the value at the right. A long value

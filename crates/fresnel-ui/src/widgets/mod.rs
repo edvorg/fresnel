@@ -10,9 +10,9 @@ pub(crate) mod worker;
 use std::sync::Arc;
 
 use egui::text::{LayoutJob, TextWrapping};
-use egui::{Color32, FontId, Galley, Id, Rect, Sense, Ui};
+use egui::{Color32, FontId, Galley, Id, Rect, Response, Sense, StrokeKind, Ui, WidgetInfo, WidgetType};
 
-use crate::theme::Palette;
+use crate::theme::{Palette, SMALL};
 
 /// A text on one line that ends with "…" where it is wider than `width`. A cut with no
 /// mark makes a part of a name look like the whole name: three pods with one name.
@@ -29,6 +29,18 @@ pub(crate) const DOT: f32 = 7.0;
 pub(crate) fn dot(ui: &mut Ui, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(DOT, DOT), Sense::hover());
     ui.painter().circle_filled(rect.center(), DOT / 2.0, color);
+}
+
+/// A short state in a frame of its color, such as "ongoing": the word stands out of a line
+/// of text. Its name in the accessibility tree is the word.
+pub(crate) fn chip(ui: &mut Ui, text: &str, color: Color32) -> Response {
+    let galley = ui.painter().layout_no_wrap(text.to_owned(), FontId::proportional(SMALL), color);
+    let (rect, response) = ui.allocate_exact_size(galley.size() + egui::vec2(10.0, 4.0), Sense::hover());
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, text));
+    let painter = ui.painter();
+    painter.rect(rect, 4.0, color.gamma_multiply(0.1), (1.0, color.gamma_multiply(0.6)), StrokeKind::Inside);
+    painter.galley(rect.min + egui::vec2(5.0, 2.0), galley, color);
+    response
 }
 
 /// Gives a widget a name in the accessibility tree. Screen readers and the UI tests find a

@@ -38,8 +38,8 @@ fn each_selected_cluster_has_a_block_with_its_version_nodes_pods_usage_and_warni
     // The sum of the node against its 18 allocatable cores, and the requests on it.
     assert!(shows_part(&window, "1.5 of 18 allocatable (8%) · requests 2.5 · sample 5 s ago"), "ams");
     assert!(shows_part(&window, "3 of 18 allocatable (17%) · requests 5 · sample 5 s ago"), "fra");
-    assert_eq!(window.query_all_by_label("31 warnings").count(), 2);
-    assert!(shows(&window, "BackOff") && shows(&window, "Pod crash"), "the newest warnings with their objects");
+    assert_eq!(window.query_all_by_label("31 warnings in the last hour").count(), 2);
+    assert!(shows(&window, "BackOff") && shows(&window, "Pod crash"), "the ongoing warnings with their objects");
     assert!(!shows_part(&window, "old") && !shows_part(&window, "not loaded"), "each store is live");
 }
 
@@ -91,7 +91,7 @@ fn a_count_opens_its_table_with_the_problems_filter_and_a_warning_opens_its_obje
     window.get_by_role_and_label(Role::RadioButton, "Cluster overview").click();
     window.run();
     open(&mut window, "Cluster overview");
-    window.get_by_role_and_label(Role::Link, "31 warnings").click();
+    window.get_by_role_and_label(Role::Link, "31 warnings in the last hour").click();
     until(&mut window, "the warnings", |window| shows(window, "31 of 196 Events"));
 
     open(&mut window, "Cluster overview");

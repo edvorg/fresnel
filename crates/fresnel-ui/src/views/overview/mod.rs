@@ -19,7 +19,7 @@ mod workloads;
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use egui::{Frame, Label, RichText, ScrollArea, Ui};
 use fresnel_core::kinds::{Kind, Sidebar};
@@ -102,6 +102,8 @@ pub(crate) enum Jump {
 struct Request {
     inputs: Vec<Input>,
     namespaces: BTreeSet<Arc<str>>,
+    /// The start of the last hour: the warnings reported after it count.
+    since: SystemTime,
 }
 
 /// The page of the overviews, with its worker thread.
@@ -120,8 +122,9 @@ pub(crate) struct OverviewPage {
 impl OverviewPage {
     /// Starts the worker thread. `wake` asks for a repaint for new counts.
     pub(crate) fn new(tasks: &Tasks, wake: Wake) -> Self {
-        let compute =
-            |request: &Request, cancel: &Cancel<'_>| count::count(&request.inputs, &request.namespaces, cancel);
+        let compute = |request: &Request, cancel: &Cancel<'_>| {
+            count::count(&request.inputs, &request.namespaces, request.since, cancel)
+        };
         let worker = Worker::start(tasks, TaskName::new("overview counts"), wake, compute);
         Self { worker, asked: None, id: RequestId::default(), counted: None, behind_since: None }
     }
@@ -175,8 +178,9 @@ impl OverviewPage {
         }
     }
 
-    /// Asks for counts of the snapshots of this frame when they changed. A new namespace
-    /// filter is a new query: the count in progress stops, as its counts have no use.
+    /// Asks for counts of the snapshots of this frame when they or the last hour changed. A
+    /// new namespace filter is a new query: the count in progress stops, as its counts have
+    /// no use.
     fn request(&mut self, scene: &Scene<'_>) {
         let inputs: Vec<Input> = scene
             .view
@@ -186,18 +190,19 @@ impl OverviewPage {
             .filter_map(|row| {
                 let data = row.data.as_ref()?;
                 let (pods, objects, metrics) = (data.pods.clone(), data.objects.clone(), data.metrics.clone());
-                Some(Input { cluster: row.id.clone(), pods, objects, metrics })
+                Some(Input { cluster: row.id.clone(), pods, objects, metrics, witness: data.witness() })
             })
             .collect();
+        let since = count::hour_start(scene.clock.now());
         let (same_filter, same_data) = self.asked.as_ref().map_or((true, false), |asked| {
             let same = asked.inputs.len() == inputs.len()
                 && asked.inputs.iter().zip(&inputs).all(|(before, now)| before.is_same(now));
-            (asked.namespaces == *scene.namespaces, same)
+            (asked.namespaces == *scene.namespaces, same && asked.since == since)
         });
         self.id.query += u64::from(!same_filter);
         if !same_filter || !same_data {
             self.id.data += 1;
-            let request = Request { inputs, namespaces: scene.namespaces.clone() };
+            let request = Request { inputs, namespaces: scene.namespaces.clone(), since };
             self.worker.submit(self.id, request.clone());
             self.asked = Some(request);
         }

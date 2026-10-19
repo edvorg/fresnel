@@ -1,7 +1,8 @@
 //! The blocks of the Cluster overview: one for each selected cluster, in the sequence of the
 //! clusters (research 11 section 8.3). A block has the state of the cluster, the version of
 //! its server, its nodes, its pods by phase, its CPU and memory against the allocatable part
-//! of its nodes, and its warning Events with the newest ones.
+//! of its nodes, and its warning Events of the last hour with the state of each problem now:
+//! the ongoing ones first, then the newest ones.
 //!
 //! A count of a store that is not live has the mark of that store, and the CPU and memory
 //! have the state of the sampler: each cluster shows its own state, and the other blocks
@@ -11,17 +12,18 @@
 use egui::{Frame, Grid, Label, RichText, Ui};
 use fresnel_core::app::{ClusterData, ClusterRow};
 use fresnel_core::cluster::{LinkState, ServerVersion, VersionState};
-use fresnel_core::index::last_seen;
+use fresnel_core::index::{last_seen, reports};
 use fresnel_core::kinds::Kind;
 use fresnel_core::store::{ObjectKey, StoreStatus};
 use k8s_openapi::api::core::v1::Event;
 
-use super::count::{Counted, Nodes};
+use super::count::{Counted, Nodes, Warnings};
 use super::{Jump, LINE_LIMIT, NAME_LIMIT};
 use crate::format::{self, Clock};
 use crate::shell::Scene;
 use crate::theme::{self, PAD, Palette};
-use crate::views::detail::fields::{NONE, field, heading, note};
+use crate::views::cluster::problem;
+use crate::views::detail::fields::{NONE, field, heading_with_hint, note};
 use crate::views::metrics::Problems;
 use crate::views::metrics::gauge::{Resource, Usage};
 use crate::views::metrics::read;
@@ -34,6 +36,9 @@ use crate::widgets::{self, dot};
 const OLD: &str = "old: the last answer of metrics-server had no sample of the nodes";
 /// The size of a bar of the CPU or the memory.
 const BAR: egui::Vec2 = egui::vec2(160.0, 8.0);
+/// What the time and the state of a warning tell: an old report with no state looked current.
+const WARNINGS_HINT: &str = "A time is the last report of an Event: the cluster keeps an Event for about 1 hour \
+                             after its last report. The state comes from the live object now, not from the Event.";
 
 pub(super) fn show(ui: &mut Ui, scene: &Scene<'_>, counted: &[Counted]) -> Option<Jump> {
     let palette = theme::palette(ui);
@@ -230,38 +235,72 @@ fn meter(ui: &mut Ui, palette: &Palette, clock: &Clock, usage: &Usage, resource:
     });
 }
 
-/// The count of the warning Events with its link, and the newest ones with their objects as links.
+/// The count of the warning Events of the last hour with its link, and the shown ones with
+/// the state of each problem now and their objects as links.
 fn warnings(ui: &mut Ui, palette: &Palette, clock: &Clock, row: &ClusterRow, counts: &Counted) -> Option<Jump> {
     ui.add_space(4.0);
-    heading(ui, palette, "WARNING EVENTS");
+    heading_with_hint(ui, palette, "WARNING EVENTS", WARNINGS_HINT);
     let status = row.data.as_ref().and_then(|data| data.objects.status(Kind::Event));
     let mut jump = None;
     parts(ui, |ui| {
         if let Some(warnings) = &counts.warnings {
-            jump = count_link(ui, &format::count(warnings.count.into(), "warning"), Kind::Event, true);
+            jump = summary(ui, palette, warnings);
         }
         store_mark(ui, palette, status, clock);
     });
-    let newest = counts.warnings.as_ref().map(|warnings| warnings.newest.as_slice()).unwrap_or_default();
-    if newest.is_empty() {
+    let shown = counts.warnings.as_ref().map(|warnings| warnings.shown.as_slice()).unwrap_or_default();
+    if shown.is_empty() {
         return jump;
     }
-    Grid::new("warnings").num_columns(4).spacing([12.0, 4.0]).show(ui, |ui| {
-        for event in newest {
+    Grid::new("warnings").num_columns(5).spacing([12.0, 4.0]).show(ui, |ui| {
+        for warning in shown {
+            let event = &warning.event;
+            problem::chip(ui, palette, clock, &warning.now);
             let seen = last_seen(event).map(|time| format::span(clock.since(time.into())));
             ui.label(
                 RichText::new(seen.map_or_else(|| NONE.to_owned(), |seen| format!("{seen} ago")))
                     .color(palette.text_muted),
             );
             jump = object(ui, row, event).or(jump.take());
-            let reason = format::short(event.reason.as_deref().unwrap_or(NONE), NAME_LIMIT);
-            ui.label(RichText::new(reason).color(palette.warn));
+            ui.horizontal(|ui| {
+                let reason = format::short(event.reason.as_deref().unwrap_or(NONE), NAME_LIMIT);
+                ui.label(RichText::new(reason).color(palette.warn));
+                // A problem that stays has many reports.
+                let count = reports(event);
+                if count > 1 {
+                    ui.label(RichText::new(format!("×{count}")).color(palette.text_muted));
+                }
+            });
             let message = event.message.as_deref().map(str::trim).unwrap_or_default();
             ui.add(Label::new(format::short(message, LINE_LIMIT)).truncate());
             ui.end_row();
         }
     });
     jump
+}
+
+/// "3 warnings in the last hour, 1 ongoing": the link to the warnings, the ongoing ones, and
+/// the ones whose state the app cannot tell. Gives the jump of a click.
+fn summary(ui: &mut Ui, palette: &Palette, warnings: &Warnings) -> Option<Jump> {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        let text = format!("{} in the last hour", format::count(warnings.count.into(), "warning"));
+        let jump = count_link(ui, &text, Kind::Event, true);
+        if warnings.count > 0 {
+            ui.label(", ");
+            let (ongoing, color) = match warnings.ongoing {
+                0 => ("none ongoing".to_owned(), palette.text_muted),
+                count => (format!("{count} ongoing"), palette.warn),
+            };
+            ui.label(RichText::new(ongoing).color(color));
+        }
+        if warnings.unknown > 0 {
+            ui.label(", ");
+            ui.label(RichText::new(format!("{} unknown", warnings.unknown)).color(palette.text_muted));
+        }
+        jump
+    })
+    .inner
 }
 
 /// The object of an Event as a link to its panel, or as a text for a kind that is not in

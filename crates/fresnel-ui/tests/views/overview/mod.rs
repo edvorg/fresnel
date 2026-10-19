@@ -3,6 +3,7 @@
 //! to the tables, and the marks of a cluster whose stores or sampler are not live.
 //!
 //! - `cluster`, `workloads`: the tests of each overview. `snapshots`: PNG files.
+//! - `warnings`: the warnings of the Cluster overview with the state of each problem now.
 //! - `edges`: a stream of snapshots, and texts of a cluster with no limit of their length.
 //! - `frame_time`: four clusters with 10,000 pods each. Its limit holds in a release build.
 
@@ -10,6 +11,7 @@ mod cluster;
 mod edges;
 mod frame_time;
 mod snapshots;
+mod warnings;
 mod workloads;
 
 use std::collections::BTreeMap;
@@ -55,9 +57,15 @@ fn with<K: Describe>(objects: Objects, items: &[Arc<K>]) -> Objects {
     objects.with(held(store(StoreState::Live, items)))
 }
 
+/// The store of the full objects of a kind that is always on.
+fn always<K: Describe>(items: &[Arc<K>]) -> Source {
+    Source::full(held(store(StoreState::Live, items)))
+}
+
 /// A live cluster of the scene with each kind of the two overviews, the metrics of
 /// `scale`, and the version of its server. It has no ReplicationController. Its store of
-/// the Namespaces gives the menu of the namespace filter its entries.
+/// the Namespaces gives the menu of the namespace filter its entries, and its stores of the
+/// nodes and the workloads tell the state of each warning now.
 pub(crate) fn cluster(name: &str, scale: u64, version: &str) -> ClusterRow {
     let row = live(name, &pods());
     let mut data = row.data.clone().expect("the data of a connected cluster");
@@ -66,7 +74,13 @@ pub(crate) fn cluster(name: &str, scale: u64, version: &str) -> ClusterRow {
     let objects = with(with(with(objects, &scene::<ReplicaSet>()), &scene::<Job>()), &scene::<CronJob>());
     data.objects = with(objects, &Vec::<Arc<ReplicationController>>::new());
     data.metrics = held(metrics(name, scale));
-    data.sources = Arc::from([Source::full(held(store(StoreState::Live, &scene::<Namespace>())))]);
+    data.sources = Arc::from([
+        always(&scene::<Namespace>()),
+        always(&scene::<Node>()),
+        always(&scene::<ReplicaSet>()),
+        always(&scene::<Job>()),
+        always(&scene::<CronJob>()),
+    ]);
     let state = VersionState::Read(now() - 60 * SECOND);
     data.version = held(ServerVersion { version: Some(version.into()), state });
     ClusterRow { data: Some(data), ..row }

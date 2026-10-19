@@ -3,8 +3,10 @@ use std::sync::atomic::AtomicU64;
 use std::time::{Duration, SystemTime};
 
 use fresnel_core::metrics::{MetricsSettings, NodeLoad, Sample, SeriesKey};
+use fresnel_core::search::Source;
 use fresnel_core::store::StoreState;
 use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::batch::v1::{CronJob, Job};
 use serde_json::json;
 
 use super::*;
@@ -22,11 +24,28 @@ fn metrics(bed: &TestTasks, requests: Amount) -> Held<Metrics> {
     bed.held(metrics)
 }
 
+/// The stores of the scene that tell the state of a warning now: its pods, its node, its
+/// Jobs and its CronJobs.
+fn witness(bed: &TestTasks, pods: &Held<Snapshot<Pod>>) -> Witness {
+    Witness::new([
+        Source::full(pods.clone()),
+        Source::full(bed.held(snapshot(&fixture::<Node>(), StoreState::Live))),
+        Source::full(bed.held(snapshot(&fixture::<Job>(), StoreState::Live))),
+        Source::full(bed.held(snapshot(&fixture::<CronJob>(), StoreState::Live))),
+    ])
+}
+
 /// A cluster of the scene with these kinds besides the pods.
 fn input(bed: &TestTasks, objects: Objects) -> Input {
     let pods = bed.held(snapshot(&fixture_pods(), StoreState::Live));
     let requests = Amount { cpu: 500_000_000, memory: 256 * MI };
-    Input { cluster: ClusterId::new("ams"), pods, objects, metrics: metrics(bed, requests) }
+    let witness = witness(bed, &pods);
+    Input { cluster: ClusterId::new("ams"), pods, objects, metrics: metrics(bed, requests), witness }
+}
+
+/// The time of the last report of a warning of the scene, which a count starts at.
+fn reported(event: &Event) -> SystemTime {
+    last_seen(event).map(SystemTime::from).expect("a time")
 }
 
 fn with<K: Describe>(bed: &TestTasks, objects: Objects, items: &[Arc<K>]) -> Objects {
@@ -34,9 +53,14 @@ fn with<K: Describe>(bed: &TestTasks, objects: Objects, items: &[Arc<K>]) -> Obj
 }
 
 fn counted(inputs: &[Input], namespaces: &[&str]) -> Vec<Counted> {
+    counted_since(inputs, namespaces, SystemTime::UNIX_EPOCH)
+}
+
+/// The counts with the warnings reported after `since`.
+fn counted_since(inputs: &[Input], namespaces: &[&str], since: SystemTime) -> Vec<Counted> {
     let namespaces = namespaces.iter().map(|name| Arc::from(*name)).collect();
     let newest = AtomicU64::new(0);
-    count(inputs, &namespaces, &Cancel::new(&newest, 0)).expect("no newer request")
+    count(inputs, &namespaces, since, &Cancel::new(&newest, 0)).expect("no newer request")
 }
 
 #[test]
@@ -82,27 +106,51 @@ fn the_nodes_give_their_readiness_their_allocatable_sum_and_the_requests_of_the_
     // A node with no allocatable memory: no sum of memory, which would give a false part.
     let bare = changed(&node, |value| value["status"]["allocatable"] = json!({"cpu": "2"}));
     let input = input(&bed, with(&bed, Objects::default(), &[Arc::clone(&node), bare]));
-    let nodes = super::count(&[input], &BTreeSet::new(), &Cancel::new(&AtomicU64::new(0), 0));
+    let nodes = super::count(&[input], &BTreeSet::new(), SystemTime::UNIX_EPOCH, &Cancel::new(&AtomicU64::new(0), 0));
     let allocatable = nodes.and_then(|counted| counted.first()?.nodes).map(|nodes| nodes.allocatable);
     assert!(matches!(allocatable, Some([Some(_), None])), "{allocatable:?}");
 }
 
+/// The user could not tell if a warning of the overview was still a problem: each one has
+/// the state of its object now, and the ongoing ones come first.
 #[test]
-fn the_warnings_count_in_the_filter_and_the_newest_come_first() {
+fn the_warnings_count_in_the_filter_with_their_states_and_the_ongoing_ones_come_first() {
     let bed = TestTasks::new();
     let events = fixture::<Event>();
     let input = input(&bed, with(&bed, Objects::default(), &events));
     let all = counted(std::slice::from_ref(&input), &[]);
     let warnings = all.first().and_then(|ams| ams.warnings.clone()).expect("the warnings");
-    assert_eq!((warnings.count, warnings.newest.len()), (31, NEWEST));
-    let mut expected: Vec<&Arc<Event>> =
-        events.iter().filter(|event| event.type_.as_deref() == Some("Warning")).collect();
-    expected.sort_by_key(|event| std::cmp::Reverse(last_seen(event)));
-    let times = |events: &[&Arc<Event>]| events.iter().map(|event| last_seen(event)).collect::<Vec<_>>();
-    assert_eq!(times(&warnings.newest.iter().collect::<Vec<_>>()), times(&expected[..NEWEST]));
+    assert_eq!((warnings.count, warnings.ongoing, warnings.unknown, warnings.shown.len()), (31, 9, 6, NEWEST));
+    let warning = |event: &Arc<Event>| Some(Warning { now: input.witness.judge(event)?, event: Arc::clone(event) });
+    let mut ongoing: Vec<Warning> = events.iter().filter_map(warning).collect();
+    ongoing.retain(|warning| warning.now.state == ProblemState::Ongoing);
+    ongoing.sort_by_key(|warning| std::cmp::Reverse(last_seen(&warning.event)));
+    let times = |warnings: &[Warning]| warnings.iter().map(|warning| last_seen(&warning.event)).collect::<Vec<_>>();
+    let shown = &warnings.shown;
+    assert_eq!(times(shown), times(&ongoing[..NEWEST]), "the newest ongoing ones, not the newest ones");
+    assert!(shown.iter().all(|warning| warning.now.state == ProblemState::Ongoing));
 
-    let scene = counted(&[input], &["scene", "default"]);
-    assert_eq!(scene.first().and_then(|ams| ams.warnings.as_ref()).map(|warnings| warnings.count), Some(29));
+    let scene = counted(std::slice::from_ref(&input), &["scene", "default"]);
+    let scene = scene.first().and_then(|ams| ams.warnings.as_ref()).expect("the warnings");
+    assert_eq!((scene.count, scene.ongoing), (29, 9), "two warnings of pods of kube-system leave");
+}
+
+/// A warning of the last hour counts. The start of that hour moves in steps, upward.
+#[test]
+fn only_the_warnings_of_the_last_hour_count() {
+    let bed = TestTasks::new();
+    let events = fixture::<Event>();
+    let input = input(&bed, with(&bed, Objects::default(), &events));
+    let crash = events.iter().find(|event| event.metadata.name.as_deref() == Some("crash.18de28919fa8e1d0"));
+    let since = reported(crash.expect("the BackOff of the pod crash"));
+    let later = counted_since(&[input], &[], since);
+    let warnings = later.first().and_then(|ams| ams.warnings.as_ref()).expect("the warnings");
+    let expected = events.iter().filter(|event| event.type_.as_deref() == Some("Warning"));
+    assert_eq!(warnings.count as usize, expected.filter(|event| reported(event) >= since).count());
+    assert!(warnings.count < 31 && warnings.count > 0, "{}", warnings.count);
+
+    let moment = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_003);
+    assert_eq!(hour_start(moment), SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_010 - 3600));
 }
 
 #[test]
@@ -119,9 +167,13 @@ fn the_same_snapshots_need_no_new_count_and_a_newer_request_stops_one() {
     assert!(!input.is_same(&new_deployments), "a new snapshot of a kind");
     let poll = Input { metrics: metrics(&bed, Amount::default()), ..input.clone() };
     assert!(!input.is_same(&poll), "a new poll of the metrics");
+    let node =
+        Input { witness: witness(&bed, &bed.held(snapshot(&fixture_pods(), StoreState::Live))), ..input.clone() };
+    assert!(!input.is_same(&node), "a new snapshot of a store that tells the state of a warning");
 
     let newest = AtomicU64::new(1);
-    assert!(count(&[input], &BTreeSet::new(), &Cancel::new(&newest, 0)).is_none(), "a newer query waits");
+    let request = count(&[input], &BTreeSet::new(), SystemTime::UNIX_EPOCH, &Cancel::new(&newest, 0));
+    assert!(request.is_none(), "a newer query waits");
 }
 
 fn changed(node: &Node, change: impl FnOnce(&mut serde_json::Value)) -> Arc<Node> {

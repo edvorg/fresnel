@@ -5,8 +5,10 @@
 //! - `node`: the addresses, the taints, the system, the capacity and the pods of a Node.
 //! - `namespace`: the state, the quotas, the limit ranges and the count of the objects of
 //!   each kind of a Namespace.
-//! - `event`: an Event with its object as a link.
+//! - `event`: an Event with its object as a link. `problem`: the state now of the problem of
+//!   a warning Event, which the overview, the Events page and each panel show.
 
 pub(crate) mod event;
 pub(crate) mod namespace;
 pub(crate) mod node;
+pub(crate) mod problem;
