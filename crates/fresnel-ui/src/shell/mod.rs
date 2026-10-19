@@ -15,7 +15,7 @@
 //!   the namespace filter of each view. `keys`: the key of each command. `command`: the run
 //!   of a command. `history`: Back and Forward. `focus`: the focus of the keys between the
 //!   areas. `appearance`: the settings that act on the window at once. `quit`: the question
-//!   before a quit.
+//!   before a quit, and the one decision of each quit.
 
 mod appearance;
 mod command;
@@ -45,7 +45,7 @@ use appearance::Appearance;
 pub(crate) use dock::{Tab, Title};
 use focus::Focus;
 use history::History;
-use quit::QuitGuard;
+pub use quit::{Quit, QuitQuestion};
 use sidebar::Page;
 
 use crate::format::Clock;
@@ -89,7 +89,7 @@ pub struct Shell {
     search: QuickSearch,
     new_secret: NewSecretDialog,
     forward: ForwardDialog,
-    quit: QuitGuard,
+    quit: QuitQuestion,
     /// The object whose values the core reads for the key view, as far as the shell knows.
     keys: Option<Target>,
     history: History,
@@ -151,7 +151,7 @@ impl Shell {
             search: QuickSearch::new(tasks, Arc::clone(&wake)),
             new_secret: NewSecretDialog::default(),
             forward: ForwardDialog::default(),
-            quit: QuitGuard::default(),
+            quit: QuitQuestion::default(),
             keys: None,
             history: History::default(),
             colors: ClusterColors::default(),
@@ -165,9 +165,16 @@ impl Shell {
 
     /// The logic of each frame, before [`Shell::show`]: eframe runs it also while the window
     /// is hidden, with no ui pass (`App::logic`). It stops a close of the window that has to
-    /// ask first. `view` gives a copy of the state of the core; only a close calls it.
+    /// ask first and brings the window of a new question back. `view` gives a copy of the
+    /// state of the core; only a close calls it.
     pub fn logic(&mut self, ctx: &egui::Context, view: impl FnOnce() -> CoreView) {
-        self.quit.stop_close(ctx, view);
+        self.quit.logic(ctx, view);
+    }
+
+    /// The question before a quit, for a quit of the app that the system asks for outside a
+    /// frame: the program gives the decision of [`QuitQuestion::decide`] to the system.
+    pub fn quit_question(&self) -> QuitQuestion {
+        self.quit.clone()
     }
 
     /// Draws one frame into the root `Ui` and returns the commands of the user.

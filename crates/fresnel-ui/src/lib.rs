@@ -27,5 +27,5 @@ mod views;
 mod widgets;
 
 pub use format::Clock;
-pub use shell::Shell;
+pub use shell::{Quit, QuitQuestion, Shell};
 pub use widgets::terminal::fonts::{TerminalFonts, add_fonts as add_terminal_fonts};

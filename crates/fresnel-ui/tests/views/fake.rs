@@ -144,6 +144,14 @@ pub(crate) fn logic(window: &mut Window, input: &egui::RawInput) -> Vec<egui::Vi
     output.viewport_commands.get(&egui::ViewportId::ROOT).cloned().unwrap_or_default()
 }
 
+/// A quit of the app outside a frame, as the program gives the shell the quit that the system
+/// asks for: the Quit item and the Dock of macOS. Gives the decision.
+pub(crate) fn quit_app(window: &Window) -> fresnel_ui::Quit {
+    let FakeCore { shell, view, .. } = window.state();
+    let question = shell.as_ref().expect("the shell of the first frame").quit_question();
+    question.decide(&window.ctx, || view.clone())
+}
+
 /// Draws frames until the window meets the condition, as a window does that a worker
 /// thread or the core wakes. The wait ends with the condition, not after a fixed time.
 pub(crate) fn until(window: &mut Window, what: &str, met: impl Fn(&Window) -> bool) {

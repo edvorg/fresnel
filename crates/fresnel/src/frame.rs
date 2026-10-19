@@ -10,8 +10,8 @@ use fresnel_core::app::{Core, CoreView};
 use fresnel_ui::Shell;
 
 /// The logic of one frame, which eframe runs before [`draw`] and alone for a hidden window:
-/// a close of a minimized window stops here when it has to ask first. The shell copies the
-/// state of the core only for a close.
+/// a close of a minimized window stops here when it has to ask first, and the window of a new
+/// question comes back. The shell copies the state of the core only for a close.
 pub fn logic(shell: &mut Shell, core: &Core, ctx: &egui::Context) {
     shell.logic(ctx, || core.view());
 }
