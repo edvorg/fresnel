@@ -100,9 +100,11 @@ fn bytes(value: u64) -> usize {
     size(value.saturating_mul(1024 * 1024))
 }
 
-/// A path of the file, with `~/` as the home folder.
+/// A path of the file, with `~` and a separator of the system at its start as the home
+/// folder: `~/` on each system, and `~\` on Windows too.
 pub(crate) fn expand(path: &str, home: Option<&Path>) -> PathBuf {
-    match (path.strip_prefix("~/"), home) {
+    let rest = path.strip_prefix('~').and_then(|rest| rest.strip_prefix(std::path::is_separator));
+    match (rest, home) {
         (Some(rest), Some(home)) => home.join(rest),
         _ => PathBuf::from(path),
     }
@@ -171,5 +173,17 @@ mod tests {
         assert_eq!((settings.stores.events, settings.stores.max_events), (EventsMode::Warnings, 300));
         assert_eq!((settings.metrics.period, settings.logs.ring.lines), (Duration::from_secs(30), 5000));
         assert_eq!(settings.env.extra_folders, [PathBuf::from("/Users/tester/bin"), PathBuf::from("/opt/bin")]);
+    }
+
+    /// `~/` is the home folder on each system. A backslash is a separator on Windows only, and
+    /// on unix it is a character of a name.
+    #[test]
+    fn a_tilde_and_a_separator_of_the_system_are_the_home_folder() {
+        let home = Some(Path::new("home"));
+        assert_eq!(expand("~/work.yaml", home), Path::new("home").join("work.yaml"));
+        assert_eq!(expand("~/work.yaml", None), PathBuf::from("~/work.yaml"), "no home folder");
+        assert_eq!(expand("~work.yaml", home), PathBuf::from("~work.yaml"));
+        let backslash = if cfg!(windows) { Path::new("home").join("work.yaml") } else { PathBuf::from(r"~\work.yaml") };
+        assert_eq!(expand(r"~\work.yaml", home), backslash);
     }
 }
