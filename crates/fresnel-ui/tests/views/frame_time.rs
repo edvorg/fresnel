@@ -123,7 +123,7 @@ pub(crate) fn first(window: &Window, title: &str) -> Option<String> {
 }
 
 #[test]
-fn a_frame_with_10_000_pods_takes_16_ms_or_less_during_scroll_sort_and_filter() {
+fn a_frame_with_10_000_pods_stays_in_the_frame_limit_during_scroll_sort_and_filter() {
     let all = many_pods(PODS);
     let mut window = window_with_no_gpu(view(vec![live("ams-prod", &all)]), 2.0);
     assert!(shows(&window, "10,000 pods"));
@@ -198,7 +198,7 @@ fn a_frame_with_10_000_pods_takes_16_ms_or_less_during_scroll_sort_and_filter() 
 /// 1 MB took a frame of 63 ms each time its row came into view, and the panel of a pod
 /// with 2,000 annotations two frames of 20 ms. Each view cuts such a text before its layout.
 #[test]
-fn a_frame_with_a_pod_of_extreme_values_takes_16_ms_or_less() {
+fn a_frame_with_a_pod_of_extreme_values_stays_in_the_frame_limit() {
     let extreme = changed(&pod("db-0"), |value| {
         value["metadata"]["name"] = "extreme".into();
         value["metadata"]["uid"] = "the-uid-of-the-extreme-pod".into();

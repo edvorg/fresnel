@@ -35,7 +35,7 @@ fn counted(window: &Window, pods: &str) -> bool {
 }
 
 #[test]
-fn a_frame_of_an_overview_of_four_clusters_with_10_000_pods_each_takes_16_ms_or_less() {
+fn a_frame_of_an_overview_of_four_clusters_with_10_000_pods_each_stays_in_the_frame_limit() {
     let mut all = many_pods(10_000);
     let mut window = window_with_no_gpu(view(clusters(&all)), 2.0);
     let mut first = Step::new("overview, the first counts");

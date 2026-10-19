@@ -51,7 +51,7 @@ fn key(key: Key, modifiers: Modifiers) -> Event {
 }
 
 #[test]
-fn a_frame_with_200_000_lines_takes_16_ms_or_less_during_scroll_search_filter_wrap_and_copy() {
+fn a_frame_with_200_000_lines_stays_in_the_frame_limit_during_scroll_search_filter_wrap_and_copy() {
     let mut window = window_with_no_gpu(view(vec![live("ams-prod", &pods())]), 2.0);
     let request = open_logs(&mut window, WEB);
     let sources = ["web-a", "web-b", "web-c"].map(|pod| source(pod, "web", SourceState::Streaming)).to_vec();

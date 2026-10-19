@@ -65,7 +65,7 @@ fn time_to(window: &mut Window, last: char, shown: impl Fn(&Window) -> bool) -> 
 }
 
 #[test]
-fn the_hits_of_4_clusters_with_60000_objects_show_in_50_ms_or_less() {
+fn the_hits_of_4_clusters_with_60000_objects_show_in_the_search_limit() {
     let mut window = window_with_no_gpu(view(clusters()), 1.0);
     window.key_press_modifiers(Modifiers::COMMAND, Key::K);
     window.run();

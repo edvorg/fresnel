@@ -41,7 +41,7 @@ fn many_deployments() -> Vec<Arc<Deployment>> {
 }
 
 #[test]
-fn a_frame_with_10_000_deployments_takes_16_ms_or_less_during_scroll_sort_and_filter() {
+fn a_frame_with_10_000_deployments_stays_in_the_frame_limit_during_scroll_sort_and_filter() {
     let mut window = window_with_no_gpu(view(vec![live("ams-prod", &many_deployments())]), 2.0);
     open_page(&mut window, "Deployments");
     until(&mut window, "the rows", |window| shows(window, "10,000 Deployments"));
@@ -99,7 +99,7 @@ fn config_map(number: usize) -> Arc<ConfigMap> {
 /// Extreme sizes: the Keys column of a ConfigMap lists each key, and the panel of an object
 /// reads its conditions from its JSON. The arrow keys open a new panel in each frame.
 #[test]
-fn a_frame_with_config_maps_of_70_000_keys_takes_16_ms_or_less_for_the_rows_and_the_arrow_keys() {
+fn a_frame_with_config_maps_of_70_000_keys_stays_in_the_frame_limit_for_the_rows_and_the_arrow_keys() {
     let all: Vec<Arc<ConfigMap>> = (0..8).map(config_map).collect();
     let mut window = window_with_no_gpu(view(vec![live("ams-prod", &all)]), 2.0);
     open_page(&mut window, "ConfigMaps");
@@ -129,7 +129,7 @@ fn a_frame_with_config_maps_of_70_000_keys_takes_16_ms_or_less_for_the_rows_and_
 /// Extreme sizes: the panel of a DaemonSet on 5,000 nodes lists its pods from the owner
 /// index in each frame.
 #[test]
-fn a_frame_with_the_panel_of_a_daemon_set_with_5_000_pods_takes_16_ms_or_less() {
+fn a_frame_with_the_panel_of_a_daemon_set_with_5_000_pods_stays_in_the_frame_limit() {
     let agent = pod("agent-8djvd");
     let pods: Vec<Arc<Pod>> =
         (0..5000).map(|number| renamed(&agent, &format!("agent-{number:04}"), &format!("uid-{number:04}"))).collect();

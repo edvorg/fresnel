@@ -48,7 +48,7 @@ fn full_screen(frame: usize, size: GridSize) -> Vec<u8> {
 }
 
 #[test]
-fn a_frame_of_a_terminal_takes_16_ms_or_less_with_10_mb_of_output_and_with_a_full_redraw() {
+fn a_frame_of_a_terminal_stays_in_the_frame_limit_with_10_mb_of_output_and_with_a_full_redraw() {
     let web = terminal(1, "web-1");
     let view = with_terminals(view(vec![live("ams-prod", &pods())]), std::slice::from_ref(&web));
     let mut window = window_with_no_gpu(view, 2.0);

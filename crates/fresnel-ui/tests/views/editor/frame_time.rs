@@ -35,7 +35,7 @@ fn key(key: Key, modifiers: Modifiers) -> Event {
 }
 
 #[test]
-fn a_frame_of_the_editor_with_8_000_lines_takes_16_ms_or_less_during_typing_scroll_and_search() {
+fn a_frame_of_the_editor_with_8_000_lines_stays_in_the_frame_limit_during_typing_scroll_and_search() {
     let yaml = manifest();
     assert_eq!(yaml.lines().count(), 7_990);
     let mut window = window_with_no_gpu(view(vec![allowed("ams-prod", &scene::<Deployment>())]), 2.0);
