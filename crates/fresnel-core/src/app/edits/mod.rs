@@ -31,6 +31,10 @@ use crate::journal::{Journal, Level};
 use crate::manifest::{self, EditText};
 use crate::ops::Target;
 
+/// The most editors whose texts the core reads: each one holds a text of up to 8 MiB, and a
+/// save up to three. The view opens no more; the core reads only the first ones of a longer list.
+pub const EDITOR_LIMIT: usize = 8;
+
 /// The text that an editor asks for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EditRequest {
@@ -65,8 +69,13 @@ impl Inner {
         if state.phase == Phase::Stopped {
             return;
         }
-        state.edits.get_or_insert_with(|| self.edit_reader(registry)).show(requests);
+        let dropped = state.edits.get_or_insert_with(|| self.edit_reader(registry)).show(requests);
         drop(state);
+        if dropped > 0 {
+            let asked = dropped + EDITOR_LIMIT;
+            let text = format!("a view asked for {asked} editors: the core reads the first {EDITOR_LIMIT}");
+            self.journal.warning(super::APP, text);
+        }
         self.repaint.request();
     }
 
@@ -167,8 +176,11 @@ impl EditReader {
         true
     }
 
-    /// Keeps the read of each of these requests and drops each other one.
-    fn show(&self, requests: Vec<EditRequest>) {
+    /// Keeps the read of each of these requests, to the limit, and drops each other one.
+    /// Gives the count of the requests past the limit.
+    fn show(&self, mut requests: Vec<EditRequest>) -> usize {
+        let dropped = requests.len().saturating_sub(EDITOR_LIMIT);
+        requests.truncate(EDITOR_LIMIT);
         {
             let mut reads = lock(&self.reads);
             let kept: Vec<Arc<EditRead>> = requests
@@ -184,6 +196,7 @@ impl EditReader {
             *reads = kept;
         }
         self.wanted.send_replace(requests);
+        dropped
     }
 
     /// The reads, for the view.

@@ -1976,6 +1976,13 @@ press copies the full text and checks it on the worker. A change that would make
 than 8 MiB does not go in, and a larger text can get smaller. The API server takes a request of
 3 MiB at most, so a larger text has no save.
 
+## The core reads 8 editors at most
+
+Each editor holds a text of up to 8 MiB, and its save view up to three copies. The view opens 8
+editors at most, and the core has the same limit (`EDITOR_LIMIT`, design rule 12): of a longer
+list it reads the first 8, and the journal tells of the others, so no view can make the core
+hold texts without a bound.
+
 ## A save of an editor is a dry run, a diff and a replace with the version of the read
 
 Plan section 12.9 asks for a dry run and a replace. The dry run gives the object as the server

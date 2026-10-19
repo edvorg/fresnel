@@ -61,7 +61,7 @@ pub use access::{AccessView, CheckState, RulesState};
 pub use command::Command;
 pub use create::CreateJob;
 pub use data::ClusterData;
-pub use edits::{EditRead, EditRequest, EditSave, EditState, Remote, SaveState, SaveView, Stage};
+pub use edits::{EDITOR_LIMIT, EditRead, EditRequest, EditSave, EditState, Remote, SaveState, SaveView, Stage};
 pub use forwards::ForwardRow;
 pub use health::Health;
 pub(crate) use health::reason as link_reason;

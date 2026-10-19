@@ -30,7 +30,7 @@ mod tab;
 mod text;
 
 use egui::{Id, Modal, RichText, Ui};
-use fresnel_core::app::{Command, CoreView, EditRequest, EditState};
+use fresnel_core::app::{Command, CoreView, EDITOR_LIMIT, EditRequest, EditState};
 use fresnel_core::cluster::ClusterId;
 use fresnel_core::net::task::Tasks;
 use fresnel_core::ops::Target;
@@ -43,8 +43,8 @@ use create::CreateTab;
 use differ::Differ;
 use tab::{EditorTab, TabAsk};
 
-/// The most editors. Each one holds its text, its history and its search.
-const MOST: usize = 8;
+/// The most editors: the limit of the core. Each one holds its text, its history and its search.
+const MOST: usize = EDITOR_LIMIT;
 /// The most tabs of a create.
 const MOST_CREATES: usize = 4;
 
