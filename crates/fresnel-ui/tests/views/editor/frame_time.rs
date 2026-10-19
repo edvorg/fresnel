@@ -1,6 +1,7 @@
 //! The time of a frame of the editor with 8,000 lines (plan section 17, risk 5): a frame
 //! takes 16 ms or less while the user types, deletes, undoes, scrolls and finds, and while
-//! the worker thread checks the text of each key press.
+//! the worker thread checks the text of each key press. The save dialog of such a text opens
+//! with no long frame: a worker computes its diff.
 //!
 //! The text widget of egui took 8 to 11 ms for a frame with no input and up to 47 ms after
 //! a key press with this text. The limit holds in a release build: `cargo test --release
@@ -9,8 +10,10 @@
 
 use egui::{Event, Key, Modifiers};
 use egui_kittest::kittest::Queryable as _;
+use fresnel_core::app::SaveState;
 use k8s_openapi::api::apps::v1::Deployment;
 
+use super::save::{put, saves};
 use super::{checked, click_row, edit, rows, text};
 use crate::data::scene;
 use crate::fake::{shows, view, window_with_no_gpu};
@@ -71,4 +74,41 @@ fn a_frame_of_the_editor_with_8_000_lines_stays_in_the_frame_limit_during_typing
     search.events(&mut window, (0..20).map(|_| key(Key::G, Modifiers::COMMAND)));
     search.until(&mut window, "the count of the hits", |window| shows(window, "20 of 3,989"));
     search.check();
+}
+
+/// A Deployment with a note of `lines` equal lines of 400 characters between a first and a
+/// last line.
+fn notes(lines: usize, (first, last): (&str, &str)) -> String {
+    let line = format!("      {}\n", "a line of the notes, the same in each line; ".repeat(9));
+    let notes = format!("      {first}\n{}      {last}\n", line.repeat(lines));
+    format!(
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  annotations:\n    notes: |\n{notes}  name: web\n  \
+         namespace: scene\nspec:\n  replicas: 2\n"
+    )
+}
+
+/// The longest diff of 8,000 lines: a save that removes 1,000 of 7,000 equal lines and changes
+/// the lines around them. Each of the 1,000 steps of Myers' diff follows the equal lines on
+/// each of its diagonals, and the diff then shows a new text. In the frame, it took 38 ms.
+#[test]
+fn the_save_dialog_of_a_diff_of_8_000_lines_stays_in_the_frame_limit() {
+    let yaml = notes(7_000, ("first", "last"));
+    let mut window = window_with_no_gpu(view(vec![allowed("ams-prod", &scene::<Deployment>())]), 2.0);
+    open(&mut window, "Deployments", "web");
+    edit(&mut window, text(&yaml, None));
+    checked(&mut window, "No error");
+    click_row(&mut window, "kind: Deployment");
+    window.event(key(Key::Enter, Modifiers::NONE));
+    window.event(Event::Text("# saved".to_owned()));
+    window.run();
+    window.get_by_label("Save the text").click();
+    window.run();
+    let check = saves(&window).pop().expect("the dry run");
+    put(&mut window, &check, SaveState::Checked(text(&notes(6_000, ("start", "end")), None)));
+
+    let mut dialog = Step::new("editor, the save dialog");
+    dialog.until(&mut window, "the rows of the diff", |window| {
+        shows(window, "Save this Deployment?") && window.query_by_label_contains("-       first").is_some()
+    });
+    dialog.check();
 }

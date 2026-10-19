@@ -8,8 +8,10 @@
 //!
 //! - `tab`: one editor. `bar`: its bar and the bar of its search. `find`: the search.
 //! - `check`: the check of the text on a worker thread. `marks`: the list of its marks.
-//! - `saving`: the saves of a tab. `dialog`: the diff before a save, `diff` its rows.
-//!   `conflict`: the three versions of the lines that the server and the user changed.
+//! - `saving`: the saves of a tab. `dialog`: the diff before a save, `diff` its rows, which
+//!   `differ` computes on a worker thread for large texts, and `hidden` the values of a
+//!   Secret in them. `conflict`: the three versions of the lines that the server and the
+//!   user changed.
 //! - `create`: a tab that creates or applies a text of documents.
 //! - `text`: the text widget with its own virtual rows.
 
@@ -19,7 +21,9 @@ mod conflict;
 mod create;
 mod dialog;
 mod diff;
+mod differ;
 mod find;
+mod hidden;
 mod marks;
 mod saving;
 mod tab;
@@ -36,6 +40,7 @@ use crate::widgets::tone::Tone;
 use crate::widgets::worker::Wake;
 use check::Checker;
 use create::CreateTab;
+use differ::Differ;
 use tab::{EditorTab, TabAsk};
 
 /// The most editors. Each one holds its text, its history and its search.
@@ -52,6 +57,7 @@ pub(crate) struct EditorTabs {
     /// The requests that the core got last.
     sent: Vec<EditRequest>,
     checker: Checker,
+    differ: Differ,
     /// Why the last editor did not open.
     note: Option<String>,
     /// The tab whose close asks first: its text has changes.
@@ -60,8 +66,9 @@ pub(crate) struct EditorTabs {
 
 impl EditorTabs {
     pub(crate) fn new(tasks: &Tasks, wake: Wake) -> Self {
-        let checker = Checker::new(tasks, wake);
-        Self { tabs: Vec::new(), creates: Vec::new(), last: 0, sent: Vec::new(), checker, note: None, closing: None }
+        let (checker, differ) = (Checker::new(tasks, wake.clone()), Differ::new(tasks, wake));
+        let (tabs, creates, sent) = (Vec::new(), Vec::new(), Vec::new());
+        Self { tabs, creates, last: 0, sent, checker, differ, note: None, closing: None }
     }
 
     /// Opens a tab of a create. With the most such tabs, the first one shows. Gives the
@@ -163,7 +170,7 @@ impl EditorTabs {
         if let Some(tab) = self.creates.iter_mut().find(|tab| tab.id == id) {
             tab.show(ui, scene, &mut self.checker);
         } else if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == id)
-            && tab.show(ui, scene, &mut self.checker, note) == TabAsk::ReadAgain
+            && tab.show(ui, scene, (&mut self.checker, &mut self.differ), note) == TabAsk::ReadAgain
         {
             self.last += 1;
             tab.request.number = self.last;

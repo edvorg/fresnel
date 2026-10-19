@@ -1,12 +1,14 @@
 //! The diff of two texts of an editor (plan section 12.9): the lines that a save changes,
 //! with their numbers and three lines of context, and a count of the lines between.
 //!
-//! The rows are computed one time, when a dialog opens, and the list has virtual rows: the
-//! diff of a new text of 8,000 lines lays out the rows on the screen only.
+//! The rows are computed one time, for the dialog (`differ`), and the list has virtual rows:
+//! the diff of a new text of 8,000 lines lays out the rows on the screen only. A row of a
+//! value of a Secret has its text with the value hidden too (`hidden`).
 
 use egui::{RichText, ScrollArea, Ui};
 use fresnel_core::manifest::diff;
 
+use super::hidden::hidden;
 use crate::format::{count, short};
 use crate::theme::{self, Palette};
 
@@ -35,12 +37,29 @@ pub(super) struct Row {
     pub(super) old: Option<usize>,
     pub(super) new: Option<usize>,
     pub(super) text: String,
+    /// The text with its value hidden, for a row of a value of a Secret.
+    pub(super) hidden: Option<String>,
 }
 
-/// The rows of the diff of two texts. Equal texts give none.
-pub(super) fn rows(old: &str, new: &str) -> Vec<Row> {
-    let (old, new) = (diff::lines(old), diff::lines(new));
-    let hunks = diff::hunks(&old, &new);
+/// The lines of one text, with the hidden text of each line of a value of a Secret.
+struct Side<'a> {
+    lines: Vec<&'a str>,
+    hidden: Vec<Option<String>>,
+}
+
+impl<'a> Side<'a> {
+    fn new(text: &'a str, secret: bool) -> Self {
+        let lines = diff::lines(text);
+        let bodies: Vec<&str> = lines.iter().map(|line| line.strip_suffix('\n').unwrap_or(line)).collect();
+        let hidden = if secret { hidden(&bodies) } else { Vec::new() };
+        Self { lines, hidden }
+    }
+}
+
+/// The rows of the diff of two texts, of a Secret when `secret` is true. Equal texts give none.
+pub(super) fn rows(old: &str, new: &str, secret: bool) -> Vec<Row> {
+    let (old, new) = (Side::new(old, secret), Side::new(new, secret));
+    let hunks = diff::hunks(&old.lines, &new.lines);
     let mut rows = Vec::new();
     // The next line of the old text that no row shows yet.
     let mut at_old = 0;
@@ -53,8 +72,8 @@ pub(super) fn rows(old: &str, new: &str) -> Vec<Row> {
         }
         rows.extend(hunk.old.clone().map(|line| row(Mark::Removed, (Some(line), None), &old, line)));
         rows.extend(hunk.new.clone().map(|line| row(Mark::Added, (None, Some(line)), &new, line)));
-        let next = hunks.get(index + 1).map_or(old.len(), |next| next.old.start.saturating_sub(CONTEXT));
-        let end = (hunk.old.end + CONTEXT).min(next.max(hunk.old.end)).min(old.len());
+        let next = hunks.get(index + 1).map_or(old.lines.len(), |next| next.old.start.saturating_sub(CONTEXT));
+        let end = (hunk.old.end + CONTEXT).min(next.max(hunk.old.end)).min(old.lines.len());
         let after = |line: usize| line + hunk.new.end - hunk.old.end;
         for line in hunk.old.end..end {
             rows.push(row(Mark::Same, (Some(line), Some(after(line))), &old, line));
@@ -62,41 +81,43 @@ pub(super) fn rows(old: &str, new: &str) -> Vec<Row> {
         at_old = end;
     }
     if !hunks.is_empty() {
-        skipped(&mut rows, old.len() - at_old);
+        skipped(&mut rows, old.lines.len() - at_old);
     }
     rows
 }
 
 /// A row of a line. A last line with no line feed says so: the save sends that change too.
-fn row(mark: Mark, (old, new): (Option<usize>, Option<usize>), lines: &[&str], line: usize) -> Row {
-    let text = lines.get(line).copied().unwrap_or_default();
-    let text = match text.strip_suffix('\n') {
-        Some(body) => body.to_owned(),
-        None => format!("{text}  (no line feed at the end)"),
+fn row(mark: Mark, (old, new): (Option<usize>, Option<usize>), side: &Side<'_>, line: usize) -> Row {
+    let text = side.lines.get(line).copied().unwrap_or_default();
+    let end = |body: &str| {
+        if text.ends_with('\n') { body.to_owned() } else { format!("{body}  (no line feed at the end)") }
     };
-    Row { mark, old: old.map(|line| line + 1), new: new.map(|line| line + 1), text }
+    let hidden = side.hidden.get(line).and_then(Option::as_deref).map(end);
+    let text = end(text.strip_suffix('\n').unwrap_or(text));
+    Row { mark, old: old.map(|line| line + 1), new: new.map(|line| line + 1), text, hidden }
 }
 
 fn skipped(rows: &mut Vec<Row>, lines: usize) {
     if lines > 0 {
         let text = format!("{} with no change", count(lines as u64, "line"));
-        rows.push(Row { mark: Mark::Skipped, old: None, new: None, text });
+        rows.push(Row { mark: Mark::Skipped, old: None, new: None, text, hidden: None });
     }
 }
 
-/// Draws the rows in a list of at most `height`, with the numbers of each line.
-pub(super) fn show(ui: &mut Ui, rows: &[Row], height: f32) {
+/// Draws the rows in a list of at most `height`, with the numbers of each line. With `hide`,
+/// a row of a value of a Secret shows its hidden text.
+pub(super) fn show(ui: &mut Ui, rows: &[Row], height: f32, hide: bool) {
     let palette = theme::palette(ui);
     let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 2.0;
     let area = ScrollArea::both().max_height(height).auto_shrink([false, true]).id_salt("diff rows");
     area.show_rows(ui, row_height, rows.len(), |ui, range| {
         for row in rows.get(range).unwrap_or_default() {
-            show_row(ui, palette, row);
+            show_row(ui, palette, row, hide);
         }
     });
 }
 
-fn show_row(ui: &mut Ui, palette: &Palette, row: &Row) {
+fn show_row(ui: &mut Ui, palette: &Palette, row: &Row, hide: bool) {
     let (sign, color) = match row.mark {
         Mark::Same => (" ", palette.text_muted),
         Mark::Removed => ("-", palette.error),
@@ -104,7 +125,8 @@ fn show_row(ui: &mut Ui, palette: &Palette, row: &Row) {
         Mark::Skipped => ("…", palette.text_faint),
     };
     let number = |line: Option<usize>| line.map_or_else(|| " ".repeat(5), |line| format!("{line:>5}"));
-    let text = format!("{} {} {sign} {}", number(row.old), number(row.new), short(&row.text, ROW_LIMIT));
+    let shown = row.hidden.as_deref().filter(|_| hide).unwrap_or(&row.text);
+    let text = format!("{} {} {sign} {}", number(row.old), number(row.new), short(shown, ROW_LIMIT));
     ui.label(RichText::new(text).monospace().color(color));
 }
 
@@ -121,7 +143,7 @@ mod tests {
             Mark::Skipped => "~",
         };
         let number = |line: Option<usize>| line.map_or("_".to_owned(), |line| line.to_string());
-        rows(old, new)
+        rows(old, new, false)
             .into_iter()
             .map(|row| format!("{}{} {} {}", sign(row.mark), number(row.old), number(row.new), row.text))
             .collect()

@@ -172,8 +172,8 @@ dock (Operations, Forwards, Journal, Connections, a tab of each log, editor, ter
 - **Metrics** (`views/metrics`): CPU and Memory columns with bars, a tab with `egui_plot` charts.
   **Overviews** (`views/overview`): a worker counts; `cluster/version.rs` reads each server version.
 - **Logs**, **Editor** (`views/logs`, `views/editor`): a tab for each view with a search and its own
-  rows (`pane`, `text`); a worker filters a log (`ShowLogs`) and checks a text (`ShowEditors`). A
-  save shows the diff of its dry run (`SaveEditor`); a YAML tab sends documents (`RunInTurn`).
+  rows (`pane`, `text`); a worker filters a log (`ShowLogs`), checks a text (`ShowEditors`), diffs a
+  dry run (`SaveEditor`), the values of a Secret hidden; a YAML tab sends documents (`RunInTurn`).
 - **Terminal** (`widgets/terminal`): copies the rows of a `Terminal` under its lock and paints the
   copy: style runs, box characters as shapes, the cursor, the flash of a bell; keys, paste, pointer
   and size go to it. `views/terminal`: a tab for each one, opened by Shell, Attach, Debug, Node shell.

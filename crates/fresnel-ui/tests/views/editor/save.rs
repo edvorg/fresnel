@@ -27,11 +27,16 @@ pub(crate) fn saves(window: &Window) -> Vec<EditSave> {
 
 /// Gives the fake core the state of a save of the editor.
 pub(crate) fn answer(window: &mut Window, save: &EditSave, state: SaveState) {
+    put(window, save, state);
+    window.run();
+}
+
+/// Puts the state of a save of the editor into the fake core, with no frame.
+pub(crate) fn put(window: &mut Window, save: &EditSave, state: SaveState) {
     let read = window.state_mut().view.edits.first_mut().expect("the read of the editor");
     let mut changed = (**read).clone();
     changed.save = Some(SaveView { save: save.clone(), state });
     *read = Arc::new(changed);
-    window.run();
 }
 
 /// A text of the editor with this version.

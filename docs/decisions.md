@@ -2006,6 +2006,20 @@ that the texts share at the start and at the end. Its time and memory grow with 
 the count of changes, so past 1,000 the lines from the first to the last change are one change:
 the diff then shows a new text, and a merge with such a text is a conflict.
 
+## The diff of a large save dialog runs on a worker
+
+Within its limit of 1,000 changes, Myers' diff of 7,000 equal lines of 400 characters took 38
+ms in a frame of a release build: each step follows the equal lines on each diagonal. The diff
+of texts of more than 1,000 lines in all runs on a worker thread, and the dialog keeps its Save
+button off until the rows come. A smaller diff, as of a usual manifest, comes in the frame.
+
+## The save dialog of a Secret hides its values until the user shows them
+
+The editor of a Secret shows its values decoded, and a dialog is often seen by others. As in the
+save dialog of the keys, each value in the diff shows as dots, with its key, until a click on
+"Show the values". The two texts come from the YAML writer, so a value is each indented line
+after `data:` or `stringData:`.
+
 ## The text of an editor waits for the answer of its save
 
 The answer of a save is the new read and the new text, with the version of the server. An

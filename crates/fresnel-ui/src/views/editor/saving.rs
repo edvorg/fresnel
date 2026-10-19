@@ -12,6 +12,7 @@ use fresnel_core::manifest::EditText;
 
 use super::conflict::{self, ConflictDialog};
 use super::dialog::{self, SaveDialog};
+use super::differ::Differ;
 use crate::widgets::tone::Tone;
 
 /// What the tab takes from the end of a save.
@@ -65,23 +66,24 @@ impl Saving {
     }
 
     /// Takes the end of the last save, one time, and draws the dialogs. Gives the commands
-    /// of the user and what the tab takes into its text.
+    /// of the user and what the tab takes into its text. `differ` computes the rows of a diff.
     pub(super) fn follow(
         &mut self,
         ctx: &Context,
         (view, saved): (&CoreView, Option<&SaveView>),
         color: egui::Color32,
+        differ: &mut Differ,
     ) -> (Option<Command>, Option<Taken>) {
         let mut taken = None;
         if let Some(saved) = saved.filter(|saved| saved.save.number == self.number && self.number > self.taken)
             && saved.state != SaveState::Pending
         {
             self.taken = self.number;
-            taken = self.end(&saved.save, &saved.state);
+            taken = self.end(&saved.save, &saved.state, differ);
         }
         let mut command = None;
         if let Some(dialog) = &mut self.dialog {
-            match dialog.show(ctx, color, view) {
+            match dialog.show(ctx, color, view, differ) {
                 Some(dialog::Answer::Save) => {
                     let mut save = dialog.save().clone();
                     self.number += 1;
@@ -110,12 +112,12 @@ impl Saving {
     }
 
     /// The end of a save: a note, a dialog, or what the text takes.
-    fn end(&mut self, save: &EditSave, state: &SaveState) -> Option<Taken> {
+    fn end(&mut self, save: &EditSave, state: &SaveState, differ: &mut Differ) -> Option<Taken> {
         let version = |text: &EditText| text.version.clone().unwrap_or_else(|| "none".to_owned());
         match state {
             SaveState::Pending => None,
             SaveState::Checked(after) => {
-                self.dialog = Some(SaveDialog::new(save.clone(), after));
+                self.dialog = Some(SaveDialog::new(save.clone(), after, differ));
                 None
             }
             SaveState::Saved(answer) => {

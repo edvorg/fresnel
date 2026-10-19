@@ -16,6 +16,7 @@ use fresnel_core::ops::Target;
 
 use super::bar::{self, Asked};
 use super::check::{Checker, TabCheck};
+use super::differ::Differ;
 use super::find::Find;
 use super::marks;
 use super::saving::{Saving, Taken};
@@ -83,7 +84,7 @@ impl EditorTab {
         &mut self,
         ui: &mut Ui,
         scene: &mut Scene<'_>,
-        checker: &mut Checker,
+        (checker, differ): (&mut Checker, &mut Differ),
         note: Option<&str>,
     ) -> TabAsk {
         let read = scene.view.edits.iter().find(|read| read.request == self.request);
@@ -102,7 +103,7 @@ impl EditorTab {
         let now = ui.input(|input| input.time);
         let saved = read.and_then(|read| read.save.as_ref());
         let color = scene.colors.color(&self.request.target.cluster, theme::palette(ui));
-        let (command, taken) = self.saving.follow(ui.ctx(), (scene.view, saved), color);
+        let (command, taken) = self.saving.follow(ui.ctx(), (scene.view, saved), color, differ);
         scene.commands.extend(command);
         let pending = self.saving.pending();
         // The answer of a save becomes the text, so the text waits for it: an edit in the
