@@ -15,8 +15,8 @@ use fresnel_core::net::task::{TaskName, Tasks};
 use super::diff::{self, Row};
 use crate::widgets::worker::{Cancel, RequestId, Wake, Worker};
 
-/// The most lines of the two texts whose diff the frame computes. Myers' diff of 1,000 lines
-/// with each line changed takes about a millisecond in a release build.
+/// The most lines of the two texts whose diff the frame computes: the work of Myers' diff
+/// grows with the lines, and a usual manifest has some hundred lines.
 const IN_FRAME: usize = 1_000;
 
 /// The two texts of a diff, and true for a Secret.
