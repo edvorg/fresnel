@@ -67,6 +67,8 @@ impl QuitQuestion {
         }
         self.0.asking.store(true, Ordering::Relaxed);
         self.0.back.store(true, Ordering::Relaxed);
+        // A quit of the app comes between two frames, and eframe runs the logic of a
+        // minimized window only after a request.
         ctx.request_repaint();
         Quit::Ask
     }

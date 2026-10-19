@@ -164,6 +164,30 @@ fn a_quit_of_the_app_while_a_forward_runs_asks_again_after_minimize_and_cancel()
     assert_eq!(quit_app(&window), Quit::Now, "the user chose to quit");
 }
 
+/// A quit of the app comes from the system between two frames, and eframe runs the logic of a
+/// minimized window only after a request for a frame: with no request, the window stays in the
+/// Dock and its question shows nowhere. Each quit that asks requests one, also a second quit
+/// while the question shows behind an other app.
+#[test]
+fn each_quit_of_the_app_that_asks_requests_the_frame_that_brings_the_window_back() {
+    let mut window = tab_window(forwards());
+    let requested = |window: &Window| window.ctx.requested_repaint_last_pass_for(&ViewportId::ROOT);
+    for quit in ["a quit", "a second quit while the question shows"] {
+        window.run();
+        window.step();
+        assert!(!requested(&window), "{quit}: before it, the window asks for no frame");
+        assert_eq!(quit_app(&window), Quit::Ask, "{quit}");
+        window.step();
+        assert!(requested(&window), "{quit} requests a frame");
+        assert!(commands(&window).contains(&ViewportCommand::Focus), "{quit}: the window takes the focus");
+    }
+    window.run();
+    assert!(shows(&window, "Quit Fresnel?"));
+    window.get_by_label("Cancel").click();
+    window.run();
+    assert!(!shows(&window, "Quit Fresnel?"), "one cancel answers both quits");
+}
+
 /// eframe runs no frame for a minimized window, only the logic of the app: a close of it, as
 /// from the taskbar of Windows, stops there, and the window comes back to show its question.
 #[test]
