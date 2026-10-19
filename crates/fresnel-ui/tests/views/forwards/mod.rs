@@ -74,7 +74,10 @@ fn forwards() -> Vec<ForwardRow> {
         ForwardState::Failed(in_use),
         now(),
     );
-    let no_pod = ForwardState::Degraded("the StatefulSet shop/cache has no pod that runs".to_owned());
+    let no_pod = ForwardState::Degraded {
+        reason: "the StatefulSet shop/cache has no pod that runs".to_owned(),
+        last_failure: None,
+    };
     let cache = ForwardView {
         addresses: addresses(&["127.0.0.1:6379", "[::1]:6379"]),
         data: TargetData::Current,

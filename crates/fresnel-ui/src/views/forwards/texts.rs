@@ -20,12 +20,17 @@ pub(super) fn short_state(view: &ForwardView, clock: &Clock) -> (String, Tone) {
     (text, tone(&view.state))
 }
 
-/// The state in words, with the attempt, the time to the next one and the reason.
+/// The state in words, with the attempt, the time to the next one and the reason. A state
+/// that the last connections decide gives the age of the last failure: it holds until the
+/// next connection, so an idle forward does not look like a fresh fault.
 pub(super) fn state(view: &ForwardView, clock: &Clock) -> (String, Tone) {
     let text = match &view.state {
         ForwardState::Reconnecting { attempt, next_retry, reason } => {
             let attempt = attempt.map(|attempt| format!(", attempt {attempt}")).unwrap_or_default();
             format!("reconnecting{attempt}{}: {reason}", next(*next_retry, clock))
+        }
+        ForwardState::Degraded { reason, last_failure: Some(at) } => {
+            format!("degraded, the last failure {} ago: {reason}", format::span(clock.since(*at)))
         }
         other => other.to_string(),
     };
@@ -36,7 +41,7 @@ fn tone(state: &ForwardState) -> Tone {
     match state {
         ForwardState::Active => Tone::Ok,
         ForwardState::Starting(_) => Tone::Info,
-        ForwardState::Degraded(_) | ForwardState::Reconnecting { .. } => Tone::Warn,
+        ForwardState::Degraded { .. } | ForwardState::Reconnecting { .. } => Tone::Warn,
         ForwardState::Failed(_) => Tone::Error,
         ForwardState::Stopped => Tone::Faint,
     }

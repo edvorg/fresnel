@@ -5,6 +5,7 @@
 
 use std::time::SystemTime;
 
+use fresnel_core::forward::ForwardState;
 use fresnel_testkit::{Fault, ProxyMode};
 use tokio::time::{Instant, sleep};
 
@@ -60,9 +61,11 @@ async fn tunnels_with_no_answer_degrade_the_forward_in_its_wait_and_a_good_tunne
 
 /// Plan section 12.3: "degraded" when each of the last connections failed. The node starts
 /// the data channel of a tunnel before it dials the port in the pod, so each tunnel to a port
-/// that refuses connections opens and then fails: an open alone ends no run of failures.
+/// that refuses connections opens and then fails: an open alone ends no run of failures. The
+/// state follows the last connections, not a clock, and a new target pod ends it: a pod of
+/// the same name with a new UID, as a StatefulSet makes.
 #[tokio::test(flavor = "multi_thread")]
-async fn tunnels_that_open_and_then_fail_degrade_the_forward() {
+async fn tunnels_that_open_and_then_fail_degrade_the_forward_until_a_new_target_pod() {
     let bed = Bed::start("forward-closed-port").await;
     // The fake pod refuses each connection to its port 1, as a node does.
     let closed = rule(Kind::Pod, "web-1", 1);
@@ -75,6 +78,15 @@ async fn tunnels_that_open_and_then_fail_degrade_the_forward() {
     let text = "degraded: each of the last 3 tunnels failed: the node refused a tunnel: error forwarding port 1 to \
                 pod web: dial tcp4 127.0.0.1:1: connection refused";
     assert_eq!(row.view.state.to_string(), text);
+    let ForwardState::Degraded { last_failure: Some(last), .. } = row.view.state else { panic!("a failure time") };
+    assert!(last <= SystemTime::now(), "the time of the last failure");
+
+    let event =
+        |kind: &str, uid: &str| format!(r#"{{"type":"{kind}","object":{}}}"#, pod("web-1", uid).replace('\n', ""));
+    assert!(bed.server.send_event(PODS, &event("DELETED", "u1")) > 0, "the watch of the pods");
+    bed.server.send_event(PODS, &event("ADDED", "u2"));
+    let row = bed.until(&closed, "the new pod", |view| view.target.as_ref().is_some_and(|pod| &*pod.uid == "u2")).await;
+    assert_eq!(row.view.state, ForwardState::Active, "a new target pod ends the failures");
 }
 
 /// The faults of the fast soaks, while a client asks a page each second as the soak does: a

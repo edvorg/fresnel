@@ -6,13 +6,23 @@ use tokio::time::advance;
 use super::*;
 use crate::store::ObjectKey;
 
+/// A wall clock that paused time moves.
+fn clock() -> WallClock {
+    let start = Instant::now();
+    WallClock::new(move || SystemTime::UNIX_EPOCH + start.elapsed())
+}
+
 fn shared() -> Shared {
     let times = [Duration::from_secs(5), Duration::from_secs(1), Duration::from_millis(500)];
-    Shared::new(Journal::new(100, WallClock::system()), times, WallClock::system())
+    Shared::new(Journal::new(100, WallClock::system()), times, clock())
 }
 
 fn target() -> TargetPod {
     TargetPod { pod: ObjectKey::new("shop", "web-1"), uid: Arc::from("u1"), port: 8080, ready: true }
+}
+
+fn broke(pod: &str) -> Outcome {
+    Outcome::Broke { text: format!("a tunnel to {pod} broke: reset"), path: true, pod: Arc::from(pod) }
 }
 
 /// The facts that the task reads: the failures in a row, and the reason of the last
@@ -42,7 +52,8 @@ async fn a_stalled_open_and_a_connection_with_no_tunnel_count_until_the_first_by
 
     shared.report(Outcome::Opened);
     assert_eq!(read(&shared), (2, None), "a tunnel opened");
-    shared.report(Outcome::Broke { text: "the node refused a tunnel: connection refused".to_owned(), path: false });
+    let refused = "the node refused a tunnel: connection refused".to_owned();
+    shared.report(Outcome::Broke { text: refused, path: false, pod: Arc::from("u1") });
     shared.report(Outcome::Opened);
     assert_eq!(read(&shared).0, 3, "an open after a refusal");
     shared.report(Outcome::Carried);
@@ -52,21 +63,43 @@ async fn a_stalled_open_and_a_connection_with_no_tunnel_count_until_the_first_by
     assert_eq!(text.as_deref(), Some("the open of a tunnel to pod web-1 had no answer in 5.0 s"));
 }
 
-/// A failure counts for the window after it: an idle forward shows no fault of long ago.
-/// Each new failure moves the end of the run.
+/// The failures follow the last connections, not a clock: a forward to a port that refuses
+/// each connection stays degraded also when its clients come minutes apart, and the last
+/// failure keeps its time for the age that a view shows.
 #[tokio::test(start_paused = true)]
-async fn the_failures_end_a_window_after_the_last_one() {
+async fn the_failures_hold_until_the_next_connection_also_long_after_the_last_one() {
     let shared = shared();
-    let broke = || Outcome::Broke { text: "a tunnel broke: reset".to_owned(), path: true };
-    shared.report(broke());
+    for _ in 0..3 {
+        shared.report(broke("u1"));
+        advance(Duration::from_secs(40)).await;
+    }
     shared.report(Outcome::NoTunnel("no tunnel".to_owned()));
-    advance(WINDOW - Duration::from_secs(1)).await;
-    shared.report(broke());
-    assert_eq!(read(&shared), (2, Some("a tunnel broke: reset".to_owned())));
-    advance(Duration::from_secs(1)).await;
-    assert_eq!(read(&shared), (2, None), "the connection with no tunnel is older than the window");
-    advance(WINDOW - Duration::from_secs(2)).await;
+    advance(Duration::from_secs(600)).await;
+    assert_eq!(read(&shared), (3, Some("a tunnel to u1 broke: reset".to_owned())));
+    let reports = shared.reports();
+    let last = reports.last_failure.as_ref().map(|(at, _)| *at);
+    assert_eq!(last, Some(SystemTime::UNIX_EPOCH + Duration::from_secs(80)), "the time of the last failure");
+    let no_tunnel = reports.no_tunnel.as_ref().map(|(at, _)| *at);
+    assert_eq!(no_tunnel, Some(SystemTime::UNIX_EPOCH + Duration::from_secs(120)));
+}
+
+/// A new target pod ends the failures, and a failure of an other pod, as a tunnel to the old
+/// pod that ends after the change, is no failure of the target.
+#[tokio::test(start_paused = true)]
+async fn a_new_target_pod_ends_the_failures_and_a_failure_of_an_other_pod_does_not_count() {
+    let shared = shared();
+    assert!(!shared.reports().aim(&Arc::from("u1")), "the first target");
+    shared.report(broke("u1"));
+    shared.report(broke("u1"));
+    shared.report(Outcome::NoTunnel("no tunnel".to_owned()));
+    assert!(!shared.reports().aim(&Arc::from("u1")), "the same target");
     assert_eq!(read(&shared).0, 2);
-    advance(Duration::from_secs(1)).await;
+    assert!(shared.reports().aim(&Arc::from("u2")), "a new target");
     assert_eq!(read(&shared), (0, None));
+    shared.report(broke("u1"));
+    let stalled = TargetPod { uid: Arc::from("u1"), ..target() };
+    shared.report(Outcome::Stalled { target: stalled });
+    assert_eq!(read(&shared).0, 0, "failures of the old pod");
+    shared.report(broke("u2"));
+    assert_eq!(read(&shared).0, 1);
 }

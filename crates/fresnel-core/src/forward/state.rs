@@ -16,6 +16,7 @@ use std::time::SystemTime;
 use fresnel_net::{ChannelState, ClusterStatus};
 
 use super::resolve::Resolution;
+use super::shared::Failure;
 use crate::app::Health;
 
 /// The tunnels that fail in a row, with no tunnel between them that carried bytes of the pod,
@@ -35,8 +36,13 @@ pub enum ForwardState {
     Active,
     /// The listener is open, and a local connection gets no tunnel now: no pod can take
     /// one, the last connection that tried got none, or each of the last tunnels failed.
-    /// The text tells why.
-    Degraded(String),
+    Degraded {
+        /// Why.
+        reason: String,
+        /// The wall clock time of the last failure when the last connections decide the state:
+        /// it holds until the next connection, so a view shows the age of the failure.
+        last_failure: Option<SystemTime>,
+    },
     /// The path to the cluster is lost, or its first connect failed: its channels connect
     /// again with no end.
     Reconnecting {
@@ -59,19 +65,25 @@ impl ForwardState {
             Self::Stopped => "stopped",
             Self::Starting(_) => "starting",
             Self::Active => "active",
-            Self::Degraded(_) => "degraded",
+            Self::Degraded { .. } => "degraded",
             Self::Reconnecting { .. } => "reconnecting",
             Self::Failed(_) => "failed",
         }
     }
 
-    /// The same step of the state: a new time of the next attempt is not a new step, so it
-    /// gives no journal entry.
+    /// The same step of the state: a new time of the next attempt or of the last failure is
+    /// not a new step, so it gives no journal entry.
     pub(super) fn same_step(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Reconnecting { reason: one, .. }, Self::Reconnecting { reason: two, .. }) => one == two,
+            (Self::Reconnecting { reason: one, .. }, Self::Reconnecting { reason: two, .. })
+            | (Self::Degraded { reason: one, .. }, Self::Degraded { reason: two, .. }) => one == two,
             _ => self == other,
         }
+    }
+
+    /// A degraded state for a reason that no failure gives.
+    pub(super) fn degraded(reason: &str) -> Self {
+        Self::Degraded { reason: reason.to_owned(), last_failure: None }
     }
 }
 
@@ -79,7 +91,7 @@ impl Display for ForwardState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Stopped | Self::Active => f.write_str(self.name()),
-            Self::Starting(reason) | Self::Degraded(reason) | Self::Failed(reason) => {
+            Self::Starting(reason) | Self::Degraded { reason, .. } | Self::Failed(reason) => {
                 write!(f, "{}: {reason}", self.name())
             }
             Self::Reconnecting { attempt: Some(attempt), reason, .. } => {
@@ -143,10 +155,10 @@ pub(super) struct Facts {
     pub(super) was_up: bool,
     /// What the stores give. `None` before the first read.
     pub(super) resolution: Option<Resolution>,
-    /// The tunnels that failed in a row, and the text of the last failure.
-    pub(super) failures: (u32, Option<String>),
-    /// The last connection that tried got no tunnel in its wait, for this reason.
-    pub(super) no_tunnel: Option<String>,
+    /// The tunnels that failed in a row, and the last failure.
+    pub(super) failures: (u32, Option<Failure>),
+    /// The last connection that tried got no tunnel in its wait: its time and the reason.
+    pub(super) no_tunnel: Option<Failure>,
     /// The server refused the forward, for example with HTTP 403.
     pub(super) refused: Option<String>,
 }
@@ -176,7 +188,7 @@ impl Facts {
         }
         let path = match &self.path {
             Ok(path) => path,
-            Err(reason) if self.was_up => return ForwardState::Degraded(reason.clone()),
+            Err(reason) if self.was_up => return ForwardState::degraded(reason),
             Err(reason) => return ForwardState::Starting(reason.clone()),
         };
         match (path, &self.resolution) {
@@ -186,22 +198,21 @@ impl Facts {
             (Path::First, _) => ForwardState::Starting("the cluster connects".to_owned()),
             (Path::Up, None) => ForwardState::Starting("the stores of the cluster load".to_owned()),
             (Path::Up, Some(Resolution::NotKnown(reason))) => ForwardState::Starting(reason.clone()),
-            (Path::Up, Some(Resolution::NoPod(reason))) => ForwardState::Degraded(reason.clone()),
-            (Path::Up, Some(Resolution::Pod(_))) => {
-                self.tunnel_fault().map_or(ForwardState::Active, ForwardState::Degraded)
-            }
+            (Path::Up, Some(Resolution::NoPod(reason))) => ForwardState::degraded(reason),
+            (Path::Up, Some(Resolution::Pod(_))) => self.tunnel_fault().unwrap_or(ForwardState::Active),
         }
     }
 
     /// Why a local connection gets no tunnel to the pod of the stores: the last one that
-    /// tried got none, or each of the last tunnels failed. An open ends the first, and the
-    /// first bytes of a pod end both.
-    fn tunnel_fault(&self) -> Option<String> {
-        if let Some(reason) = &self.no_tunnel {
-            return Some(format!("the last local connection got no tunnel: {reason}"));
+    /// tried got none, or each of the last tunnels failed, with the time of the last failure.
+    /// An open ends the first, and the first bytes of a pod end both.
+    fn tunnel_fault(&self) -> Option<ForwardState> {
+        let degraded = |reason, at| ForwardState::Degraded { reason, last_failure: Some(at) };
+        if let Some((at, reason)) = &self.no_tunnel {
+            return Some(degraded(format!("the last local connection got no tunnel: {reason}"), *at));
         }
-        let (count, last) = (self.failures.0, self.failures.1.as_deref().unwrap_or("no reason"));
-        (count >= FAILURES).then(|| format!("each of the last {count} tunnels failed: {last}"))
+        let (count, last) = (self.failures.0, self.failures.1.as_ref()?);
+        (count >= FAILURES).then(|| degraded(format!("each of the last {count} tunnels failed: {}", last.1), last.0))
     }
 
     /// True when a local connection can open a tunnel now: the path is up and the stores give

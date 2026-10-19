@@ -50,7 +50,7 @@ enum Up {
 pub(super) async fn serve(mut local: LocalStream, shared: Arc<Shared>, mut gate: watch::Receiver<Gate>) {
     let _open = shared.counts.accepted();
     let deadline = Instant::now() + shared.wait;
-    let Some(mut tunnel) = open(&shared, &mut gate, deadline).await else {
+    let Some((mut tunnel, pod)) = open(&shared, &mut gate, deadline).await else {
         shared.counts.reset();
         local.reset().await;
         return;
@@ -62,7 +62,7 @@ pub(super) async fn serve(mut local: LocalStream, shared: Arc<Shared>, mut gate:
             // A ping with no answer or a broken connection: the path can be lost, so the
             // channels of the cluster test theirs now.
             let path = matches!(end, SocketEnd::Failed(SocketFailure::Silent { .. } | SocketFailure::Broken(_)));
-            shared.report(Outcome::Broke { text: format!("a tunnel broke: {end}"), path });
+            shared.report(Outcome::Broke { text: format!("a tunnel broke: {end}"), path, pod });
             shared.counts.reset();
             local.reset().await;
         }
@@ -73,7 +73,7 @@ pub(super) async fn serve(mut local: LocalStream, shared: Arc<Shared>, mut gate:
                 Some(TunnelEnd::Socket(end)) => format!("a tunnel ended: {end}"),
                 None => "a tunnel ended with no end of its socket".to_owned(),
             };
-            shared.report(Outcome::Broke { text, path: false });
+            shared.report(Outcome::Broke { text, path: false, pod });
             shared.counts.reset();
             local.reset().await;
         }
@@ -85,10 +85,10 @@ pub(super) async fn serve(mut local: LocalStream, shared: Arc<Shared>, mut gate:
     }
 }
 
-/// Opens a tunnel to the target of the gate before the deadline. An open that has no
-/// answer in the wait time stops. A failure tries again with the next target, or after a
-/// short pause. `None` at the deadline, after its report.
-async fn open(shared: &Shared, gate: &mut watch::Receiver<Gate>, deadline: Instant) -> Option<Tunnel> {
+/// Opens a tunnel to the target of the gate before the deadline, and gives it with the UID
+/// of its pod. An open that has no answer in the wait time stops. A failure tries again with
+/// the next target, or after a short pause. `None` at the deadline, after its report.
+async fn open(shared: &Shared, gate: &mut watch::Receiver<Gate>, deadline: Instant) -> Option<(Tunnel, Arc<str>)> {
     let (mut waited, mut tried) = (false, false);
     loop {
         if tried && Instant::now() >= deadline {
@@ -112,7 +112,7 @@ async fn open(shared: &Shared, gate: &mut watch::Receiver<Gate>, deadline: Insta
         match timeout(shared.wait, opening).await {
             Ok(Ok(tunnel)) => {
                 shared.report(Outcome::Opened);
-                return Some(tunnel);
+                return Some((tunnel, target.uid));
             }
             Ok(Err(error)) => shared.report(Outcome::OpenFailed { target, error }),
             Err(_) => shared.report(Outcome::Stalled { target }),

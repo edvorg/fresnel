@@ -58,8 +58,11 @@ async fn a_check_fetches_the_page_and_a_closed_port_while_active_fails_with_no_v
 
     // A forward that shows a fault in the check and "active" at its end, as after a restart of
     // the API server, failed with a visible state.
-    let (sender, looks) =
-        watch::channel(look(ForwardState::Degraded("a tunnel failed".to_owned()), address, &disposal));
+    let (sender, looks) = watch::channel(look(
+        ForwardState::Degraded { reason: "a tunnel failed".to_owned(), last_failure: None },
+        address,
+        &disposal,
+    ));
     let back = async {
         sleep(limit / 4).await;
         sender.send_replace(look(ForwardState::Active, address, &disposal));

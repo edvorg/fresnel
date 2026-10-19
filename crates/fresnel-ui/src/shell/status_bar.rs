@@ -89,7 +89,7 @@ fn forward_counts(ui: &mut Ui, palette: &Palette, scene: &Scene<'_>) -> Option<e
     }
     let tone = |state: &ForwardState| match state {
         ForwardState::Failed(_) => Tone::Error,
-        ForwardState::Degraded(_) | ForwardState::Reconnecting { .. } => Tone::Warn,
+        ForwardState::Degraded { .. } | ForwardState::Reconnecting { .. } => Tone::Warn,
         ForwardState::Active | ForwardState::Starting(_) | ForwardState::Stopped => Tone::Muted,
     };
     let worst = rows.iter().map(|row| tone(&row.view.state)).max_by_key(|tone| match tone {

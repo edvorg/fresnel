@@ -175,8 +175,8 @@ impl<'a> Run<'a> {
     fn read_reports(&mut self) -> (Vec<Arc<str>>, bool) {
         let mut reports = self.parts.shared.reports();
         reports.expire(Instant::now());
-        self.facts.failures = (reports.failures, reports.last_error.as_ref().map(|(_, text)| text.clone()));
-        self.facts.no_tunnel = reports.no_tunnel.as_ref().map(|(_, reason)| reason.clone());
+        self.facts.failures = (reports.failures, reports.last_failure.clone());
+        self.facts.no_tunnel.clone_from(&reports.no_tunnel);
         self.facts.refused.clone_from(&reports.refused);
         let suspects = reports.suspects.iter().map(|(uid, _)| Arc::clone(uid)).collect();
         (suspects, std::mem::take(&mut reports.retry))
@@ -213,7 +213,14 @@ impl<'a> Run<'a> {
             _ => None,
         };
         let inputs = Inputs { pods: &pods, services: &services, owners: &owners, owner };
-        self.facts.resolution = Some(resolve(rule, &inputs, keep.as_ref(), suspects));
+        let resolution = resolve(rule, &inputs, keep.as_ref(), suspects);
+        if let Resolution::Pod(pod) = &resolution {
+            let new = self.parts.shared.reports().aim(&pod.uid);
+            if new {
+                (self.facts.failures, self.facts.no_tunnel) = ((0, None), None);
+            }
+        }
+        self.facts.resolution = Some(resolution);
         self.data = data(&stores);
     }
 
@@ -283,7 +290,7 @@ impl<'a> Run<'a> {
         let (journal, rule) = (&self.parts.shared.journal, &self.parts.rule);
         let text = format!("{rule}: {state}");
         match state {
-            ForwardState::Degraded(_) | ForwardState::Reconnecting { .. } | ForwardState::Failed(_) => {
+            ForwardState::Degraded { .. } | ForwardState::Reconnecting { .. } | ForwardState::Failed(_) => {
                 journal.warning(rule.cluster.as_str(), text);
             }
             ForwardState::Stopped | ForwardState::Starting(_) | ForwardState::Active => {

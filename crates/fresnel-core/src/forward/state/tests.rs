@@ -104,23 +104,25 @@ fn each_set_of_facts_gives_its_state() {
 
     let no_cluster = |was_up| Facts { path: Err("ams connects".to_owned()), was_up, ..active() };
     assert_eq!(no_cluster(false).state(), ForwardState::Starting("ams connects".to_owned()));
-    assert_eq!(no_cluster(true).state(), ForwardState::Degraded("ams connects".to_owned()));
+    assert_eq!(no_cluster(true).state(), ForwardState::degraded("ams connects"));
 
     let no_pod = Facts { resolution: Some(Resolution::NoPod("no pod runs".to_owned())), ..active() };
-    assert_eq!((no_pod.state(), no_pod.opens()), (ForwardState::Degraded("no pod runs".to_owned()), false));
+    assert_eq!((no_pod.state(), no_pod.opens()), (ForwardState::degraded("no pod runs"), false));
     let loading = Facts { resolution: Some(Resolution::NotKnown("the pods load".to_owned())), ..active() };
     assert_eq!(loading.state(), ForwardState::Starting("the pods load".to_owned()));
     assert_eq!(Facts { resolution: None, ..active() }.state().name(), "starting");
 }
 
-/// Each of the last tunnels failed: the state tells it, and the gate stays open, so one
-/// good tunnel ends it (port forward prototype, R10).
+/// Each of the last tunnels failed: the state tells it with the time of the last failure,
+/// and the gate stays open, so one good tunnel ends it (port forward prototype, R10).
 #[test]
 fn tunnels_that_fail_in_a_row_degrade_the_state_and_a_refusal_fails_it() {
-    let failing = |count| Facts { failures: (count, Some("connection refused".to_owned())), ..active() };
+    let at = EPOCH + Duration::from_secs(7);
+    let failing = |count| Facts { failures: (count, Some((at, "connection refused".to_owned()))), ..active() };
     assert_eq!(failing(FAILURES - 1).state(), ForwardState::Active);
-    let text = format!("each of the last {FAILURES} tunnels failed: connection refused");
-    assert_eq!((failing(FAILURES).state(), failing(FAILURES).opens()), (ForwardState::Degraded(text), true));
+    let reason = format!("each of the last {FAILURES} tunnels failed: connection refused");
+    let degraded = ForwardState::Degraded { reason, last_failure: Some(at) };
+    assert_eq!((failing(FAILURES).state(), failing(FAILURES).opens()), (degraded, true));
 
     let refused = Facts { refused: Some("the server refuses the port forward: forbidden".to_owned()), ..active() };
     assert_eq!(refused.state().to_string(), "failed: the server refuses the port forward: forbidden");
@@ -132,14 +134,16 @@ fn tunnels_that_fail_in_a_row_degrade_the_state_and_a_refusal_fails_it() {
 /// of an open of 5 s; the gate stays open, so the next good tunnel ends it.
 #[test]
 fn a_connection_that_got_no_tunnel_degrades_the_state_before_a_run_of_failures() {
-    let stalled = "the open of a tunnel to pod web-1 had no answer in 5.0 s";
-    let no_tunnel = Facts { no_tunnel: Some(stalled.to_owned()), failures: (1, Some(stalled.to_owned())), ..active() };
-    let text = format!("the last local connection got no tunnel: {stalled}");
-    assert_eq!((no_tunnel.state(), no_tunnel.opens()), (ForwardState::Degraded(text), true));
+    let stalled =
+        (EPOCH + Duration::from_secs(9), "the open of a tunnel to pod web-1 had no answer in 5.0 s".to_owned());
+    let no_tunnel = Facts { no_tunnel: Some(stalled.clone()), failures: (1, Some(stalled.clone())), ..active() };
+    let reason = format!("the last local connection got no tunnel: {}", stalled.1);
+    let degraded = ForwardState::Degraded { reason, last_failure: Some(stalled.0) };
+    assert_eq!((no_tunnel.state(), no_tunnel.opens()), (degraded, true));
 
     // A pod that is gone tells that first: no tunnel can open.
     let gone = Facts { resolution: Some(Resolution::NoPod("no pod runs".to_owned())), ..no_tunnel.clone() };
-    assert_eq!(gone.state(), ForwardState::Degraded("no pod runs".to_owned()));
+    assert_eq!(gone.state(), ForwardState::degraded("no pod runs"));
     let lost = Path::Down { attempt: Some(1), next_retry: None, reason: "silent".to_owned() };
     assert_eq!(Facts { path: Ok(lost), ..no_tunnel }.state().name(), "reconnecting");
 }
@@ -154,4 +158,12 @@ fn a_new_time_of_the_next_attempt_is_the_same_step() {
     assert!(at(1).same_step(&at(2)));
     assert!(!at(1).same_step(&ForwardState::Active));
     assert_eq!(at(3).to_string(), "reconnecting, attempt 3: silent");
+
+    let failed = |seconds, reason: &str| ForwardState::Degraded {
+        reason: reason.to_owned(),
+        last_failure: Some(EPOCH + Duration::from_secs(seconds)),
+    };
+    assert!(failed(1, "no tunnel").same_step(&failed(2, "no tunnel")), "a new time of the last failure");
+    assert!(!failed(1, "no tunnel").same_step(&failed(1, "each of the last 3 tunnels failed")));
+    assert_eq!(failed(1, "no tunnel").to_string(), "degraded: no tunnel");
 }

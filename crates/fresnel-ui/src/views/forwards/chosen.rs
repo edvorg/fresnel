@@ -89,7 +89,7 @@ fn buttons(ui: &mut Ui, scene: &mut Scene<'_>, row: &ForwardRow) {
     } else if button(ui, "Stop", true) {
         scene.commands.push(Command::StopForward(row.id));
     }
-    let retries = matches!(view.state, ForwardState::Reconnecting { .. } | ForwardState::Degraded(_));
+    let retries = matches!(view.state, ForwardState::Reconnecting { .. } | ForwardState::Degraded { .. });
     if button(ui, "Retry now", retries) {
         scene.commands.push(Command::RetryForward(row.id));
     }

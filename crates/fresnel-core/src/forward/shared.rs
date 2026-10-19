@@ -18,9 +18,6 @@ use crate::journal::Journal;
 /// The time that a pod waits after the server did not find it: the store can be some time
 /// behind a delete, and the next tunnel then goes to an other pod.
 const SUSPECT_TIME: Duration = Duration::from_secs(10);
-/// The time that a failure keeps the state degraded with no good tunnel after it: an idle
-/// forward does not show a fault of long ago, and a check of the soak (20 s) sees it.
-pub(super) const WINDOW: Duration = Duration::from_secs(30);
 
 /// What a new local connection reads: the cluster and the pod of its tunnel. `None` while
 /// no tunnel can open, and the connection waits.
@@ -48,51 +45,69 @@ pub(super) enum Outcome {
     OpenFailed { target: TargetPod, error: CoreError },
     /// The open of a tunnel had no answer in the wait time, and stopped.
     Stalled { target: TargetPod },
-    /// A tunnel failed after its open. `path`: its connection broke, so the path can be lost.
-    Broke { text: String, path: bool },
+    /// A tunnel to the pod with this UID failed after its open. `path`: its connection broke,
+    /// so the path can be lost.
+    Broke { text: String, path: bool, pod: Arc<str> },
 }
 
+/// A failure of the last connections: its wall clock time and its text.
+pub(super) type Failure = (SystemTime, String);
+
 /// The outcomes since the last read of the task.
+///
+/// The failures follow the last connections, not a clock: they hold until the first bytes
+/// of a pod, "retry now" or a new target pod. A forward to a port that refuses each
+/// connection thus stays degraded also when its clients come minutes apart; the view gives
+/// the age of the last failure, so an idle forward does not look like a fresh fault.
 #[derive(Debug, Default)]
 pub(super) struct Reports {
-    /// The opens and tunnels that failed in a row, with no tunnel between them that carried
-    /// bytes of the pod, and the time of the last one: the run ends [`WINDOW`] after it.
+    /// The opens and tunnels to the target that failed in a row, with no tunnel between them
+    /// that carried bytes of a pod, and the last one.
     pub(super) failures: u32,
-    failed_at: Option<Instant>,
+    pub(super) last_failure: Option<Failure>,
     /// The last connection that tried and got no tunnel, with the reason of its last open,
-    /// until a good open or the end of [`WINDOW`].
-    pub(super) no_tunnel: Option<(Instant, String)>,
-    pub(super) last_error: Option<(SystemTime, String)>,
+    /// until a good open.
+    pub(super) no_tunnel: Option<Failure>,
+    pub(super) last_error: Option<Failure>,
     /// The server refuses the forward: no retry runs.
     pub(super) refused: Option<String>,
     /// The UIDs of pods that the server did not find, each with the end of its wait.
     pub(super) suspects: Vec<(Arc<str>, Instant)>,
     /// A connection waits, or a tunnel broke: the cluster tests its path now.
     pub(super) retry: bool,
+    /// The UID of the target pod of now: a failure of an other pod, for example of a tunnel
+    /// to the old pod that ends after the change, is no failure of the target.
+    target: Option<Arc<str>>,
 }
 
 impl Reports {
-    /// Removes what is older than its time: the suspects after their wait, the failures
-    /// after [`WINDOW`].
+    /// Removes the suspects after their wait.
     pub(super) fn expire(&mut self, now: Instant) {
         self.suspects.retain(|(_, until)| *until > now);
-        if self.failed_at.is_some_and(|at| now >= at + WINDOW) {
-            (self.failures, self.failed_at) = (0, None);
-        }
-        if self.no_tunnel.as_ref().is_some_and(|(at, _)| now >= *at + WINDOW) {
-            self.no_tunnel = None;
+    }
+
+    /// One more failure in the run, unless it is of an other pod than the target.
+    fn failed(&mut self, pod: &Arc<str>, failure: Failure) {
+        if self.target.as_ref().is_none_or(|target| target == pod) {
+            self.failures = self.failures.saturating_add(1);
+            self.last_failure = Some(failure);
         }
     }
 
-    /// One more failure in the run.
-    fn failed(&mut self, now: Instant) {
-        self.failures = self.failures.saturating_add(1);
-        self.failed_at = Some(now);
+    /// The stores give this target pod. Gives true when it is a new one: its failures end.
+    pub(super) fn aim(&mut self, pod: &Arc<str>) -> bool {
+        let new = self.target.as_ref().is_some_and(|target| target != pod);
+        if new {
+            self.clear();
+        }
+        self.target = Some(Arc::clone(pod));
+        new
     }
 
-    /// The end of the failures: the first bytes of a pod, or "retry now" of the user.
+    /// The end of the failures: the first bytes of a pod, "retry now" of the user, or a new
+    /// target pod.
     pub(super) fn clear(&mut self) {
-        (self.failures, self.failed_at, self.no_tunnel) = (0, None, None);
+        (self.failures, self.last_failure, self.no_tunnel) = (0, None, None);
     }
 }
 
@@ -179,7 +194,7 @@ impl Shared {
 
     /// Takes the outcome of a connection, and wakes the task.
     pub(super) fn report(&self, outcome: Outcome) {
-        let (now, at) = (self.clock.now(), Instant::now());
+        let now = self.clock.now();
         {
             let mut reports = self.reports();
             match outcome {
@@ -187,7 +202,7 @@ impl Shared {
                 Outcome::NoTarget(text) => reports.last_error = Some((now, text)),
                 Outcome::NoTunnel(text) => {
                     let reason = reports.last_error.as_ref().map_or_else(|| text.clone(), |(_, last)| last.clone());
-                    reports.no_tunnel = Some((at, reason));
+                    reports.no_tunnel = Some((now, reason));
                     reports.last_error = Some((now, text));
                 }
                 Outcome::Opened => reports.no_tunnel = None,
@@ -199,9 +214,9 @@ impl Shared {
                             reports.refused = Some(format!("the server refuses the port forward: {error}"));
                         }
                         // The pod is gone or does not run: the store is behind.
-                        (_, Some(400 | 404)) => reports.suspects.push((target.uid, at + SUSPECT_TIME)),
+                        (_, Some(400 | 404)) => reports.suspects.push((target.uid, Instant::now() + SUSPECT_TIME)),
                         (class, _) => {
-                            reports.failed(at);
+                            reports.failed(&target.uid, (now, text.clone()));
                             reports.retry |= matches!(class, ErrorClass::Network | ErrorClass::Timeout);
                         }
                     }
@@ -211,12 +226,12 @@ impl Shared {
                 Outcome::Stalled { target } => {
                     let wait = self.wait.as_secs_f64();
                     let text = format!("the open of a tunnel to pod {} had no answer in {wait:.1} s", target.pod.name);
-                    reports.failed(at);
+                    reports.failed(&target.uid, (now, text.clone()));
                     reports.retry = true;
                     reports.last_error = Some((now, text));
                 }
-                Outcome::Broke { text, path } => {
-                    reports.failed(at);
+                Outcome::Broke { text, path, pod } => {
+                    reports.failed(&pod, (now, text.clone()));
                     reports.retry |= path;
                     reports.last_error = Some((now, text));
                 }

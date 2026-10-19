@@ -49,6 +49,20 @@ fn the_state_of_a_reconnect_tells_its_attempt_and_the_time_to_the_next_one() {
     assert_eq!(short_state(&view(failed), &clock), ("failed".to_owned(), Tone::Error));
 }
 
+/// The failures of the last connections hold until the next one: the state gives the age
+/// of the last failure, so an idle forward does not look like a fresh fault.
+#[test]
+fn a_state_of_the_last_connections_tells_the_age_of_the_last_failure() {
+    let clock = Clock::fixed(now());
+    let reason = "each of the last 3 tunnels failed: connection refused".to_owned();
+    let failed = ForwardState::Degraded { reason: reason.clone(), last_failure: Some(now() - 600 * SECOND) };
+    let text = "degraded, the last failure 10 min 0 s ago: each of the last 3 tunnels failed: connection refused";
+    assert_eq!(state(&view(failed.clone()), &clock), (text.to_owned(), Tone::Warn));
+    assert_eq!(short_state(&view(failed), &clock), ("degraded".to_owned(), Tone::Warn));
+    let no_pod = ForwardState::Degraded { reason: "no pod runs".to_owned(), last_failure: None };
+    assert_eq!(state(&view(no_pod), &clock).0, "degraded: no pod runs");
+}
+
 #[test]
 fn the_pod_the_addresses_the_counts_the_data_and_the_last_error_read_as_short_texts() {
     let clock = Clock::fixed(now());
