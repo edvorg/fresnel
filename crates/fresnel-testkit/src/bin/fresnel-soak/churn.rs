@@ -20,12 +20,7 @@ const DEPLOYMENTS: usize = 3;
 pub(crate) struct Churn<'a> {
     k3s: &'a K3s,
     step: Duration,
-    rng: fastrand::Rng,
-    count: u64,
-    /// The numbers of the ConfigMaps that exist, so that a change finds its object.
-    config_maps: BTreeSet<u64>,
-    pods: VecDeque<String>,
-    deployments: VecDeque<String>,
+    changes: Changes,
     done: u64,
     failed: u64,
     first_failure: Option<String>,
@@ -33,16 +28,13 @@ pub(crate) struct Churn<'a> {
 
 impl<'a> Churn<'a> {
     pub(crate) fn new(k3s: &'a K3s, rng: fastrand::Rng, step: Duration) -> Self {
-        let (pods, deployments) = (VecDeque::new(), VecDeque::new());
-        let config_maps = BTreeSet::new();
-        Self { k3s, step, rng, count: 0, config_maps, pods, deployments, done: 0, failed: 0, first_failure: None }
+        Self { k3s, step, changes: Changes::new(rng), done: 0, failed: 0, first_failure: None }
     }
 
     pub(crate) async fn run(&mut self) -> Never {
         loop {
             sleep(self.step).await;
-            self.count += 1;
-            let change = self.next_change();
+            let change = self.changes.next();
             let arguments: Vec<&str> = change.iter().map(String::as_str).collect();
             match self.k3s.kubectl(&[&["--namespace", NAMESPACE], &arguments[..]].concat()).await {
                 Ok(_) => self.done += 1,
@@ -54,8 +46,31 @@ impl<'a> Churn<'a> {
         }
     }
 
+    pub(crate) fn summary(&self) -> String {
+        let failure = self.first_failure.as_deref().map_or_else(String::new, |first| format!(" (first: {first})"));
+        format!("{} changes, {} failed{failure}", self.done, self.failed)
+    }
+}
+
+/// The objects that the changes made, so that each change finds its object, and the count of
+/// the changes, which names the new objects.
+struct Changes {
+    rng: fastrand::Rng,
+    count: u64,
+    /// The numbers of the ConfigMaps that exist.
+    config_maps: BTreeSet<u64>,
+    pods: VecDeque<String>,
+    deployments: VecDeque<String>,
+}
+
+impl Changes {
+    fn new(rng: fastrand::Rng) -> Self {
+        Self { rng, count: 0, config_maps: BTreeSet::new(), pods: VecDeque::new(), deployments: VecDeque::new() }
+    }
+
     /// The arguments of the next change: mostly ConfigMaps, then pods, then the Deployments.
-    fn next_change(&mut self) -> Vec<String> {
+    fn next(&mut self) -> Vec<String> {
+        self.count += 1;
         let words = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
         let count = self.count.to_string();
         let number = self.rng.u64(0..CONFIG_MAPS);
@@ -96,9 +111,7 @@ impl<'a> Churn<'a> {
             }
         }
     }
-
-    pub(crate) fn summary(&self) -> String {
-        let failure = self.first_failure.as_deref().map_or_else(String::new, |first| format!(" (first: {first})"));
-        format!("{} changes, {} failed{failure}", self.done, self.failed)
-    }
 }
+
+#[cfg(test)]
+mod tests;

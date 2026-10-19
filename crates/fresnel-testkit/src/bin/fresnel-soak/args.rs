@@ -66,3 +66,34 @@ fn next_to_this_program() -> Result<PathBuf, String> {
     let cli = program.with_file_name("fresnel-cli");
     if cli.is_file() { Ok(cli) } else { Err(format!("no program {}; build fresnel-cli first", cli.display())) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parsed(arguments: &[&str]) -> Result<Options, String> {
+        parse(&arguments.iter().map(|argument| (*argument).to_owned()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn the_options_take_their_values_and_the_defaults_fill_the_rest() {
+        let options = parsed(&["--minutes", "90", "--report", "out", "--seed", "7", "--fast", "--cli", "bin/cli"])
+            .unwrap_or_else(|problem| panic!("{problem}"));
+        let values = (options.minutes, options.report, options.label, options.seed, options.fast, options.cli);
+        assert_eq!(values, (90, "out".into(), "soak".to_owned(), 7, true, "bin/cli".into()));
+        let options = parsed(&["--label", "night", "--minutes", "1", "--report", "r", "--cli", "c"]);
+        assert!(options.is_ok_and(|options| options.label == "night" && !options.fast));
+    }
+
+    /// A soak of no time or with no report would end with nothing to look at.
+    #[test]
+    fn a_missing_or_bad_value_is_a_problem_with_its_option() {
+        let problem = |arguments: &[&str]| parsed(arguments).err().unwrap_or_default();
+        assert_eq!(problem(&["--report", "r", "--cli", "c"]), "the soak needs --minutes");
+        assert_eq!(problem(&["--minutes", "0", "--report", "r", "--cli", "c"]), "the soak needs --minutes");
+        assert_eq!(problem(&["--minutes", "5", "--cli", "c"]), "the soak needs --report");
+        assert_eq!(problem(&["--minutes", "an hour"]), "the value of --minutes is a number, not `an hour`");
+        assert_eq!(problem(&["--minutes"]), "the option --minutes needs a value");
+        assert_eq!(problem(&["--hours", "1"]), "`--hours` is not an option");
+    }
+}

@@ -43,3 +43,21 @@ impl Pace {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The recreate of a fast soak comes in the middle of its run, and the restarts keep the
+    /// gap of the normal soak.
+    #[test]
+    fn a_fast_soak_recreates_in_the_middle_and_restarts_each_20_minutes_at_most() {
+        let fast = Pace::fast(60);
+        assert_eq!(
+            (fast.recreate_after, fast.restart_gap),
+            (Some(Duration::from_secs(30 * 60)), Duration::from_secs(1200))
+        );
+        assert!(fast.step * 4 == Pace::NORMAL.step && fast.fault_pause.1 * 4 == Pace::NORMAL.fault_pause.1);
+        assert_eq!((Pace::NORMAL.recreate_after, Pace::NORMAL.restart_gap), (None, Duration::ZERO));
+    }
+}

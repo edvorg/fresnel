@@ -25,7 +25,7 @@ const HOLD_TIME: Duration = Duration::from_secs(120);
 const BREAK: (u64, u64) = (30, 180);
 
 /// One kind of fault.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Fault {
     Silence,
     Reset,
@@ -39,6 +39,39 @@ enum Fault {
 /// have it two times. A draw of each fault alone could leave a kind out of a short soak.
 const ROUND: [Fault; 6] = [Fault::Silence, Fault::Reset, Fault::Resets, Fault::Held, Fault::Break, Fault::Restart];
 
+/// The sequence of the faults: each kind once in each round, and a reset in the place of a
+/// restart of the API server that comes before the gap of the pace ends.
+struct Rounds {
+    /// The faults of the round that did not come yet.
+    left: Vec<Fault>,
+    /// The last restart of the API server.
+    restarted_at: Option<Instant>,
+    gap: Duration,
+}
+
+impl Rounds {
+    fn new(gap: Duration) -> Self {
+        Self { left: Vec::new(), restarted_at: None, gap }
+    }
+
+    /// The next fault at the time `now`.
+    fn next(&mut self, rng: &mut fastrand::Rng, now: Instant) -> Fault {
+        if self.left.is_empty() {
+            self.left = ROUND.to_vec();
+            rng.shuffle(&mut self.left);
+        }
+        let fault = self.left.pop().unwrap_or(Fault::Reset);
+        if fault != Fault::Restart {
+            return fault;
+        }
+        if self.restarted_at.is_some_and(|at| now.saturating_duration_since(at) < self.gap) {
+            return Fault::Reset;
+        }
+        self.restarted_at = Some(now);
+        fault
+    }
+}
+
 pub(crate) struct Faults<'a> {
     k3s: &'a K3s,
     proxy: &'a FaultProxy,
@@ -47,11 +80,8 @@ pub(crate) struct Faults<'a> {
     pace: &'a Pace,
     /// The time of the recreate of the cluster, until it came.
     recreate_at: Option<Instant>,
-    /// The last restart of the API server.
-    restarted_at: Option<Instant>,
     keeper: Keeper<'a>,
-    /// The faults of the round that did not come yet.
-    round: Vec<Fault>,
+    rounds: Rounds,
     made: BTreeMap<&'static str, u64>,
 }
 
@@ -59,8 +89,8 @@ impl<'a> Faults<'a> {
     pub(crate) fn new(k3s: &'a K3s, proxy: &'a FaultProxy, file: &Path, rng: fastrand::Rng, pace: &'a Pace) -> Self {
         let (recreate_at, keeper) =
             (pace.recreate_after.map(|after| Instant::now() + after), Keeper::new(k3s, pace.line_pause));
-        let (file, round, made) = (file.to_owned(), Vec::new(), BTreeMap::new());
-        Self { k3s, proxy, file, rng, pace, recreate_at, restarted_at: None, keeper, round, made }
+        let (file, rounds, made) = (file.to_owned(), Rounds::new(pace.restart_gap), BTreeMap::new());
+        Self { k3s, proxy, file, rng, pace, recreate_at, keeper, rounds, made }
     }
 
     /// Makes faults until the environment cannot be restored: the error tells why.
@@ -73,17 +103,7 @@ impl<'a> Faults<'a> {
                 self.recreate().await?;
                 continue;
             }
-            if self.round.is_empty() {
-                self.round = ROUND.to_vec();
-                self.rng.shuffle(&mut self.round);
-            }
-            let mut fault = self.round.pop().unwrap_or(Fault::Reset);
-            if matches!(fault, Fault::Restart)
-                && self.restarted_at.is_some_and(|at| at.elapsed() < self.pace.restart_gap)
-            {
-                fault = Fault::Reset;
-            }
-            match fault {
+            match self.rounds.next(&mut self.rng, Instant::now()) {
                 Fault::Silence => {
                     self.note("silence", "each open connection is silent");
                     self.proxy.silence_open();
@@ -115,7 +135,6 @@ impl<'a> Faults<'a> {
                 Fault::Restart => {
                     self.note("restart", "a restart of the API server");
                     let start = Instant::now();
-                    self.restarted_at = Some(start);
                     let restarted = self.k3s.restart().await;
                     let result =
                         restarted.as_ref().map_or_else(|error| format!("failed: {error}"), |()| "ready".to_owned());
@@ -169,3 +188,6 @@ pub(crate) fn note_line(file: &Path, text: &str) {
         eprintln!("fresnel-soak: cannot write {}: {error}", file.display());
     }
 }
+
+#[cfg(test)]
+mod tests;
