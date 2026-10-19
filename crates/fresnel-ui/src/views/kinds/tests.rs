@@ -5,13 +5,15 @@ use std::sync::atomic::AtomicU64;
 use std::time::SystemTime;
 
 use fresnel_core::cluster::ClusterId;
+use fresnel_core::kinds::Witness;
+use fresnel_core::search::Source;
 use fresnel_core::store::StoreState;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Node};
 
 use super::*;
 use crate::format::Clock;
-use crate::testing::{TestTasks, fixture, snapshot};
+use crate::testing::{TestTasks, fixture, fixture_pods, snapshot};
 use crate::theme::DARK;
 use crate::views::metrics::Problems;
 use crate::views::objects::ClusterMark;
@@ -27,7 +29,7 @@ fn rows<K: Describe>(bed: &TestTasks, filter: &ObjectFilter) -> Computed<KindRow
     let objects = fixture::<K>();
     let clusters = ["ams", "fra"].map(|name| (ClusterId::new(name), bed.held(snapshot(&objects, StoreState::Live))));
     let never = AtomicU64::new(0);
-    let data = Stores { clusters: clusters.to_vec(), metered: Vec::new() };
+    let data = Stores { clusters: clusters.to_vec(), metered: Vec::new(), witnesses: Vec::new() };
     KindModel::<K>::new().rows(&data, filter, &Cancel::new(&never, 0)).expect("no cancel")
 }
 
@@ -122,4 +124,40 @@ fn the_cells_show_each_value_and_an_old_row_has_its_mark_and_no_state_color() {
     assert!(old.iter().all(|cell| cell.tone == Tone::Faint), "{old:?}");
     let healthy = all.iter().find(|row| &*row.id.key.name == "web").expect("a row");
     assert_eq!(model.cell(healthy, 0, &scene).lead, Lead::None, "a healthy object has no dot");
+}
+
+/// The user could not tell if a warning was still a problem: the table of the Events has the
+/// state of each warning now after its type, from the live pods of its cluster.
+#[test]
+fn the_events_have_the_state_of_each_warning_now_after_their_type() {
+    let bed = TestTasks::new();
+    assert_eq!(titles::<Event>()[2..6], ["Cluster", "Type", "Now", "Reason"]);
+    assert!(!titles::<Node>().contains(&"Now"), "an other kind");
+    let ams = ClusterId::new("ams");
+    let witness = Witness::new([Source::full(bed.held(snapshot(&fixture_pods(), StoreState::Live)))]);
+    let data = Stores {
+        clusters: vec![(ams.clone(), bed.held(snapshot(&fixture::<Event>(), StoreState::Live)))],
+        metered: Vec::new(),
+        witnesses: vec![(ams.clone(), witness)],
+    };
+    let model = KindModel::<Event>::new();
+    let never = AtomicU64::new(0);
+    let rows = |filter: &ObjectFilter| model.rows(&data, filter, &Cancel::new(&never, 0)).expect("no cancel").rows;
+    let all = rows(&ObjectFilter::default());
+    let row = |name: &str| all.iter().find(|row| &*row.id.key.name == name).expect("a row");
+    let (crash, normal) = (row("crash.18de28919fa8e1d0"), row("db-0.18de288fc7821e98"));
+    let now = model.columns().iter().position(|column| column.title == "Now").expect("the column");
+    let mark = ClusterMark { color: DARK.clusters[0], old: None, problems: Problems::default() };
+    let scene =
+        RowScene { palette: &DARK, clock: Clock::fixed(SystemTime::now()), marks: HashMap::from([(ams, mark)]) };
+    let cell = model.cell(crash, now, &scene);
+    assert_eq!((&*cell.text, cell.tone), ("ongoing", Tone::Warn), "the BackOff of the pod crash");
+    assert_eq!(cell.hint.as_deref(), Some("Ongoing now: the container crash waits: CrashLoopBackOff."));
+    let no_store = model.cell(row("fails.18de2891a64a7373"), now, &scene).hint.map(String::from);
+    assert_eq!(no_store.as_deref(), Some("Unknown: the cluster has no store of the Jobs."));
+    assert_eq!(&*model.cell(normal, now, &scene).text, "–", "an Event that tells no problem");
+    assert_eq!(model.compare(normal, crash, now), Ordering::Less, "no state first, as no value");
+
+    let ongoing = rows(&ObjectFilter { text: "ongoing".to_owned(), ..ObjectFilter::default() });
+    assert_eq!(ongoing.len(), 8, "the text filter finds a state");
 }

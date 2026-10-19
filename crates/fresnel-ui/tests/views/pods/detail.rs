@@ -173,3 +173,13 @@ fn the_event_section_tells_what_its_events_are_good_for() {
     open(&mut window, "lonely");
     assert!(shows(&window, "No Events.") && !shows(&window, "BackOff"));
 }
+
+/// Each warning of the panel has the state of its problem now: the container of the pod
+/// crash still waits, and its sandbox is there since after the report of its failure.
+#[test]
+fn each_warning_of_the_panel_has_the_state_of_its_problem_now() {
+    let mut window = window(view(vec![live("ams-prod", &pods())]));
+    open(&mut window, "crash");
+    assert!(in_panel(&window, "ongoing") && in_panel(&window, "resolved 07:59"), "the BackOff and the sandbox");
+    assert!(!in_panel(&window, "unknown") && !in_panel(&window, "gone"), "the pod is there and live");
+}

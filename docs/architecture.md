@@ -116,8 +116,8 @@ new connection: resolver -> hedged connect (TCP and TLS) -> one protocol by ALPN
 `store::ClusterStores` holds one store for each kind of one cluster, for all namespaces.
 
 - **Kinds**: `kinds` has the one list of the kinds; a `Kind` is a typed identity. The file of
-  each kind implements `Describe`: sidebar group, tier, columns with the text of `kubectl get`,
-  search text, health value and actions. A tier B store has the metadata only, tier C none.
+  each kind implements `Describe`: sidebar group, tier, columns as `kubectl get`, search, health
+  and actions; tier B has the metadata only, tier C none. A `Witness` judges a warning Event now.
 - **Watch loop**: one task for each store: a list in pages, 4 lists of a cluster at a time, then
   a watch with bookmarks, which the server ends after 60 to 90 s. HTTP 410, a cluster that went
   back or a new one (kube-system) gives a list. A failure pauses up to 3 s, which the signal ends.

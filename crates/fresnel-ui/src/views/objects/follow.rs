@@ -1,5 +1,6 @@
-//! Follows the stores of one kind of the selected clusters from frame to frame, and the
-//! metrics of a kind with the CPU and memory columns.
+//! Follows the stores of one kind of the selected clusters from frame to frame, the metrics
+//! of a kind with the CPU and memory columns, and the stores that tell the state of each
+//! warning of the Events.
 //!
 //! The page asks its worker for new rows only when the objects or the metrics changed, and
 //! it must drop each deleted object from its selection. The differences between the
@@ -10,7 +11,7 @@
 use std::collections::HashSet;
 
 use fresnel_core::cluster::ClusterId;
-use fresnel_core::kinds::Object;
+use fresnel_core::kinds::{Object, Witness};
 use fresnel_core::published::Held;
 use fresnel_core::store::{Change, Snapshot};
 
@@ -45,23 +46,35 @@ impl Gone {
 pub(super) struct Follower<T: Object> {
     seen: Vec<(ClusterId, Held<Snapshot<T>>)>,
     metered: Vec<Metered>,
+    witnesses: Vec<(ClusterId, Witness)>,
     serial: u64,
 }
 
 impl<T: Object> Default for Follower<T> {
     fn default() -> Self {
-        Self { seen: Vec::new(), metered: Vec::new(), serial: 0 }
+        Self { seen: Vec::new(), metered: Vec::new(), witnesses: Vec::new(), serial: 0 }
     }
 }
 
 impl<T: Object> Follower<T> {
-    /// Takes the snapshots and the metrics of this frame and gives the objects that went
-    /// away. A new poll of the metrics is a change: the rows have its values.
-    pub(super) fn step(&mut self, now: Vec<(ClusterId, Held<Snapshot<T>>)>, metered: Vec<Metered>) -> Gone {
+    /// Takes the snapshots, the metrics and the witnesses of this frame and gives the objects
+    /// that went away. A new poll of the metrics is a change: the rows have its values. So is
+    /// a new snapshot of a witness: the rows have the state of each warning now.
+    pub(super) fn step(
+        &mut self,
+        now: Vec<(ClusterId, Held<Snapshot<T>>)>,
+        metered: Vec<Metered>,
+        witnesses: Vec<(ClusterId, Witness)>,
+    ) -> Gone {
         let mut gone = Gone::default();
         let same_polls = metered.len() == self.metered.len()
             && metered.iter().zip(&self.metered).all(|(now, before)| now.is_same(before));
-        let mut changed = now.len() != self.seen.len() || !same_polls;
+        let same_witnesses = witnesses.len() == self.witnesses.len()
+            && witnesses
+                .iter()
+                .zip(&self.witnesses)
+                .all(|((id, now), (before_id, before))| id == before_id && now.is_same(before));
+        let mut changed = now.len() != self.seen.len() || !same_polls || !same_witnesses;
         for (cluster, before) in &self.seen {
             let Some((_, after)) = now.iter().find(|(id, _)| id == cluster) else {
                 gone.clusters.push(cluster.clone());
@@ -82,7 +95,7 @@ impl<T: Object> Follower<T> {
                 }
             }
         }
-        (self.seen, self.metered) = (now, metered);
+        (self.seen, self.metered, self.witnesses) = (now, metered, witnesses);
         self.serial += u64::from(changed);
         gone
     }
@@ -91,9 +104,10 @@ impl<T: Object> Follower<T> {
     /// number: the number is a part of the identity of a request for rows, and the objects
     /// after a rest are not the objects before it.
     pub(super) fn rest(&mut self) {
-        if !self.seen.is_empty() || !self.metered.is_empty() {
+        if !self.seen.is_empty() || !self.metered.is_empty() || !self.witnesses.is_empty() {
             self.seen.clear();
             self.metered.clear();
+            self.witnesses.clear();
             self.serial += 1;
         }
     }
@@ -105,7 +119,7 @@ impl<T: Object> Follower<T> {
 
     /// The snapshots of the last step, for a request to the worker.
     pub(super) fn data(&self) -> Stores<T> {
-        Stores { clusters: self.seen.clone(), metered: self.metered.clone() }
+        Stores { clusters: self.seen.clone(), metered: self.metered.clone(), witnesses: self.witnesses.clone() }
     }
 
     /// The snapshot of one cluster at the last step.
@@ -118,6 +132,7 @@ impl<T: Object> Follower<T> {
 mod tests {
     use std::sync::Arc;
 
+    use fresnel_core::search::Source;
     use fresnel_core::store::{ObjectKey, StoreState};
     use k8s_openapi::api::core::v1::Pod;
 
@@ -127,7 +142,7 @@ mod tests {
     fn step(bed: &TestTasks, follower: &mut Follower<Pod>, clusters: &[(&str, &[Arc<Pod>])]) -> Gone {
         let held =
             |(name, pods): &(&str, &[Arc<Pod>])| (ClusterId::new(*name), bed.held(snapshot(pods, StoreState::Live)));
-        follower.step(clusters.iter().map(held).collect(), Vec::new())
+        follower.step(clusters.iter().map(held).collect(), Vec::new(), Vec::new())
     }
 
     fn id(cluster: &str, pod: &Pod) -> ObjectId {
@@ -182,5 +197,23 @@ mod tests {
         let at_rest = follower.serial();
         follower.rest();
         assert_eq!(follower.serial(), at_rest, "a rest with nothing to give up changes nothing");
+    }
+
+    /// The Events show the state of each warning from the stores of their cluster: a new
+    /// snapshot of one of them gives new rows, as a change of the Events does.
+    #[test]
+    fn a_new_snapshot_of_a_witness_gives_a_new_number() {
+        let bed = TestTasks::new();
+        let mut follower = Follower::<Pod>::default();
+        let pods = || bed.held(snapshot(&fixture_pods(), StoreState::Live));
+        let witness = |pods| vec![(ClusterId::new("ams"), Witness::new([Source::full(pods)]))];
+        let first_pods = pods();
+        assert!(follower.step(Vec::new(), Vec::new(), witness(first_pods.clone())).is_empty());
+        let first = follower.serial();
+        follower.step(Vec::new(), Vec::new(), witness(first_pods));
+        assert_eq!(follower.serial(), first, "the same snapshots");
+        follower.step(Vec::new(), Vec::new(), witness(pods()));
+        assert!(follower.serial() > first, "a new snapshot of the pods");
+        assert_eq!(follower.data().witnesses.len(), 1);
     }
 }

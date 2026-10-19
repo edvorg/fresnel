@@ -80,8 +80,10 @@ impl<M: ObjectModel> ObjectPage<M> {
     fn read_stores(&mut self, scene: &Scene<'_>) {
         let selected = || scene.view.clusters.iter().filter(|row| row.selected);
         let now = selected().filter_map(|row| Some((row.id.clone(), row.data.as_ref()?.snapshot()?))).collect();
-        let data = selected().filter_map(|row| Some((&row.id, row.data.as_ref()?))).filter(|_| M::METERED);
-        let gone = self.follower.step(now, data.map(|(id, data)| Metered::of(id, data)).collect());
+        let data = || selected().filter_map(|row| Some((&row.id, row.data.as_ref()?)));
+        let metered = data().filter(|_| M::METERED).map(|(id, data)| Metered::of(id, data)).collect();
+        let witnesses = data().filter(|_| M::WITNESSED).map(|(id, data)| (id.clone(), data.witness())).collect();
+        let gone = self.follower.step(now, metered, witnesses);
         if !gone.is_empty() {
             self.table.forget(|id| gone.has(id));
         }

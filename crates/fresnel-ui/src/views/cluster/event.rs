@@ -1,6 +1,7 @@
-//! The sections of an Event (`research/02` section 4.5): its type, its reason, its message,
-//! its object and its related object as links, the part of the cluster that reported it,
-//! its count and the times of its first and its last report.
+//! The sections of an Event (`research/02` section 4.5): its type, the state of the problem
+//! of a warning now, its reason, its message, its object and its related object as links,
+//! the part of the cluster that reported it, its count and the times of its first and its
+//! last report.
 
 use std::time::SystemTime;
 
@@ -25,6 +26,14 @@ pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, event: &Event) -> Option<Li
     field(ui, cx.palette, "Type", |ui| {
         ui.label(RichText::new(kind).color(color));
     });
+    if let Some(now) = cx.data.and_then(|data| data.witness().judge(event)) {
+        field(ui, cx.palette, "Now", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                super::problem::chip(ui, cx.palette, cx.clock, &now);
+                ui.label(RichText::new(&now.why).color(cx.palette.text_muted));
+            });
+        });
+    }
     line(ui, cx, "Reason", event.reason.clone());
     let message = event.message.as_deref().map(str::trim).filter(|message| !message.is_empty());
     field(ui, cx.palette, "Message", |ui| {

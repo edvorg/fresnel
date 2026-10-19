@@ -1,7 +1,9 @@
 //! The table of each kind (plan sections 11.2 and 11.4): the columns of the description of
 //! the kind in `fresnel-core`, with the Cluster column after the name and the namespace,
 //! and the CPU and memory columns after the age for a kind with metrics (`views/metrics`).
-//! The Pods have a model of their own (`views/pods`), with the status of each pod.
+//! The Events have the Now column after their type: the state of each warning now, from the
+//! live objects (`views/cluster/problem`). The Pods have a model of their own (`views/pods`),
+//! with the status of each pod.
 //!
 //! The worker computes the value of each column of a row one time, so a sort compares
 //! values and reads no object, and a frame lays out the texts of the rows on the screen.
@@ -10,13 +12,16 @@
 
 mod cells;
 
+use std::any::Any;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use fresnel_core::kinds::{self, Describe, Kind, Object, ObjectHealth, Value, Visit};
+use fresnel_core::kinds::{self, Describe, Kind, Object, ObjectHealth, ProblemNow, Value, Visit};
 use fresnel_core::net::task::Tasks;
+use k8s_openapi::api::core::v1::Event;
 
+use crate::views::cluster::problem;
 use crate::views::metrics::gauge::{Resource, Usage};
 use crate::views::metrics::{self, has_columns};
 use crate::views::objects::{
@@ -30,6 +35,9 @@ use crate::widgets::worker::{Cancel, Wake};
 const CANCEL_STEP: usize = 1024;
 /// The width of the Cluster column.
 const CLUSTER_WIDTH: f32 = 120.0;
+/// The Now column of the Events follows the column with this title, and has this width.
+const NOW_AFTER: &str = "Type";
+const NOW_WIDTH: f32 = 110.0;
 
 /// The page of a kind: the Pods with their model, each other kind with the model of its
 /// columns. It starts the worker thread of the table.
@@ -60,16 +68,19 @@ enum Field {
     /// The column of the description of the kind at this place.
     Value(usize),
     Usage(Resource),
+    /// The state of the problem of a warning Event now.
+    Now,
 }
 
 /// One row: an object with its identity, its health value, the value of each column of its
-/// kind and its metrics.
+/// kind, its metrics and, for a warning Event, the state of its problem now.
 pub(crate) struct KindRow<K> {
     id: ObjectId,
     object: Arc<K>,
     health: ObjectHealth,
     values: Vec<Value<'static>>,
     usage: Option<Usage>,
+    problem: Option<ProblemNow>,
 }
 
 pub(crate) struct KindModel<K: Describe> {
@@ -94,6 +105,10 @@ impl<K: Describe> KindModel<K> {
             shown = if column.numeric { shown.numeric() } else { shown };
             columns.push(if column.shown { shown } else { shown.hidden() });
             fields.push(Field::Value(index));
+            if K::ID == Kind::Event && column.title == NOW_AFTER {
+                columns.push(Column::new("Now", NOW_WIDTH));
+                fields.push(Field::Now);
+            }
         }
         if has_columns(K::ID) {
             columns.extend(Resource::BOTH.map(Resource::column));
@@ -112,6 +127,7 @@ impl<K: Describe> KindModel<K> {
                 Value::List(texts) => texts.iter().any(|text| contains_ignore_case(text, needle)),
                 _ => false,
             })
+            || row.problem.as_ref().is_some_and(|now| contains_ignore_case(problem::name(now.state), needle))
     }
 }
 
@@ -136,7 +152,7 @@ impl<K: Describe> Model for KindModel<K> {
         let (mut rows, mut total, mut namespaces) = (Vec::new(), 0, NamespaceSet::default());
         for (cluster, snapshot) in &data.clusters {
             total += snapshot.items.len();
-            let metered = data.metered(cluster);
+            let (metered, witness) = (data.metered(cluster), data.witness(cluster));
             for (count, (key, object)) in snapshot.items.iter().enumerate() {
                 if count.is_multiple_of(CANCEL_STEP) && cancel.is_set() {
                     return None;
@@ -149,7 +165,9 @@ impl<K: Describe> Model for KindModel<K> {
                 let values = self.of_kind.iter().map(|column| (column.read)(object).into_owned()).collect();
                 let id = ObjectId { cluster: cluster.clone(), key: key.clone(), uid: uid(object.meta()).into() };
                 let usage = metered.and_then(|metered| metered.usage(key, &**object));
-                let row = KindRow { id, object: Arc::clone(object), health, values, usage };
+                let event = (&**object as &dyn Any).downcast_ref::<Event>();
+                let problem = witness.zip(event).and_then(|(witness, event)| witness.judge(event));
+                let row = KindRow { id, object: Arc::clone(object), health, values, usage, problem };
                 if Self::matches(&row, &needle) {
                     rows.push(row);
                 }
@@ -163,6 +181,7 @@ impl<K: Describe> Model for KindModel<K> {
             Some(Field::Cluster) => a.id.cluster.cmp(&b.id.cluster),
             Some(Field::Value(index)) => a.values.get(*index).cmp(&b.values.get(*index)),
             Some(Field::Usage(resource)) => metrics::cells::compare(a.usage.as_ref(), b.usage.as_ref(), *resource),
+            Some(Field::Now) => a.problem.as_ref().map(|now| now.state).cmp(&b.problem.as_ref().map(|now| now.state)),
             None => Ordering::Equal,
         }
     }
@@ -192,6 +211,13 @@ impl<K: Describe> Model for KindModel<K> {
                 let problem = scene.problem(&row.id.cluster, K::ID);
                 metrics::cells::cell(row.usage.as_ref(), *resource, problem, &scene.clock)
             }
+            Some(Field::Now) => match &row.problem {
+                Some(now) => {
+                    let (word, tone) = problem::word(now, &scene.clock);
+                    Cell::new(word).tone(tone).hint(problem::hint(now, &scene.clock))
+                }
+                None => cells::value(&Value::None, false, &scene.clock),
+            },
             None => Cell::new(""),
         };
         cells::of_old_row(cell, old)

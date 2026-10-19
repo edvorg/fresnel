@@ -16,7 +16,7 @@ use serde_json::json;
 
 use super::{and, follow, shows_part};
 use crate::data::{changed_object, events, held, in_state, of_kinds, pods, scene, store};
-use crate::fake::{SECOND, now, until};
+use crate::fake::{SECOND, now, shows, until};
 use crate::kinds::scene::{live, nodes};
 use crate::kinds::{in_panel, missing, times_in_panel};
 use crate::pods::scenes::no_answer;
@@ -113,6 +113,11 @@ fn an_event_shows_its_object_as_a_link_and_no_events_of_its_own() {
         Vec::<String>::new()
     );
     assert!(!in_panel(&window, "EVENTS"), "an Event has no Events");
+    // The state of its problem now, from the live pod, in the panel and in the Now column.
+    let now = ["Now", "ongoing", "the container crash waits: CrashLoopBackOff"];
+    assert_eq!(missing(&window, &now), Vec::<String>::new());
+    let cell = "Ongoing now: the container crash waits: CrashLoopBackOff.";
+    assert!(shows(&window, cell) && times_in_panel(&window, cell) == 0, "the cell of its row in the table");
     follow(&mut window, "Pod crash");
     until(&mut window, "the panel of the pod", |window| in_panel(window, "CONTAINERS") && in_panel(window, "crash"));
 }

@@ -1,4 +1,5 @@
-//! The Events of the object of the detail panel, the newest first.
+//! The Events of the object of the detail panel, the newest first, each warning with the
+//! state of its problem now (`views/cluster/problem`).
 //!
 //! The Event index tells what its answer is good for. The section shows that next to the
 //! Events, so "no Events" and "the Events are not loaded" never look the same.
@@ -8,13 +9,14 @@ use std::time::SystemTime;
 use egui::{Align, Label, Layout, RichText, Ui};
 use fresnel_core::app::ClusterData;
 use fresnel_core::index::{last_seen, reports};
-use fresnel_core::kinds::Kind;
+use fresnel_core::kinds::{Kind, Witness};
 use k8s_openapi::api::core::v1::Event;
 
 use super::fields::{NONE, heading};
 use super::related::basis_note;
 use crate::format::{self, Clock, short};
 use crate::theme::{Palette, SMALL};
+use crate::views::cluster::problem;
 use crate::widgets::dot;
 use crate::widgets::table::model::ObjectId;
 use crate::widgets::tone::Tone;
@@ -60,8 +62,9 @@ pub(super) fn show(ui: &mut Ui, palette: &Palette, clock: &Clock, source: &Sourc
         }
         return;
     }
+    let witness = data.witness();
     for event in answer.found.iter().take(LIMIT) {
-        entry(ui, palette, clock, event);
+        entry(ui, palette, clock, event, &witness);
     }
     if let Some(more) = answer.found.len().checked_sub(LIMIT).filter(|more| *more > 0) {
         ui.add_space(4.0);
@@ -70,7 +73,7 @@ pub(super) fn show(ui: &mut Ui, palette: &Palette, clock: &Clock, source: &Sourc
 }
 
 /// One Event in two lines: the panel is narrow, and the message is the long part.
-fn entry(ui: &mut Ui, palette: &Palette, clock: &Clock, event: &Event) {
+fn entry(ui: &mut Ui, palette: &Palette, clock: &Clock, event: &Event, witness: &Witness) {
     let kind = event.type_.as_deref().unwrap_or(NONE);
     let tone = if kind == "Warning" { Tone::Warn } else { Tone::Muted };
     let count = reports(event);
@@ -82,6 +85,9 @@ fn entry(ui: &mut Ui, palette: &Palette, clock: &Clock, event: &Event) {
         ui.label(RichText::new(short(kind, REASON_LIMIT)).size(SMALL).color(tone.color(palette)));
         if count > 1 {
             ui.label(RichText::new(format!("×{count}")).size(SMALL).color(palette.text_muted));
+        }
+        if let Some(now) = witness.judge(event) {
+            problem::chip(ui, palette, clock, &now);
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let seen = last_seen(event).map(SystemTime::from);

@@ -15,7 +15,7 @@ fn rows(bed: &TestTasks, filter: &ObjectFilter) -> Computed<PodRow, Namespaces> 
     let pods = fixture_pods();
     let clusters = ["ams", "fra"].map(|name| (ClusterId::new(name), bed.held(snapshot(&pods, StoreState::Live))));
     let never = AtomicU64::new(0);
-    let data = Stores { clusters: clusters.to_vec(), metered: Vec::new() };
+    let data = Stores { clusters: clusters.to_vec(), metered: Vec::new(), witnesses: Vec::new() };
     PodModel.rows(&data, filter, &Cancel::new(&never, 0)).expect("no cancel")
 }
 
@@ -73,7 +73,7 @@ fn each_filter_selects_pods_of_each_cluster_and_the_count_is_of_all_pods() {
 fn a_cancel_ends_the_computation_with_no_rows() {
     let bed = TestTasks::new();
     let clusters = vec![(ClusterId::new("ams"), bed.held(snapshot(&fixture_pods(), StoreState::Live)))];
-    let data = Stores { clusters, metered: Vec::new() };
+    let data = Stores { clusters, metered: Vec::new(), witnesses: Vec::new() };
     let newest = AtomicU64::new(2);
     assert!(PodModel.rows(&data, &ObjectFilter::default(), &Cancel::new(&newest, 1)).is_none());
 }
@@ -88,6 +88,7 @@ fn the_data_has_the_pod_of_a_row_by_its_cluster_its_name_and_its_uid() {
     let data = |cluster: &str, pods: &[Arc<Pod>]| Stores {
         clusters: vec![(ClusterId::new(cluster), bed.held(snapshot(pods, StoreState::Live)))],
         metered: Vec::new(),
+        witnesses: Vec::new(),
     };
     assert!(PodModel.has(&data("ams", &fixture_pods()), crash));
     assert!(!PodModel.has(&data("fra", &fixture_pods()), crash), "the cluster of the row left the data");

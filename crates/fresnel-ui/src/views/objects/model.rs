@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use egui::Color32;
 use fresnel_core::cluster::ClusterId;
-use fresnel_core::kinds::{Describe, Kind, Object};
+use fresnel_core::kinds::{Describe, Kind, Object, Witness};
 use fresnel_core::published::Held;
 use fresnel_core::store::Snapshot;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
@@ -18,16 +18,18 @@ use crate::views::metrics::read::Metered;
 use crate::views::metrics::{Problems, has_columns};
 use crate::widgets::table::model::{Model, ObjectId};
 
-/// The stores of one kind of the selected clusters at one moment, and the metrics of each
-/// cluster for a kind with the CPU and memory columns.
+/// The stores of one kind of the selected clusters at one moment, the metrics of each
+/// cluster for a kind with the CPU and memory columns, and the stores that tell the state of
+/// a warning of each cluster for the Events.
 pub(crate) struct Stores<T: Send + Sync + 'static> {
     pub(crate) clusters: Vec<(ClusterId, Held<Snapshot<T>>)>,
     pub(crate) metered: Vec<Metered>,
+    pub(crate) witnesses: Vec<(ClusterId, Witness)>,
 }
 
 impl<T: Send + Sync + 'static> Clone for Stores<T> {
     fn clone(&self) -> Self {
-        Self { clusters: self.clusters.clone(), metered: self.metered.clone() }
+        Self { clusters: self.clusters.clone(), metered: self.metered.clone(), witnesses: self.witnesses.clone() }
     }
 }
 
@@ -35,6 +37,11 @@ impl<T: Send + Sync + 'static> Stores<T> {
     /// The metrics of a cluster.
     pub(crate) fn metered(&self, cluster: &ClusterId) -> Option<&Metered> {
         self.metered.iter().find(|metered| metered.cluster == *cluster)
+    }
+
+    /// The stores that tell the state of a warning of a cluster now.
+    pub(crate) fn witness(&self, cluster: &ClusterId) -> Option<&Witness> {
+        self.witnesses.iter().find(|(id, _)| id == cluster).map(|(_, witness)| witness)
     }
 }
 
@@ -117,6 +124,9 @@ pub(crate) trait ObjectModel:
     /// True for a table with the CPU and memory columns: it reads the metrics of each
     /// cluster, and a new poll gives it new rows.
     const METERED: bool = has_columns(<Self::Object as Describe>::ID);
+    /// True for the table of the Events, with the state of each warning now: it reads the
+    /// stores of the objects of each cluster, and a change of them gives it new rows.
+    const WITNESSED: bool = matches!(<Self::Object as Describe>::ID, Kind::Event);
 
     fn nouns(&self) -> Nouns;
 
