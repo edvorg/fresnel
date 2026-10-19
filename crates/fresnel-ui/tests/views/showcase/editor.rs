@@ -11,27 +11,35 @@ use fresnel_core::app::EditState;
 use fresnel_core::manifest::EditText;
 use serde_json::json;
 
-use super::objects::RESOURCE_VERSION;
+use super::objects::Owner;
 use super::panels::{checkout_of, set_filter};
 use super::stores::Stores;
 use super::world::{CHECKOUT, PROD_EU};
 use super::{save, window};
 use crate::editor::{checked, click_row, editors, give};
-use crate::fake::{Window, grow_dock, shows, until};
+use crate::fake::{Window, dock_edge, grow_dock, shows, until};
 use crate::frame_time::wheel;
 
-/// The dock grows this much, so the text shows the spec of the Deployment.
-const EDITOR_DOCK: f32 = 270.0;
-/// The generation of the spec of checkout-api: its revision 7 and two scales.
-const GENERATION: u32 = 9;
+/// The dock grows this much, so the text shows the spec of the Deployment, and the dock hides
+/// the first heading of the panel: 270 points cut it in half.
+const EDITOR_DOCK: f32 = 280.0;
+/// The scales of checkout-api: each one is a new generation of its spec, with no new revision.
+const SCALES: u32 = 2;
+/// The generation of the spec of checkout-api: one of each revision and each scale.
+const GENERATION: u32 = match CHECKOUT.owner {
+    Owner::Deployment(_, revision) => revision + SCALES,
+    Owner::StatefulSet | Owner::DaemonSet | Owner::CronJob => panic!("checkout-api is a Deployment"),
+};
 
 /// checkout-api of prod-eu as a GET of the server gives it: the object of its store with the
-/// defaults that the server sets, which no view of the world reads, in the YAML of the core.
-fn served() -> String {
+/// defaults that the server sets, which no view of the world reads, in the YAML of the core,
+/// with its resource version.
+fn served() -> (String, Option<String>) {
     let stores = Stores::of(&PROD_EU);
     let deployment =
         stores.deployments.iter().find(|deployment| deployment.metadata.name.as_deref() == Some(CHECKOUT.name));
-    let mut object = serde_json::to_value(&**deployment.expect("the Deployment checkout-api")).expect("JSON");
+    let deployment = deployment.expect("the Deployment checkout-api");
+    let mut object = serde_json::to_value(&**deployment).expect("JSON");
     object["metadata"]["generation"] = GENERATION.into();
     object["status"]["observedGeneration"] = GENERATION.into();
     let spec = &mut object["spec"];
@@ -51,18 +59,27 @@ fn served() -> String {
         container["terminationMessagePath"] = "/dev/termination-log".into();
         container["terminationMessagePolicy"] = "File".into();
     }
-    serde_saphyr::to_string(&object).expect("YAML")
+    (serde_saphyr::to_string(&object).expect("YAML"), deployment.metadata.resource_version.clone())
 }
 
-/// Types text at the end of a row of the editor: a key press for each new line, so each one
-/// gets the indent of the editor.
-fn type_after(window: &mut Window, row: &str, lines: &[&str]) {
+/// Types lines at the end of a row of the editor: Enter before each one, so it gets the
+/// indent of the editor, then a Backspace for each step of that indent to take back.
+fn type_after(window: &mut Window, row: &str, lines: &[(usize, &str)]) {
     click_row(window, row);
-    for line in lines {
+    for (back, line) in lines {
         window.key_press(Key::Enter);
+        for _ in 0..*back {
+            window.key_press(Key::Backspace);
+        }
         window.event(Event::Text((*line).to_owned()));
         window.run();
     }
+}
+
+/// True when the top of the dock is not across the heading of the first section of the panel.
+fn heading_whole(window: &Window) -> bool {
+    let (heading, edge) = (window.get_by_label("METADATA").rect(), dock_edge(window));
+    heading.bottom() <= edge || heading.top() >= edge
 }
 
 /// The editor of checkout-api, scrolled to its spec: the release 1.42.4 is in the image tag,
@@ -76,15 +93,11 @@ fn an_edit_of_a_manifest() {
     window.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::Y);
     window.run();
     let request = editors(&window).pop().expect("the request of the editor");
-    let text = served();
-    let read = EditText {
-        lines: text.lines().count(),
-        text: text.into(),
-        version: Some(RESOURCE_VERSION.to_owned()),
-        decoded: None,
-    };
+    let (text, version) = served();
+    let read = EditText { lines: text.lines().count(), text: text.into(), version, decoded: None };
     give(&mut window, &request, EditState::Done(Arc::new(read)));
     grow_dock(&mut window, EDITOR_DOCK);
+    assert!(heading_whole(&window), "the dock hides the heading METADATA or shows all of it");
     checked(&mut window, "No error");
     // The wheel brings the spec to the top of the text.
     let row = |window: &Window, text: &str| window.get_by_role_and_label(Role::ListItem, text).rect();
@@ -92,12 +105,16 @@ fn an_edit_of_a_manifest() {
     window.hover_at(first.center());
     window.event(wheel(first.top() - row(&window, "spec:").top()));
     window.run();
+    assert!((row(&window, "spec:").top() - first.top()).abs() <= 1.0, "the spec at the top of the text");
     let image = format!("      - image: {}", CHECKOUT.image);
     click_row(&mut window, &image);
     window.key_press(Key::Backspace);
     window.event(Event::Text("4".to_owned()));
     window.run();
-    type_after(&mut window, "        name: checkout-api", &["env:", "- name: CHECKOUT_SPLIT_PAYMENTS", "value: on"]);
+    // The list is compact, as the server writes `containers` and `ports`: its dash is one step
+    // left of the indent that Enter gives after the colon.
+    let variable = [(0, "env:"), (1, "- name: CHECKOUT_SPLIT_PAYMENTS"), (0, "value: on")];
+    type_after(&mut window, "        name: checkout-api", &variable);
     checked(&mut window, "No error, 1 hint");
     window.key_press_modifiers(Modifiers::COMMAND, Key::F);
     window.run();

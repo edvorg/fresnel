@@ -21,7 +21,7 @@ commands:
                          run the app core for some hours on k3s in Docker with changes
                          and random faults, and write a report of each minute; --fast
                          gives more changes, lines and faults, and a recreate of the cluster
-  screenshots            draw the pictures of the README into docs/screenshots
+  screenshots            draw the pictures of the README into docs/screenshots (on macOS)
 
 The variable FRESNEL_BUILD of install and windows is the build number of a release: the
 version is then <version of the workspace>+build.<number>.";

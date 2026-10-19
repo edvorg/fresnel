@@ -32,8 +32,13 @@ pub struct Picture {
 /// Draws the pictures, compresses them and writes them into the folder of the repository.
 /// Then each picture must have a link in the README, and each link of the README to that
 /// folder a picture: a renamed scene leaves no broken image. `root` is the root of the
-/// workspace.
+/// workspace. It runs on macOS only: the terminal of a picture takes its bold face from the
+/// fonts of the system, and on the other systems it has none, so the picture would change.
 pub fn run(root: &Path) -> io::Result<Vec<Picture>> {
+    if !cfg!(target_os = "macos") {
+        let text = "the pictures are drawn on macOS only: the terminal takes its bold face from the system";
+        return Err(io::Error::new(io::ErrorKind::Unsupported, text));
+    }
     let stage = crate::target_folder(root).join("screenshots");
     if stage.exists() {
         fs::remove_dir_all(&stage)?;

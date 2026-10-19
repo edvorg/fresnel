@@ -1888,11 +1888,11 @@ way past each.
 
 ## The pictures of the README come from the view tests
 
-`cargo xtask screenshots` draws eleven pictures with the harness of the view tests, on made-up
-clusters with one fixed time, so a run needs no cluster and two runs give the same bytes. A
-picture leaves out the margin of the harness: the window has none, and each pixel is opaque.
-oxipng compresses them with no loss: at scale 1.5 each one has less than 450 KB. The pictures
-add 19 lines to the README.
+`cargo xtask screenshots` draws eleven pictures in view tests, on made-up clusters with one
+fixed time: a run needs no cluster, and two give the same bytes. It needs macOS: the terminal
+takes its bold face from the system. A picture leaves out the margin of the harness: the window
+has none, and each pixel is opaque. oxipng compresses each with no loss below 450 KB at scale
+1.5. They add 19 lines to the README.
 
 ## The legend of a chart is beside its heading
 

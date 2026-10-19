@@ -22,6 +22,7 @@ pub(super) const CHECKOUT: App = App {
     requests: ["200m", "256Mi"],
     limits: [Some("500m"), Some("512Mi")],
     usage: [190.0, 300.0],
+    readiness: Some((8080, "/ready")),
 };
 /// The revision of the release candidate of checkout-api on staging, which crashes. Its
 /// revisions 6 and 7 are the release of prod and the candidate before.
@@ -43,6 +44,7 @@ pub(super) const CART: App = App {
     requests: ["100m", "128Mi"],
     limits: [Some("500m"), Some("256Mi")],
     usage: [70.0, 150.0],
+    readiness: None,
 };
 const REDIS: App = App {
     namespace: "shop",
@@ -52,6 +54,7 @@ const REDIS: App = App {
     requests: ["100m", "256Mi"],
     limits: [None, Some("512Mi")],
     usage: [24.0, 190.0],
+    readiness: None,
 };
 const PAYMENTS: App = App {
     namespace: "payments",
@@ -61,6 +64,7 @@ const PAYMENTS: App = App {
     requests: ["200m", "256Mi"],
     limits: [Some("1"), Some("512Mi")],
     usage: [120.0, 230.0],
+    readiness: None,
 };
 const POSTGRES: App = App {
     namespace: "payments",
@@ -70,6 +74,7 @@ const POSTGRES: App = App {
     requests: ["500m", "1Gi"],
     limits: [Some("2"), Some("2Gi")],
     usage: [340.0, 1330.0],
+    readiness: None,
 };
 const REPORT: App = App {
     namespace: "payments",
@@ -79,6 +84,7 @@ const REPORT: App = App {
     requests: ["200m", "256Mi"],
     limits: [None, Some("1Gi")],
     usage: [0.0, 0.0],
+    readiness: None,
 };
 const INDEXER: App = App {
     namespace: "search",
@@ -88,6 +94,7 @@ const INDEXER: App = App {
     requests: ["500m", "1Gi"],
     limits: [Some("2"), Some("3Gi")],
     usage: [780.0, 1900.0],
+    readiness: None,
 };
 const PROMETHEUS: App = App {
     namespace: "monitoring",
@@ -97,6 +104,7 @@ const PROMETHEUS: App = App {
     requests: ["300m", "1Gi"],
     limits: [None, Some("2Gi")],
     usage: [210.0, 1400.0],
+    readiness: None,
 };
 const GRAFANA: App = App {
     namespace: "monitoring",
@@ -106,6 +114,7 @@ const GRAFANA: App = App {
     requests: ["100m", "128Mi"],
     limits: [None, Some("256Mi")],
     usage: [15.0, 110.0],
+    readiness: None,
 };
 const NODE_EXPORTER: App = App {
     namespace: "monitoring",
@@ -115,6 +124,7 @@ const NODE_EXPORTER: App = App {
     requests: ["50m", "32Mi"],
     limits: [None, Some("64Mi")],
     usage: [8.0, 18.0],
+    readiness: None,
 };
 const COREDNS: App = App {
     namespace: "kube-system",
@@ -124,6 +134,7 @@ const COREDNS: App = App {
     requests: ["100m", "70Mi"],
     limits: [None, Some("170Mi")],
     usage: [6.0, 28.0],
+    readiness: None,
 };
 const METRICS_SERVER: App = App {
     namespace: "kube-system",
@@ -133,6 +144,7 @@ const METRICS_SERVER: App = App {
     requests: ["100m", "200Mi"],
     limits: [None, None],
     usage: [9.0, 34.0],
+    readiness: None,
 };
 
 /// The namespaces of each cluster.
@@ -225,6 +237,9 @@ pub(super) const STAGING: Site = Site {
 /// the new pods of its evicted ones are younger.
 pub(super) const DRAINED: &str = "general-bw9fd";
 pub(super) const CORDONED: u64 = 84;
+/// The age of the new pod of cart: its ReplicaSet made it when the drain evicted the old one.
+pub(super) const CART_REPLACED: u64 = 70;
+const _: () = assert!(CART_REPLACED < CORDONED, "the drain evicts after its cordon");
 /// The name of the pod of a ReplicaSet of prod-eu that the drain evicted.
 pub(super) fn evicted(set: &str) -> String {
     format!("{set}-{}", suffix(&[set, "evicted"], 5))
@@ -249,7 +264,7 @@ fn odd(site: &str, app: &str, index: u32) -> Option<Odd> {
     let odd = |state, age, node| Some(Odd { state, age, node });
     match (site, app, index) {
         // The new pods of the drain: one waits for a node.
-        ("prod-eu", "cart", 2) => odd(State::Pending(PENDING), Some(70), None),
+        ("prod-eu", "cart", 2) => odd(State::Pending(PENDING), Some(CART_REPLACED), None),
         ("prod-eu", "grafana", 0) => odd(State::Running(0, 0), Some(75), None),
         ("prod-eu", "coredns", 1) => odd(State::Running(0, 0), Some(80), None),
         ("prod-eu", "postgres", 1) => odd(State::Running(1, 3 * DAY + 2 * HOUR + 17 * MINUTE), None, Some(DRAINED)),

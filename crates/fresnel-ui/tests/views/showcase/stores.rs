@@ -12,9 +12,9 @@ use k8s_openapi::api::policy::v1::PodDisruptionBudget;
 use serde_json::{Value, json};
 
 use super::objects::{
-    App, DAY, HOUR, Note, Owner, State, conditions, cron_job, endpoint_slice, event, meta, node, object, replica_set,
-    service, workload,
+    App, DAY, HOUR, Note, Owner, State, conditions, cron_job, event, meta, node, object, replica_set, workload,
 };
+use super::services::{api_service, endpoint_slice, service};
 use super::world::{CORDONED, DRAINED, NAMESPACES, Planned, REPORT_JOB, Site, aged, earlier, pods_of, rollout};
 
 /// The Services of the apps: namespace, name, app and port.
@@ -99,6 +99,10 @@ impl Stores {
             stores.endpoint_slices.push(object(endpoint_slice(cluster, &service, &pods, age)));
             stores.services.push(object(service));
         }
+        let (api, slice) =
+            api_service(cluster, site.network, aged(site.age, &[cluster, "Service", "default", "kubernetes"]));
+        stores.services.push(object(api));
+        stores.endpoint_slices.push(object(slice));
         for (namespace, name) in CONFIG_MAPS {
             let age = created("ConfigMap", namespace, name);
             let config_map = json!({"metadata": meta(cluster, "ConfigMap", namespace, name, age), "data": {}});
@@ -198,8 +202,9 @@ impl Stores {
                         uid.unwrap_or_default()
                     );
                     let address = pod.status.as_ref().and_then(|status| status.pod_ip.as_deref()).unwrap_or_default();
+                    let (port, path) = app.readiness.expect("the readiness probe of the app that crashes");
                     let probe = format!(
-                        "Readiness probe failed: Get \"http://{address}:8080/ready\": dial tcp {address}:8080: \
+                        "Readiness probe failed: Get \"http://{address}:{port}{path}\": dial tcp {address}:{port}: \
                          connect: connection refused"
                     );
                     let crash = warning("BackOff", &back_off, 212, 31);

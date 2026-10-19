@@ -194,11 +194,16 @@ const DOCK_EDGE_FROM_RIGHT: f32 = 200.0;
 /// Drags the top edge of the dock `by` points up: the dock is then that much taller, and
 /// its tabs moved up with the edge.
 pub(crate) fn grow_dock(window: &mut Window, by: f32) {
-    let tabs = |window: &Window| window.get_by_role_and_label(egui::accesskit::Role::Button, "Operations").rect();
-    let before = tabs(window).top();
-    let edge = egui::pos2(window.ctx.content_rect().right() - DOCK_EDGE_FROM_RIGHT, before - DOCK_EDGE_ABOVE_TABS);
+    let before = dock_edge(window);
+    let edge = egui::pos2(window.ctx.content_rect().right() - DOCK_EDGE_FROM_RIGHT, before);
     move_edge(window, edge, edge - egui::vec2(0.0, by));
-    assert_dragged(window, "the top of the dock", before - tabs(window).top(), by);
+    assert_dragged(window, "the top of the dock", before - dock_edge(window), by);
+}
+
+/// The top edge of the dock, from its tabs.
+pub(crate) fn dock_edge(window: &Window) -> f32 {
+    let tabs = window.get_by_role_and_label(egui::accesskit::Role::Button, "Operations").rect();
+    tabs.top() - DOCK_EDGE_ABOVE_TABS
 }
 
 /// The left edge of the panel of an object is this far left of its tabs.
@@ -217,22 +222,30 @@ pub(crate) fn widen_panel(window: &mut Window, by: f32) {
     assert_dragged(window, "the left of the panel", before.left() - tabs(window).left(), by);
 }
 
-/// The part of the chosen job of the Operations tab has a margin of this many points at its
-/// left, so its left edge is that far left of its text.
-const JOB_MARGIN: f32 = 8.0;
+/// The part of the chosen job of the Operations tab and the part of the chosen forward of the
+/// Forwards tab have a margin of this many points at their left, so the left edge of each is
+/// that far left of its text.
+const CHOSEN_MARGIN: f32 = 8.0;
 /// The part of the chosen job grows this much in the test of a drain and in its picture: the
 /// verdict "keep: a pod of a DaemonSet" then fits whole.
 pub(crate) const JOB_WIDENING: f32 = 200.0;
+
+/// Drags the left edge of the chosen part of the Operations tab or of the Forwards tab `by`
+/// points to the left; a negative `by` drags it to the right. `title` gives the left of the
+/// title of the part, and the press is at the height `y`.
+pub(crate) fn drag_chosen(window: &mut Window, title: impl Fn(&Window) -> f32, y: f32, by: f32) {
+    let before = title(window);
+    let edge = egui::pos2(before - CHOSEN_MARGIN, y);
+    move_edge(window, edge, edge - egui::vec2(by, 0.0));
+    assert_dragged(window, "the left of the chosen part", before - title(window), by);
+}
 
 /// Drags the left edge of the part of the chosen job of the Operations tab `by` points to the
 /// left. `title` is a part of the title of the job, and the press is at the height of the
 /// text `row` of the job: the rows of the job list end higher up.
 pub(crate) fn widen_job(window: &mut Window, (title, row): (&str, &str), by: f32) {
-    let left = |window: &Window| window.get_by_label_contains(title).rect().left();
-    let before = left(window);
-    let edge = egui::pos2(before - JOB_MARGIN, window.get_by_label_contains(row).rect().center().y);
-    move_edge(window, edge, edge - egui::vec2(by, 0.0));
-    assert_dragged(window, "the left of the chosen job", before - left(window), by);
+    let y = window.get_by_label_contains(row).rect().center().y;
+    drag_chosen(window, |window| window.get_by_label_contains(title).rect().left(), y, by);
 }
 
 /// True when each label with this text shows it whole, and one does. A label that cuts its

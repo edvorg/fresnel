@@ -16,14 +16,13 @@ use fresnel_core::logs::{Color, LogLine, SourceState, SourceView, Span, Style};
 use fresnel_core::ops::{JobState, Operation, Outcome, Revision};
 use fresnel_core::store::ObjectKey;
 use jiff::Timestamp;
-use k8s_openapi::api::core::v1::Pod;
 use serde_json::Value;
 
-use super::objects::{RESOURCE_VERSION, hash, suffix};
+use super::objects::{hash, suffix};
 use super::world::{
     CANDIDATE, CANDIDATE_AGE, CHECKOUT, CHECKOUT_NEXT, PROD_EU, RC_REVISION, RC_ROLLOUT, RELEASE_AGE, STAGING, rollout,
 };
-use super::{TO_THE_END, save, target, uid_of, window};
+use super::{TO_THE_END, of_app, save, target, uid_of, version_of, window};
 use crate::fake::{Window, grow_dock, now, open_tab, shows, until, widen_panel};
 use crate::frame_time::wheel;
 use crate::keys::scene::{give, loaded, read};
@@ -64,6 +63,17 @@ const MOST_SCROLLS: usize = 4;
 /// The top of the first section of a panel at the top of its scroll.
 fn first_section(window: &Window) -> f32 {
     window.get_by_label("METADATA").rect().top()
+}
+
+/// Scrolls the panel of an object so that the section `heading` is at the place of its first
+/// section. A panel with too little below the section would stop the scroll before.
+pub(super) fn scroll_panel_to(window: &mut Window, heading: &str) {
+    let top = |window: &Window| window.get_by_label(heading).rect().top();
+    let first = first_section(window);
+    window.hover_at(window.get_by_role_and_label(Role::Button, "Overview").rect().left_bottom() + BELOW_TABS);
+    window.event(wheel(first - top(window)));
+    window.run();
+    assert!((top(window) - first).abs() <= 1.0, "{heading} at the top of the panel");
 }
 
 /// The tops of the labels of the panel that the top edge of its scroll area cuts.
@@ -173,14 +183,10 @@ fn a_rollback_to_an_earlier_revision() {
     open_tab(&mut window, "Operations");
     // The panel scrolls its list of the revisions to the place of its first section, so no
     // row is half under its tabs.
-    let top = |window: &Window, heading: &str| window.get_by_label(heading).rect().top();
     let first = first_section(&window);
-    let tabs = window.get_by_role_and_label(Role::Button, "Overview").rect();
-    window.hover_at(tabs.left_bottom() + BELOW_TABS);
-    window.event(wheel(first - top(&window, "REVISIONS")));
-    window.run();
-    assert!((top(&window, "REVISIONS") - first).abs() <= 1.0, "the revisions at the top of the panel");
+    scroll_panel_to(&mut window, "REVISIONS");
     assert_eq!(cut_at_top(&window, first), Vec::<f32>::new(), "a row under the tabs of the panel");
+    let tabs = window.get_by_role_and_label(Role::Button, "Overview").rect();
     let button = format!("Roll back to {RELEASE}…");
     let dock = window.get_by_role_and_label(Role::Button, "Operations").rect().top();
     let shown = window.get_by_role_and_label(Role::Button, &button).rect();
@@ -234,8 +240,7 @@ fn the_logs_of_a_deployment() {
     window.get_by_role_and_label(Role::Button, "Logs").click();
     window.run();
     let request = shown(&window).into_iter().next().expect("the request of the view");
-    let of_checkout = |pod: &Pod| pod.metadata.name.as_deref().is_some_and(|name| name.starts_with("checkout-api-"));
-    let pods = super::pods_of(&window, PROD_EU.name, of_checkout);
+    let pods = super::pods_of(&window, PROD_EU.name, of_app(CHECKOUT.name));
     let source = |pod: &String| SourceView {
         pod: ObjectKey::new("shop", pod),
         container: "checkout-api".into(),
@@ -275,7 +280,8 @@ fn an_edit_of_the_keys_of_a_secret() {
         ("url", Place::Data, url),
         ("username", Place::Data, b"payments\n"),
     ];
-    give(&mut window, PROD_EU.name, Some(loaded(read(&target, RESOURCE_VERSION, values))));
+    let version = version_of(PROD_EU.name, Kind::Secret, "payments", "postgres-credentials");
+    give(&mut window, PROD_EU.name, Some(loaded(read(&target, &version, values))));
     click(&mut window, "Show the value of password");
     typed(&mut window, "Value of password", "example-password-2\n");
     whole_rows_at_top(&mut window, first);

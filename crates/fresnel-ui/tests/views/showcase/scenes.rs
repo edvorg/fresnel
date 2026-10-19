@@ -14,7 +14,6 @@ use fresnel_core::ops::{JobState, Operation, Outcome, StepState};
 use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::core::v1::Pod;
 
-use super::clusters::PROD_US_REASON;
 use super::world::{DRAINED, PROD_EU, PROD_US, evicted};
 use super::{MARGIN, TO_THE_END, save, target, window};
 use crate::fake::{JOB_WIDENING, Window, assert_dragged, grow_dock, move_edge, open_page, open_tab, until, widen_job};
@@ -163,6 +162,9 @@ fn a_node_drain_in_the_operations_tab() {
 fn card_top(window: &Window, cluster: &str) -> f32 {
     window.get_by_label_contains(&format!("{cluster}.k8s.example")).rect().top()
 }
+
+/// The reason in the head of the card of prod-us of the overview.
+const PROD_US_REASON: &str = "watches: connect: no answer in 3s";
 
 /// Scrolls the page to its end: the middle of the window is on it.
 fn to_the_end(window: &mut Window) {

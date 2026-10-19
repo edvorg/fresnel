@@ -1,11 +1,10 @@
 //! The objects of the showcase in the JSON of the API server, with the fields that the views
-//! read. Each name, UID and IP address comes from a hash of its place, so two runs give the
-//! same objects; each time is a span before the time of the view tests.
+//! read. Each name, UID, resource version and IP address comes from a hash of its place, so
+//! two runs give the same objects; each time is a span before the time of the view tests.
 
 use std::sync::Arc;
 
 use jiff::{SignedDuration, Timestamp};
-use k8s_openapi::api::core::v1::Pod;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
@@ -14,8 +13,8 @@ use crate::fake::now;
 pub(super) const MINUTE: u64 = 60;
 pub(super) const HOUR: u64 = 3_600;
 pub(super) const DAY: u64 = 86_400;
-/// The version of each object of the world: the store and a read of the server agree.
-pub(super) const RESOURCE_VERSION: &str = "48211";
+/// The memory of a node of the world in KiB, as its capacity gives it.
+pub(super) const NODE_MEMORY_KI: u64 = 8_148_668;
 /// The seconds that the Job of the nightly report runs.
 const REPORT_RUN: u64 = 95;
 
@@ -40,6 +39,8 @@ pub(super) struct App {
     pub(super) limits: [Option<&'static str>; 2],
     /// The usage of one pod at the last poll: millicores and MiB.
     pub(super) usage: [f64; 2],
+    /// The port of the HTTP server of the app and the path of its readiness probe.
+    pub(super) readiness: Option<(u16, &'static str)>,
 }
 
 impl App {
@@ -94,6 +95,12 @@ pub(super) fn uid(parts: &[&str]) -> String {
     format!("{}-{}-4{}-8{}-{}", part(0..8), part(8..12), part(13..16), part(17..20), part(20..32))
 }
 
+/// The resource version of an object with this place: the revision of etcd at its last
+/// write. In a range of a million, two objects of a cluster seldom share one.
+pub(super) fn resource_version(parts: &[&str]) -> String {
+    (48_000_000 + hash(parts) % 1_000_000).to_string()
+}
+
 /// The random end of a name, from the letters that Kubernetes uses for one.
 pub(super) fn suffix(parts: &[&str], length: usize) -> String {
     const LETTERS: &[u8] = b"bcdfghjklmnpqrstvwxz2456789";
@@ -120,9 +127,9 @@ pub(super) fn object<K: DeserializeOwned>(value: Value) -> Arc<K> {
 
 /// The metadata of an object of a cluster, with its UID.
 pub(super) fn meta(cluster: &str, kind: &str, namespace: &str, name: &str, age: u64) -> Value {
-    let uid = uid(&[cluster, kind, namespace, name]);
-    let mut meta =
-        json!({"name": name, "uid": uid, "creationTimestamp": ago(age), "resourceVersion": RESOURCE_VERSION});
+    let place = [cluster, kind, namespace, name];
+    let version = resource_version(&place);
+    let mut meta = json!({"name": name, "uid": uid(&place), "creationTimestamp": ago(age), "resourceVersion": version});
     if !namespace.is_empty() {
         meta["namespace"] = namespace.into();
     }
@@ -138,7 +145,8 @@ fn owner_reference(kind: &str, name: &str, uid: &str) -> Value {
     json!([{"apiVersion": api, "kind": kind, "name": name, "uid": uid, "controller": true}])
 }
 
-/// The template of the pods of an app, with its resources.
+/// The template of the pods of an app, with its resources, and its port and readiness probe
+/// with the defaults of the server.
 fn template(app: &App) -> Value {
     let [cpu, memory] = app.requests;
     let mut limits = serde_json::Map::new();
@@ -148,10 +156,13 @@ fn template(app: &App) -> Value {
         }
     }
     let resources = json!({"requests": {"cpu": cpu, "memory": memory}, "limits": limits});
-    json!({
-        "metadata": {"labels": {"app": app.name}},
-        "spec": {"containers": [{"name": app.name, "image": app.image, "resources": resources}]},
-    })
+    let mut container = json!({"name": app.name, "image": app.image, "resources": resources});
+    if let Some((port, path)) = app.readiness {
+        container["ports"] = json!([{"name": "http", "containerPort": port, "protocol": "TCP"}]);
+        container["readinessProbe"] = json!({"httpGet": {"path": path, "port": port, "scheme": "HTTP"},
+            "timeoutSeconds": 1, "periodSeconds": 10, "successThreshold": 1, "failureThreshold": 3});
+    }
+    json!({"metadata": {"labels": {"app": app.name}}, "spec": {"containers": [container]}})
 }
 
 /// A pod as the API server gives it in each state of the showcase.
@@ -278,7 +289,7 @@ pub(super) fn cron_job(cluster: &str, app: &App, (job_name, age): (&str, u64), c
 /// A node with 4 cores and 8 GiB in the network `10.<network>.0.0/16`, ready, and cordoned
 /// when `cordoned` is true.
 pub(super) fn node(cluster: &str, (name, network): (&str, u8), version: &str, age: u64, cordoned: bool) -> Value {
-    let capacity = json!({"cpu": "4", "memory": "8148668Ki", "pods": "110"});
+    let capacity = json!({"cpu": "4", "memory": format!("{NODE_MEMORY_KI}Ki"), "pods": "110"});
     let allocatable = json!({"cpu": "3900m", "memory": "6919644Ki", "pods": "110"});
     let place = hash(&[cluster, name]);
     let address = format!("10.{network}.{}.{}", place % 4, 2 + (place >> 8) % 250);
@@ -332,44 +343,5 @@ pub(super) fn event(cluster: &str, (kind, object): (&str, &Value), note: &Note<'
         "involvedObject": {"kind": kind, "namespace": namespace, "name": name, "uid": object["uid"]},
         "reason": reason, "message": message, "type": level, "count": count,
         "firstTimestamp": ago(first), "lastTimestamp": ago(last), "source": {"component": source},
-    })
-}
-
-/// The EndpointSlice of a Service: an endpoint for each of these pods that has an address,
-/// ready when the pod is ready, as the controller of the slices writes it.
-pub(super) fn endpoint_slice(cluster: &str, service: &Value, pods: &[&Pod], age: u64) -> Value {
-    let [namespace, name] = ["namespace", "name"].map(|field| service["metadata"][field].as_str().unwrap_or_default());
-    let slice = format!("{name}-{}", suffix(&[cluster, namespace, name, "slice"], 5));
-    let endpoint = |pod: &&Pod| {
-        let address = pod.status.as_ref()?.pod_ip.clone()?;
-        let ready = pod
-            .status
-            .as_ref()?
-            .conditions
-            .iter()
-            .flatten()
-            .any(|condition| condition.type_ == "Ready" && condition.status == "True");
-        let target = json!({"kind": "Pod", "namespace": namespace, "name": pod.metadata.name, "uid": pod.metadata.uid});
-        Some(json!({"addresses": [address], "conditions": {"ready": ready, "serving": ready, "terminating": false},
-            "nodeName": pod.spec.as_ref()?.node_name, "targetRef": target}))
-    };
-    let mut slice = json!({
-        "metadata": meta(cluster, "EndpointSlice", namespace, &slice, age),
-        "addressType": "IPv4",
-        "endpoints": pods.iter().filter_map(endpoint).collect::<Vec<_>>(),
-        "ports": [{"name": "", "port": service["spec"]["ports"][0]["targetPort"], "protocol": "TCP"}],
-    });
-    slice["metadata"]["labels"] = json!({"kubernetes.io/service-name": name,
-        "endpointslice.kubernetes.io/managed-by": "endpointslice-controller.k8s.io"});
-    slice
-}
-
-/// A Service of an app on one port, with an address of the service range of kubeadm.
-pub(super) fn service(cluster: &str, (namespace, name, app): (&str, &str, &str), port: u16, age: u64) -> Value {
-    let address = hash(&[cluster, namespace, name]);
-    json!({
-        "metadata": meta(cluster, "Service", namespace, name, age),
-        "spec": {"type": "ClusterIP", "clusterIP": format!("10.96.{}.{}", address % 64, 2 + address % 250),
-            "ports": [{"port": port, "targetPort": port, "protocol": "TCP"}], "selector": {"app": app}},
     })
 }

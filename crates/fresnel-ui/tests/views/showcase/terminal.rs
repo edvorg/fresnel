@@ -3,21 +3,21 @@
 //! the core, as the session does, so the widget paints what a real session gives.
 
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use egui::accesskit::Role;
 use egui_kittest::kittest::Queryable as _;
 use fresnel_core::app::Command;
-use fresnel_core::store::ObjectKey;
 use fresnel_core::terminal::{Options, SessionState, Terminal, TerminalRequest, TerminalView};
 use fresnel_ui::{TerminalFonts, add_terminal_fonts};
 use jiff::Timestamp;
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::api::core::v1::{Pod, Service};
 
+use super::objects::{MINUTE, NODE_MEMORY_KI};
 use super::stores::Stores;
 use super::usage::usage;
-use super::world::{CHECKOUT, PROD_EU};
-use super::{save, window};
+use super::world::{CHECKOUT, PROD_EU, RELEASE_AGE};
+use super::{first_pod, save, window};
 use crate::fake::{Window, grow_dock, now, shows, until};
 use crate::metrics::POLLS;
 use crate::workloads::scene::open;
@@ -28,8 +28,8 @@ const TERMINAL_DOCK: f32 = 180.0;
 /// The working folder of the image of checkout-api, and the user of its process.
 const FOLDER: &str = "/srv/checkout";
 const USER: &str = "app";
-/// The memory of a node of the world in KiB, as `node` of `objects` gives its capacity.
-const NODE_MEMORY: f64 = 8_148_668.0;
+/// The seconds since the start of the shell: ps runs at the time of the view tests.
+const SHELL_AGE: u64 = 40;
 
 /// The prompt of bash in a Debian image: the title of the terminal, then the user, the host
 /// and the folder in color. Bash turns the bracketed paste on before each prompt.
@@ -38,17 +38,47 @@ fn prompt(host: &str) -> String {
     format!("\x1b[?2004h{title}\x1b[01;32m{USER}@{host}\x1b[00m:\x1b[01;34m{FOLDER}\x1b[00m$ ")
 }
 
-/// The lines of `ls -l --color` in the folder of the image: GNU ls in the C locale, with
-/// the colors of a folder, a program and a link.
-const LISTING: &[&str] = &[
-    "total 41212",
-    "-rw-r--r-- 1 app app        7 Jan 12 04:51 VERSION",
-    "-rwxr-xr-x 1 app app 42183064 Jan 12 04:51 \x1b[01;32mcheckout-api\x1b[0m",
-    "drwxr-xr-x 2 app app     4096 Jan 12 04:51 \x1b[01;34mmigrations\x1b[0m",
-    "drwxr-xr-x 4 app app     4096 Jan 12 04:51 \x1b[01;34mstatic\x1b[0m",
-    "drwxr-xr-x 2 app app     4096 Jan 12 04:51 \x1b[01;34mtemplates\x1b[0m",
-    "lrwxrwxrwx 1 app app       13 Jan 12 04:51 \x1b[01;36mtmp\x1b[0m -> \x1b[01;34m/tmp/checkout\x1b[0m",
+/// The time `seconds` before the time of the view tests in a format of strftime, in UTC as
+/// the clock of the pod.
+fn clock(seconds: u64, format: &str) -> String {
+    let time = Timestamp::try_from(now() - Duration::from_secs(seconds)).expect("a time");
+    time.strftime(format).to_string()
+}
+
+/// The release of checkout-api: the tag of its image.
+fn release() -> &'static str {
+    CHECKOUT.image.rsplit(':').next().expect("a tag")
+}
+
+/// A file of the folder of the image: its mode, its count of links, its size in bytes, and
+/// its name in the colors of GNU ls for a program, a folder and a link.
+type File = (&'static str, u32, u64, &'static str);
+
+/// The files of the folder after VERSION, which holds the release.
+const LISTING: [File; 5] = [
+    ("-rwxr-xr-x", 1, 42_183_064, "\x1b[01;32mcheckout-api\x1b[0m"),
+    ("drwxr-xr-x", 2, 4096, "\x1b[01;34mmigrations\x1b[0m"),
+    ("drwxr-xr-x", 4, 4096, "\x1b[01;34mstatic\x1b[0m"),
+    ("drwxr-xr-x", 2, 4096, "\x1b[01;34mtemplates\x1b[0m"),
+    ("lrwxrwxrwx", 1, 13, "\x1b[01;36mtmp\x1b[0m -> \x1b[01;34m/tmp/checkout\x1b[0m"),
 ];
+/// The blocks of the file system of the image. The total of `ls -l` adds the KiB of the
+/// blocks of each file, and a short link keeps its target in its inode, with no block.
+const BLOCK: u64 = 4096;
+/// The age of each file: the image was built 28 minutes before staging ran the release first.
+const BUILT: u64 = RELEASE_AGE + 28 * MINUTE;
+
+/// The output of `ls -l --color` in the C locale: the total, VERSION with the release and a
+/// new line, and `LISTING`.
+fn listing() -> Vec<String> {
+    let version: File = ("-rw-r--r--", 1, release().len() as u64 + 1, "VERSION");
+    let files: Vec<File> = std::iter::once(version).chain(LISTING).collect();
+    let kib = |(mode, _, size, _): &File| if mode.starts_with('l') { 0 } else { size.div_ceil(BLOCK) * BLOCK / 1024 };
+    let total = format!("total {}", files.iter().map(kib).sum::<u64>());
+    let time = clock(BUILT, "%b %e %H:%M");
+    let line = |(mode, links, size, name): &File| format!("{mode} {links} {USER} {USER} {size:>8} {time} {name}");
+    std::iter::once(total).chain(files.iter().map(line)).collect()
+}
 
 /// `ps aux` in the pod: the program of checkout-api with the CPU and the memory of the pod in
 /// the metrics, from the start of its container on, the shell and ps. ps prints a value
@@ -65,44 +95,54 @@ fn processes(pod: &Pod) -> Vec<String> {
     let program = format!(
         "app            1 {:.1} {:4.1} 1874516 {rss} ?      Ssl  {start} {}:{:02} {FOLDER}/checkout-api",
         cpu * 100.0,
-        rss as f64 / NODE_MEMORY * 100.0,
+        rss as f64 / NODE_MEMORY_KI as f64 * 100.0,
         time / 60,
         time % 60
     );
+    let (shell, ps) = (clock(SHELL_AGE, "%H:%M"), clock(0, "%H:%M"));
     vec![
         "USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND".to_owned(),
         program,
-        "app           27  0.0  0.0   4612  3840 pts/0    Ss   07:59   0:00 bash".to_owned(),
-        "app           41  0.0  0.0   8100  4096 pts/0    R+   08:00   0:00 ps aux".to_owned(),
+        format!("app           27  0.0  0.0   4612  3840 pts/0    Ss   {shell}   0:00 bash"),
+        format!("app           41  0.0  0.0   8100  4096 pts/0    R+   {ps}   0:00 ps aux"),
     ]
 }
 
-/// The lines of `env | sort | grep _SERVICE_HOST`: the address of each Service of the
-/// namespace of the pod, as the kubelet gives it, with the hit of grep in its color.
+/// True for a Service whose address the kubelet gives to a pod of `namespace`: a Service of
+/// the namespace, and the Service kubernetes.
+fn given_to(namespace: &str) -> impl Fn(&&Arc<Service>) -> bool + '_ {
+    move |service| {
+        let place = (service.metadata.namespace.as_deref(), service.metadata.name.as_deref());
+        place.0 == Some(namespace) || place == (Some("default"), Some("kubernetes"))
+    }
+}
+
+/// The lines of `env | sort | grep _SERVICE_HOST`: the address of each Service that the
+/// kubelet gives to a pod of the namespace, with the hit of grep in its color.
 fn service_hosts(namespace: &str) -> Vec<String> {
     let hit = "\x1b[01;31m\x1b[K_SERVICE_HOST\x1b[m\x1b[K";
-    let mut hosts = vec![format!("KUBERNETES{hit}=10.96.0.1")];
-    for service in
-        Stores::of(&PROD_EU).services.iter().filter(|service| service.metadata.namespace.as_deref() == Some(namespace))
-    {
+    let services = Stores::of(&PROD_EU).services;
+    let host = |service: &Arc<Service>| {
         let address = service.spec.as_ref().and_then(|spec| spec.cluster_ip.as_deref()).expect("an address");
         let name = service.metadata.name.as_deref().expect("a name");
-        hosts.push(format!("{}{hit}={address}", name.to_uppercase().replace('-', "_")));
-    }
+        format!("{}{hit}={address}", name.to_uppercase().replace('-', "_"))
+    };
+    let mut hosts: Vec<String> = services.iter().filter(given_to(namespace)).map(host).collect();
     hosts.sort();
     hosts
 }
 
 /// The answer of the readiness endpoint of checkout-api, with the headers of curl.
 fn ready() -> Vec<String> {
-    let body = r#"{"status":"ready","version":"1.42.3","checks":{"cart":"ok","redis":"ok","payments":"ok"}}"#;
+    let checks = r#"{"cart":"ok","redis":"ok","payments":"ok"}"#;
+    let body = format!(r#"{{"status":"ready","version":"{}","checks":{checks}}}"#, release());
     vec![
         "HTTP/1.1 200 OK".to_owned(),
         "Content-Type: application/json".to_owned(),
-        "Date: Fri, 15 Jan 2027 08:00:00 GMT".to_owned(),
+        format!("Date: {}", clock(0, "%a, %d %b %Y %H:%M:%S GMT")),
         format!("Content-Length: {}", body.len() + 1),
         String::new(),
-        body.to_owned(),
+        body,
     ]
 }
 
@@ -110,11 +150,12 @@ fn ready() -> Vec<String> {
 /// terminal echoes each command, and bash turns the bracketed paste off before it runs.
 fn session(pod: &Pod) -> Vec<u8> {
     let host = pod.metadata.name.as_deref().unwrap_or_default();
-    let commands: [(&str, Vec<String>); 4] = [
-        ("ls -l --color", LISTING.iter().map(|line| (*line).to_owned()).collect()),
-        ("ps aux", processes(pod)),
-        ("env | sort | grep _SERVICE_HOST", service_hosts(CHECKOUT.namespace)),
-        ("curl -si localhost:8080/ready", ready()),
+    let (port, path) = CHECKOUT.readiness.expect("the readiness probe of checkout-api");
+    let commands = [
+        ("ls -l --color".to_owned(), listing()),
+        ("ps aux".to_owned(), processes(pod)),
+        ("env | sort | grep _SERVICE_HOST".to_owned(), service_hosts(CHECKOUT.namespace)),
+        (format!("curl -si localhost:{port}{path}"), ready()),
     ];
     let mut text = String::new();
     for (command, lines) in commands {
@@ -139,16 +180,6 @@ fn opened(window: &Window) -> TerminalRequest {
     request.expect("the request of a terminal")
 }
 
-/// The first pod of checkout-api of prod-eu, by name.
-fn first_pod(window: &Window) -> Arc<Pod> {
-    let of_checkout = |pod: &Pod| pod.metadata.name.as_deref().is_some_and(|name| name.starts_with("checkout-api-"));
-    let name = super::pods_of(window, PROD_EU.name, of_checkout).into_iter().next().expect("a pod of checkout-api");
-    let clusters = &window.state().view.clusters;
-    let data = clusters.iter().find(|row| row.id.as_str() == PROD_EU.name).and_then(|row| row.data.as_ref());
-    let pods = &data.expect("the data of prod-eu").pods.items;
-    Arc::clone(pods.get(&ObjectKey::new(CHECKOUT.namespace, &name)).expect("the pod"))
-}
-
 /// A shell in the first pod of checkout-api of prod-eu: `ls`, `ps`, the addresses of the
 /// Services and the readiness endpoint, in an open session. The terminal has the fonts of
 /// the system, as the app adds them.
@@ -156,7 +187,7 @@ fn first_pod(window: &Window) -> Arc<Pod> {
 fn a_shell_in_a_pod() {
     let mut window = window(egui::Theme::Dark);
     add_terminal_fonts(&window.ctx, TerminalFonts::of_system().0);
-    let pod = first_pod(&window);
+    let pod = first_pod(&window, PROD_EU.name, CHECKOUT.name);
     let name = pod.metadata.name.clone().unwrap_or_default();
     open(&mut window, "Pods", &name);
     super::panels::set_filter(&mut window, CHECKOUT.name, "7 of 46 pods");

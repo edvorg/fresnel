@@ -114,9 +114,9 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 - A UI test uses `egui_kittest` and opens no window. It builds the `CoreView` of each state
   by hand (`tests/views/fake.rs`) and reads the frame through the accessibility tree. It
   draws frames until the frame shows what it waits for (`until`).
-- A race test of a table holds the worker at a gate and changes the data, the filter or the
-  sort in that time (`widgets/table/tests/`). A time limit of a view is for a release build.
-  No test compares pixels. A change of a view in a README picture needs `cargo xtask screenshots`.
+- A race test of a table holds the worker at a gate and changes the data, the filter or the sort in
+  that time (`widgets/table/tests/`). A time limit of a view is for a release build. No test
+  compares pixels. A change of a view in a README picture needs `cargo xtask screenshots` on macOS.
 - A test of a program starts it as a child process with `env -i`, the `PATH` of Finder and a
   home folder of the test (`fresnel_testkit::Home`). No test reads the home folder of the user.
 - A test of the fake plugin or of the login shell, shell scripts, has `#[cfg(unix)]`.
