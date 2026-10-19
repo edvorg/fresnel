@@ -7,7 +7,7 @@ use egui::{Event, Key, Modifiers, ViewportCommand, ViewportEvent, ViewportId};
 use fresnel_core::terminal::{SessionState, TerminalView};
 
 use super::*;
-use crate::fake::shows;
+use crate::fake::{logic, shows};
 use crate::settings::with_config;
 use crate::terminal::{terminal, with_terminals};
 
@@ -110,4 +110,23 @@ fn the_setting_ask_before_quit_turns_the_question_off() {
     assert!(!commands(&window).contains(&ViewportCommand::CancelClose), "no question");
     window.run();
     assert!(!shows(&window, "Quit Fresnel?"));
+}
+
+/// eframe runs no frame for a minimized window, only the logic of the app: a close of it, as
+/// from the taskbar of Windows, stops there, and the window comes back to show its question.
+#[test]
+fn a_close_of_a_minimized_window_stops_with_no_frame_and_the_window_comes_back_to_ask() {
+    let mut window = tab_window(forwards());
+    let mut input = egui::RawInput::default();
+    let root = input.viewports.entry(ViewportId::ROOT).or_default();
+    (root.minimized, root.events) = (Some(true), vec![ViewportEvent::Close]);
+    let commands = logic(&mut window, &input);
+    assert!(commands.contains(&ViewportCommand::CancelClose), "the close waits for the user");
+    assert!(commands.contains(&ViewportCommand::Minimized(false)) && commands.contains(&ViewportCommand::Focus));
+    window.run();
+    assert!(shows(&window, "Quit Fresnel?"));
+
+    // With no reason to ask, the close of a hidden window goes on.
+    let mut stopped = tab_window(Vec::new());
+    assert_eq!(logic(&mut stopped, &input), Vec::new(), "no terminal and no forward");
 }

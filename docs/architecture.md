@@ -180,7 +180,7 @@ dock (Operations, Forwards, Journal, Connections, a tab of each log, editor, ter
 - **Settings** (`views/settings`): a control for each entry of `config::table`, cluster and key; a
   draft goes to `EditSettings`. `shell/focus` moves the keys between four areas; `?` lists them.
 - **Forwards** (`views/forwards`): the tab, a line of each forward, a panel of the chosen one, the
-  Forward dialog, the status bar counts. `shell/quit`: a quit with a terminal or a forward asks.
+  Forward dialog, status bar counts. `shell/quit`: a quit with a terminal or a forward asks, also hidden.
 
 ## Tests
 

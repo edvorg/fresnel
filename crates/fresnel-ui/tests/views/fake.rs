@@ -88,6 +88,8 @@ pub(crate) fn window_with_no_gpu(view: CoreView, pixels_per_point: f32) -> Windo
 fn build(view: CoreView, theme: egui::Theme, pixels_per_point: f32, gpu: bool) -> Window {
     let frame = |ui: &mut egui::Ui, core: &mut FakeCore| {
         let shell = core.shell.get_or_insert_with(|| Shell::new(ui.ctx(), Clock::fixed(now()), &core.tasks));
+        // The logic and then the frame, as eframe runs a window that shows.
+        shell.logic(ui.ctx(), || core.view.clone());
         let commands = shell.show(ui, &core.view);
         core.sent.extend(commands);
     };
@@ -114,6 +116,16 @@ fn build(view: CoreView, theme: egui::Theme, pixels_per_point: f32, gpu: bool) -
         window.query_all_by_role(egui::accesskit::Role::Label).any(|node| is_count(&node))
     });
     window
+}
+
+/// One pass of the logic of the shell with no frame, as eframe runs a hidden window
+/// (`App::logic`) with the window state of `input`. Gives the commands to the window.
+pub(crate) fn logic(window: &mut Window, input: &egui::RawInput) -> Vec<egui::ViewportCommand> {
+    let ctx = window.ctx.clone();
+    let FakeCore { shell, view, .. } = window.state_mut();
+    let shell = shell.as_mut().expect("the shell of the first frame");
+    let output = ctx.run_logic(input, |ctx| shell.logic(ctx, || view.clone()));
+    output.viewport_commands.get(&egui::ViewportId::ROOT).cloned().unwrap_or_default()
 }
 
 /// Draws frames until the window meets the condition, as a window does that a worker

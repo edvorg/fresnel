@@ -163,6 +163,13 @@ impl Shell {
         }
     }
 
+    /// The logic of each frame, before [`Shell::show`]: eframe runs it also while the window
+    /// is hidden, with no ui pass (`App::logic`). It stops a close of the window that has to
+    /// ask first. `view` gives a copy of the state of the core; only a close calls it.
+    pub fn logic(&mut self, ctx: &egui::Context, view: impl FnOnce() -> CoreView) {
+        self.quit.stop_close(ctx, view);
+    }
+
     /// Draws one frame into the root `Ui` and returns the commands of the user.
     pub fn show(&mut self, ui: &mut Ui, view: &CoreView) -> Vec<Command> {
         self.colors.assign(view.clusters.iter().map(|row| &row.id));

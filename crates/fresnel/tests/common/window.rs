@@ -1,5 +1,6 @@
 //! The window of the app on its real core, with no window of the system: each frame is
-//! [`fresnel::frame::draw`], as in the app. The core starts after the first frame.
+//! [`fresnel::frame::logic`] and [`fresnel::frame::draw`], as in the app. The core starts
+//! after the first frame.
 
 use std::time::{Duration, Instant};
 
@@ -43,6 +44,7 @@ pub(crate) fn window(core: Core, size: egui::Vec2) -> Window {
     let frame = |ui: &mut egui::Ui, app: &mut App| {
         let core = &app.core;
         let shell = app.shell.get_or_insert_with(|| Shell::new(ui.ctx(), Clock::system(), &core.tasks()));
+        fresnel::frame::logic(shell, core, ui.ctx());
         fresnel::frame::draw(shell, core, ui);
     };
     let builder = Harness::builder().with_size(size).with_step_dt(1.0 / 60.0).with_max_steps(64);

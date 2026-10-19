@@ -61,6 +61,11 @@ impl Window {
 }
 
 impl eframe::App for Window {
+    /// eframe calls this before each `ui`, and alone while the window is minimized or hidden.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        frame::logic(&mut self.shell, self.boot.core(), ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let view = frame::draw(&mut self.shell, self.boot.core(), ui);
         for url in frame::take_urls(ui.ctx()) {

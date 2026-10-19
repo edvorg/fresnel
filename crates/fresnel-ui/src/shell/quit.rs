@@ -5,6 +5,8 @@
 //!
 //! Each way to quit is a close of the window, which the app can refuse: egui makes Cmd+Q
 //! (Ctrl+Q on Windows) one, and the program makes the Quit item of the macOS menu one too.
+//! eframe runs no ui pass for a hidden window, only `App::logic`, so the stop of a close is
+//! a step of the logic ([`QuitGuard::stop_close`]) and the dialog a step of the frame.
 
 use egui::{Context, Id, Key, Modal, RichText, ViewportCommand};
 use fresnel_core::app::CoreView;
@@ -33,17 +35,33 @@ impl QuitGuard {
         self.asking
     }
 
-    /// Stops a close of the window while a terminal or a forward runs, and asks the user.
-    pub(crate) fn show(&mut self, ctx: &Context, view: &CoreView) {
-        let ends = ends(view);
-        let ask = view.config.flag(Setting::AskQuit) && !ends.is_empty();
-        if ctx.input(|input| input.viewport().close_requested()) && ask && !self.allowed {
-            ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-            self.asking = true;
+    /// Stops a close of the window while a terminal or a forward runs, and opens the question.
+    /// It runs in the logic of each frame, also of a hidden window: a close of a minimized
+    /// window, as from the taskbar of Windows, ended the app with no question in a frame with
+    /// no ui pass. Such a window comes back first, as its question would show nowhere. `view`
+    /// copies the state of the core, and only a close calls it.
+    pub(crate) fn stop_close(&mut self, ctx: &Context, view: impl FnOnce() -> CoreView) {
+        if self.allowed || !ctx.input(|input| input.viewport().close_requested()) {
+            return;
         }
+        let view = view();
+        if !view.config.flag(Setting::AskQuit) || ends(&view).is_empty() {
+            return;
+        }
+        ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+        if ctx.input(|input| input.viewport().minimized == Some(true)) {
+            ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(ViewportCommand::Focus);
+        }
+        self.asking = true;
+    }
+
+    /// Draws the question while it is open.
+    pub(crate) fn show(&mut self, ctx: &Context, view: &CoreView) {
         if !self.asking {
             return;
         }
+        let ends = ends(view);
         let modal = Modal::new(Id::new("quit")).show(ctx, |ui| {
             let palette = theme::palette(ui);
             ui.label(RichText::new("Quit Fresnel?").heading());

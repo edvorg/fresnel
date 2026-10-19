@@ -2186,6 +2186,13 @@ quit with no question while shells and local ports were open. The program gives 
 while a terminal or a forward runs, unless `ask_before_quit` is off; the quit still waits 5 s
 at most for the shells.
 
+## The stop of a close runs in the logic of a frame, also of a hidden window
+
+eframe runs no ui pass for a minimized window, only `App::logic`, so a close from the taskbar of
+Windows ended the terminals and the forwards with no question. `Shell::logic` stops the close,
+and it copies the state of the core only at a close. A minimized window then comes back to show
+the question, which would show nowhere else.
+
 ## A shell that no stream reached ends at the close of its tab
 
 A debug container runs its shell from its start, with an open input. When the attach to it
