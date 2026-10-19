@@ -1886,6 +1886,14 @@ Microsoft a certificate. The bundle keeps its ad hoc signature, so macOS stops t
 a download in a browser, and SmartScreen of Windows asks at the first start. The README tells the
 way past each.
 
+## A release carries the license texts of its crates
+
+The MIT and Apache licenses of the crates and the OFL of JetBrains Mono ask that their notices go
+with a binary. Both zip files carry `THIRD-PARTY-LICENSES` of `cargo xtask notices`: each crate, its
+license and the texts of its package, each text one time. `cargo tree` of each target gives the
+crates: `cargo metadata` unifies the features of the workspace and named 22 crates that no build of
+the program has, one tree of both targets 2 of them.
+
 ## The pictures of the README come from the view tests
 
 `cargo xtask screenshots` draws eleven pictures in view tests, on made-up clusters with one

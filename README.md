@@ -102,6 +102,6 @@ each decision with its reason. [CONTRIBUTING.md](CONTRIBUTING.md): the rules for
 
 fresnel is under the [MIT license](LICENSE-MIT) or the [Apache License 2.0](LICENSE-APACHE), at
 your option. Unless you explicitly state otherwise, any contribution intentionally submitted for
-inclusion in fresnel by you, as defined in the Apache-2.0 license, shall be dual licensed as
-above, without any additional terms or conditions. The fonts and the crates of others in the app
-keep their licenses: [docs/third-party.md](docs/third-party.md).
+inclusion in fresnel by you, as defined in the Apache-2.0 license, shall be dual licensed as above,
+without any additional terms or conditions. The fonts and crates of others keep their licenses
+([list](docs/third-party.md)); each zip file has their texts in `THIRD-PARTY-LICENSES`.

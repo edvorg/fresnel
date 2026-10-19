@@ -1,7 +1,6 @@
 # Third-party licenses
 
-fresnel is under MIT OR Apache-2.0 ([README](../README.md#license)). The parts of others in the
-repository and in the app keep their licenses.
+fresnel is under MIT OR Apache-2.0 ([README](../README.md#license)); parts of others keep theirs.
 
 ## Files of the repository
 
@@ -14,8 +13,9 @@ repository and in the app keep their licenses.
 
 ## Crates
 
-`cargo metadata` lists the crates of each target, Windows included. Each one has a permissive
-license (MIT, Apache-2.0, BSD, ISC, Zlib, BSL-1.0, Unicode-3.0) or a choice with one. To note:
+`THIRD-PARTY-LICENSES`, in `Fresnel.app/Contents/Resources` and next to `fresnel.exe`, has the
+license texts of each crate of the app (`cargo xtask notices`). Each one has a permissive license
+(MIT, Apache-2.0, BSD, ISC, Zlib, BSL-1.0, Unicode-3.0) or a choice with one. To note:
 - `imbl` and `imbl-sized-chunks`, the maps of the stores: MPL-2.0, a copyleft of each file. The
   build uses them unchanged from crates.io, which has their source; a changed file stays MPL-2.0.
 - `epaint_default_fonts`, the fonts of egui in the app: Hack (MIT and the Bitstream Vera License),
