@@ -1821,9 +1821,9 @@ test runs on Windows in CI.
 ## A start error on Windows shows in a dialog
 
 A release build for Windows has no console, so the text on stderr of an error before the window,
-such as "fresnel runs already", shows nowhere, and a second start ends with no sign. The program
-shows that text in a message box of the system. Finder starts no second process of an app that
-runs, so macOS needs no dialog. The first window does not come to the front yet.
+such as "fresnel runs already", shows nowhere: a message box of the system shows it. A second
+start first brings the window of the process of the lock file to the front, which Windows allows
+a process that the user just started. Finder starts no second process of an app that runs.
 
 ## Each commit of master that passes CI makes a release
 

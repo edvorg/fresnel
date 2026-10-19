@@ -37,6 +37,12 @@ pub(crate) fn try_lock(file: &File) -> Result<(), TryLockError> {
 /// app to the front.
 pub(crate) fn show_start_error(_text: &str) {}
 
+/// False: Finder starts no second process of an app that runs, it brings the app to the front.
+/// A second program that a user starts by hand ends with its text on stderr.
+pub(crate) fn show_first(_process: u32) -> bool {
+    false
+}
+
 /// One activity of the process. Its drop ends it.
 #[derive(Debug)]
 pub(crate) struct Activity {

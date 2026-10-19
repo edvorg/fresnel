@@ -25,6 +25,11 @@ pub(crate) fn try_lock(file: &File) -> Result<(), TryLockError> {
 /// Nothing besides stderr: this variant is for CI on Linux, whose log shows stderr.
 pub(crate) fn show_start_error(_text: &str) {}
 
+/// False: this variant is for CI on Linux, which opens no window.
+pub(crate) fn show_first(_process: u32) -> bool {
+    false
+}
+
 /// App Nap exists on macOS only.
 #[derive(Debug)]
 pub(crate) struct Activity;

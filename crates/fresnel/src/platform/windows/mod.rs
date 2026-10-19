@@ -1,4 +1,8 @@
 //! The Windows variant of the platform module.
+//!
+//! - `front`: the window of a process, and its move to the front at a second start.
+
+mod front;
 
 use std::fs::{File, TryLockError};
 use std::io;
@@ -13,6 +17,8 @@ use windows_sys::Win32::Storage::FileSystem::{LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_
 use windows_sys::Win32::System::IO::OVERLAPPED;
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW, SW_SHOWNORMAL};
+
+pub(crate) use self::front::show_first;
 
 /// The variables that [`folders`] and the folder of downloads read.
 pub(crate) const FOLDER_VARIABLES: &str = "USERPROFILE, APPDATA or LOCALAPPDATA";

@@ -41,6 +41,13 @@ pub fn run() -> ExitCode {
     }
     let boot = match boot::Boot::start(ProcessEnv::from_process()) {
         Ok(boot) => Arc::new(boot),
+        // A second start brings the window of the first process to the front, where the
+        // system can, and the message is the fallback.
+        Err(boot::BootError::Lock(lock::LockError::Held { process: Some(process) }))
+            if platform::show_first(process) =>
+        {
+            return ExitCode::SUCCESS;
+        }
         Err(error) => {
             tell_start_error(&error.to_string());
             return ExitCode::FAILURE;
