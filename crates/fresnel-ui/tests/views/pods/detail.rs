@@ -11,6 +11,7 @@ use k8s_openapi::api::core::v1::Pod;
 use crate::data::{changed, cluster, data, empty_store, event_index, events, live, pod, pods, renamed, store};
 use crate::fake::{SECOND, Window, WithData as _, absent, connected, live_status, now, shows, until, view, window};
 use crate::pods::scenes::no_answer;
+use crate::snapshots::{ink, tall};
 
 fn open(window: &mut Window, name: &str) {
     window.get_by_label(name).click();
@@ -189,4 +190,15 @@ fn each_warning_of_the_panel_has_the_state_of_its_problem_now() {
     let (chip, reason) =
         (window.get_by_label("resolved 07:59").rect(), window.get_by_label("FailedCreatePodSandBox").rect());
     assert!(chip.top() >= reason.bottom() - 1.0 && chip.left() <= reason.left(), "{chip:?} below {reason:?}");
+
+    // Only an ongoing problem has the tone of a warning: the type of an ended one is muted.
+    let mut window = tall(window, "EVENTS");
+    let frame = window.render().expect("a GPU adapter draws the frame");
+    let type_of = |reason: &str| {
+        let middle = window.get_by_label(reason).rect().center().y;
+        let mut types = window.query_all_by_label("Warning").map(|node| node.rect());
+        types.find(|kind| (kind.center().y - middle).abs() < 4.0).expect("the type of the Event")
+    };
+    let (ongoing, ended) = (ink(&frame, type_of("BackOff")), ink(&frame, type_of("FailedCreatePodSandBox")));
+    assert!(ongoing.0 > 80 && ended.0 < 20, "amber, then grey: {ongoing:?} {ended:?}");
 }

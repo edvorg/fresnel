@@ -14,6 +14,7 @@ use serde_json::json;
 use super::{cluster, open, with};
 use crate::data::{changed, changed_object, events, held, pod, pods, store};
 use crate::fake::{Window, shows, until, view, window};
+use crate::snapshots::ink;
 use crate::workloads::scene::hover;
 
 /// The Event of the scene about this object with this reason.
@@ -93,6 +94,30 @@ fn each_warning_shows_the_state_of_its_problem_now_and_the_ongoing_ones_come_fir
     // The mark after the heading tells that it has a hint.
     hover(&mut window, Role::Label, "WARNING EVENTS ?");
     assert!(shows(&window, hint), "what the time and the state tell");
+}
+
+/// A row of an ended problem must not look like an alarm with a grey word in front: only
+/// the reason of an ongoing one has the amber tone of a warning, and the message of an ended
+/// one is faint.
+#[test]
+fn the_row_of_an_ended_problem_is_muted_and_only_an_ongoing_one_has_the_tone_of_a_warning() {
+    let mut window = window(view(vec![four_warnings()]));
+    open(&mut window, "Cluster overview");
+    let frame = window.render().expect("a GPU adapter draws the frame");
+    let ink = |label: &str| ink(&frame, window.get_by_label(label).rect());
+    let (ongoing, unknown) = (ink("FailedScheduling"), ink("UnexpectedJob"));
+    let (resolved, deleted) = (ink("Unhealthy"), ink("FailedToRetrieveImagePullSecret"));
+    assert!(ongoing.0 > 80, "the reason of the ongoing one is amber: {ongoing:?}");
+    for (state, reason) in [("unknown", unknown), ("resolved", resolved), ("deleted", deleted)] {
+        assert!(reason.0 < 20, "the reason of the {state} one is grey: {reason:?}");
+    }
+    let message = |event: &Arc<Event>| ink(event.message.as_deref().map(str::trim).expect("a message"));
+    let ongoing = message(&of("unschedulable", "FailedScheduling"));
+    let ended = [of("not-ready", "Unhealthy"), of("web-64cb9bd5d4-c8kcm", "FailedToRetrieveImagePullSecret")];
+    assert!(ongoing.1 > 0xc0, "the message of the ongoing one has the tone of the text: {ongoing:?}");
+    for ended in ended.iter().map(message) {
+        assert!(ended.1 < 0x90, "the message of an ended one is faint: {ended:?}");
+    }
 }
 
 /// The count of the ongoing ones is of each warning of the last hour: the scene has 9, and

@@ -46,6 +46,20 @@ pub(crate) fn write(image: &image::RgbaImage, name: &str) {
     image.save(folder.join(format!("{name}.png"))).expect("the PNG file");
 }
 
+/// The most amber pixel (red over blue) and the brightest one (green) of an area of a frame
+/// at the scale 1. The text tones of the dark theme are grey and its warning tone is amber,
+/// so a test can tell the tone of a text that the accessibility tree does not give.
+pub(crate) fn ink(frame: &image::RgbaImage, area: egui::Rect) -> (i32, u8) {
+    let (mut amber, mut bright) = (i32::MIN, 0);
+    for x in area.left() as u32..area.right() as u32 {
+        for y in area.top() as u32..area.bottom() as u32 {
+            let [red, green, blue, _] = frame.get_pixel(x, y).0;
+            (amber, bright) = (amber.max(i32::from(red) - i32::from(blue)), bright.max(green));
+        }
+    }
+    (amber, bright)
+}
+
 /// Saves the frame with no pointer arrow: the harness draws one at the last click.
 pub(crate) fn save_clean(window: &mut Window, name: &str) {
     window.remove_cursor();
