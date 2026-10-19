@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use fresnel_core::kinds::{Kind, Tier};
 use fresnel_core::store::{ClusterStores, StoreSettings, StoreStatus};
+use fresnel_testkit::ProxyMode;
 use tokio::sync::watch;
 use tokio::time::{Instant, sleep};
 
@@ -19,6 +20,20 @@ use crate::common::until_live;
 
 /// The longest time between two looks at the stores: a look also follows each new snapshot.
 const LOOK: Duration = Duration::from_millis(20);
+/// More than the versions that the old cluster gives after the test read its version: its
+/// leases change each few seconds.
+const MARGIN: u64 = 500;
+
+/// When the app reaches the new cluster.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reach {
+    /// As soon as its API server answers. Its resource version is often older than the
+    /// cursors of the stores then, and the check of the version gives a list.
+    AtOnce,
+    /// After its resource version passed each cursor of the stores. The check of the version
+    /// passes then, and only the identity of the cluster tells the change.
+    PastTheVersion,
+}
 
 /// The kinds of the stores that are always on.
 fn kinds() -> Vec<Kind> {
@@ -115,49 +130,84 @@ async fn until_caught_up(stores: &ClusterStores, old: &BTreeMap<Kind, BTreeSet<S
     }
 }
 
+/// Two recreates in a row: the first as the keeper of the soak makes it, the second with a
+/// new cluster that passed the version of each store before the app reaches it.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs k3s in Docker"]
 async fn no_store_shows_live_with_the_objects_of_the_old_cluster_after_a_recreate() {
     let cluster = Cluster::start("stores-recreate").await;
-    let config_maps = ConfigMaps::of(&cluster.api.gateway);
-    config_maps.create_many("seeded", 30).await;
+    ConfigMaps::of(&cluster.api.gateway).create_many("seeded", 30).await;
     let app = App::start(&cluster, StoreSettings::default()).await;
     app.stores.until_live(LIMIT).await;
     assert_equal_to_the_api(&app.stores.stores, &cluster.api.gateway, LIMIT).await;
-    let old = uids(&app.stores.stores);
+    recreate(&cluster, &app, Reach::AtOnce).await;
+    recreate(&cluster, &app, Reach::PastTheVersion).await;
+    assert_eq!(app.proxy.task_failures(), Vec::<String>::new());
+}
 
+/// One recreate behind the stores. The looks start when no store is live, and no store may
+/// show "live" with an object of the old cluster.
+async fn recreate(cluster: &Cluster, app: &App, reach: Reach) {
+    let config_maps = ConfigMaps::of(&cluster.api.gateway);
+    let old = uids(&app.stores.stores);
+    let old_version = config_maps.version_now().await;
     let (done, until_done) = watch::channel(false);
+    let (looking, mut until_looking) = watch::channel(false);
     let started = Instant::now();
     let recreate = async {
+        if reach == Reach::PastTheVersion {
+            app.proxy.set(ProxyMode::Freeze);
+        }
         cluster.k3s.recreate().await.expect("a new cluster");
-        println!("the new cluster was ready {:?} after the start of the recreate", started.elapsed());
+        println!("{reach:?}: the new cluster was ready {:?} after the start of the recreate", started.elapsed());
         until_live(&cluster.api).await;
         // The objects of the soak again: the same names, with other UIDs.
         config_maps.create_many("seeded", 30).await;
+        if reach == Reach::PastTheVersion {
+            pass(&config_maps, old_version + MARGIN).await;
+            until_looking.wait_for(|looking| *looking).await.expect("the looks");
+            app.proxy.set(ProxyMode::Pass);
+        }
         let left = until_caught_up(&app.stores.stores, &old).await;
-        println!("each store was live with the new objects {:?} after the start of the recreate", started.elapsed());
+        println!("{reach:?}: each store was live with the new objects {:?} after the start", started.elapsed());
         done.send_replace(true);
         left
     };
     // The stores are current until the old cluster stops. The looks start when no store is live.
     let looks = async {
         app.stores.until("no store is live", SHOWS_IN, none_live).await;
-        println!("no store was live {:?} after the start of the recreate", started.elapsed());
+        println!("{reach:?}: no store was live {:?} after the start of the recreate", started.elapsed());
+        looking.send_replace(true);
         live_and_behind(&app.stores.stores, &old, until_done).await
     };
     let (left, seen) = tokio::join!(recreate, looks);
 
     for (kind, seen) in &seen {
         let (name, states) = (kind.info().name, seen.states.join(", "));
-        println!("{name}: {} looks, {:?} live with an old object; states: {states}", seen.behind, seen.longest);
+        println!(
+            "{reach:?}: {name}: {} looks, {:?} live with an old object; states: {states}",
+            seen.behind, seen.longest
+        );
     }
     let shown: Vec<String> = seen
         .iter()
         .filter(|(_, seen)| seen.behind > 0)
         .map(|(kind, seen)| format!("{}: {} looks, {:?}", kind.info().name, seen.behind, seen.longest))
         .collect();
-    assert_eq!(left, Vec::<String>::new(), "stores that did not catch up with the new cluster in {LIMIT:?}");
-    assert_eq!(shown, Vec::<String>::new(), "stores that showed \"live\" with an object of the old cluster");
+    assert_eq!(left, Vec::<String>::new(), "{reach:?}: stores that did not catch up with the new cluster in {LIMIT:?}");
+    assert_eq!(shown, Vec::<String>::new(), "{reach:?}: stores that showed \"live\" with an object of the old cluster");
     assert_equal_to_the_api(&app.stores.stores, &cluster.api.gateway, LIMIT).await;
-    assert_eq!(app.proxy.task_failures(), Vec::<String>::new());
+}
+
+/// Changes the ConfigMaps of the test until the resource version of the cluster passes
+/// `version`. Each write takes the next version.
+async fn pass(config_maps: &ConfigMaps<'_>, version: u64) {
+    let names: Vec<String> = (0..30).map(|number| format!("seeded-{number:03}")).collect();
+    let mut round = 0_u32;
+    while config_maps.version_now().await <= version {
+        round += 1;
+        let value = round.to_string();
+        futures_util::future::join_all(names.iter().map(|name| config_maps.label(name, &value))).await;
+    }
+    println!("the version of the new cluster passed {version} after {round} rounds of 30 writes");
 }

@@ -155,6 +155,13 @@ impl<'a> ConfigMaps<'a> {
         }
     }
 
+    /// The resource version of the cluster now: the one of a list of one ConfigMap.
+    pub(crate) async fn version_now(&self) -> u64 {
+        let request = self.request.list_metadata(&ListParams::default().limit(1)).expect("a request");
+        let page: Page = self.api.list_page(request).await.expect("a list page");
+        page.metadata.resource_version.and_then(|version| version.parse().ok()).expect("a resource version")
+    }
+
     pub(crate) async fn label(&self, name: &str, value: &str) {
         let patch = Patch::Merge(json!({ "metadata": { "labels": { "round": value } } }));
         let request = self.request.patch(name, &PatchParams::default(), &patch).expect("a request");
