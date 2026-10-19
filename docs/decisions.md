@@ -577,8 +577,9 @@ file cannot stop a start. A debug build has its own folders and thus its own loc
 
 After a quit of the system, such as at a log out, macOS ends the process, and the call that
 runs the window does not return. Thus the quit sequence runs in `on_exit` of eframe, and one
-more time after the window call for each other end. Only the first run does something. It stops the tasks of the core, closes
-each connection, ends a plugin that runs, ends the runtime and syncs the log file.
+more time after the window call for each other end. Only the first run does something. It
+stops the tasks of the core, closes each connection, ends a plugin that runs, ends the runtime
+and syncs the log file.
 
 ## The activity against App Nap permits system sleep
 

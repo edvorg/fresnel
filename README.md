@@ -50,7 +50,7 @@ A green CI run of the newest commit of `master` makes a release. Download it wit
 - Log folder: `~/Library/Logs/fresnel` (`fresnel.log`, panic reports). Saved logs and manifests:
   `~/Downloads`. Only one process runs; `cargo run --package fresnel` starts a debug build too.
 - On Windows, Cmd is Ctrl, the folders are `%APPDATA%\fresnel` and `%LOCALAPPDATA%\fresnel\logs`,
-  and the kubeconfig is the first `.kube\config` of `%HOME%`, `%HOMEDRIVE%%HOMEPATH%`, `%USERPROFILE%`.
+  and `.kube\config` is the first one of `%HOME%`, `%HOMEDRIVE%%HOMEPATH%` and `%USERPROFILE%`.
 
 ## Build and test
 

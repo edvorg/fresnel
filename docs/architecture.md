@@ -176,7 +176,7 @@ dock (Operations, Forwards, Journal, Connections, a tab of each log, editor, ter
   dry run (`SaveEditor`), the values of a Secret hidden; a YAML tab sends documents (`RunInTurn`).
 - **Terminal** (`widgets/terminal`): copies the rows of a `Terminal` under its lock and paints the
   copy: style runs, box characters as shapes, the cursor, the flash of a bell; keys, paste, pointer
-  and size go to it. `views/terminal`: a tab for each one, opened by Shell, Attach, Debug, Node shell.
+  and size go to it. `views/terminal`: a tab of each one, from Shell, Attach, Debug, Node shell.
 - **Settings** (`views/settings`): a control for each entry of `config::table`, cluster and key; a
   draft goes to `EditSettings`. `shell/focus` moves the keys between four areas; `?` lists them.
 - **Forwards** (`views/forwards`): the tab, a line of each forward, a panel of the chosen one, the
