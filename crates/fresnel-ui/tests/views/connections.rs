@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable as _;
 use fresnel_core::app::{Command, ShellNote, Startup};
 use fresnel_core::cluster::{ClusterId, LinkState};
 use fresnel_core::net::credential::{CredentialFailure, CredentialState, PluginError, PluginFailure, RunReason};
-use fresnel_core::net::{ChannelState, ChannelStatus, OutageStatus};
+use fresnel_core::net::{ChannelState, ChannelStatus, OutageStatus, SocketCounts, UpgradeStatus};
 
 use crate::fake::{
     SECOND, absent, channel, connected, connections_window, error, live_channels, live_status, new_channel, now, off,
@@ -38,8 +38,39 @@ fn a_live_cluster_shows_its_credential_and_each_channel_with_its_numbers() {
     for texts in [&card[..], &credential, &titles, &watches, &requests, &logs] {
         assert_eq!(absent(&window, texts), Vec::<&str>::new());
     }
+    assert!(shows(&window, "No socket of exec, attach or a tunnel since the start."));
     assert_eq!(window.query_all_by_label("live").count(), 4, "the cluster and its 3 channels");
     assert!(shows(&window, "ams-prod: live"), "the status bar has the same state");
+}
+
+/// The sockets of exec, attach and the tunnels of the forwards are no streams of a channel:
+/// the card tells their counts, their bytes and the last break, and the warm connections.
+#[test]
+fn a_live_cluster_shows_its_upgrade_sockets_and_its_warm_connections() {
+    let mut live = live_status();
+    let sockets = SocketCounts {
+        open: 2,
+        opened: 14,
+        closed: 11,
+        failed: 1,
+        silent: 1,
+        write_waits: 1,
+        sent: 12 * 1024 * 1024,
+        received: 300 * 1024,
+        last_failure: Some("silent: no frame for 15.0 s".to_owned()),
+    };
+    let upgrade = UpgradeStatus { warm: 2, holders: 3, reused: 15, opened: 4, dropped: 1, last_error: None, sockets };
+    live.upgrade = upgrade;
+    let window = connections_window(view(vec![connected("ams-prod", live)]));
+    let texts = [
+        "Sockets of exec, attach and tunnels",
+        "2 open; 14 since the start: 11 ended, 1 broke (1 silent); 1 with a write that waits for its peer",
+        "12Mi sent, 300Ki received",
+        "The last break of a socket: silent: no frame for 15.0 s",
+        "Warm connections",
+        "2 ready for 3 forwards and terminals; 15 reused, 4 new, 1 dropped",
+    ];
+    assert_eq!(absent(&window, &texts), Vec::<&str>::new());
 }
 
 #[test]

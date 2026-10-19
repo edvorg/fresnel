@@ -1,15 +1,16 @@
 //! The Connections view: one card for each selected cluster (plan section 8.14).
 //!
 //! A card shows the one state of the cluster, the time since its last answer, its
-//! credential, each channel and the sampler of its metrics. "Retry now" sends a command;
-//! the view does no work itself.
+//! credential, each channel, its upgrade sockets and the sampler of its metrics. "Retry now"
+//! sends a command; the view does no work itself.
 //!
 //! - `credential`: the lines of the credential. `channels`: the table of the channels.
-//! - `sampler`: the lines of the sampler of the metrics.
+//! - `upgrade`: the sockets of exec, attach and tunnels. `sampler`: the sampler of the metrics.
 
 mod channels;
 mod credential;
 mod sampler;
+mod upgrade;
 
 use std::time::Duration;
 
@@ -161,4 +162,5 @@ fn connected(ui: &mut Ui, palette: &Palette, status: &ClusterStatus, clock: &Clo
         ui.label(RichText::new(text).color(palette.warn));
     }
     channels::show(ui, palette, status, clock);
+    upgrade::show(ui, palette, &status.upgrade);
 }
