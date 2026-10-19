@@ -50,7 +50,7 @@ fresnel-testkit ------------------------------------------------> fresnel-net
   network, server, invalid. An item is private to its crate unless `lib.rs` lists it.
 - The `platform` module of a crate holds each difference of macOS and Windows: the environment,
   the process tree of a child, the time asleep, the bind and the reset of a local port, folders,
-  the lock, App Nap, notices, fonts, the browser and the name of the command key.
+  the lock, App Nap, notices, fonts, the browser, the Quit item of the menu, the command key name.
 
 ## Background tasks
 

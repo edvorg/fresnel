@@ -38,9 +38,9 @@ A green CI run of the newest commit of `master` makes a release. Download it wit
 - Cmd+K opens the quick search, ? lists each key, Cmd+1 to Cmd+4 and F6 move the focus between
   the sidebar, the table, the panel and the dock. Cmd+[ and Cmd+] go back and forward. A right
   click lists the actions of a row; a change asks, and a read-only cluster refuses it.
-- Shell, Attach, Debug and Node shell open a terminal tab in the dock; a close ends it in the pod.
-  Edit manifest (Cmd+Shift+Y) opens an editor tab, whose save shows the diff of a dry run of the
-  server and merges a conflict. Cmd+Shift+I creates or applies YAML, a job for each document.
+- Shell, Attach, Debug and Node shell open a terminal tab; a close ends it in the pod, and a quit
+  asks first. Edit manifest (Cmd+Shift+Y) opens an editor tab, whose save shows the diff of a dry
+  run, the values of a Secret hidden, and merges a conflict. Cmd+Shift+I creates or applies YAML.
 - Settings folder: `~/Library/Application Support/fresnel`. A debug build uses `fresnel-debug`.
   Cmd+, opens the settings view, which edits `config.toml` and keeps its comments. The app reads
   it again after each change; the journal tells each problem with its line and column.
