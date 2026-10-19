@@ -274,3 +274,19 @@ async fn a_connection_that_opens_during_the_wait_for_the_identity_does_not_hold_
     bench.until_state("the watch", StoreState::is_live).await;
     assert_eq!(bench.script.take_calls(), ["list of 1", "watch after 7 for 60 s"]);
 }
+
+/// A new connection that the task of the identity read costs a renewal no wait: the store
+/// stays live and does not wait for the channel of requests, which only a read needs.
+#[tokio::test(start_paused = true)]
+async fn a_renewal_on_connections_that_the_identity_read_waits_for_no_channel_of_requests() {
+    let (bench, events) = Bench::live(settings()).await;
+    let read = Identity { number: 0, checked: 1 };
+    bench.lanes.send_replace(LaneStates { requests: Path::NoChannel, identity: read, ..back(1) });
+    sleep(60 * SECOND).await;
+    let _next = bench.script.watch_opens();
+    drop(events);
+    sleep(SECOND).await;
+    let snapshot = bench.reader.read();
+    assert!(snapshot.state.is_live(), "{}", snapshot.state);
+    assert_eq!(bench.script.take_calls(), ["watch after 7 for 60 s"]);
+}

@@ -97,9 +97,13 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
     }
 
     /// Waits until the task of the identity read the cluster behind each connection of now,
-    /// and gives their count. The read goes out on the lane of requests, so the store shows a
-    /// wait for that lane first.
+    /// and gives their count. A read still to come goes out on the lane of requests, so the
+    /// store shows a wait for that lane first; a renewal after a read waits for no lane.
     async fn identify(&mut self) -> Result<u64, CoreError> {
+        let connects = self.lanes.connects();
+        if self.lanes.is_identified(connects) {
+            return Ok(connects);
+        }
         self.ready(Lane::Requests).await?;
         let connects = self.lanes.connects();
         if !self.lanes.is_identified(connects) {
