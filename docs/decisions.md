@@ -245,6 +245,13 @@ forward lost the answer of a client that ended its output. Both stalled with no 
 of `fresnel-net` runs on tungstenite in its own loop: a ping after 10 s with no frame, a break
 with no answer in 5 s, a bounded queue in each direction and a state with its end.
 
+## A socket pings after 10 s with no frame, not each 5 s
+
+Plan section 12.8 says a ping each 5 s for an exec. Each frame of the server proves the
+connection, so a socket pings only after 10 s with no frame and breaks with no answer in 5 more:
+a silent exec fails at 15 s, inside the 20 s of the acceptance. A terminal that shows output
+sends no ping, and an idle one sends one each 10 s.
+
 ## A peer that reads nothing is no break while a channel of its cluster is live
 
 Plan section 12.3: a write that waits for a slow pod is not a break. A ping behind a waiting write
