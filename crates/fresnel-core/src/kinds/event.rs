@@ -1,9 +1,15 @@
 //! The Event: its description and its health value.
+//!
+//! - `problem`: the state now of the problem of a warning Event, from the live objects.
+
+mod problem;
 
 use std::borrow::Cow;
 use std::time::SystemTime;
 
 use k8s_openapi::api::core::v1::Event;
+
+pub use problem::{ProblemNow, ProblemState, Witness};
 
 use super::health::ObjectHealth;
 use super::{Action, Column, Describe, Kind, Sidebar, Tier, Value};

@@ -7,7 +7,8 @@
 //! - `describe`: the trait of a description. `column`: the columns and the value of a
 //!   cell. `action`: the actions. `health`: the health value. `object`: what a store reads.
 //! - `read`: the readers that the columns of many kinds share.
-//! - One file for each kind. `pod` has also the status text of a pod.
+//! - One file for each kind. `pod` has also the status text of a pod, and `event` the state
+//!   now of the problem of a warning Event.
 
 mod action;
 mod column;
@@ -63,6 +64,7 @@ pub use action::Action;
 pub use column::{Column, Value, columns};
 pub use describe::{Describe, Scope, Sidebar};
 pub(crate) use endpoint_slice::is_ready;
+pub use event::{ProblemNow, ProblemState, Witness};
 pub use health::ObjectHealth;
 pub use list::{Kind, Visit};
 pub use object::{Meta, Object};

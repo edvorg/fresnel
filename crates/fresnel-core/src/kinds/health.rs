@@ -12,6 +12,7 @@ use k8s_openapi::api::batch::v1::JobCondition;
 use k8s_openapi::api::certificates::v1::CertificateSigningRequestCondition;
 use k8s_openapi::api::core::v1::{NamespaceCondition, NodeCondition, PodCondition, ReplicationControllerCondition};
 use k8s_openapi::api::flowcontrol::v1::FlowSchemaCondition;
+use k8s_openapi::jiff::Timestamp;
 use k8s_openapi::kube_aggregator::pkg::apis::apiregistration::v1::APIServiceCondition;
 
 /// How well one object does. The sequence is from good to bad, so the worst of some
@@ -46,6 +47,9 @@ pub(super) trait Condition {
 
     /// The reason of the last change. Empty with none.
     fn reason(&self) -> &str;
+
+    /// The time of the last change of the status. `None` when the writer gave none.
+    fn since(&self) -> Option<Timestamp>;
 }
 
 macro_rules! conditions {
@@ -61,6 +65,10 @@ macro_rules! conditions {
 
             fn reason(&self) -> &str {
                 self.reason.as_deref().unwrap_or_default()
+            }
+
+            fn since(&self) -> Option<Timestamp> {
+                self.last_transition_time.as_ref().map(|time| time.0)
             }
         })*
     };
@@ -93,6 +101,10 @@ impl Condition for k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition {
     fn reason(&self) -> &str {
         &self.reason
     }
+
+    fn since(&self) -> Option<Timestamp> {
+        Some(self.last_transition_time.0)
+    }
 }
 
 /// A FlowSchema condition has no required field.
@@ -107,6 +119,10 @@ impl Condition for FlowSchemaCondition {
 
     fn reason(&self) -> &str {
         self.reason.as_deref().unwrap_or_default()
+    }
+
+    fn since(&self) -> Option<Timestamp> {
+        self.last_transition_time.as_ref().map(|time| time.0)
     }
 }
 

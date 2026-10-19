@@ -27,7 +27,7 @@ use crate::error::CoreError;
 use crate::forward::Feed;
 use crate::index::{ClusterIndexes, Index, IndexParts, ObjectEvents, Owners, References};
 use crate::keys::Target;
-use crate::kinds::{Describe, Kind};
+use crate::kinds::{Describe, Kind, Witness};
 use crate::logs::{LogRequest, LogSave, LogView, SaveParts, SaveView, SessionParts};
 use crate::metrics::{Inputs, Metrics, Sampler, SamplerParts};
 use crate::ops::{Cancel, Parts};
@@ -82,6 +82,12 @@ impl ClusterData {
     /// full objects of a kind of tier C while a view shows it. `None` for an other kind.
     pub fn store(&self, kind: Kind) -> Option<&StoreStatus> {
         self.stores.iter().find(|status| status.kind == kind).or_else(|| self.objects.status(kind))
+    }
+
+    /// The stores that tell the state now of the problem of a warning Event: the pods and
+    /// each other store of full objects that is always on.
+    pub fn witness(&self) -> Witness {
+        Witness::new(std::iter::once(Source::full(self.pods.clone())).chain(self.sources.iter().cloned()))
     }
 
     /// The store of each kind that the quick search reads: the full objects of a kind that

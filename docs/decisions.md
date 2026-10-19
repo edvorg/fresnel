@@ -2242,3 +2242,11 @@ The container section of a pod has a Shell, an Attach and a Debug button for eac
 the header action takes the first container; a node shell has none. The shells to try, in
 sequence, and the images of a debug container and a node shell are settings (`[terminal]`): the
 launch runs the first shell that exists, so a container with only `/bin/sh` works.
+
+## The state of a warning comes from its live object, not from its time
+
+An Event tells the last report of a problem, and the cluster keeps it about an hour after it;
+the kubelet reports a problem that stays only now and then. So a warning with its age looked
+current after its end (user review). A rule of its kind and reason now reads the live object:
+ongoing, resolved after the last report, gone, or unknown with the reason. A healthy state
+from before the report proves no end.
