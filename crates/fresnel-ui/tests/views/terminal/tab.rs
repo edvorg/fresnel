@@ -2,11 +2,12 @@
 
 use std::time::Duration;
 
+use egui::accesskit::Role;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use fresnel_core::app::Command;
 use fresnel_core::terminal::SessionState;
 
-use super::{opened, terminal, title, with_terminals};
+use super::{opened, rows, terminal, title, with_terminals};
 use crate::fake::{Window, now, open_tab, shows, until};
 
 #[test]
@@ -68,15 +69,17 @@ fn a_terminal_that_appears_while_the_app_runs_opens_its_tab() {
     assert!(window.query_by_label("Terminal").is_some(), "the new terminal paints in the dock");
 }
 
+/// True while the widget `label` flashes for a bell.
+fn rings(window: &Window, label: &str) -> bool {
+    window.query_all_by_label(label).any(|node| node.accesskit_node().description().as_deref() == Some("bell"))
+}
+
 /// The app has no sound for a bell: the grid and the tab of its terminal flash for a short
 /// time, also the tab of a terminal that the dock does not show.
 #[test]
 fn a_bell_flashes_the_grid_and_the_tab_for_a_short_time() {
     let (web, db) = (terminal(1, "web-1"), terminal(2, "db-0"));
     let mut window = opened(&[web.clone(), db.clone()]);
-    let rings = |window: &Window, label: &str| {
-        window.query_all_by_label(label).any(|node| node.accesskit_node().description().as_deref() == Some("bell"))
-    };
     web.terminal.feed(b"\x07");
     until(&mut window, "the flash of the grid and of the tab", |window| {
         rings(window, "Terminal") && rings(window, &title(&web))
@@ -86,4 +89,23 @@ fn a_bell_flashes_the_grid_and_the_tab_for_a_short_time() {
 
     db.terminal.feed(b"\x07");
     until(&mut window, "the flash of a tab that does not show", |window| rings(window, &title(&db)));
+}
+
+/// The flash follows the bell, not the view: the grid of a terminal that rang while the dock
+/// showed an other tab does not flash when its tab comes back later.
+#[test]
+fn the_grid_of_a_tab_that_comes_back_after_its_bell_does_not_flash_late() {
+    let (web, db) = (terminal(1, "web-1"), terminal(2, "db-0"));
+    let mut window = opened(&[web.clone(), db.clone()]);
+    open_tab(&mut window, &title(&db));
+    web.terminal.feed(b"web\x07");
+    until(&mut window, "the flash of the tab", |window| rings(window, &title(&web)));
+    until(&mut window, "the end of the flash", |window| !rings(window, &title(&web)));
+
+    window.get_by_role_and_label(Role::Button, &title(&web)).click();
+    for _ in 0..3 {
+        window.step();
+        assert!(!rings(&window, "Terminal"), "the grid flashes for a bell of long ago");
+    }
+    assert_eq!(rows(&window).first().map(String::as_str), Some("web"), "the grid of web shows");
 }

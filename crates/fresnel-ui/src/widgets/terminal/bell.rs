@@ -1,5 +1,7 @@
 //! The visual bell of a terminal: the app has no sound for the bell of a remote program, so
-//! the tab and the grid of its terminal flash for a short time after each new bell.
+//! the tab and the grid of its terminal flash for a short time after each new bell. The tabs
+//! keep one flash for each terminal, also for one that the dock does not show, and its grid
+//! reads it: the grid of a tab that comes back after a bell does not flash late.
 
 use egui::{Context, Response};
 
@@ -30,6 +32,11 @@ impl Bell {
             ctx.request_repaint_after_secs(left as f32);
         }
         left > 0.0
+    }
+
+    /// True while the flash of the last new bell lasts.
+    pub(crate) fn lit(&self, ctx: &Context) -> bool {
+        self.until > ctx.input(|input| input.time)
     }
 }
 

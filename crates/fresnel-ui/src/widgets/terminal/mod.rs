@@ -63,7 +63,6 @@ pub(crate) struct TerminalWidget {
     focused: bool,
     /// The widget takes the focus in its next frame.
     refocus: bool,
-    bell: bell::Bell,
 }
 
 impl TerminalWidget {
@@ -83,8 +82,9 @@ impl TerminalWidget {
         self.refocus = true;
     }
 
-    /// Draws the terminal in the rest of `ui` and handles its input.
-    pub(crate) fn show(&mut self, ui: &mut Ui, terminal: &Terminal, settings: Settings) -> Shown {
+    /// Draws the terminal in the rest of `ui` and handles its input. `ringing`: the flash of a
+    /// bell lasts.
+    pub(crate) fn show(&mut self, ui: &mut Ui, terminal: &Terminal, settings: Settings, ringing: bool) -> Shown {
         let faces = fonts::faces(ui.ctx(), settings.font_size);
         let metrics = CellMetrics::measure(ui, &faces.regular, &faces.bold);
         let area = ui.available_rect_before_wrap().intersect(ui.clip_rect());
@@ -138,7 +138,7 @@ impl TerminalWidget {
             focused,
         };
         paint::paint(&ui.painter_at(area), &self.frame, (area, metrics), &look);
-        if self.bell.flashes(ui.ctx(), terminal.bells()) {
+        if ringing {
             ui.painter_at(area).rect_filled(area, 0.0, theme::palette(ui).text.gamma_multiply(0.15));
             bell::describe(&response);
         }

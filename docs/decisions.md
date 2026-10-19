@@ -2138,9 +2138,9 @@ pictures and the APL marks. A subset would need a tool for fonts that the build 
 ## A bell flashes the grid and the tab of its terminal for 0.25 s
 
 The app plays no sound: a sound of each bell of a remote program, also of a tab that does not
-show, would disturb more than it tells. The terminal counts the bells, and a view flashes for
-each new count: the grid and the tab, also a tab that the dock does not show. A bell before the
-first look gives no flash, and the BEL that ends a title is no bell.
+show, would disturb more than it tells. The terminal counts the bells, and the tabs keep one
+flash of each terminal for a new count, also of a tab that the dock does not show. Its tab and
+grid read it, so a grid that shows later does not flash late. The BEL of a title is no bell.
 
 ## A terminal with the focus takes each key but those with Cmd
 

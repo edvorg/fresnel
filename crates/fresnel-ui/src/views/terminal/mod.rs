@@ -88,7 +88,8 @@ pub(crate) struct TerminalTabs {
     tabs: Vec<TerminalTab>,
     /// The newest terminal that the tabs know: a newer one is new in the core.
     newest: Option<u64>,
-    /// The flash of the tab of each terminal, also of one that the dock does not show.
+    /// The flash of each terminal, also of one that the dock does not show: its tab and its
+    /// grid read it.
     bells: BTreeMap<u64, Bell>,
 }
 
@@ -162,7 +163,8 @@ impl TerminalTabs {
                 ui.label(RichText::new(format!("The input did not go: {note}.")).size(SMALL).color(palette.warn));
             }
         });
-        let shown = tab.widget.show(ui, &view.terminal, settings(&scene.view.config));
+        let ringing = self.bells.get(&id).is_some_and(|bell| bell.lit(ui.ctx()));
+        let shown = tab.widget.show(ui, &view.terminal, settings(&scene.view.config), ringing);
         tab.focused = shown.focused;
         if shown.paste.is_some() {
             tab.paste = shown.paste;
