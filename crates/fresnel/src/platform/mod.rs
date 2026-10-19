@@ -9,6 +9,7 @@
 //! - A start error: a dialog on Windows, whose release build has no console. A second start
 //!   brings the window of the first process to the front there.
 //! - The address of a forward in the browser of the user: AppKit and the Windows shell.
+//! - Cmd+Q of the macOS menu as a close of the window, which can ask first.
 
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
@@ -21,5 +22,6 @@ mod system;
 mod system;
 
 pub(crate) use self::system::{
-    Activity, FOLDER_VARIABLES, Notifications, folders, open_url, show_first, show_start_error, try_lock,
+    Activity, FOLDER_VARIABLES, Notifications, folders, open_url, quit_closes_the_window, show_first, show_start_error,
+    try_lock,
 };

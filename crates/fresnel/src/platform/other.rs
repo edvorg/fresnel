@@ -55,3 +55,8 @@ impl Notifications {
 pub(crate) fn open_url(_url: &str) -> Result<(), String> {
     Err("the app opens no browser on this system: copy the address".to_owned())
 }
+
+/// Nothing: egui makes Ctrl+Q a close of the window already.
+pub(crate) fn quit_closes_the_window() -> Result<(), String> {
+    Ok(())
+}

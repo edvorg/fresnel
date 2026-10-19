@@ -92,3 +92,9 @@ pub(crate) fn open_url(url: &str) -> Result<(), String> {
         code => Err(format!("the shell of Windows did not open it (error {code})")),
     }
 }
+
+/// Nothing: Windows has no menu of the app, and egui makes Ctrl+Q a close of the window
+/// already.
+pub(crate) fn quit_closes_the_window() -> Result<(), String> {
+    Ok(())
+}

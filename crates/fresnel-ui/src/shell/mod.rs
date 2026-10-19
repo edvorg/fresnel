@@ -14,7 +14,8 @@
 //! - `top_bar`, `sidebar`, `dock`, `status_bar`: the parts of the window. `namespaces`:
 //!   the namespace filter of each view. `keys`: the key of each command. `command`: the run
 //!   of a command. `history`: Back and Forward. `focus`: the focus of the keys between the
-//!   areas. `appearance`: the settings that act on the window at once.
+//!   areas. `appearance`: the settings that act on the window at once. `quit`: the question
+//!   before a quit.
 
 mod appearance;
 mod command;
@@ -23,6 +24,7 @@ mod focus;
 mod history;
 pub(crate) mod keys;
 mod namespaces;
+mod quit;
 mod sidebar;
 mod status_bar;
 mod top_bar;
@@ -43,13 +45,14 @@ use appearance::Appearance;
 pub(crate) use dock::{Tab, Title};
 use focus::Focus;
 use history::History;
+use quit::QuitGuard;
 use sidebar::Page;
 
 use crate::format::Clock;
 use crate::theme::{self, ClusterColors};
 use crate::views::detail::sections;
 use crate::views::editor::EditorTabs;
-use crate::views::forwards::{ForwardAsk, ForwardDialog, ForwardsTab, QuitGuard};
+use crate::views::forwards::{ForwardAsk, ForwardDialog, ForwardsTab};
 use crate::views::help;
 use crate::views::journal::JournalTab;
 use crate::views::keys::new_secret::NewSecretDialog;

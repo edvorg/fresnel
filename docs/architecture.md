@@ -179,8 +179,8 @@ dock (Operations, Forwards, Journal, Connections, a tab of each log, editor, ter
   and size go to it. `views/terminal`: a tab for each one, opened by Shell, Attach, Debug, Node shell.
 - **Settings** (`views/settings`): a control for each entry of `config::table`, cluster and key; a
   draft goes to `EditSettings`. `shell/focus` moves the keys between four areas; `?` lists them.
-- **Forwards** (`views/forwards`): the tab, a line of each forward and a panel of the chosen one;
-  the dialog of the Forward button of a port, the counts of the status bar, the question at a close.
+- **Forwards** (`views/forwards`): the tab, a line of each forward, a panel of the chosen one, the
+  Forward dialog, the status bar counts. `shell/quit`: a quit with a terminal or a forward asks.
 
 ## Tests
 

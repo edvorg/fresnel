@@ -574,9 +574,9 @@ file cannot stop a start. A debug build has its own folders and thus its own loc
 
 ## The quit sequence runs in the exit call of eframe
 
-After Cmd+Q, macOS ends the process, and the call that runs the window does not return. Thus
-the quit sequence runs in `on_exit` of eframe, and one more time after the window call for
-each other end. Only the first run does something. It stops the tasks of the core, closes
+After a quit of the system, such as at a log out, macOS ends the process, and the call that
+runs the window does not return. Thus the quit sequence runs in `on_exit` of eframe, and one
+more time after the window call for each other end. Only the first run does something. It stops the tasks of the core, closes
 each connection, ends a plugin that runs, ends the runtime and syncs the log file.
 
 ## The activity against App Nap permits system sleep
@@ -2176,6 +2176,14 @@ The stop of the task of a session left its shell in the pod, and the privileged 
 shell on its node (terminal review). The quit sequence now closes each session first and waits
 5 s at most: Ctrl-D and its wait of 1 s, the close of the stream, and the second exec, whose
 hangup waits 1 s before its kill. After that limit, the journal has a warning.
+
+## Each quit is a close of the window, which asks while a terminal or a forward runs
+
+The Quit item of the macOS menu of winit sent `terminate:`, which ends the app at once, so Cmd+Q
+quit with no question while shells and local ports were open. The program gives that item
+`performClose:`, a close of the window, as egui makes Ctrl+Q on Windows. The close asks first
+while a terminal or a forward runs, unless `ask_before_quit` is off; the quit still waits 5 s
+at most for the shells.
 
 ## A shell that no stream reached ends at the close of its tab
 

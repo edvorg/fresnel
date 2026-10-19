@@ -31,6 +31,9 @@ pub(crate) fn run(boot: &Arc<Boot>) -> Result<(), String> {
     let boot = Arc::clone(boot);
     let create = move |creation: &eframe::CreationContext<'_>| {
         let ctx = creation.egui_ctx.clone();
+        if let Err(error) = platform::quit_closes_the_window() {
+            boot.journal().warning("app", format!("Cmd+Q quits with no question: {error}"));
+        }
         let shell = Shell::new(&ctx, Clock::system(), &boot.core().tasks());
         let (fonts, problems) = TerminalFonts::of_system();
         problems.into_iter().for_each(|problem| boot.journal().info("app", problem));
@@ -68,8 +71,8 @@ impl eframe::App for Window {
         self.hold_activity(&view);
     }
 
-    /// eframe calls this at the close of the window and at Cmd+Q. After Cmd+Q, macOS ends
-    /// the process with no return to `main`, so the quit sequence runs here.
+    /// eframe calls this at the close of the window and at a quit of the system. After such a
+    /// quit, macOS ends the process with no return to `main`, so the quit sequence runs here.
     fn on_exit(&mut self) {
         self.nap.hold(false);
         self.boot.quit();

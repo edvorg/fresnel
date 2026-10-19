@@ -8,9 +8,9 @@ use block2::RcBlock;
 use fresnel_core::app::Notice;
 use fresnel_core::journal::Journal;
 use fresnel_core::net::env::ProcessEnv;
-use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Bool, NSObjectProtocol, ProtocolObject};
+use objc2::{msg_send, sel};
 use objc2_foundation::{NSActivityOptions, NSBundle, NSError, NSProcessInfo, NSString, NSURL};
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNMutableNotificationContent, UNNotificationRequest, UNUserNotificationCenter,
@@ -133,4 +133,39 @@ pub(crate) fn open_url(url: &str) -> Result<(), String> {
         msg_send![&shared, openURL: &*url]
     };
     if opened.as_bool() { Ok(()) } else { Err("macOS did not open it".to_owned()) }
+}
+
+/// Makes the Quit item of the app menu, and so Cmd+Q, a close of the window. winit gives the
+/// item `terminate:`, which ends the app with no question, and its key never reaches egui;
+/// `performClose:` asks the window to close, which the app can refuse while a terminal or a
+/// forward runs. A quit of the system, at a log out, still ends the app. The window calls this
+/// once, after winit made the menu.
+pub(crate) fn quit_closes_the_window() -> Result<(), String> {
+    let class = AnyClass::get(c"NSApplication").ok_or("AppKit is not loaded")?;
+    // SAFETY: `sharedApplication`, `mainMenu` and `submenu` take no argument and give an object
+    // or nil. `numberOfItems` gives an `NSInteger`, and `itemAtIndex:` gets an index below it.
+    // `indexOfItemWithTarget:andAction:` takes an object or nil and a selector, and gives an
+    // `NSInteger`, -1 for no item; `setAction:` takes a selector. The window calls this on the
+    // main thread.
+    unsafe {
+        let app: Option<Retained<AnyObject>> = msg_send![class, sharedApplication];
+        let app = app.ok_or("AppKit has no application")?;
+        let bar: Option<Retained<AnyObject>> = msg_send![&app, mainMenu];
+        let bar = bar.ok_or("the app has no menu")?;
+        let items: isize = msg_send![&bar, numberOfItems];
+        if items < 1 {
+            return Err("the menu of the app is empty".to_owned());
+        }
+        let first: Option<Retained<AnyObject>> = msg_send![&bar, itemAtIndex: 0_isize];
+        let menu: Option<Retained<AnyObject>> = msg_send![&first.ok_or("the menu has no first item")?, submenu];
+        let menu = menu.ok_or("the menu has no app menu")?;
+        let none: Option<&AnyObject> = None;
+        let index: isize = msg_send![&menu, indexOfItemWithTarget: none, andAction: sel!(terminate:)];
+        if index < 0 {
+            return Err("the app menu has no Quit item".to_owned());
+        }
+        let quit: Option<Retained<AnyObject>> = msg_send![&menu, itemAtIndex: index];
+        let () = msg_send![&quit.ok_or("the Quit item went")?, setAction: sel!(performClose:)];
+    }
+    Ok(())
 }
