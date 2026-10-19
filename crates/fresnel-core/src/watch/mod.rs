@@ -139,6 +139,9 @@ struct Loop<'a, T, S> {
     /// The number of the cluster at the start of the last list: an other number is a new
     /// cluster, which needs a new list (`identity`).
     cluster: u32,
+    /// The count of connections of the cluster at the start of the last list or at the last
+    /// check of the cluster. Each later one can reach an other cluster at the same address.
+    connects: u64,
     attempts: Attempts,
 }
 
@@ -182,6 +185,7 @@ async fn keep_current<T: Object, S: Source<T>>(parts: &Parts<T, S>) -> Result<()
         renewal: false,
         lost: false,
         cluster: parts.lanes.cluster(),
+        connects: parts.lanes.connects(),
         attempts: Attempts::default(),
     };
     loop {

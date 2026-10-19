@@ -6,9 +6,9 @@
 //! past the cursor, and the first object of a kind can have no namesake in the store. The
 //! Namespace `kube-system` comes with each cluster and keeps its UID for its life, so the task
 //! of a cluster reads it after each new connection, and an other UID gives the cluster a new
-//! number, at which each store lists again. A store after a lost connection waits for that
-//! read (`stream`): a soak saw stores "live" with the objects of the old cluster for 20 s
-//! while the read was on its way.
+//! number, at which each store lists again. A watch on a connection after those of the last
+//! list or check of its store waits for that read (`stream`): a soak saw stores "live" with
+//! the objects of the old cluster for 20 s while the read was on its way.
 
 use std::sync::Arc;
 use std::time::Duration;

@@ -706,10 +706,10 @@ read that Namespace gets no such check.
 ## No store is live after a lost connection before the check of its cluster
 
 In a 24-hour soak, a store resumed its watch on a new cluster and showed "live" with old
-objects for 20 s, while the read of kube-system was on its way. Each read now covers the
-connections that opened before it. After a lost connection, a store starts a watch only after
-a read that covers those of now, and shows "checks the cluster". A wait for a channel and a
-request that failed for the network are lost connections.
+objects for 20 s, while the read of kube-system was on its way. Each read covers the
+connections that opened before it. A watch on a connection newer than the last list or check
+of its store waits for such a read ("checks the cluster"): a store in a pause need not see a
+connection go. A lost connection adds the version.
 
 ## A second HTTP 410 gives a pause
 

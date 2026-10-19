@@ -28,13 +28,7 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
     pub(super) async fn watch(&mut self, from: &str) -> Result<(), Failure> {
         let renewal = std::mem::take(&mut self.renewal);
         self.ready(Lane::Watches).await.map_err(Failure::Fault)?;
-        if self.lanes.cluster() != self.cluster {
-            return Err(Failure::Gone(other_cluster()));
-        }
-        if self.lost {
-            self.check_cluster(from).await?;
-            self.lost = false;
-        }
+        self.check_cluster(from).await?;
         // A store stays live while the renewal of its watch starts. Each other start of a
         // watch shows as a state, and so does a renewal that had to wait before its request.
         if !(renewal && self.writer.state().is_live()) {
@@ -76,27 +70,58 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
         }
     }
 
-    /// Tells after a lost connection whether the cluster behind the connections is still the
-    /// cluster of the objects of the store. The store shows "checks the cluster" until then:
-    /// a soak saw a store "live" with the objects of an old cluster for 20 s after a recreate.
+    /// Tells before each watch whether the cluster behind the connections is still the cluster
+    /// of the objects of the store. The store shows "checks the cluster" until then: a soak saw
+    /// a store "live" with the objects of an old cluster for 20 s after a recreate.
     ///
-    /// First the task of the identity reads the UID of `kube-system` over the connections of
-    /// now: an other UID gives a new list (`identity`). Then a list of one object gives the
-    /// version of the server now. A restored cluster takes a watch from a version that it does
-    /// not have yet and sends nothing until its own version passes it; a version older than
-    /// the cursor gives a new list, as HTTP 410 does. A new cluster that a user cannot read
-    /// `kube-system` of can pass the cursor first: its first object then has the name of an
-    /// object of the store and an other UID, which gives a new list too.
+    /// Each new connection can reach an other cluster at the same address, also one that the
+    /// store did not see go, in a pause. So no watch starts on a connection after those of the
+    /// last list or check before the task of the identity read the UID of `kube-system` over
+    /// it: an other UID gives a new list (`identity`). After a lost connection, the version of
+    /// the server comes next.
     async fn check_cluster(&mut self, from: &str) -> Result<(), Failure> {
-        self.ready(Lane::Requests).await.map_err(Failure::Fault)?;
-        let connects = self.lanes.connects();
-        if !self.lanes.is_identified(connects) {
-            self.enter(StoreState::Waiting(Wait::Cluster));
-            self.lanes.identified(connects).await.map_err(Failure::Fault)?;
+        if self.lost {
+            self.ready(Lane::Requests).await.map_err(Failure::Fault)?;
+        }
+        if self.lanes.connects() > self.connects {
+            self.connects = self.identify().await.map_err(Failure::Fault)?;
         }
         if self.lanes.cluster() != self.cluster {
             return Err(Failure::Gone(other_cluster()));
         }
+        if self.lost {
+            self.check_version(from).await?;
+            self.lost = false;
+        }
+        Ok(())
+    }
+
+    /// Waits until the task of the identity read the cluster behind each connection of now,
+    /// and gives their count. The read goes out on the lane of requests, so the store shows a
+    /// wait for that lane first.
+    async fn identify(&mut self) -> Result<u64, CoreError> {
+        loop {
+            let connects = self.lanes.connects();
+            if self.lanes.is_identified(connects) {
+                return Ok(connects);
+            }
+            self.ready(Lane::Requests).await?;
+            let connects = self.lanes.connects();
+            if !self.lanes.is_identified(connects) {
+                self.enter(StoreState::Waiting(Wait::Cluster));
+                self.lanes.identified(connects).await?;
+            }
+        }
+    }
+
+    /// Tells after a lost connection whether the cluster went back to an older version: a
+    /// restore of a backup. Such a server takes a watch from a version that it does not have
+    /// yet and sends nothing until its own version passes it. A list of one object gives the
+    /// version of the server now; a version older than the cursor gives a new list, as HTTP
+    /// 410 does. A new cluster that a user cannot read `kube-system` of can pass the cursor
+    /// first: its first object then has the name of an object of the store and an other UID,
+    /// which gives a new list too.
+    async fn check_version(&mut self, from: &str) -> Result<(), Failure> {
         self.start_request(StoreState::Waiting(Wait::Cluster));
         let source = &self.parts.source;
         let page = self.answer(Lane::Requests, source.list_page(1, None)).await?;

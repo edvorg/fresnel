@@ -186,3 +186,44 @@ async fn an_other_cluster_ends_the_watch_and_the_next_one_with_a_new_list() {
     assert_eq!(bench.objects(), pairs(&[("y", "1")]));
     assert_eq!(bench.script.take_calls(), ["list of 500", "watch after 2 for 60 s"], "no watch after the old cursor");
 }
+
+/// A store in a pause does not look at the connections. In the stop of a server, each watch
+/// ends at once, and the connections can go and come back to a new cluster at the same
+/// address before the pause ends, in a time too short for the store to see. Its next watch
+/// waits for the read of the identity behind the new connections, and the changed cluster
+/// gives a list before "live".
+#[tokio::test(start_paused = true)]
+async fn a_new_connection_that_the_store_did_not_see_waits_for_the_identity_of_the_cluster() {
+    let (mut bench, events) = Bench::live(settings()).await;
+    drop(events);
+    bench.until_state("the pause", is_pause(1)).await;
+    // Two copies with no wait between them: the store sees only the last one.
+    bench.lanes.send_replace(LOST);
+    bench.lanes.send_replace(back(1));
+    bench.until_state("the check", is_checking).await;
+    sleep(30 * SECOND).await;
+    assert!(is_checking(&bench.reader.read().state), "no watch before the identity");
+    assert_eq!(bench.script.take_calls(), Vec::<String>::new());
+
+    bench.lanes.send_modify(|lanes| lanes.identity = Identity { number: 1, checked: 1 });
+    bench.script.page(&[("x", "2")], Some("3"), None);
+    let _next = bench.script.watch_opens();
+    bench.until_state("the watch of the new cluster", StoreState::is_live).await;
+    assert_eq!(bench.objects(), pairs(&[("x", "2")]));
+    assert_eq!(bench.script.take_calls(), ["list of 500", "watch after 3 for 60 s"], "no watch after the old cursor");
+}
+
+/// A list reads the cluster behind the connections of its start, so the watch after it waits
+/// for no read of the identity: new connections before a list cost no wait.
+#[tokio::test(start_paused = true)]
+async fn the_watch_after_a_list_waits_for_no_read_of_the_identity() {
+    let mut bench = Bench::start(settings());
+    bench.script.list_fails(CoreError::new(ErrorClass::Network, "reset"));
+    bench.until_state("the pause", is_pause(1)).await;
+    bench.lanes.send_replace(back(3));
+    bench.script.page(&[("a", "5")], Some("7"), None);
+    let _events = bench.script.watch_opens();
+    bench.until_state("the watch", StoreState::is_live).await;
+    assert_eq!(bench.script.take_calls(), ["list of 500", "list of 500", "watch after 7 for 60 s"]);
+    assert_eq!(bench.lanes.borrow().identity.checked, 0, "no read of the identity yet");
+}
