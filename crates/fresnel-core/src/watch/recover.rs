@@ -177,11 +177,11 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
     }
 
     /// Waits for `pause`, or less: the one signal of the cluster ends each retry delay, and
-    /// so does a connection that returns.
+    /// so does a connection that returns. That one was lost: the next watch checks the cluster.
     async fn rest(&mut self, pause: Duration) {
         tokio::select! {
             _ = self.retry_now.sleep(pause) => {}
-            () = self.lanes.returned() => {}
+            () = self.lanes.returned() => self.lost = true,
         }
     }
 

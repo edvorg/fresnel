@@ -4,7 +4,7 @@
 
 use tokio::time::sleep;
 
-use super::bench::{Bench, LIVE, SECOND, is_pause, pairs, settings};
+use super::bench::{Bench, LIVE, MS, SECOND, is_pause, pairs, settings};
 use crate::error::CoreError;
 use crate::net::ErrorClass;
 use crate::store::{StoreState, Wait};
@@ -211,6 +211,36 @@ async fn a_new_connection_that_the_store_did_not_see_waits_for_the_identity_of_t
     bench.until_state("the watch of the new cluster", StoreState::is_live).await;
     assert_eq!(bench.objects(), pairs(&[("x", "2")]));
     assert_eq!(bench.script.take_calls(), ["list of 500", "watch after 3 for 60 s"], "no watch after the old cursor");
+}
+
+/// A connection that a store saw go in a pause is a lost connection: one that ends the pause
+/// as it returns, and one that the store waits for after the pause. The next watch checks the
+/// version of the server too, so a restored cluster with the same identity gives a list.
+#[tokio::test(start_paused = true)]
+async fn a_connection_that_goes_in_a_pause_gives_the_check_of_the_version() {
+    let (mut bench, events) = Bench::live(settings()).await;
+    drop(events);
+    bench.until_state("the pause", is_pause(1)).await;
+    bench.lanes.send_replace(LOST);
+    sleep(10 * MS).await;
+    bench.script.version_now("7");
+    let next = bench.script.watch_opens();
+    bench.lanes.send_replace(LaneStates { identity: Identity { number: 0, checked: 1 }, ..back(1) });
+    bench.until_state("the watch", StoreState::is_live).await;
+    assert_eq!(bench.elapsed(), 10 * MS, "the returned connection ended the pause");
+    assert_eq!(bench.script.take_calls(), ["list of 1", "watch after 7 for 60 s"]);
+
+    drop(next);
+    bench.until_state("the pause", is_pause(2)).await;
+    bench.lanes.send_replace(LOST);
+    bench.until_state("the lost channel", |state| *state == StoreState::Waiting(Wait::Channel)).await;
+    bench.script.version_now("3");
+    bench.script.page(&[("x", "2")], Some("3"), None);
+    let _last = bench.script.watch_opens();
+    bench.lanes.send_replace(LaneStates { identity: Identity { number: 0, checked: 2 }, ..back(2) });
+    bench.until_state("the watch of the restored cluster", StoreState::is_live).await;
+    assert_eq!(bench.objects(), pairs(&[("x", "2")]));
+    assert_eq!(bench.script.take_calls(), ["list of 1", "list of 500", "watch after 3 for 60 s"]);
 }
 
 /// A list reads the cluster behind the connections of its start, so the watch after it waits
