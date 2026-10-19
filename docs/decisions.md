@@ -1847,6 +1847,14 @@ permission workflows. An older build could also become "Latest" after a newer on
 publishes now reads the head of master with gh, as `git ls-remote` would need the token in git,
 and an older commit ends with a notice: the newer one makes the release.
 
+## A push between the check of the head and the release is a known race
+
+A push can come after the job that publishes read the head of master and before `gh release
+create`. That release of the older commit is then "Latest" for the minutes until the release of
+the newer one, and its tag can fail with HTTP 403 when the workflow files differ. A second check
+before the create makes the time shorter, not zero; GitHub has no lock for it, and a push to
+master is rare, so the race stays.
+
 ## The version of a release has the run number of its workflow
 
 A release is `0.1.0+build.N`: the workspace version and the run number of the workflow, which grows
