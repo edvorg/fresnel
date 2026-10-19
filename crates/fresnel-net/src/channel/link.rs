@@ -4,6 +4,7 @@
 //! task: the connection, or the error of the connect.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use bytes::Bytes;
 use http_body_util::Full;
@@ -28,11 +29,17 @@ pub(crate) struct LinkBoard {
     /// The count of connects that failed. A request reads it at its start, so it can tell
     /// the result of a new connect from the error of an old one.
     failed_connects: AtomicU64,
+    /// The number of the last connection that the task ended for a failure, and why.
+    broken: Mutex<Option<(u64, Arc<str>)>>,
 }
 
 impl LinkBoard {
     pub(crate) fn new() -> Self {
-        Self { link: watch::Sender::new(Link::Down(None)), failed_connects: AtomicU64::new(0) }
+        Self {
+            link: watch::Sender::new(Link::Down(None)),
+            failed_connects: AtomicU64::new(0),
+            broken: Mutex::default(),
+        }
     }
 
     pub(crate) fn up(&self, sender: Sender, generation: u64) {
@@ -42,6 +49,19 @@ impl LinkBoard {
     /// The connection ended. A request now waits for the next connect.
     pub(crate) fn lost(&self) {
         self.link.send_replace(Link::Down(None));
+    }
+
+    /// The task ends the connection with this number for `reason`, and each request that
+    /// waits for its answer on it ends with it.
+    pub(crate) fn broke(&self, generation: u64, reason: &str) {
+        *self.broken.lock().unwrap_or_else(PoisonError::into_inner) = Some((generation, reason.into()));
+    }
+
+    /// Why the task ended the connection with this number. `None` for one that is open or
+    /// that ended in the clean way.
+    pub(crate) fn why_broken(&self, generation: u64) -> Option<Arc<str>> {
+        let broken = self.broken.lock().unwrap_or_else(PoisonError::into_inner);
+        broken.as_ref().filter(|(number, _)| *number == generation).map(|(_, reason)| Arc::clone(reason))
     }
 
     /// A connect failed. Each request that waited for it gets the error.

@@ -218,12 +218,24 @@ impl Channel {
                 }
                 Err(mut error) => match error.take_message() {
                     Some(unsent) => request = unsent,
-                    None => return Err(NetError::because(self.shared.purpose.channel(), &error.into_error())),
+                    None => return Err(self.failed(generation, &error.into_error())),
                 },
             }
         }
         let channel = self.shared.purpose.channel();
         Err(NetError::network(format!("{channel}: the connection closed two times before the request was written")))
+    }
+
+    /// The error of a request that got no answer. The end of a connection after a failure
+    /// takes each such request with it, and hyper names that "dispatch task is gone: runtime
+    /// dropped the dispatch task", which reads as a fault of the app. The reason of the end
+    /// tells what happened.
+    fn failed(&self, generation: u64, error: &hyper::Error) -> NetError {
+        let channel = self.shared.purpose.channel();
+        match self.shared.link.why_broken(generation).filter(|_| error.is_user()) {
+            Some(reason) => NetError::network(format!("{channel}: the connection ended before the answer: {reason}")),
+            None => NetError::because(channel, error),
+        }
     }
 
     pub(crate) fn status(&self) -> ChannelStatus {

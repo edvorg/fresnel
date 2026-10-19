@@ -136,7 +136,9 @@ impl Driver {
             let reason = match ended {
                 Ended::Retired => continue,
                 Ended::Failed(reason) => {
-                    // The drop ends each stream of the connection before the pause.
+                    // The drop ends each stream of the connection before the pause. A request
+                    // that waits for its answer gets this reason (`Channel::send`).
+                    self.shared.link.broke(self.generation, &reason);
                     drop(connection);
                     reason
                 }

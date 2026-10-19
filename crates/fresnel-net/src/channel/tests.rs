@@ -18,6 +18,7 @@ use crate::signal::Cause;
 use crate::task::TaskReport;
 use crate::testing::{Connects, MemoryServer, NoPlugin};
 
+mod ended;
 mod live;
 mod outage;
 mod windows;
