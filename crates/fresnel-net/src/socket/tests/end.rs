@@ -65,6 +65,34 @@ async fn the_end_of_the_connection_with_no_close_message_is_a_clean_end_of_the_s
     assert_eq!((bed.counts().closed, bed.ends()), (1, vec![SocketEnd::EndedByServer]));
 }
 
+/// Some load balancers end TLS with no close_notify after the close message of the server.
+/// The close message ended the protocol, so that is a clean end, not a break.
+#[tokio::test(start_paused = true)]
+async fn a_close_of_the_server_and_then_an_end_of_tls_with_no_close_notify_is_a_clean_end() {
+    let mut bed = Bed::start().await;
+    bed.no_close_notify.store(true, Ordering::Relaxed);
+    bed.peer_sends(b"\x01the last bytes").await;
+    bed.peer.send(close(CloseCode::Normal, "")).await.expect("a close");
+    bed.peer_ends().await;
+    assert_eq!(bed.socket.recv().await.as_deref(), Some(&b"\x01the last bytes"[..]));
+    let end = SocketEnd::ClosedByServer { code: 1000, reason: String::new() };
+    assert_eq!(bed.end(Instant::now()).await.0, end);
+    assert_eq!((bed.counts().closed, bed.counts().failed), (1, 0));
+}
+
+/// The same end with no close message is a break: the data can be cut.
+#[tokio::test(start_paused = true)]
+async fn an_end_of_tls_with_no_close_notify_and_no_close_message_is_a_break() {
+    let mut bed = Bed::start().await;
+    bed.no_close_notify.store(true, Ordering::Relaxed);
+    bed.peer_ends().await;
+    let (end, _) = bed.end(Instant::now()).await;
+    assert!(
+        matches!(&end, SocketEnd::Failed(SocketFailure::Broken(text)) if text.contains(NO_CLOSE_NOTIFY)),
+        "{end:?}"
+    );
+}
+
 /// Review attack A2 of the terminal prototype: a key after `exit` breaks the write, and the
 /// status that the server sent before its end must still arrive.
 #[tokio::test(start_paused = true)]

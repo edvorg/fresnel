@@ -52,17 +52,27 @@ impl Path for TestPath {
 }
 
 /// The pipe of the socket. After `fail_writes`, each write of the socket fails as with a
-/// reset of its peer, and its reads go on.
+/// reset of its peer, and its reads go on. After `no_close_notify`, the end of the input is
+/// an error, as rustls gives it for a TLS connection that ends with no close_notify.
 struct Pipe {
     inner: DuplexStream,
     writes_fail: Arc<AtomicBool>,
+    no_close_notify: Arc<AtomicBool>,
 }
 
 impl AsyncRead for Pipe {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(cx, buf)
+        let before = buf.filled().len();
+        std::task::ready!(Pin::new(&mut self.inner).poll_read(cx, buf))?;
+        if buf.filled().len() == before && buf.remaining() > 0 && self.no_close_notify.load(Ordering::Relaxed) {
+            return Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, NO_CLOSE_NOTIFY)));
+        }
+        Poll::Ready(Ok(()))
     }
 }
+
+/// The text of rustls for the end of a TLS connection with no close_notify.
+const NO_CLOSE_NOTIFY: &str = "peer closed connection without sending TLS close_notify";
 
 impl AsyncWrite for Pipe {
     fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
@@ -91,6 +101,7 @@ struct Bed {
     changed: Changed,
     counts: Arc<Counts>,
     writes_fail: Arc<AtomicBool>,
+    no_close_notify: Arc<AtomicBool>,
     ends: Arc<Mutex<Vec<SocketEnd>>>,
     reports: Arc<Mutex<Vec<String>>>,
 }
@@ -127,11 +138,15 @@ impl Bed {
         let reported = Arc::clone(&ends);
         let on_end = Box::new(move |end: &SocketEnd| reported.lock().expect("a lock").push(end.clone()));
         let spec = SocketSpec { role: "test socket", protocols: &["v5.channel.k8s.io"], on_end: Some(on_end) };
-        let writes_fail = Arc::new(AtomicBool::new(false));
-        let pipe = Pipe { inner: client, writes_fail: Arc::clone(&writes_fail) };
+        let (writes_fail, no_close_notify) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+        let pipe = Pipe {
+            inner: client,
+            writes_fail: Arc::clone(&writes_fail),
+            no_close_notify: Arc::clone(&no_close_notify),
+        };
         let socket = Socket::start(pipe, "v5.channel.k8s.io", &parts, spec).await;
         let peer = WebSocketStream::from_raw_socket(server, Role::Server, None).await;
-        Self { socket, peer, path, signal, changed, counts, writes_fail, ends, reports }
+        Self { socket, peer, path, signal, changed, counts, writes_fail, no_close_notify, ends, reports }
     }
 
     fn set_path(&self, path: u8) {

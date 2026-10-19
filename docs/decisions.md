@@ -281,6 +281,13 @@ journal an entry for each end of a task. The task of a socket waits after its en
 drops the socket: its state tells the end, and its report gives the journal an entry for an
 abnormal end only. A panic still ends the task, with the report of the start function.
 
+## A close message of the server is a clean end, also with no close_notify after it
+
+Some load balancers end TLS with no close_notify. After a close message of the server the
+protocol has ended, so the end is clean: tungstenite reads each frame in its buffer before it
+reads on, and rustls gives its data before the error of the end. With no close message, such an
+end stays a break: a cut of the data looks the same, and a client must not take it as complete.
+
 ## A port forward over a WebSocket has the subprotocol v4
 
 The WebSocket form of the port forward has only `v4.channel.k8s.io`: for each port a data and an
