@@ -80,6 +80,22 @@ async fn a_close_of_the_server_and_then_an_end_of_tls_with_no_close_notify_is_a_
     assert_eq!((bed.counts().closed, bed.counts().failed), (1, 0));
 }
 
+/// The close of a tunnel by the app, as at the end of a local client: a load balancer can end
+/// TLS at the close message, with no answer and no close_notify. The app asked for the end, so
+/// that is a clean end too, not a break of each tunnel.
+#[tokio::test(start_paused = true)]
+async fn a_close_of_the_app_and_then_an_end_of_tls_with_no_close_notify_is_a_clean_end() {
+    let mut bed = Bed::start().await;
+    bed.no_close_notify.store(true, Ordering::Relaxed);
+    let start = Instant::now();
+    bed.socket.close();
+    assert_eq!(bed.peer_reads().await, close(CloseCode::Normal, ""));
+    bed.peer_ends().await;
+    let (end, waited) = bed.end(start).await;
+    assert!(waited < 5 * SECOND, "the end of the connection ends the close: {waited:?}");
+    assert_eq!((end, bed.counts().closed, bed.counts().failed), (SocketEnd::ClosedByApp, 1, 0));
+}
+
 /// The same end with no close message is a break: the data can be cut.
 #[tokio::test(start_paused = true)]
 async fn an_end_of_tls_with_no_close_notify_and_no_close_message_is_a_break() {
