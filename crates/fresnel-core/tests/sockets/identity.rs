@@ -111,3 +111,32 @@ async fn an_other_uid_of_kube_system_after_a_lost_connection_gives_each_store_a_
         })
         .await;
 }
+
+/// A user whose access rules do not permit the read of kube-system (HTTP 403) gets no check
+/// of the identity, and that costs no wait: after each lost connection, each store is live
+/// again after the check of its version, with no list. No store stays in "checks the cluster".
+#[tokio::test]
+async fn a_user_who_cannot_read_kube_system_has_live_stores_after_each_lost_connection() {
+    let bed = ProxyBed::start("forbidden-identity", NetSettings::default()).await;
+    bed.server.add_fault(Fault::forbidden().on_path(KUBE_SYSTEM));
+    let stores = Stores::start(&bed.tasks, &bed.link, StoreSettings::default());
+    stores.until_live(LIMIT).await;
+    in_time("the refused read at the connect", reads(&bed.server, 1)).await;
+    let before = requests(&bed.server);
+    for reset in 1..=2 {
+        let lost = SystemTime::now();
+        in_time("a reset", bed.proxy.reset_all()).await;
+        let recovery = live_again_after(&stores, lost, RECOVERY).await;
+        println!("each store was live {recovery:?} after reset {reset}");
+        in_time("the refused read after the lost connection", reads(&bed.server, 1 + reset)).await;
+    }
+    let listed = before.iter().filter(|(lists, _, _)| *lists == 1).count();
+    assert_eq!(listed, STORES, "one list of each store: {before:?}");
+    // A kind of tier C has no store.
+    let again = |&(lists, watches, checks): &(usize, usize, usize)| {
+        let more = if lists == 0 { 0 } else { 2 };
+        (lists, watches + more, checks + more)
+    };
+    let expected: Vec<(usize, usize, usize)> = before.iter().map(again).collect();
+    assert_eq!(requests(&bed.server), expected, "no list, and two watches and two checks of the version");
+}
