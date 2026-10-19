@@ -164,7 +164,11 @@ impl TerminalTabs {
             }
         });
         let ringing = self.bells.get(&id).is_some_and(|bell| bell.lit(ui.ctx()));
-        let shown = tab.widget.show(ui, &view.terminal, settings(&scene.view.config), ringing);
+        // The grid has the side margin of the line of the state, as the text of each tab of the
+        // dock: with none, its text touched the edge of the dock.
+        let (sides, chosen) = (Margin { top: 0, bottom: 0, ..margin }, settings(&scene.view.config));
+        let shown =
+            Frame::new().inner_margin(sides).show(ui, |ui| tab.widget.show(ui, &view.terminal, chosen, ringing)).inner;
         tab.focused = shown.focused;
         if shown.paste.is_some() {
             tab.paste = shown.paste;

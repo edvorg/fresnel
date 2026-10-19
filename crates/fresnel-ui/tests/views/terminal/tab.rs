@@ -109,3 +109,13 @@ fn the_grid_of_a_tab_that_comes_back_after_its_bell_does_not_flash_late() {
     }
     assert_eq!(rows(&window).first().map(String::as_str), Some("web"), "the grid of web shows");
 }
+
+/// The grid has the side margin of the line of its state, as the text of each tab of the
+/// dock: it starts as far in from the edge of the dock as the first tab of its bar.
+#[test]
+fn the_grid_starts_as_far_in_as_the_tabs_of_the_dock() {
+    let window = opened(&[terminal(1, "web-1")]);
+    let grid = window.get_by_label("Terminal").rect();
+    let tabs = window.get_by_role_and_label(Role::Button, "Operations").rect();
+    assert!((grid.left() - tabs.left()).abs() <= 0.5, "the grid at {grid:?}, the first tab at {tabs:?}");
+}
