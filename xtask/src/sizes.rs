@@ -8,7 +8,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 /// The documents with a limit for their count of lines.
-const DOCUMENT_LINES: [(&str, usize); 3] = [("README.md", 97), ("docs/architecture.md", 200), ("CONTRIBUTING.md", 150)];
+const DOCUMENT_LINES: [(&str, usize); 3] =
+    [("README.md", 104), ("docs/architecture.md", 200), ("CONTRIBUTING.md", 150)];
 /// The document with one short paragraph below each `##` heading.
 const DECISIONS: &str = "docs/decisions.md";
 const PARAGRAPH_WORDS: usize = 80;

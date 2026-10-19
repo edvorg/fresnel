@@ -8,6 +8,7 @@ edition = "2024"
 rust-version = "1.95"
 publish = false
 repository = "https://github.com/edvorg/fresnel"
+license = "MIT OR Apache-2.0"
 
 # The one version table. A crate takes a dependency with `workspace = true`.
 # An exact pin (`=`) has a comment that gives its reason.

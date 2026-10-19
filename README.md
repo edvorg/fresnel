@@ -95,3 +95,10 @@ domain), `fresnel-ui` (the views), the programs `fresnel` and `fresnel-cli`, and
 (fault proxy, k3s in Docker, fake API server, soak harness). `xtask` has the repository tasks.
 [Architecture](docs/architecture.md): the design rules and the crates. [Decisions](docs/decisions.md):
 each decision with its reason. [CONTRIBUTING.md](CONTRIBUTING.md): the rules for a change.
+
+## License
+
+fresnel is under the [MIT license](LICENSE-MIT) or the [Apache License 2.0](LICENSE-APACHE), at
+your option. Unless you explicitly state otherwise, any contribution intentionally submitted for
+inclusion in fresnel by you, as defined in the Apache-2.0 license, shall be dual licensed as
+above, without any additional terms or conditions.

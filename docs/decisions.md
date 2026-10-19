@@ -30,9 +30,11 @@ with much work, and the base app must be stable before them.
 Each milestone ends with an app that the user can start, a short list of steps to try, and the
 test results. The user then decides if and how the work continues.
 
-## The license waits
+## fresnel is under MIT OR Apache-2.0
 
-The project has no license until the user publishes it. Thus no manifest has a `license` field.
+The user chose a permissive license, so the repository can become public: MIT OR Apache-2.0, the
+convention of Rust, with the texts in `LICENSE-MIT` and `LICENSE-APACHE`. Each manifest takes its
+`license` from the workspace. The License section adds 7 lines to the README, so its limit is 104.
 
 ## Research and prototypes stay outside the repository
 
@@ -1888,7 +1890,7 @@ way past each.
 clusters with one fixed time, so a run needs no cluster and two runs give the same bytes. A
 picture leaves out the margin of the harness: the window has none, and each pixel is opaque.
 oxipng compresses them with no loss: at scale 1.5 each one has less than 450 KB. The pictures
-add 17 lines to the README, so its limit is 97.
+add 17 lines to the README.
 
 ## The legend of a chart is beside its heading
 

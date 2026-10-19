@@ -143,7 +143,7 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 
 ## Documents and commits
 
-- `README.md` has 97 lines or fewer, `docs/architecture.md` 200 and this file 150. Each
+- `README.md` has 104 lines or fewer, `docs/architecture.md` 200 and this file 150. Each
   decision of `docs/decisions.md` has one paragraph of 80 words or fewer, changed with it.
 - Commit in small steps. The message says what changed and why, in plain words. For now, changes
   go directly to `master`. A push there whose CI passes makes a release, if no newer push came, so

@@ -6,6 +6,7 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 repository.workspace = true
+license.workspace = true
 
 [dependencies]
 # "Copy value" of a binary value of a Secret or a ConfigMap gives its base64 text.
