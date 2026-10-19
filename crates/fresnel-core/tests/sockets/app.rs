@@ -12,7 +12,7 @@
 //! - `data`: the objects of the selected clusters in the view. `keys`: the key view.
 //!   `key_faults`: the key view with fast input, a fault at the worst moment and bad data.
 //! - `orders`: the jobs of the operations and the permissions of each cluster. `documents`:
-//!   the create of the documents of a text in turn.
+//!   the create of the documents of a text in turn. `nodes`: the cordon and the drain.
 //! - `logs`: the log views. `editors`: the texts of the editors. `forwards`: the port
 //!   forwards, their breaks and their commands.
 //! - `metrics`: the sampler of each selected cluster and its metrics in the view.
@@ -37,6 +37,7 @@ mod keys;
 mod logs;
 mod metrics;
 mod network;
+mod nodes;
 mod orders;
 mod search;
 mod selection;
