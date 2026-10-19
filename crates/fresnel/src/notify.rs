@@ -1,7 +1,7 @@
 //! The notifications of the system (plan section 11.6): the core gives a notice for a failed
 //! operation and for a cluster that stays lost while the window is hidden, and this module
-//! shows it, in the Notification Center of macOS (`platform`). The journal has each notice
-//! on each system.
+//! shows it, in the Notification Center of macOS and as a balloon of Windows (`platform`). The
+//! journal has each notice on each system.
 
 use std::sync::Arc;
 

@@ -1785,11 +1785,13 @@ A lock of Windows stops each read of its bytes through an other handle. A lock o
 file, as on macOS, would hide the process id from the second process, so its message would not
 name the process that runs. The lock holds the byte at 2 to the power 62 of the file.
 
-## Windows shows no notification yet
+## A notification of Windows is a balloon of an icon in the notification area
 
-A toast of Windows needs an app identity that a shortcut in the Start menu registers, and no
-install makes one yet. The journal has each notice on each system, and on Windows it tells at
-the start that no notification comes. The activity against App Nap does nothing on Windows.
+A toast of the toast API needs an app identity (AppUserModelID) from a shortcut in the Start menu
+or a key of the registry, and the app has no installer. A balloon of `Shell_NotifyIconW` needs
+only a window of the app, and Windows 10 and 11 show it as a toast with the name of the program.
+The icon comes with the first notice and goes at the quit. The activity against App Nap does
+nothing on Windows.
 
 ## Windows tells the time asleep for the wake detector
 

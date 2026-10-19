@@ -1,7 +1,9 @@
 //! The Windows variant of the platform module.
 //!
 //! - `front`: the window of a process, and its move to the front at a second start.
+//! - `balloon`: the notifications, as balloons of an icon in the notification area.
 
+mod balloon;
 mod front;
 
 use std::fs::{File, TryLockError};
@@ -9,8 +11,6 @@ use std::io;
 use std::os::windows::io::AsRawHandle as _;
 use std::path::PathBuf;
 
-use fresnel_core::app::Notice;
-use fresnel_core::journal::Journal;
 use fresnel_core::net::env::ProcessEnv;
 use windows_sys::Win32::Foundation::ERROR_LOCK_VIOLATION;
 use windows_sys::Win32::Storage::FileSystem::{LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx};
@@ -18,6 +18,7 @@ use windows_sys::Win32::System::IO::OVERLAPPED;
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW, SW_SHOWNORMAL};
 
+pub(crate) use self::balloon::Notifications;
 pub(crate) use self::front::show_first;
 
 /// The variables that [`folders`] and the folder of downloads read.
@@ -71,19 +72,6 @@ impl Activity {
     pub(crate) fn begin() -> Self {
         Self
     }
-}
-
-/// No notification: a toast of Windows needs a shortcut of the app in the Start menu, which
-/// no install makes yet. The journal has each notice, and it tells this at the start.
-pub(crate) struct Notifications;
-
-impl Notifications {
-    pub(crate) fn start(journal: Journal) -> Self {
-        journal.info("notice", "Windows shows no notification of Fresnel; the journal has each notice");
-        Self
-    }
-
-    pub(crate) fn show(&self, _notice: &Notice) {}
 }
 
 /// Opens a URL in the browser of the user. The shell of Windows starts the browser: the app
