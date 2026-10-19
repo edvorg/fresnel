@@ -7,7 +7,7 @@ use std::time::SystemTime;
 
 use egui::{Align, Label, Layout, RichText, Ui};
 use fresnel_core::app::ClusterData;
-use fresnel_core::index::last_seen;
+use fresnel_core::index::{last_seen, reports};
 use fresnel_core::kinds::Kind;
 use k8s_openapi::api::core::v1::Event;
 
@@ -73,8 +73,7 @@ pub(super) fn show(ui: &mut Ui, palette: &Palette, clock: &Clock, source: &Sourc
 fn entry(ui: &mut Ui, palette: &Palette, clock: &Clock, event: &Event) {
     let kind = event.type_.as_deref().unwrap_or(NONE);
     let tone = if kind == "Warning" { Tone::Warn } else { Tone::Muted };
-    // A source that repeats an Event counts in its series or in its count.
-    let count = event.series.as_ref().and_then(|series| series.count).or(event.count).unwrap_or(1);
+    let count = reports(event);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         dot(ui, tone.color(palette));

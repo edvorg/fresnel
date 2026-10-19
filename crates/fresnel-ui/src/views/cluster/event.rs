@@ -5,7 +5,7 @@
 use std::time::SystemTime;
 
 use egui::{Label, RichText, Ui};
-use fresnel_core::index::last_seen;
+use fresnel_core::index::{last_seen, reports};
 use k8s_openapi::api::core::v1::{Event, ObjectReference};
 
 use crate::views::detail::fields::{NONE, field};
@@ -41,8 +41,7 @@ pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, event: &Event) -> Option<Li
     let reporter = [component, host].into_iter().flatten().filter(|text| !text.is_empty()).collect::<Vec<_>>();
     line(ui, cx, "Source", (!reporter.is_empty()).then(|| reporter.join(", ")));
     line(ui, cx, "Action", event.action.clone());
-    let count = event.series.as_ref().and_then(|series| series.count).or(event.count).unwrap_or(1);
-    line(ui, cx, "Count", Some(count.to_string()));
+    line(ui, cx, "Count", Some(reports(event).to_string()));
     let first = event.first_timestamp.as_ref().map(|time| at(time, cx.clock));
     let first = first.or_else(|| event.event_time.as_ref().map(|time| moment(SystemTime::from(time.0), cx.clock)));
     line(ui, cx, "First seen", first);

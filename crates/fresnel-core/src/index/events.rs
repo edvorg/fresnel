@@ -85,6 +85,13 @@ pub fn last_seen(event: &Event) -> Option<Timestamp> {
     series.or(last).or(first).or(event.metadata.creation_timestamp.as_ref().map(|time| time.0))
 }
 
+/// The count of reports of the Event: of its series, or its count. A source that counts
+/// none, or writes 0, reported it once.
+pub fn reports(event: &Event) -> i32 {
+    let count = event.series.as_ref().and_then(|series| series.count).or(event.count);
+    count.filter(|count| *count > 0).unwrap_or(1)
+}
+
 /// How the index finds the Events of one object.
 #[derive(PartialEq, Eq)]
 enum Subject {

@@ -13,6 +13,7 @@ pub use problem::{ProblemNow, ProblemState, Witness};
 
 use super::health::ObjectHealth;
 use super::{Action, Column, Describe, Kind, Sidebar, Tier, Value};
+use crate::index::reports;
 
 impl Describe for Event {
     const ID: Kind = Kind::Event;
@@ -29,11 +30,7 @@ impl Describe for Event {
         }),
         Column::text("Source", 160.0, source).hidden(),
         Column::text("Message", 320.0, |event| Value::text(event.message.as_deref().map(str::trim))),
-        Column::number("Count", 56.0, |event| {
-            let count =
-                event.series.as_ref().and_then(|series| series.count).or(event.count).filter(|count| *count > 0);
-            Value::Number(count.unwrap_or(1).into())
-        }),
+        Column::number("Count", 56.0, |event| Value::Number(reports(event).into())),
         Column::number("First seen", 90.0, |event: &Self| Value::time(event.first_timestamp.as_ref())).hidden(),
         Column::number("Last seen", 90.0, last_seen),
     ];
