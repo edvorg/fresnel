@@ -27,6 +27,7 @@
 mod connections;
 mod data;
 pub(crate) mod details;
+mod edges;
 mod editor;
 mod fake;
 mod forwards;
