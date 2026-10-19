@@ -34,7 +34,8 @@ test results. The user then decides if and how the work continues.
 
 The user chose a permissive license, so the repository can become public: MIT OR Apache-2.0, the
 convention of Rust, with the texts in `LICENSE-MIT` and `LICENSE-APACHE`. Each manifest takes its
-`license` from the workspace. The License section adds 7 lines to the README, so its limit is 104.
+`license` from the workspace. `docs/third-party.md` names the licenses of the fonts and the crates
+of others, in 24 lines. The License section adds 8 lines to the README, so its limit is 105.
 
 ## Research and prototypes stay outside the repository
 

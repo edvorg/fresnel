@@ -22,7 +22,7 @@ fn a_command_checks_the_workspace_that_cargo_names_and_not_the_one_of_its_build(
     let problems = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success(), "the check passed on the workspace of the build");
     assert!(problems.contains("README.md: cannot read the file"), "{problems}");
-    assert!(problems.contains("check-sizes: 5 problems in 4 files"), "{problems}");
+    assert!(problems.contains("check-sizes: 6 problems in 5 files"), "{problems}");
 }
 
 #[test]

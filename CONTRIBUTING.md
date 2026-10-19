@@ -143,8 +143,8 @@ A kind is a typed identity, `kinds::Kind`, with one description: `kinds/<kind>.r
 
 ## Documents and commits
 
-- `README.md` has 104 lines or fewer, `docs/architecture.md` 200 and this file 150. Each
-  decision of `docs/decisions.md` has one paragraph of 80 words or fewer, changed with it.
+- `README.md` has 105 lines or fewer, `docs/architecture.md` 200, `docs/third-party.md` 24, this
+  file 150. A decision of `docs/decisions.md` is one paragraph of 80 words or fewer, changed with it.
 - Commit in small steps. The message says what changed and why, in plain words. For now, changes
   go directly to `master`. A push there whose CI passes makes a release, if no newer push came, so
   push seldom and after the five checks. Test a workflow change on a branch `ci/<topic>`; remove it.
