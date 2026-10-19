@@ -8,19 +8,21 @@
 
 mod line;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use egui::{Button, Frame, Margin, RichText, Ui};
+use egui::{Button, Context, Frame, Margin, RichText, Ui};
 use fresnel_core::app::CoreView;
 use fresnel_core::config::Config;
 use fresnel_core::config::table::Setting;
 use fresnel_core::kinds::Action;
 use fresnel_core::ops::Target;
-use fresnel_core::terminal::{PIECE, Program, Scroll, TerminalRequest, TerminalView};
+use fresnel_core::terminal::{PIECE, Program, Scroll, TerminalRequest};
 
 use crate::format::{self, short};
 use crate::shell::{Scene, Tab, Title};
 use crate::theme::{self, PAD, SMALL};
+use crate::widgets::terminal::bell::Bell;
 use crate::widgets::terminal::{KeyOptions, Settings, TerminalWidget};
 use line::Asked;
 
@@ -86,17 +88,23 @@ pub(crate) struct TerminalTabs {
     tabs: Vec<TerminalTab>,
     /// The newest terminal that the tabs know: a newer one is new in the core.
     newest: Option<u64>,
+    /// The flash of the tab of each terminal, also of one that the dock does not show.
+    bells: BTreeMap<u64, Bell>,
 }
 
 impl TerminalTabs {
-    /// The title of each terminal of the core, in the sequence of the core.
-    pub(crate) fn titles(view: &CoreView) -> Vec<Title> {
-        let title = |terminal: &TerminalView| {
+    /// The title of each terminal of the core, in the sequence of the core. A tab flashes for
+    /// a new bell of its terminal.
+    pub(crate) fn titles(&mut self, view: &CoreView, ctx: &Context) -> Vec<Title> {
+        self.bells.retain(|id, _| view.terminals.iter().any(|terminal| terminal.id == *id));
+        let mut titles = Vec::new();
+        for terminal in view.terminals.iter() {
+            let bell = self.bells.entry(terminal.id).or_default().flashes(ctx, terminal.terminal.bells());
             let tone = line::tone(&terminal.terminal.state());
             let (tab, cluster) = (Tab::Terminal(terminal.id), terminal.request.cluster.clone());
-            Title { tab, text: title_text(&terminal.request), cluster, tone }
-        };
-        view.terminals.iter().map(title).collect()
+            titles.push(Title { tab, text: title_text(&terminal.request), cluster, tone, bell });
+        }
+        titles
     }
 
     /// Keeps the tabs of the terminals that the core has, and gives a terminal that the core

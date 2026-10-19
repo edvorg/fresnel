@@ -183,6 +183,11 @@ impl Terminal {
         self.io().title.clone()
     }
 
+    /// The count of the bells of the remote program: a view flashes for each new one.
+    pub fn bells(&self) -> u64 {
+        self.io().bells
+    }
+
     fn io(&self) -> MutexGuard<'_, Io> {
         self.shared.io.lock().unwrap_or_else(PoisonError::into_inner)
     }

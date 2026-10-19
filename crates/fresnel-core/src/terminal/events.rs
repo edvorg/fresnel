@@ -1,4 +1,4 @@
-//! What the parser reports: answers for the remote program, and the title.
+//! What the parser reports: answers for the remote program, the title and the bell.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -42,10 +42,11 @@ impl EventListener for Reporter {
             }
             Event::Title(title) => io.title = Some(clean(&title)),
             Event::ResetTitle => io.title = None,
-            // OSC 52 is off, so no clipboard event comes. The app has no sound for a bell. The
-            // others belong to a local PTY and a window of alacritty.
-            Event::Bell
-            | Event::ClipboardStore(..)
+            // The app has no sound for a bell: a view flashes for each new one.
+            Event::Bell => io.bells = io.bells.wrapping_add(1),
+            // OSC 52 is off, so no clipboard event comes. The others belong to a local PTY and a
+            // window of alacritty.
+            Event::ClipboardStore(..)
             | Event::ClipboardLoad(..)
             | Event::CursorBlinkingChange
             | Event::MouseCursorDirty

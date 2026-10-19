@@ -66,7 +66,8 @@ impl LogTab {
     pub(super) fn title(&self, view: &CoreView) -> Title {
         let found = data(view, &self.request.cluster).and_then(|data| log_view(data, &self.request));
         let tone = found.map_or(Tone::Faint, |view| sources::tone(&view.sources));
-        Title { tab: Tab::Logs(self.id), text: title_text(&self.request), cluster: self.request.cluster.clone(), tone }
+        let cluster = self.request.cluster.clone();
+        Title { tab: Tab::Logs(self.id), text: title_text(&self.request), cluster, tone, bell: false }
     }
 
     pub(super) fn show(&mut self, ui: &mut Ui, scene: &mut Scene<'_>, threads: &Threads<'_>) {

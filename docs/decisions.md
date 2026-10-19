@@ -2113,6 +2113,13 @@ app carries JetBrains Mono 2.304 Regular, a monospace font under the SIL Open Fo
 274 KB, after Hack in each family of the terminal: 335 more code points, such as the control
 pictures and the APL marks. A subset would need a tool for fonts that the build does not have.
 
+## A bell flashes the grid and the tab of its terminal for 0.25 s
+
+The app plays no sound: a sound of each bell of a remote program, also of a tab that does not
+show, would disturb more than it tells. The terminal counts the bells, and a view flashes for
+each new count: the grid and the tab, also a tab that the dock does not show. A bell before the
+first look gives no flash, and the BEL that ends a title is no bell.
+
 ## A terminal with the focus takes each key but those with Cmd
 
 Ctrl+K deletes to the end of a line in a shell, `?` is text, and F6 is a key of `mc`. While a

@@ -2,12 +2,12 @@
 
 use std::time::Duration;
 
-use egui_kittest::kittest::Queryable as _;
+use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use fresnel_core::app::Command;
 use fresnel_core::terminal::SessionState;
 
 use super::{opened, terminal, title, with_terminals};
-use crate::fake::{now, open_tab, shows, until};
+use crate::fake::{Window, now, open_tab, shows, until};
 
 #[test]
 fn each_terminal_has_a_tab_with_the_state_of_its_session_in_words() {
@@ -66,4 +66,24 @@ fn a_terminal_that_appears_while_the_app_runs_opens_its_tab() {
     assert!(shows(&window, &title(&db)), "a tab for the new terminal");
     // The dock shows the new terminal: its grid paints with no panic over the fonts.
     assert!(window.query_by_label("Terminal").is_some(), "the new terminal paints in the dock");
+}
+
+/// The app has no sound for a bell: the grid and the tab of its terminal flash for a short
+/// time, also the tab of a terminal that the dock does not show.
+#[test]
+fn a_bell_flashes_the_grid_and_the_tab_for_a_short_time() {
+    let (web, db) = (terminal(1, "web-1"), terminal(2, "db-0"));
+    let mut window = opened(&[web.clone(), db.clone()]);
+    let rings = |window: &Window, label: &str| {
+        window.query_all_by_label(label).any(|node| node.accesskit_node().description().as_deref() == Some("bell"))
+    };
+    web.terminal.feed(b"\x07");
+    until(&mut window, "the flash of the grid and of the tab", |window| {
+        rings(window, "Terminal") && rings(window, &title(&web))
+    });
+    assert!(!rings(&window, &title(&db)), "the other terminal rang no bell");
+    until(&mut window, "the end of the flash", |window| !rings(window, "Terminal") && !rings(window, &title(&web)));
+
+    db.terminal.feed(b"\x07");
+    until(&mut window, "the flash of a tab that does not show", |window| rings(window, &title(&db)));
 }

@@ -56,6 +56,8 @@ pub(super) struct Io {
     pub(super) palette: Palette,
     pub(super) state: SessionState,
     pub(super) title: Option<String>,
+    /// The bells of the remote program since the start.
+    pub(super) bells: u64,
 }
 
 impl Io {
@@ -69,6 +71,7 @@ impl Io {
             palette: Palette::DARK,
             state: SessionState::Connecting,
             title: None,
+            bells: 0,
         }
     }
 

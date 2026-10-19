@@ -8,7 +8,9 @@
 //!
 //! - `keymap`: the bytes of a key. `input`: the events of the keyboard. `mouse`: the pointer.
 //! - `metrics`: the size of a cell. `paint`: the shapes. `fonts`: the faces of the system.
+//! - `bell`: the flash of a bell, on the grid and on the tab.
 
+pub(crate) mod bell;
 pub(crate) mod fonts;
 mod input;
 mod keymap;
@@ -61,6 +63,7 @@ pub(crate) struct TerminalWidget {
     focused: bool,
     /// The widget takes the focus in its next frame.
     refocus: bool,
+    bell: bell::Bell,
 }
 
 impl TerminalWidget {
@@ -135,6 +138,10 @@ impl TerminalWidget {
             focused,
         };
         paint::paint(&ui.painter_at(area), &self.frame, (area, metrics), &look);
+        if self.bell.flashes(ui.ctx(), terminal.bells()) {
+            ui.painter_at(area).rect_filled(area, 0.0, theme::palette(ui).text.gamma_multiply(0.15));
+            bell::describe(&response);
+        }
         if focused {
             self.ime(ui, area, metrics);
         }

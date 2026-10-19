@@ -14,6 +14,7 @@ use crate::views::journal::JournalTab;
 use crate::views::logs::LogTabs;
 use crate::views::operations::OperationsTab;
 use crate::views::terminal::TerminalTabs;
+use crate::widgets::terminal::bell;
 use crate::widgets::tone::Tone;
 use crate::widgets::{self, dot};
 
@@ -48,6 +49,8 @@ pub(crate) struct Title {
     pub(crate) cluster: ClusterId,
     /// The state of its view or of its session in one tone.
     pub(crate) tone: Tone,
+    /// The tab flashes now for a bell of its terminal.
+    pub(crate) bell: bool,
 }
 
 impl Tab {
@@ -77,7 +80,7 @@ pub(super) fn show(ui: &mut Ui, tabs: Tabs<'_>, scene: &mut Scene<'_>, focus: bo
     let view = scene.view;
     let mut titles = tabs.logs.titles(view);
     titles.extend(tabs.editors.titles(view));
-    titles.extend(TerminalTabs::titles(view));
+    titles.extend(tabs.terminals.titles(view, ui.ctx()));
     let (name, height) = match *tabs.open {
         Tab::Logs(_) | Tab::Editor(_) | Tab::Terminal(_) => ("dock with logs", LOG_HEIGHT),
         _ => ("dock", HEIGHT),
@@ -147,7 +150,11 @@ fn tab_bar(ui: &mut Ui, (open, focus): (&mut Tab, bool), titles: &[Title], color
                         Tone::Warn | Tone::Error => RichText::new(&title.text).color(title.tone.color(palette)),
                         _ => RichText::new(&title.text),
                     };
+                    let text = if title.bell { text.background_color(palette.accent_bg) } else { text };
                     let tab = ui.selectable_value(open, title.tab, text);
+                    if title.bell {
+                        bell::describe(&tab);
+                    }
                     if focus && *open == title.tab {
                         tab.request_focus();
                     }

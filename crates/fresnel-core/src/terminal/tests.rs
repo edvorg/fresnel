@@ -116,6 +116,17 @@ fn a_long_title_is_cut_and_the_output_after_it_shows() {
     assert_eq!(terminal.title().as_deref(), Some("web-1"));
 }
 
+/// The app has no sound: a view flashes for each bell, so the terminal counts them. The BEL
+/// that ends a title is no bell, and a bell puts nothing on the screen.
+#[test]
+fn each_bell_counts_and_the_end_of_a_title_is_no_bell() {
+    let terminal = terminal(20, 2);
+    terminal.feed(b"\x1b]0;top\x07a\x07b");
+    assert_eq!((terminal.bells(), rows(&terminal)[0].as_str()), (1, "ab"));
+    terminal.feed(b"\x07\x07");
+    assert_eq!(terminal.bells(), 3);
+}
+
 #[test]
 fn the_answers_tell_the_size_and_the_colors_of_the_user() {
     let terminal = terminal(80, 24);

@@ -148,7 +148,8 @@ impl EditorTabs {
         let creates = self.creates.iter().map(|tab| {
             let cluster = tab.cluster().cloned().unwrap_or_else(|| ClusterId::new(""));
             let changed = if tab.is_changed() { " •" } else { "" };
-            (tab.id, Title { tab: Tab::Editor(tab.id), text: format!("YAML{changed}"), cluster, tone: Tone::Normal })
+            let tone = Tone::Normal;
+            (tab.id, Title { tab: Tab::Editor(tab.id), text: format!("YAML{changed}"), cluster, tone, bell: false })
         });
         let mut titles: Vec<(u64, Title)> = self.tabs.iter().map(|tab| (tab.id, title(tab, view))).collect();
         titles.extend(creates);
@@ -232,5 +233,5 @@ fn title(tab: &EditorTab, view: &CoreView) -> Title {
         _ => Tone::Normal,
     };
     let text = format!("Edit {}{changed}", crate::format::short(&object, 40));
-    Title { tab: Tab::Editor(tab.id), text, cluster: target.cluster.clone(), tone }
+    Title { tab: Tab::Editor(tab.id), text, cluster: target.cluster.clone(), tone, bell: false }
 }
