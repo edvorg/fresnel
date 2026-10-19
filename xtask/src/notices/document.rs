@@ -34,10 +34,12 @@ struct Text<'a> {
     crates: usize,
 }
 
-/// The standard text of a license: the number of the text and the file that has it.
+/// The standard text of a license: the number of the text, the file that has it, and whether
+/// it names the holder of a copyright.
 struct Standard {
     number: usize,
     file: String,
+    holder: bool,
 }
 
 /// The file for the crates of others in the program. A crate with no license file whose
@@ -102,19 +104,31 @@ fn number<'a>(crates: &[&'a Crate]) -> (Vec<Text<'a>>, Vec<Vec<usize>>) {
     (texts, numbers)
 }
 
-/// The standard text of each license: the first file, in the order of the crates, that is the
-/// text of that license alone.
+/// The standard text of each license: of the files that are the text of that license alone, in
+/// the order of the crates, the first one that names no holder, else the first one. The holder
+/// of one crate is not the holder of a crate with no license file: the first MIT text, of
+/// archery, names Diogo Sousa, and the first Apache text, of alacritty_terminal, its project.
 fn standards(crates: &[&Crate], numbers: &[Vec<usize>]) -> BTreeMap<String, Standard> {
-    let mut standards = BTreeMap::new();
+    let mut standards: BTreeMap<String, Standard> = BTreeMap::new();
     for (one, numbers) in crates.iter().zip(numbers) {
         for (file, number) in one.files.iter().zip(numbers) {
-            if let Some(license) = &file.license {
+            let Some(license) = &file.license else { continue };
+            let holder = names_a_holder(&file.text);
+            if standards.get(license).is_none_or(|known| known.holder && !holder) {
                 let file = format!("{} of {}", file.name, one.label());
-                standards.entry(license.clone()).or_insert(Standard { number: *number, file });
+                standards.insert(license.clone(), Standard { number: *number, file, holder });
             }
         }
     }
     standards
+}
+
+/// True when a line of `text` gives a copyright of someone, as `Copyright (c) Tokio Contributors`.
+/// The template of a license has a place for the year: `Copyright [yyyy] [name of copyright owner]`
+/// of Apache-2.0, `Copyright (c) <year> <copyright holders>` of the SPDX texts.
+fn names_a_holder(text: &str) -> bool {
+    let template = |line: &str| ["yyyy", "<year>"].iter().any(|place| line.contains(place));
+    text.lines().any(|line| line.trim_start().starts_with("Copyright") && !template(line))
 }
 
 /// The entry of a crate: its name and version, its license and the numbers of its texts. A
@@ -297,6 +311,27 @@ mod tests {
              manifest: The authors of epaint_default_fonts"
         );
         assert!(!entry_of(&text, "serde 1.0.229").contains("Authors"), "a crate with license files: {text}");
+    }
+
+    #[test]
+    fn the_standard_text_of_a_license_names_no_holder_if_a_crate_has_such_a_text() {
+        let alone =
+            |label: &str, license: &str, text: &str| one(label, license, vec![file("LICENSE", text, Some(license))]);
+        let crates = vec![
+            alone("aa 1.0.0", "MIT", "MIT License\n\nCopyright (c) 2025 Diogo Sousa\n\nPermission"),
+            alone("ab 1.0.0", "MIT", "MIT License\n\nCopyright (c) Tokio Contributors\n\nPermission"),
+            alone("ac 1.0.0", "MIT", "MIT License\n\n  Copyright (c) <year> <copyright holders>\n\nPermission"),
+            alone("ad 1.0.0", "MIT", "Permission is hereby granted"),
+            alone("ba 1.0.0", "Zlib", "Copyright (c) 2024 Orson Peters\n\nzlib"),
+            alone("bb 1.0.0", "Zlib", "Copyright 2022 Kirill Chibisov\n\nzlib"),
+            one("egui 0.36.2", "MIT OR Zlib", Vec::new()),
+        ];
+        let text = write(&crates, &OURS).expect("the file").text;
+        assert_eq!(
+            entry_of(&text, "egui 0.36.2").replace("\n    ", " "),
+            "egui 0.36.2\n  License: MIT OR Zlib\n  No license file at the root of its package; the standard texts: MIT \
+             (text 3, LICENSE of ac 1.0.0), Zlib (text 5, LICENSE of ba 1.0.0).\n  Authors in its manifest: The authors of egui"
+        );
     }
 
     #[test]
