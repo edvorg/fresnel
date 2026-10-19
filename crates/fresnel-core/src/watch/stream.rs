@@ -100,18 +100,13 @@ impl<T: Object, S: Source<T>> Loop<'_, T, S> {
     /// and gives their count. The read goes out on the lane of requests, so the store shows a
     /// wait for that lane first.
     async fn identify(&mut self) -> Result<u64, CoreError> {
-        loop {
-            let connects = self.lanes.connects();
-            if self.lanes.is_identified(connects) {
-                return Ok(connects);
-            }
-            self.ready(Lane::Requests).await?;
-            let connects = self.lanes.connects();
-            if !self.lanes.is_identified(connects) {
-                self.enter(StoreState::Waiting(Wait::Cluster));
-                self.lanes.identified(connects).await?;
-            }
+        self.ready(Lane::Requests).await?;
+        let connects = self.lanes.connects();
+        if !self.lanes.is_identified(connects) {
+            self.enter(StoreState::Waiting(Wait::Cluster));
+            self.lanes.identified(connects).await?;
         }
+        Ok(connects)
     }
 
     /// Tells after a lost connection whether the cluster went back to an older version: a

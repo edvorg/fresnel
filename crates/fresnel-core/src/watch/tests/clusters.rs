@@ -257,3 +257,20 @@ async fn the_watch_after_a_list_waits_for_no_read_of_the_identity() {
     assert_eq!(bench.script.take_calls(), ["list of 500", "list of 500", "watch after 7 for 60 s"]);
     assert_eq!(bench.lanes.borrow().identity.checked, 0, "no read of the identity yet");
 }
+
+/// A store waits for one read of the identity: the one that covers the connections at the
+/// start of its wait. With a wait for the read of the newest one, connections that open one
+/// after the other would hold the store for as long as they open.
+#[tokio::test(start_paused = true)]
+async fn a_connection_that_opens_during_the_wait_for_the_identity_does_not_hold_the_store() {
+    let (mut bench, _events) = Bench::live(settings()).await;
+    bench.lanes.send_replace(LOST);
+    bench.until_state("the lost channel", |state| *state == StoreState::Waiting(Wait::Channel)).await;
+    bench.script.version_now("7");
+    let _next = bench.script.watch_opens();
+    bench.lanes.send_replace(back(1));
+    bench.until_state("the check", is_checking).await;
+    bench.lanes.send_modify(|lanes| (lanes.connects, lanes.identity.checked) = (2, 1));
+    bench.until_state("the watch", StoreState::is_live).await;
+    assert_eq!(bench.script.take_calls(), ["list of 1", "watch after 7 for 60 s"]);
+}
