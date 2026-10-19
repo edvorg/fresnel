@@ -37,22 +37,28 @@ fn ready_again() -> Arc<Pod> {
     })
 }
 
+/// A cluster with these warnings, whose store of the pods is in this state, and whose pod
+/// `not-ready` is ready again.
+fn with_warnings(warnings: &[Arc<Event>], pods_state: StoreState) -> ClusterRow {
+    let row = cluster("ams-prod", 1, "v1.33.5+k3s1");
+    let mut data = row.data.clone().expect("data");
+    let others = pods().into_iter().filter(|pod| pod.metadata.name.as_deref() != Some("not-ready"));
+    data.pods = held(store(pods_state, &others.chain([ready_again()]).collect::<Vec<_>>()));
+    data.objects = with(data.objects, warnings);
+    ClusterRow { data: Some(data), ..row }
+}
+
 /// A cluster with four warnings: a pod that still waits for a node (07:59:09), a failed
 /// probe of a pod that is ready again (07:59:45), a CronJob warning that no rule judges
 /// (07:59:28), and a pod of a ReplicaSet that a rollout removed (07:59:21).
 fn four_warnings() -> ClusterRow {
-    let row = cluster("ams-prod", 1, "v1.33.5+k3s1");
-    let mut data = row.data.clone().expect("data");
-    let others = pods().into_iter().filter(|pod| pod.metadata.name.as_deref() != Some("not-ready"));
-    data.pods = held(store(StoreState::Live, &others.chain([ready_again()]).collect::<Vec<_>>()));
     let warnings = [
         of("unschedulable", "FailedScheduling"),
         of("not-ready", "Unhealthy"),
         of("tick", "UnexpectedJob"),
         of("web-64cb9bd5d4-c8kcm", "FailedToRetrieveImagePullSecret"),
     ];
-    data.objects = with(data.objects, &warnings);
-    ClusterRow { data: Some(data), ..row }
+    with_warnings(&warnings, StoreState::Live)
 }
 
 #[test]
@@ -88,4 +94,18 @@ fn the_count_of_the_ongoing_warnings_is_of_each_warning_and_not_only_of_the_show
     assert!(shows(&window, "6 unknown"), "a state that the app cannot tell is no end");
     let chips = window.query_all_by_label("ongoing").filter(|node| node.accesskit_node().role() == Role::Label);
     assert_eq!(chips.count(), 8, "each shown row is ongoing");
+}
+
+/// "None ongoing" tells that no problem stays, so it shows only when the app knows the state
+/// of each warning: a store of the pods that is not live leaves a state unknown.
+#[test]
+fn none_ongoing_shows_only_when_the_state_of_each_warning_is_known() {
+    let probe = [of("not-ready", "Unhealthy")];
+    let mut known = window(view(vec![with_warnings(&probe, StoreState::Live)]));
+    open(&mut known, "Cluster overview");
+    assert!(shows(&known, "1 warning in the last hour") && shows(&known, "none ongoing"), "the pod is ready again");
+
+    let mut old = window(view(vec![with_warnings(&probe, StoreState::Stopped)]));
+    open(&mut old, "Cluster overview");
+    assert!(shows(&old, "1 unknown") && !shows(&old, "none ongoing"), "the pods are not live");
 }

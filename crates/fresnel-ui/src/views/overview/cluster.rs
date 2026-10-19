@@ -286,13 +286,13 @@ fn summary(ui: &mut Ui, palette: &Palette, warnings: &Warnings) -> Option<Jump> 
         ui.spacing_mut().item_spacing.x = 0.0;
         let text = format!("{} in the last hour", format::count(warnings.count.into(), "warning"));
         let jump = count_link(ui, &text, Kind::Event, true);
-        if warnings.count > 0 {
+        // "None ongoing" would be false while the state of some is unknown.
+        if warnings.ongoing > 0 {
             ui.label(", ");
-            let (ongoing, color) = match warnings.ongoing {
-                0 => ("none ongoing".to_owned(), palette.text_muted),
-                count => (format!("{count} ongoing"), palette.warn),
-            };
-            ui.label(RichText::new(ongoing).color(color));
+            ui.label(RichText::new(format!("{} ongoing", warnings.ongoing)).color(palette.warn));
+        } else if warnings.count > warnings.unknown {
+            ui.label(", ");
+            ui.label(RichText::new("none ongoing").color(palette.text_muted));
         }
         if warnings.unknown > 0 {
             ui.label(", ");
