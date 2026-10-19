@@ -6,7 +6,7 @@ use std::time::Duration;
 use fresnel_core::cluster::Gateway;
 use fresnel_core::kinds::{Describe, Kind, Meta, Object, Tier};
 use fresnel_core::published::Reader;
-use fresnel_core::store::{ClusterStores, Snapshot};
+use fresnel_core::store::{ClusterStores, Snapshot, StoreState};
 use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet};
 use k8s_openapi::api::batch::v1::{CronJob, Job};
 use k8s_openapi::api::core::v1::{Event, Namespace, Node, Pod, Service};
@@ -48,23 +48,31 @@ pub(crate) async fn versions(api: &Gateway, kind: Kind) -> Versions {
     }
 }
 
-fn of_store<T: Object>(store: Option<Reader<Snapshot<T>>>) -> Versions {
+/// One snapshot of a store: its state, and the UID and the resource version of each object
+/// by namespace and name. A recreated cluster gives each object an other UID.
+pub(crate) struct Look {
+    pub(crate) state: StoreState,
+    pub(crate) objects: BTreeMap<(String, String), (String, String)>,
+}
+
+fn look_at<T: Object>(store: Option<Reader<Snapshot<T>>>) -> Look {
     let snapshot = store.expect("the kind has a store").read();
     let text = |part: &Option<String>| part.clone().unwrap_or_default();
-    let version = |object: &T| text(&object.meta().resource_version);
-    snapshot
+    let facts = |object: &T| (text(&object.meta().uid), text(&object.meta().resource_version));
+    let objects = snapshot
         .items
         .iter()
-        .map(|(key, object)| ((key.namespace.to_string(), key.name.to_string()), version(object)))
-        .collect()
+        .map(|(key, object)| ((key.namespace.to_string(), key.name.to_string()), facts(object)))
+        .collect();
+    Look { state: snapshot.state.clone(), objects }
 }
 
-fn of_full<K: Describe>(stores: &ClusterStores) -> Versions {
-    of_store(stores.full::<K>())
+fn of_full<K: Describe>(stores: &ClusterStores) -> Look {
+    look_at(stores.full::<K>())
 }
 
-/// The objects of one kind, as the store of the app holds them now.
-pub(crate) fn stored(stores: &ClusterStores, kind: Kind) -> Versions {
+/// The state and the objects of the store of one kind now, from one snapshot.
+pub(crate) fn look(stores: &ClusterStores, kind: Kind) -> Look {
     match kind {
         Kind::Namespace => of_full::<Namespace>(stores),
         Kind::Node => of_full::<Node>(stores),
@@ -78,8 +86,13 @@ pub(crate) fn stored(stores: &ClusterStores, kind: Kind) -> Versions {
         Kind::Service => of_full::<Service>(stores),
         Kind::EndpointSlice => of_full::<EndpointSlice>(stores),
         Kind::Event => of_full::<Event>(stores),
-        metadata_only => of_store(stores.metadata(metadata_only)),
+        metadata_only => look_at(stores.metadata(metadata_only)),
     }
+}
+
+/// The objects of one kind, as the store of the app holds them now.
+pub(crate) fn stored(stores: &ClusterStores, kind: Kind) -> Versions {
+    look(stores, kind).objects.into_iter().map(|(key, (_, version))| (key, version)).collect()
 }
 
 /// The acceptance check after each fault: each store holds the objects of the API, each
