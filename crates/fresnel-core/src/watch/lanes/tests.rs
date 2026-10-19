@@ -63,7 +63,7 @@ fn a_lane_is_live_with_one_live_channel_and_tells_a_missing_token_from_a_missing
     let identity = Identity { number: 2, checked: 3 };
     let lanes = LaneStates::of(&status(&two, &[ChannelState::Verifying], None), identity);
     assert_eq!((lanes.watches, lanes.requests), (Path::Live, Path::NoChannel), "an answer makes a channel live");
-    assert_eq!((lanes.connects, lanes.identity), (3, identity), "the connections of the cluster, and its identity");
+    assert_eq!((lanes.connects, lanes.identity), (2, identity), "the connections of the stores, and the identity");
     assert_eq!(lanes.readiness(Lane::Watches, EPOCH), Readiness::Ready);
     assert_eq!(lanes.readiness(Lane::Requests, EPOCH), Readiness::Wait(Wait::Channel));
 
@@ -73,6 +73,24 @@ fn a_lane_is_live_with_one_live_channel_and_tells_a_missing_token_from_a_missing
     assert_eq!((lanes.watches, lanes.requests, lanes.credential_failed), (Path::NoToken, Path::NoChannel, false));
     assert_eq!(lanes.readiness(Lane::Watches, EPOCH), Readiness::Wait(Wait::Credential));
     assert_eq!(LaneStates::UNKNOWN.readiness(Lane::Requests, EPOCH), Readiness::Wait(Wait::Channel));
+}
+
+/// The stores use the first channels of requests and of watches, which stay for the life of
+/// the cluster. Only a new connection of one of them can reach the cluster of the stores; an
+/// extra channel, a log stream, an exec and a port forward add nothing to the count, so they
+/// give no read of the identity and no wait of a store.
+#[test]
+fn the_count_of_connections_is_the_one_of_the_first_channels_of_the_stores() {
+    let live = [ChannelState::Live, ChannelState::Live];
+    let mut status = status(&live, &live, None);
+    let firsts = [(&mut status.requests, 2), (&mut status.watches, 4)];
+    for (group, connections) in firsts {
+        let [first, extra] = &mut group.channels[..] else { panic!("two channels") };
+        (first.connections, extra.connections) = (connections, 9);
+    }
+    status.logs.channels[0].connections = 7;
+    status.connect.connects = 40;
+    assert_eq!(LaneStates::of(&status, Identity::default()).connects, 6);
 }
 
 /// The channels stay live for the rest of the life of an old token. A request would wait
@@ -95,7 +113,7 @@ fn a_failed_credential_holds_each_request_and_a_refresh_of_a_valid_token_does_no
     }
     let refresh = CredentialState::Running { reason: RunReason::Expiry, since: EPOCH, last_failure: None };
     for state in [refresh, CredentialState::Valid { until: None }] {
-        assert_eq!(lanes(state), LaneStates { connects: 3, ..LIVE });
+        assert_eq!(lanes(state), LaneStates { connects: 2, ..LIVE });
     }
 }
 

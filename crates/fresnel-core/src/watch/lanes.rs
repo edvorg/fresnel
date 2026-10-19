@@ -44,8 +44,9 @@ pub(crate) struct LaneStates {
     pub(crate) credential_failed: bool,
     /// The server takes no request until this time (HTTP 429). A time in the past is over.
     pub(crate) throttled_until: Option<SystemTime>,
-    /// The count of connections that the cluster opened. Each new one can reach an other
-    /// cluster at the same address.
+    /// The count of connections of the first channels of requests and of watches, which the
+    /// stores use. Each new one can reach an other cluster at the same address. A log stream,
+    /// an exec and a port forward open connections of their own, which no store uses.
     pub(crate) connects: u64,
     /// What the task of the identity read of the cluster behind the connections.
     pub(crate) identity: Identity,
@@ -88,7 +89,7 @@ impl LaneStates {
             watches: path(&status.watches),
             credential_failed: credential_failed(status),
             throttled_until: status.throttle.until,
-            connects: status.connect.connects,
+            connects: first_connections(&status.requests) + first_connections(&status.watches),
             identity,
         }
     }
@@ -127,6 +128,13 @@ fn path(group: &GroupStatus) -> Path {
     } else {
         Path::NoChannel
     }
+}
+
+/// The connections of the first channel of the group. It stays for the life of the cluster, so
+/// the count only grows; an extra channel comes and goes. A cluster that changes behind the
+/// address ends the connection of the first channel too.
+fn first_connections(group: &GroupStatus) -> u64 {
+    group.channels.first().map_or(0, |channel| channel.connections)
 }
 
 /// A plugin that runs again after a failure counts as failed. A plugin that runs for a new
