@@ -180,9 +180,15 @@ mod macos {
     use std::os::unix::fs::PermissionsExt as _;
     use std::process::Command;
 
+    use xtask::notices::Notices;
     use xtask::version::Version;
 
     use super::*;
+
+    /// The license files of the workspace of this test.
+    fn notices() -> Notices {
+        Notices::of_workspace(&Path::new(env!("CARGO_MANIFEST_DIR")).join("..")).expect("the notices")
+    }
 
     fn output(tool: &str, arguments: &[&str], path: &Path) -> (bool, String) {
         let output = Command::new(tool).args(arguments).arg(path).output().expect("the tool starts");
@@ -195,9 +201,14 @@ mod macos {
         let scratch = Scratch::new("bundle");
         let program = std::env::current_exe().expect("this test program");
         let release = Version { release: [0, 1, 0], build: Some(57) };
-        let app = bundle::assemble(&program, &release, &scratch.folder("stage")).expect("the bundle");
+        let notices = notices();
+        let app = bundle::assemble(&program, &notices, &release, &scratch.folder("stage")).expect("the bundle");
         assert_eq!(names(&scratch.folder("stage")), ["Fresnel.app"], "the icon set is gone");
         assert_eq!(names(&app.join("Contents")), ["Info.plist", "MacOS", "PkgInfo", "Resources"]);
+        let resources = app.join("Contents/Resources");
+        assert_eq!(names(&resources), ["AppIcon.icns", "LICENSE-APACHE", "LICENSE-MIT", "THIRD-PARTY-LICENSES"]);
+        let third_party = std::fs::read_to_string(resources.join("THIRD-PARTY-LICENSES")).expect("the notices");
+        assert_eq!(third_party, notices.third_party());
 
         let installed = app.join("Contents/MacOS/fresnel");
         let meta = installed.metadata().expect("the program of the bundle");
@@ -223,7 +234,14 @@ mod macos {
         assert!(facts.contains("Identifier=io.github.edvorg.fresnel"), "{facts}");
         assert!(facts.contains("Info.plist entries=15"), "the signature covers the plist: {facts}");
 
-        // The signature covers each file: a changed plist does not fit it.
+        // The signature covers each file: a changed license file or plist does not fit it.
+        let license = resources.join("LICENSE-MIT");
+        let text = std::fs::read(&license).expect("the license");
+        std::fs::write(&license, b"changed").expect("a changed license");
+        let error = bundle::verify(&app).expect_err("the signature does not fit");
+        assert!(error.to_string().starts_with("codesign failed"), "{error}");
+        std::fs::write(&license, text).expect("the license again");
+        bundle::verify(&app).expect("the signature fits again");
         let changed = Version { build: Some(58), ..release };
         std::fs::write(&plist, bundle::info_plist(&changed)).expect("a changed plist");
         let error = bundle::verify(&app).expect_err("the signature does not fit");
@@ -235,9 +253,10 @@ mod macos {
         let scratch = Scratch::new("signed-install");
         let applications = scratch.folder("Applications");
         let program = std::env::current_exe().expect("this test program");
+        let notices = notices();
         for patch in [0, 1] {
             let version = Version { release: [0, 1, patch], build: None };
-            let app = bundle::assemble(&program, &version, &scratch.folder("stage")).expect("the bundle");
+            let app = bundle::assemble(&program, &notices, &version, &scratch.folder("stage")).expect("the bundle");
             bundle::sign(&app).expect("the signature");
             swap::install(&app, &applications).expect("the install");
         }

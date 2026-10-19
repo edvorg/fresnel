@@ -1,5 +1,6 @@
-//! `cargo xtask install`: builds the release program, makes `Fresnel.app`, signs it and
-//! puts it into the applications folder. The earlier bundle stays as a fallback.
+//! `cargo xtask install`: builds the release program, makes `Fresnel.app` with its license
+//! files, signs it and puts it into the applications folder. The earlier bundle stays as a
+//! fallback.
 //!
 //! - [`bundle`]: the content of the bundle and its signature.
 //! - [`swap`]: the install by rename. `tool`: a run of a tool of the system.
@@ -13,19 +14,22 @@ use std::path::Path;
 
 pub use swap::Installed;
 
+use crate::notices::Notices;
 use crate::program;
 use crate::version::Version;
 
 /// Where the app goes when the command names no folder.
 pub const APPLICATIONS: &str = "/Applications";
 
-/// Runs the install of `version` into `destination`. `root` is the root of the workspace.
+/// Runs the install of `version` into `destination`. `root` is the root of the workspace. The
+/// notices come first: a crate with no license text stops the install before the build.
 pub fn run(root: &Path, destination: &Path, version: &Version) -> io::Result<Installed> {
     if !cfg!(target_os = "macos") {
         return Err(io::Error::new(io::ErrorKind::Unsupported, "the bundle is for macOS only"));
     }
+    let notices = Notices::of_workspace(root)?;
     let program = program::build(root, version, None)?;
-    with_stage(destination, |stage| stage_and_install(&program, version, stage, destination))
+    with_stage(destination, |stage| stage_and_install(&program, &notices, version, stage, destination))
 }
 
 /// Runs `work` with a new stage folder and removes the folder after it. The stage is in
@@ -42,8 +46,14 @@ pub fn with_stage<T>(destination: &Path, work: impl FnOnce(&Path) -> io::Result<
     Ok(done)
 }
 
-fn stage_and_install(program: &Path, version: &Version, stage: &Path, destination: &Path) -> io::Result<Installed> {
-    let app = bundle::assemble(program, version, stage)?;
+fn stage_and_install(
+    program: &Path,
+    notices: &Notices,
+    version: &Version,
+    stage: &Path,
+    destination: &Path,
+) -> io::Result<Installed> {
+    let app = bundle::assemble(program, notices, version, stage)?;
     bundle::sign(&app)?;
     swap::install(&app, destination)
 }

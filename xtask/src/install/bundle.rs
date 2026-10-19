@@ -1,10 +1,11 @@
-//! The bundle `Fresnel.app`: the program, `Info.plist` and the icon.
+//! The bundle `Fresnel.app`: the program, `Info.plist`, the icon and the license files.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
 use super::tool::run;
 use crate::icon;
+use crate::notices::Notices;
 use crate::version::Version;
 
 /// The name of the bundle folder.
@@ -17,8 +18,9 @@ const ICON: &str = "AppIcon";
 const OLDEST_SYSTEM: &str = "11.0";
 
 /// Makes the bundle in `folder` from a built program. Returns the path of the bundle.
-/// The icon needs `iconutil`, a tool of macOS.
-pub fn assemble(program: &Path, version: &Version, folder: &Path) -> io::Result<PathBuf> {
+/// The icon needs `iconutil`, a tool of macOS. The license files go into `Contents/Resources`,
+/// the folder of the files of a bundle that are not code, which its signature covers.
+pub fn assemble(program: &Path, notices: &Notices, version: &Version, folder: &Path) -> io::Result<PathBuf> {
     let app = folder.join(APP);
     let contents = app.join("Contents");
     let (programs, resources) = (contents.join("MacOS"), contents.join("Resources"));
@@ -30,6 +32,7 @@ pub fn assemble(program: &Path, version: &Version, folder: &Path) -> io::Result<
     make_program(&installed)?;
     std::fs::write(contents.join("Info.plist"), info_plist(version))?;
     std::fs::write(contents.join("PkgInfo"), "APPL????")?;
+    notices.write_into(&resources)?;
 
     let icon_set = folder.join(format!("{ICON}.iconset"));
     std::fs::create_dir_all(&icon_set)?;

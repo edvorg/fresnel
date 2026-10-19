@@ -109,7 +109,7 @@ fn windows(destination: &Path) -> ExitCode {
     let Some(version) = version("windows") else { return ExitCode::FAILURE };
     match windows::run(&root(), destination, &version) {
         Ok(program) => {
-            println!("windows: {} is fresnel {version}", program.display());
+            println!("windows: {} is fresnel {version}, with its license files", program.display());
             ExitCode::SUCCESS
         }
         Err(error) => {
