@@ -6,15 +6,15 @@ use std::path::Path;
 
 use super::crates::Package;
 
-/// The start of the name of a license file at the root of a package, in capitals: LICENSE,
-/// COPYING and NOTICE as most crates have them, LICENCE as `imbl` has it, and UNLICENSE, the
-/// text of the Unlicense of `memchr` and the crates of its author.
+/// The start of the name of a license file, in capitals: LICENSE, COPYING and NOTICE as most
+/// crates have them, LICENCE as `imbl` has it, and UNLICENSE, the text of the Unlicense of
+/// `memchr` and the crates of its author.
 const PREFIXES: [&str; 5] = ["LICENSE", "LICENCE", "COPYING", "NOTICE", "UNLICENSE"];
 
-/// The notices of a package outside its root, each with the license whose text it is. The fonts
-/// of egui, which the program embeds, have their licenses next to the font files: Hack (MIT and
-/// the Bitstream Vera License), Noto Emoji, Ubuntu Light and emoji-icon-font. A file of the list
-/// that a package does not have stops the run, so a new version of the crate gets a look.
+/// The notices of a package with no name of a license file, each with the license whose text it
+/// is. The fonts of egui, which the program embeds, have their licenses next to the font files:
+/// Hack (MIT and the Bitstream Vera License), Noto Emoji, Ubuntu Light and emoji-icon-font. A file
+/// of the list that a package does not have stops the run, so a new version of the crate gets a look.
 const OTHER_NOTICES: [(&str, &str, Option<&str>); 4] = [
     ("epaint_default_fonts", "fonts/Hack-Regular.txt", None),
     ("epaint_default_fonts", "fonts/OFL.txt", Some("OFL-1.1")),
@@ -30,7 +30,8 @@ pub(super) struct Crate {
     /// The SPDX expression of its manifest.
     pub(super) license: String,
     pub(super) authors: Vec<String>,
-    /// Its license files, sorted by name.
+    /// Its license files, at the root of its package and below it, and its notices of
+    /// `OTHER_NOTICES`, sorted by path.
     pub(super) files: Vec<File>,
     /// True when the root of its package has no license file: it then gets the standard text of
     /// each license that no file of `files` is the text of.
@@ -45,7 +46,7 @@ pub(super) struct File {
     /// Its text in the form of [`normal`].
     pub(super) text: String,
     /// The license whose text it is, when that is certain: the one license file of a crate with
-    /// one license, or a notice of `OTHER_NOTICES`. Its text is then a standard text.
+    /// one license, at the root, or a notice of `OTHER_NOTICES`. Its text is then a standard text.
     pub(super) license: Option<String>,
 }
 
@@ -56,7 +57,7 @@ impl Crate {
     }
 }
 
-/// The crate of a package with the license files at the root of its package and its entries of
+/// The crate of a package with the license files of its package and its entries of
 /// `OTHER_NOTICES`. A manifest with no SPDX expression, only a `license-file`, stops the run: no
 /// crate of the program has one, and the file could not tell the license of the crate.
 pub(super) fn read(package: Package) -> io::Result<Crate> {
@@ -68,28 +69,21 @@ pub(super) fn read(package: Package) -> io::Result<Crate> {
         .manifest_path
         .parent()
         .ok_or_else(|| io::Error::other(format!("{label}: its manifest has no folder")))?;
-    let entries = fs::read_dir(folder)
-        .map_err(|error| io::Error::new(error.kind(), format!("the package of {label}: {error}")))?;
     let mut names = Vec::new();
-    for entry in entries {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if is_license_file(&name) && entry.file_type()?.is_file() {
-            names.push(name);
-        }
-    }
+    find(folder, "", &mut names)
+        .map_err(|error| io::Error::new(error.kind(), format!("the package of {label}: {error}")))?;
     names.sort();
 
     let licenses = identifiers(&license);
-    let alone = match (licenses.as_slice(), names.len()) {
-        ([license], 1) => Some(license.clone()),
+    let alone = match (licenses.as_slice(), names.as_slice()) {
+        ([license], [name]) if !name.contains('/') => Some(license.clone()),
         _ => None,
     };
     let mut files = Vec::new();
     for name in &names {
         files.push(File { text: text(folder, name, &label)?, name: name.clone(), license: alone.clone() });
     }
-    let bare = files.is_empty();
+    let bare = !names.iter().any(|name| !name.contains('/'));
     for (_, name, license) in OTHER_NOTICES.iter().filter(|(crate_name, _, _)| *crate_name == package.name) {
         let text = text(folder, name, &label)?;
         files.push(File { name: (*name).to_owned(), text, license: license.map(str::to_owned) });
@@ -98,9 +92,29 @@ pub(super) fn read(package: Package) -> io::Result<Crate> {
     Ok(Crate { name: package.name, version: package.version, license, authors: package.authors, files, bare })
 }
 
-/// True for the name of a license file, in any case: `LICENSE-MIT`, `license-apache-2.0`, `COPYING`.
-fn is_license_file(name: &str) -> bool {
-    let name = name.to_ascii_uppercase();
+/// Adds to `found` the path of each license file in the folder `path` of the package in `folder`
+/// and in the folders below it, with `/` between the folders. A crate that copied code of another
+/// project keeps the license of that code next to it, and the program contains it:
+/// `third_party/fiat/LICENSE` of ring, `src/unicode_tables/LICENSE-UNICODE` of regex-syntax.
+fn find(folder: &Path, path: &str, found: &mut Vec<String>) -> io::Result<()> {
+    for entry in fs::read_dir(folder.join(path))? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            find(folder, &format!("{path}{name}/"), found)?;
+        } else if kind.is_file() && is_license_file(&name, path.is_empty()) {
+            found.push(format!("{path}{name}"));
+        }
+    }
+    Ok(())
+}
+
+/// True for the name of a license file: at the root of a package in any case, as `LICENSE-MIT`
+/// and `license-apache-2.0` of the windows crates, and below it in capitals. A source file can
+/// have such a name in small letters, as `src/copying.rs` of objc2-foundation.
+fn is_license_file(name: &str, at_root: bool) -> bool {
+    let name = if at_root { name.to_ascii_uppercase() } else { name.to_owned() };
     PREFIXES.iter().any(|prefix| name.starts_with(prefix))
 }
 
@@ -144,6 +158,46 @@ pub(super) fn identifiers(expression: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
+    /// The crate of a package with `license` and `files`, paths with `/`, in the test folder of
+    /// the build.
+    fn read_package(name: &str, license: &str, files: &[&str]) -> Crate {
+        let tests = crate::target_folder(&crate::workspace_root(None)).join("tmp");
+        let folder = tests.join(format!("notices-{name}-{}", std::process::id()));
+        if folder.exists() {
+            fs::remove_dir_all(&folder).expect("the folder of an earlier run goes away");
+        }
+        for file in files.iter().chain(&["Cargo.toml"]) {
+            let path = folder.join(file);
+            fs::create_dir_all(path.parent().expect("a folder")).expect("the folders of the package");
+            fs::write(&path, format!("the text of {file}\r\n")).expect("a file of the package");
+        }
+        let manifest = folder.join("Cargo.toml");
+        let package = serde_json::json!({
+            "id": name, "name": name, "version": "1.0.0", "license": license, "authors": [], "manifest_path": manifest,
+        });
+        let read = read(serde_json::from_value(package).expect("a package")).expect("the crate");
+        fs::remove_dir_all(&folder).expect("the folder goes away");
+        read
+    }
+
+    fn files(one: &Crate) -> Vec<(&str, Option<&str>)> {
+        one.files.iter().map(|file| (file.name.as_str(), file.license.as_deref())).collect()
+    }
+
+    #[test]
+    fn a_license_file_below_the_root_is_the_license_of_code_of_others() {
+        // The one license file of a crate with one license, at the root, is the text of that license.
+        let one = read_package("one", "MIT", &["license-mit", "src/lib.rs"]);
+        assert_eq!((files(&one), one.bare), (vec![("license-mit", Some("MIT"))], false));
+        assert_eq!(one.files.first().map(|file| file.text.as_str()), Some("the text of license-mit"));
+        // Code of others with its license: each file in its order, and no source file.
+        let copied = read_package("copied", "MIT", &["src/copying.rs", "third_party/fiat/LICENSE", "LICENSE"]);
+        assert_eq!((files(&copied), copied.bare), (vec![("LICENSE", None), ("third_party/fiat/LICENSE", None)], false));
+        // A crate whose only license file is that of a copy has none of its own.
+        let bare = read_package("bare", "MIT", &["third_party/fiat/LICENSE"]);
+        assert_eq!((files(&bare), bare.bare), (vec![("third_party/fiat/LICENSE", None)], true));
+    }
+
     #[test]
     fn the_identifiers_are_the_licenses_of_an_expression_each_one_time() {
         assert_eq!(identifiers("MIT OR Apache-2.0"), ["MIT", "Apache-2.0"]);
@@ -168,12 +222,18 @@ mod tests {
     }
 
     #[test]
-    fn a_license_file_has_one_of_the_names_in_any_case() {
+    fn a_license_file_has_one_of_the_names_in_any_case_at_the_root_and_in_capitals_below_it() {
         for name in ["LICENSE", "LICENSE-MIT", "license-apache-2.0", "LICENCE.md", "COPYING", "NOTICE", "UNLICENSE"] {
-            assert!(is_license_file(name), "{name}");
+            assert!(is_license_file(name, true), "{name}");
         }
         for name in ["README.md", "Cargo.toml", "src", "MIT-LICENSE"] {
-            assert!(!is_license_file(name), "{name}");
+            assert!(!is_license_file(name, true), "{name}");
+        }
+        for name in ["LICENSE", "LICENSE-UNICODE", "LICENSE-MIT", "COPYING"] {
+            assert!(is_license_file(name, false), "{name} below the root");
+        }
+        for name in ["copying.rs", "license.rs", "Licenses.txt"] {
+            assert!(!is_license_file(name, false), "{name} below the root");
         }
     }
 }

@@ -159,15 +159,18 @@ fn the_file_has_the_font_license_the_licenses_of_fresnel_and_the_texts_of_the_pa
     );
     assert!(text.ends_with(&format!("\nLICENSE-APACHE\n--------------\n\n{}\n", read("LICENSE-APACHE").trim_end())));
 
-    // A licence of another spelling, the notices of the fonts of egui, and a crate with none.
+    // A licence of another spelling, the notices of the fonts of egui, and a crate with none. An
+    // entry has each of its lines as one line, so a wrap does not break a name from its number.
     let entry = |name: &str| {
         let start = text.find(&format!("\n{name} ")).expect("the entry of the crate") + 1;
-        text[start..].split("\n\n").next().expect("an entry").to_owned()
+        text[start..].split("\n\n").next().expect("an entry").replace("\n    ", " ")
     };
     let imbl = entry("imbl");
     assert!(imbl.contains("\n  License: MPL-2.0+\n  Texts: LICENCE.md (text "), "{imbl}");
     let fonts = entry("epaint_default_fonts");
-    assert!(fonts.contains("fonts/OFL.txt (text ") && fonts.contains("fonts/UFL.txt (text "), "{fonts}");
+    for notice in ["Hack-Regular.txt", "OFL.txt", "UFL.txt", "emoji-icon-font-mit-license.txt"] {
+        assert!(fonts.contains(&format!("fonts/{notice} (text ")), "{notice}: {fonts}");
+    }
     let egui = entry("egui");
     assert!(egui.contains("No license file at the root of its package; the standard texts: MIT (text "), "{egui}");
     assert!(egui.contains("\n  Authors in its manifest: Emil Ernerfeldt"), "{egui}");
@@ -175,6 +178,18 @@ fn the_file_has_the_font_license_the_licenses_of_fresnel_and_the_texts_of_the_pa
         text.contains("Ubuntu Font Licence") || text.contains("UBUNTU FONT LICENCE"),
         "the license of Ubuntu Light"
     );
+    // The licenses of code that a crate copied from others, below the root of its package, which
+    // the license of ring names; a source file with such a name in small letters is none.
+    let ring = entry("ring");
+    let once_cell = "src/polyfill/once_cell/LICENSE";
+    for file in [format!("{once_cell}-APACHE"), format!("{once_cell}-MIT"), "third_party/fiat/LICENSE".to_owned()] {
+        assert!(ring.contains(&format!("{file} (text ")), "{file}: {ring}");
+    }
+    assert!(text.contains("\nCopyright 2015-2020 the fiat-crypto authors (see the AUTHORS file)\n"), "of fiat");
+    let regex = entry("regex-syntax");
+    assert!(regex.contains(", src/unicode_tables/LICENSE-UNICODE (text "), "{regex}");
+    let foundation = entry("objc2-foundation");
+    assert!(foundation.contains("\n  No license file at the root") && !foundation.contains("copying"), "{foundation}");
 
     // The same workspace gives the same bytes, with no path of this computer.
     assert_eq!(Notices::of_workspace(&root()).expect("the notices again").third_party(), text);
