@@ -58,24 +58,37 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
           cache-bin: "false"
-      # The bundle with an ad hoc signature, which `install` checks after it signs.
+      # The bundle with an ad hoc signature, which `install` checks after it signs, and the license
+      # files of fresnel and of the crates and the font in the program in Contents/Resources.
       - name: Fresnel.app
         run: cargo xtask install --to dist
       # ditto keeps the bundle as it is: a plain zip of some tools breaks its signature.
       - name: Zip file
         run: ditto -c -k --keepParent dist/Fresnel.app fresnel-macos-arm64.zip
-      # The checks read the content of the zip file, as a user gets it.
+      # The checks read the content of the zip file, as a user gets it. The licenses of fresnel
+      # are the files of the commit, and THIRD-PARTY-LICENSES has the OFL of JetBrains Mono.
       - name: Check the zip file
         id: check
         run: |
           ditto -x -k fresnel-macos-arm64.zip unzipped
           codesign --verify --deep --strict --verbose=2 unzipped/Fresnel.app
+          resources=unzipped/Fresnel.app/Contents/Resources
+          for file in LICENSE-MIT LICENSE-APACHE; do
+            if ! cmp -s "$file" "$resources/$file"; then
+              echo "::error::Contents/Resources/$file of Fresnel.app is not $file of the commit"
+              exit 1
+            fi
+          done
+          if ! grep -q "SIL OPEN FONT LICENSE Version 1.1" "$resources/THIRD-PARTY-LICENSES"; then
+            echo "::error::Fresnel.app has no Contents/Resources/THIRD-PARTY-LICENSES with the OFL"
+            exit 1
+          fi
           text=$(unzipped/Fresnel.app/Contents/MacOS/fresnel --version)
           if ! [[ "$text" =~ ^fresnel\ ([0-9]+\.[0-9]+\.[0-9]+\+build\.$FRESNEL_BUILD)$ ]]; then
             echo "::error::fresnel --version gives \"$text\""
             exit 1
           fi
-          echo "Fresnel.app: $text, with a valid ad hoc signature"
+          echo "Fresnel.app: $text, with a valid ad hoc signature and its license files"
           echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -113,19 +126,30 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
           cache-bin: "false"
-      # The program with its icon and its version in its resources.
+      # The program with its icon and its version in its resources, and its license files.
       - name: fresnel.exe
         run: cargo xtask windows --to dist
       - name: Zip file
         shell: pwsh
-        run: Compress-Archive -Path dist/fresnel.exe -DestinationPath fresnel-windows-x64.zip
+        run: |
+          $files = 'fresnel.exe', 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD-PARTY-LICENSES' | ForEach-Object { "dist/$_" }
+          Compress-Archive -Path $files -DestinationPath fresnel-windows-x64.zip
       # The program has no console: Start-Process waits for its end and keeps its output.
-      # ExtractIconEx with the index -1 counts the icons of a file.
+      # ExtractIconEx with the index -1 counts the icons of a file. The license files are next to
+      # the program as in the job `macos`.
       - name: Check the zip file
         id: check
         shell: pwsh
         run: |
           Expand-Archive fresnel-windows-x64.zip unzipped
+          $names = (Get-ChildItem unzipped | Sort-Object Name | ForEach-Object Name) -join ' '
+          if ($names -cne 'fresnel.exe LICENSE-APACHE LICENSE-MIT THIRD-PARTY-LICENSES') { throw "the zip file has $names" }
+          foreach ($file in 'LICENSE-MIT', 'LICENSE-APACHE') {
+            if ((Get-FileHash "unzipped/$file").Hash -ne (Get-FileHash $file).Hash) { throw "$file of the zip file is not $file of the commit" }
+          }
+          if (-not (Select-String -Path unzipped/THIRD-PARTY-LICENSES -SimpleMatch 'SIL OPEN FONT LICENSE Version 1.1' -Quiet)) {
+            throw 'THIRD-PARTY-LICENSES of the zip file has no OFL'
+          }
           $program = (Resolve-Path unzipped/fresnel.exe).Path
           $run = Start-Process $program -ArgumentList '--version' -NoNewWindow -Wait -PassThru -RedirectStandardOutput version.txt
           $text = (Get-Content version.txt -Raw).Trim()
@@ -139,7 +163,7 @@ jobs:
           Add-Type -Namespace Shell -Name Icons -MemberDefinition '[DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern uint ExtractIconEx(string file, int index, IntPtr[] large, IntPtr[] small, uint count);'
           $icons = [Shell.Icons]::ExtractIconEx($program, -1, $null, $null, 0)
           if ($icons -ne 1) { throw "fresnel.exe has $icons icons" }
-          "fresnel.exe: $text, version resource $($info.ProductVersion) of $($info.FileDescription), 1 icon"
+          "fresnel.exe: $text, version resource $($info.ProductVersion) of $($info.FileDescription), 1 icon, license files"
           "version=$version" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
