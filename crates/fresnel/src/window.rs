@@ -8,7 +8,7 @@ use std::sync::Arc;
 use eframe::egui;
 use fresnel_core::app::CoreView;
 use fresnel_core::forward::ForwardState;
-use fresnel_ui::{Clock, Shell, TerminalFonts};
+use fresnel_ui::{Clock, QuitQuestion, Shell, TerminalFonts};
 
 use crate::boot::Boot;
 use crate::nap::NapGuard;
@@ -31,24 +31,39 @@ pub(crate) fn run(boot: &Arc<Boot>) -> Result<(), String> {
     let boot = Arc::clone(boot);
     let create = move |creation: &eframe::CreationContext<'_>| {
         let ctx = creation.egui_ctx.clone();
-        if let Err(error) = platform::quit_closes_the_window() {
-            boot.journal().warning("app", format!("Cmd+Q quits with no question: {error}"));
-        }
         let shell = Shell::new(&ctx, Clock::system(), &boot.core().tasks());
+        let quit = answer_quit(&boot, &ctx, shell.quit_question());
         let (fonts, problems) = TerminalFonts::of_system();
         problems.into_iter().for_each(|problem| boot.journal().info("app", problem));
         fresnel_ui::add_terminal_fonts(&ctx, fonts);
         boot.core().set_notifier(notify::notifier(boot.journal().clone()));
         boot.core().start(move || ctx.request_repaint());
-        Ok(Box::new(Window { shell, boot, nap: NapGuard::default() }) as Box<dyn eframe::App>)
+        Ok(Box::new(Window { shell, boot, nap: NapGuard::default(), _quit: quit }) as Box<dyn eframe::App>)
     };
     eframe::run_native(TITLE, options, Box::new(create)).map_err(|error| error.to_string())
+}
+
+/// Gives the decision of the question of the window to each quit of the app that the system
+/// asks for (`platform`), so the Quit item, the Dock and a click on the close button take the
+/// same decision. Without the answer, such a quit ends the app at once, and the journal says so.
+fn answer_quit(boot: &Arc<Boot>, ctx: &egui::Context, question: QuitQuestion) -> Option<platform::QuitAnswer> {
+    let (core, ctx) = (Arc::clone(boot), ctx.clone());
+    match platform::answer_quit(move || question.decide(&ctx, || core.core().view())) {
+        Ok(answer) => Some(answer),
+        Err(error) => {
+            boot.journal().warning("app", format!("a quit of the app asks no question: {error}"));
+            None
+        }
+    }
 }
 
 struct Window {
     shell: Shell,
     boot: Arc<Boot>,
     nap: NapGuard,
+    /// The answer to a quit of the app. It ends with the window: a quit after it ends the app
+    /// at once.
+    _quit: Option<platform::QuitAnswer>,
 }
 
 impl Window {

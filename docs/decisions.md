@@ -2184,13 +2184,20 @@ shell on its node (terminal review). The quit sequence now closes each session f
 5 s at most: Ctrl-D and its wait of 1 s, the close of the stream, and the second exec, whose
 hangup waits 1 s before its kill. After that limit, the journal has a warning.
 
-## Each quit is a close of the window, which asks while a terminal or a forward runs
+## Each quit asks while a terminal or a forward runs, unless `ask_before_quit` is off
 
-The Quit item of the macOS menu of winit sent `terminate:`, which ends the app at once, so Cmd+Q
-quit with no question while shells and local ports were open. The program gives that item
-`performClose:`, a close of the window, as egui makes Ctrl+Q on Windows. The close asks first
-while a terminal or a forward runs, unless `ask_before_quit` is off; the quit still waits 5 s
-at most for the shells.
+A close of the window and a quit of the app take one decision: the app ends at once, or the
+question shows in the window, which comes back. The Quit item with `performClose:` worked only
+for a key window: minimized, it was off and Cmd+Q did nothing, and the Dock sent `terminate:`
+with no question. The item keeps `terminate:`, and the program adds `applicationShouldTerminate:`,
+which winit leaves out, to the class of its delegate.
+
+## A log out ends the app at once, and the shells get 5 s
+
+A quit event of a log out, a restart or a shut down ends the app with no question. A question
+would hold the end of the session until an answer, also of a user who is away, and with
+`NSTerminateLater` the window would run in the modal loop of AppKit, which no test can open.
+The quit sequence ends the shells in 5 s at most, as at each quit.
 
 ## The stop of a close runs in the logic of a frame, also of a hidden window
 

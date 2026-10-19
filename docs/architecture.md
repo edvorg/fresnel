@@ -50,7 +50,7 @@ fresnel-testkit ------------------------------------------------> fresnel-net
   network, server, invalid. An item is private to its crate unless `lib.rs` lists it.
 - The `platform` module of a crate holds each difference of macOS and Windows: the environment,
   the process tree of a child, the time asleep, the bind and the reset of a local port, folders,
-  the lock, App Nap, notices, fonts, the browser, the Quit item of the menu, the command key name.
+  the lock, App Nap, notices, fonts, the browser, the quit of the macOS app, the command key name.
 
 ## Background tasks
 
@@ -180,7 +180,7 @@ dock (Operations, Forwards, Journal, Connections, a tab of each log, editor, ter
 - **Settings** (`views/settings`): a control for each entry of `config::table`, cluster and key; a
   draft goes to `EditSettings`. `shell/focus` moves the keys between four areas; `?` lists them.
 - **Forwards** (`views/forwards`): the tab, a line of each forward, a panel of the chosen one, the
-  Forward dialog, status bar counts. `shell/quit`: a quit with a terminal or a forward asks, also hidden.
+  Forward dialog, status bar counts. `shell/quit`: one decision of each quit, of the window or the app.
 
 ## Tests
 

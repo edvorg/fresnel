@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use fresnel_core::app::Notice;
 use fresnel_core::journal::Journal;
 use fresnel_core::net::env::ProcessEnv;
+use fresnel_ui::Quit;
 
 /// The variables that [`folders`] reads.
 pub(crate) const FOLDER_VARIABLES: &str = "HOME";
@@ -56,7 +57,11 @@ pub(crate) fn open_url(_url: &str) -> Result<(), String> {
     Err("the app opens no browser on this system: copy the address".to_owned())
 }
 
-/// Nothing: egui makes Ctrl+Q a close of the window already.
-pub(crate) fn quit_closes_the_window() -> Result<(), String> {
-    Ok(())
+/// No answer: the system has no quit of the app besides a close of the window, and the
+/// shell decides a close in the logic of its frame.
+pub(crate) struct QuitAnswer;
+
+/// Nothing: a close of the window is the only quit; `decide` is for the quit of macOS.
+pub(crate) fn answer_quit(_decide: impl Fn() -> Quit + 'static) -> Result<QuitAnswer, String> {
+    Ok(QuitAnswer)
 }

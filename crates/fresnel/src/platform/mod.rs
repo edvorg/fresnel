@@ -9,10 +9,11 @@
 //! - A start error: a dialog on Windows, whose release build has no console. A second start
 //!   brings the window of the first process to the front there.
 //! - The address of a forward in the browser of the user: AppKit and the Windows shell.
-//! - Cmd+Q of the macOS menu as a close of the window, which can ask first.
+//! - The answer to a quit of the app on macOS (the Quit item, Cmd+Q, the Dock, a log out): the
+//!   decision of the question of the window. On Windows each quit of the user is a close.
 
 #[cfg(target_os = "macos")]
-#[path = "macos.rs"]
+#[path = "macos/mod.rs"]
 mod system;
 #[cfg(windows)]
 #[path = "windows/mod.rs"]
@@ -22,6 +23,6 @@ mod system;
 mod system;
 
 pub(crate) use self::system::{
-    Activity, FOLDER_VARIABLES, Notifications, folders, open_url, quit_closes_the_window, show_first, show_start_error,
-    try_lock,
+    Activity, FOLDER_VARIABLES, Notifications, QuitAnswer, answer_quit, folders, open_url, show_first,
+    show_start_error, try_lock,
 };

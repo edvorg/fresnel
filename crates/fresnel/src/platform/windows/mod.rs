@@ -12,6 +12,7 @@ use std::os::windows::io::AsRawHandle as _;
 use std::path::PathBuf;
 
 use fresnel_core::net::env::ProcessEnv;
+use fresnel_ui::Quit;
 use windows_sys::Win32::Foundation::ERROR_LOCK_VIOLATION;
 use windows_sys::Win32::Storage::FileSystem::{LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx};
 use windows_sys::Win32::System::IO::OVERLAPPED;
@@ -93,8 +94,12 @@ pub(crate) fn open_url(url: &str) -> Result<(), String> {
     }
 }
 
-/// Nothing: Windows has no menu of the app, and egui makes Ctrl+Q a close of the window
-/// already.
-pub(crate) fn quit_closes_the_window() -> Result<(), String> {
-    Ok(())
+/// No answer: on Windows each quit of the user is a close of the window. Alt+F4, the close of
+/// the taskbar (also of a minimized window) and the close button give `WM_CLOSE`, Ctrl+Q a
+/// close of egui, and the shell decides each one in the logic of the frame.
+pub(crate) struct QuitAnswer;
+
+/// Nothing: a close of the window is the only quit; `decide` is for the quit of macOS.
+pub(crate) fn answer_quit(_decide: impl Fn() -> Quit + 'static) -> Result<QuitAnswer, String> {
+    Ok(QuitAnswer)
 }
