@@ -26,13 +26,9 @@ pub(crate) fn details(ui: &mut Ui, cx: &Context<'_>, event: &Event) -> Option<Li
     field(ui, cx.palette, "Type", |ui| {
         ui.label(RichText::new(kind).color(color));
     });
-    if let Some(now) = cx.data.and_then(|data| data.witness().judge(event)) {
-        field(ui, cx.palette, "Now", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                super::problem::chip(ui, cx.palette, cx.clock, &now);
-                ui.label(RichText::new(&now.why).color(cx.palette.text_muted));
-            });
-        });
+    let judged_at = super::problem::moment(cx.clock.now());
+    if let Some(now) = cx.data.and_then(|data| data.witness(judged_at).judge(event)) {
+        field(ui, cx.palette, "Now", |ui| super::problem::with_fact(ui, cx.palette, cx.clock, &now));
     }
     line(ui, cx, "Reason", event.reason.clone());
     let message = event.message.as_deref().map(str::trim).filter(|message| !message.is_empty());

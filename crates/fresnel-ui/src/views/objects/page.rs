@@ -23,6 +23,7 @@ use super::{ClusterMark, Link, Nouns, ObjectModel, Page, RowScene, uid};
 use crate::shell::Scene;
 use crate::theme::{self, Palette};
 use crate::views::act::{Ask, Gate, Subject};
+use crate::views::cluster::problem;
 use crate::views::detail::{self, DetailPanel, actions};
 use crate::views::metrics::Problems;
 use crate::views::metrics::read::Metered;
@@ -82,7 +83,8 @@ impl<M: ObjectModel> ObjectPage<M> {
         let now = selected().filter_map(|row| Some((row.id.clone(), row.data.as_ref()?.snapshot()?))).collect();
         let data = || selected().filter_map(|row| Some((&row.id, row.data.as_ref()?)));
         let metered = data().filter(|_| M::METERED).map(|(id, data)| Metered::of(id, data)).collect();
-        let witnesses = data().filter(|_| M::WITNESSED).map(|(id, data)| (id.clone(), data.witness())).collect();
+        let moment = problem::moment(scene.clock.now());
+        let witnesses = data().filter(|_| M::WITNESSED).map(|(id, data)| (id.clone(), data.witness(moment))).collect();
         let gone = self.follower.step(now, metered, witnesses);
         if !gone.is_empty() {
             self.table.forget(|id| gone.has(id));

@@ -181,5 +181,12 @@ fn each_warning_of_the_panel_has_the_state_of_its_problem_now() {
     let mut window = window(view(vec![live("ams-prod", &pods())]));
     open(&mut window, "crash");
     assert!(in_panel(&window, "ongoing") && in_panel(&window, "resolved 07:59"), "the BackOff and the sandbox");
-    assert!(!in_panel(&window, "unknown") && !in_panel(&window, "gone"), "the pod is there and live");
+    let others = ["unknown", "replaced", "deleted"];
+    assert!(others.iter().all(|word| !in_panel(&window, word)), "the pod is there and live");
+    // The state and its fact have a line of their own: the first line of a narrow panel has
+    // no room for them next to the age.
+    assert!(in_panel(&window, "the pod has its sandbox"), "the fact of the live pod");
+    let (chip, reason) =
+        (window.get_by_label("resolved 07:59").rect(), window.get_by_label("FailedCreatePodSandBox").rect());
+    assert!(chip.top() >= reason.bottom() - 1.0 && chip.left() <= reason.left(), "{chip:?} below {reason:?}");
 }

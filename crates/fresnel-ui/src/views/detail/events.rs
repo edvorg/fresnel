@@ -62,7 +62,7 @@ pub(super) fn show(ui: &mut Ui, palette: &Palette, clock: &Clock, source: &Sourc
         }
         return;
     }
-    let witness = data.witness();
+    let witness = data.witness(problem::moment(clock.now()));
     for event in answer.found.iter().take(LIMIT) {
         entry(ui, palette, clock, event, &witness);
     }
@@ -72,10 +72,13 @@ pub(super) fn show(ui: &mut Ui, palette: &Palette, clock: &Clock, source: &Sourc
     }
 }
 
-/// One Event in two lines: the panel is narrow, and the message is the long part.
+/// One Event in two lines: the panel is narrow, and the message is the long part. A warning
+/// has a line with the state of its problem now between them, and the tone of that state.
 fn entry(ui: &mut Ui, palette: &Palette, clock: &Clock, event: &Event, witness: &Witness) {
     let kind = event.type_.as_deref().unwrap_or(NONE);
-    let tone = if kind == "Warning" { Tone::Warn } else { Tone::Muted };
+    // Only a warning has a state; an other Event tells no problem.
+    let now = witness.judge(event);
+    let tone = now.as_ref().map_or(Tone::Muted, |now| problem::tone(now.state));
     let count = reports(event);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
@@ -86,15 +89,15 @@ fn entry(ui: &mut Ui, palette: &Palette, clock: &Clock, event: &Event, witness: 
         if count > 1 {
             ui.label(RichText::new(format!("×{count}")).size(SMALL).color(palette.text_muted));
         }
-        if let Some(now) = witness.judge(event) {
-            problem::chip(ui, palette, clock, &now);
-        }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let seen = last_seen(event).map(SystemTime::from);
             let age = seen.map_or_else(|| NONE.to_owned(), |time| format!("{} ago", format::span(clock.since(time))));
             ui.label(RichText::new(age).size(SMALL).color(palette.text_faint));
         });
     });
+    if let Some(now) = &now {
+        problem::with_fact(ui, palette, clock, now);
+    }
     let message = short(event.message.as_deref().unwrap_or_default(), MESSAGE_LIMIT);
     ui.add(Label::new(RichText::new(message).color(palette.text_muted)).wrap());
     ui.add_space(6.0);

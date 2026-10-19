@@ -2,7 +2,7 @@
 //! clusters (research 11 section 8.3). A block has the state of the cluster, the version of
 //! its server, its nodes, its pods by phase, its CPU and memory against the allocatable part
 //! of its nodes, and its warning Events of the last hour with the state of each problem now:
-//! the ongoing ones first, then the newest ones.
+//! the ongoing ones first, then the unknown ones, then the ended ones.
 //!
 //! A count of a store that is not live has the mark of that store, and the CPU and memory
 //! have the state of the sampler: each cluster shows its own state, and the other blocks
@@ -236,7 +236,8 @@ fn meter(ui: &mut Ui, palette: &Palette, clock: &Clock, usage: &Usage, resource:
 }
 
 /// The count of the warning Events of the last hour with its link, and the shown ones with
-/// the state of each problem now and their objects as links.
+/// the state of each problem now and their objects as links. A row of an ended problem is
+/// muted: only an ongoing one has the tone of a warning.
 fn warnings(ui: &mut Ui, palette: &Palette, clock: &Clock, row: &ClusterRow, counts: &Counted) -> Option<Jump> {
     ui.add_space(4.0);
     heading_with_hint(ui, palette, "WARNING EVENTS", WARNINGS_HINT);
@@ -255,16 +256,17 @@ fn warnings(ui: &mut Ui, palette: &Palette, clock: &Clock, row: &ClusterRow, cou
     Grid::new("warnings").num_columns(5).spacing([12.0, 4.0]).show(ui, |ui| {
         for warning in shown {
             let event = &warning.event;
+            let state = warning.now.state;
             problem::chip(ui, palette, clock, &warning.now);
+            // The name tells that the time is of the last report, not of the start or the
+            // end of the problem.
             let seen = last_seen(event).map(|time| format::span(clock.since(time.into())));
-            ui.label(
-                RichText::new(seen.map_or_else(|| NONE.to_owned(), |seen| format!("{seen} ago")))
-                    .color(palette.text_muted),
-            );
+            let seen = seen.map_or_else(|| format!("last report {NONE}"), |seen| format!("last report {seen} ago"));
+            ui.label(RichText::new(seen).color(palette.text_muted));
             jump = object(ui, row, event).or(jump.take());
             ui.horizontal(|ui| {
                 let reason = format::short(event.reason.as_deref().unwrap_or(NONE), NAME_LIMIT);
-                ui.label(RichText::new(reason).color(palette.warn));
+                ui.label(RichText::new(reason).color(problem::tone(state).color(palette)));
                 // A problem that stays has many reports.
                 let count = reports(event);
                 if count > 1 {
@@ -272,7 +274,8 @@ fn warnings(ui: &mut Ui, palette: &Palette, clock: &Clock, row: &ClusterRow, cou
                 }
             });
             let message = event.message.as_deref().map(str::trim).unwrap_or_default();
-            ui.add(Label::new(format::short(message, LINE_LIMIT)).truncate());
+            let tone = if problem::ended(state) { Tone::Faint } else { Tone::Normal };
+            ui.add(Label::new(RichText::new(format::short(message, LINE_LIMIT)).color(tone.color(palette))).truncate());
             ui.end_row();
         }
     });
@@ -280,17 +283,25 @@ fn warnings(ui: &mut Ui, palette: &Palette, clock: &Clock, row: &ClusterRow, cou
 }
 
 /// "3 warnings in the last hour, 1 ongoing": the link to the warnings, the ongoing ones, and
-/// the ones whose state the app cannot tell. Gives the jump of a click.
+/// the ones whose state the app cannot tell. Gives the jump of a click. The link has the
+/// count of the rows of its table: "31 warnings, 3 in the last hour" when the cluster keeps
+/// older ones.
 fn summary(ui: &mut Ui, palette: &Palette, warnings: &Warnings) -> Option<Jump> {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        let text = format!("{} in the last hour", format::count(warnings.count.into(), "warning"));
-        let jump = count_link(ui, &text, Kind::Event, true);
-        // "None ongoing" would be false while the state of some is unknown.
+        let all = format::count(warnings.all.into(), "warning");
+        let jump = if warnings.all == warnings.count {
+            count_link(ui, &format!("{all} in the last hour"), Kind::Event, true)
+        } else {
+            let jump = count_link(ui, &all, Kind::Event, true);
+            ui.label(format!(", {} in the last hour", warnings.count));
+            jump
+        };
+        // "None ongoing" would be false while the state of one is unknown.
         if warnings.ongoing > 0 {
             ui.label(", ");
             ui.label(RichText::new(format!("{} ongoing", warnings.ongoing)).color(palette.warn));
-        } else if warnings.count > warnings.unknown {
+        } else if warnings.count > 0 && warnings.unknown == 0 {
             ui.label(", ");
             ui.label(RichText::new("none ongoing").color(palette.text_muted));
         }
@@ -309,7 +320,8 @@ fn object(ui: &mut Ui, row: &ClusterRow, event: &Event) -> Option<Jump> {
     let reference = &event.involved_object;
     let (kind, name) = (reference.kind.as_deref().unwrap_or(NONE), reference.name.as_deref().unwrap_or(NONE));
     let text = format!("{} {}", format::short(kind, NAME_LIMIT), format::short(name, NAME_LIMIT));
-    let Some(kind) = Kind::named(kind).filter(|_| reference.name.is_some()) else {
+    // A custom resource can have the name of a kind of the app in its own group.
+    let Some(kind) = Kind::of_api(reference.api_version.as_deref(), kind).filter(|_| reference.name.is_some()) else {
         ui.label(text);
         return None;
     };

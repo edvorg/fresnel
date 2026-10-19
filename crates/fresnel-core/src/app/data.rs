@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use fresnel_net::WallClock;
 use fresnel_net::task::{Backoff, Restart, TaskHandle, TaskName};
@@ -84,10 +85,10 @@ impl ClusterData {
         self.stores.iter().find(|status| status.kind == kind).or_else(|| self.objects.status(kind))
     }
 
-    /// The stores that tell the state now of the problem of a warning Event: the pods and
-    /// each other store of full objects that is always on.
-    pub fn witness(&self) -> Witness {
-        Witness::new(std::iter::once(Source::full(self.pods.clone())).chain(self.sources.iter().cloned()))
+    /// The stores that tell the state of the problem of a warning Event at the moment `at`:
+    /// the pods and each other store of full objects that is always on.
+    pub fn witness(&self, at: SystemTime) -> Witness {
+        Witness::new(std::iter::once(Source::full(self.pods.clone())).chain(self.sources.iter().cloned()), at)
     }
 
     /// The store of each kind that the quick search reads: the full objects of a kind that

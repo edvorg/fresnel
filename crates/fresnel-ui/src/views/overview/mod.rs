@@ -28,6 +28,7 @@ use fresnel_core::net::task::{TaskName, Tasks};
 use self::count::{Counted, Input};
 use crate::shell::Scene;
 use crate::theme::{self, PAD, Palette};
+use crate::views::cluster::problem;
 use crate::views::detail::related::links_only;
 use crate::views::objects::Link;
 use crate::widgets::worker::{Cancel, Done, RequestId, SLOW, Wake, Worker};
@@ -178,10 +179,11 @@ impl OverviewPage {
         }
     }
 
-    /// Asks for counts of the snapshots of this frame when they or the last hour changed. A
-    /// new namespace filter is a new query: the count in progress stops, as its counts have
-    /// no use.
+    /// Asks for counts of the snapshots of this frame when they, the moment of the states of
+    /// the warnings or the last hour changed. A new namespace filter is a new query: the
+    /// count in progress stops, as its counts have no use.
     fn request(&mut self, scene: &Scene<'_>) {
+        let moment = problem::moment(scene.clock.now());
         let inputs: Vec<Input> = scene
             .view
             .clusters
@@ -190,7 +192,7 @@ impl OverviewPage {
             .filter_map(|row| {
                 let data = row.data.as_ref()?;
                 let (pods, objects, metrics) = (data.pods.clone(), data.objects.clone(), data.metrics.clone());
-                Some(Input { cluster: row.id.clone(), pods, objects, metrics, witness: data.witness() })
+                Some(Input { cluster: row.id.clone(), pods, objects, metrics, witness: data.witness(moment) })
             })
             .collect();
         let since = count::hour_start(scene.clock.now());

@@ -131,6 +131,7 @@ impl<T: Object> Follower<T> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::{Duration, SystemTime};
 
     use fresnel_core::search::Source;
     use fresnel_core::store::{ObjectKey, StoreState};
@@ -200,20 +201,23 @@ mod tests {
     }
 
     /// The Events show the state of each warning from the stores of their cluster: a new
-    /// snapshot of one of them gives new rows, as a change of the Events does.
+    /// snapshot of one of them, or a new moment, gives new rows, as a change of the Events does.
     #[test]
-    fn a_new_snapshot_of_a_witness_gives_a_new_number() {
+    fn a_new_snapshot_or_moment_of_a_witness_gives_a_new_number() {
         let bed = TestTasks::new();
         let mut follower = Follower::<Pod>::default();
         let pods = || bed.held(snapshot(&fixture_pods(), StoreState::Live));
-        let witness = |pods| vec![(ClusterId::new("ams"), Witness::new([Source::full(pods)]))];
-        let first_pods = pods();
-        assert!(follower.step(Vec::new(), Vec::new(), witness(first_pods.clone())).is_empty());
+        let witness = |pods, at| vec![(ClusterId::new("ams"), Witness::new([Source::full(pods)], at))];
+        let (first_pods, at) = (pods(), SystemTime::UNIX_EPOCH);
+        assert!(follower.step(Vec::new(), Vec::new(), witness(first_pods.clone(), at)).is_empty());
         let first = follower.serial();
-        follower.step(Vec::new(), Vec::new(), witness(first_pods));
+        follower.step(Vec::new(), Vec::new(), witness(first_pods.clone(), at));
         assert_eq!(follower.serial(), first, "the same snapshots");
-        follower.step(Vec::new(), Vec::new(), witness(pods()));
+        follower.step(Vec::new(), Vec::new(), witness(pods(), at));
         assert!(follower.serial() > first, "a new snapshot of the pods");
+        let second = follower.serial();
+        follower.step(Vec::new(), Vec::new(), witness(first_pods, at + Duration::from_secs(10)));
+        assert!(follower.serial() > second, "a new moment: a state can end with the time alone");
         assert_eq!(follower.data().witnesses.len(), 1);
     }
 }

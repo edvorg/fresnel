@@ -155,7 +155,12 @@ impl Clock {
 
     /// A clock that always shows `now`, in UTC.
     pub fn fixed(now: SystemTime) -> Self {
-        Self { now: WallClock::new(move || now), zone: TimeZone::UTC, twelve: false }
+        Self::reading(move || now)
+    }
+
+    /// A clock that reads `now`, in UTC: a test moves it.
+    pub fn reading(now: impl Fn() -> SystemTime + Send + Sync + 'static) -> Self {
+        Self { now: WallClock::new(now), zone: TimeZone::UTC, twelve: false }
     }
 
     /// Takes the time zone and the form of a time of day of the settings.

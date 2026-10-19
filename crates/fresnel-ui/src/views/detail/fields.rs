@@ -3,7 +3,8 @@
 
 use std::collections::BTreeMap;
 
-use egui::{Align, Label, Layout, RichText, Sense, Ui, WidgetInfo, WidgetType};
+use egui::text::LayoutJob;
+use egui::{Align, FontSelection, Label, Layout, RichText, Sense, Ui, WidgetInfo, WidgetType};
 
 use crate::format::{self, short};
 use crate::theme::{self, Palette};
@@ -20,18 +21,24 @@ pub(crate) const ITEM_LIMIT: usize = 100;
 pub(crate) const NONE: &str = "–";
 
 pub(crate) fn heading(ui: &mut Ui, palette: &Palette, title: &str) {
-    heading_label(ui, palette, title);
+    ui.label(RichText::new(title).size(11.0).color(palette.text_faint));
+    ui.add_space(2.0);
 }
 
 /// A heading with a hint that tells how to read its section, while the pointer is on it.
+/// The "?" after the title shows that it has a hint; the two are one label, so the heading
+/// has the height of a plain one.
 pub(crate) fn heading_with_hint(ui: &mut Ui, palette: &Palette, title: &str, hint: &str) {
-    heading_label(ui, palette, title).on_hover_text(hint);
-}
-
-fn heading_label(ui: &mut Ui, palette: &Palette, title: &str) -> egui::Response {
-    let label = ui.label(RichText::new(title).size(11.0).color(palette.text_faint));
+    let mut job = LayoutJob::default();
+    let parts = [
+        RichText::new(title).size(11.0).color(palette.text_faint),
+        RichText::new(" ?").size(11.0).strong().color(palette.text_muted),
+    ];
+    for part in parts {
+        part.append_to(&mut job, ui.style(), FontSelection::Default, Align::Center);
+    }
+    ui.label(job).on_hover_text(hint);
     ui.add_space(2.0);
-    label
 }
 
 /// One line of a section: the label at the left and the value at the right. A long value

@@ -134,7 +134,8 @@ fn the_events_have_the_state_of_each_warning_now_after_their_type() {
     assert_eq!(titles::<Event>()[2..6], ["Cluster", "Type", "Now", "Reason"]);
     assert!(!titles::<Node>().contains(&"Now"), "an other kind");
     let ams = ClusterId::new("ams");
-    let witness = Witness::new([Source::full(bed.held(snapshot(&fixture_pods(), StoreState::Live)))]);
+    let witness =
+        Witness::new([Source::full(bed.held(snapshot(&fixture_pods(), StoreState::Live)))], SystemTime::now());
     let data = Stores {
         clusters: vec![(ams.clone(), bed.held(snapshot(&fixture::<Event>(), StoreState::Live)))],
         metered: Vec::new(),
@@ -157,7 +158,12 @@ fn the_events_have_the_state_of_each_warning_now_after_their_type() {
     assert_eq!(no_store.as_deref(), Some("Unknown: the cluster has no store of the Jobs."));
     assert_eq!(&*model.cell(normal, now, &scene).text, "–", "an Event that tells no problem");
     assert_eq!(model.compare(normal, crash, now), Ordering::Less, "no state first, as no value");
+    let (unknown, resolved) = (row("fails.18de2891a64a7373"), row("crash.18de288e97918207"));
+    assert_eq!(model.compare(unknown, resolved, now), Ordering::Less, "an unknown one can still be a problem");
 
-    let ongoing = rows(&ObjectFilter { text: "ongoing".to_owned(), ..ObjectFilter::default() });
-    assert_eq!(ongoing.len(), 8, "the text filter finds a state");
+    let found = |text: &str| rows(&ObjectFilter { text: text.to_owned(), ..ObjectFilter::default() });
+    assert_eq!(found("ongoing").len(), 8, "the text filter finds a state");
+    let of_old_pod =
+        found("deleted").into_iter().any(|row| &*row.id.key.name == "web-64cb9bd5d4-c8kcm.18de288e9b577fa6");
+    assert!(of_old_pod, "a pod of the old ReplicaSet of web");
 }

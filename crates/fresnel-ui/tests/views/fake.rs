@@ -1,5 +1,6 @@
 //! The fake core: copies of the state that a test builds, and the commands that the views sent.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -38,6 +39,9 @@ pub(crate) fn now() -> SystemTime {
 pub(crate) struct FakeCore {
     pub(crate) view: CoreView,
     pub(crate) sent: Vec<Command>,
+    /// The milliseconds of the clock of the views after `now`: a test moves the time with
+    /// no change of the state.
+    later: Arc<AtomicU64>,
     shell: Option<Shell>,
     tasks: Tasks,
     reports: Arc<Mutex<Vec<String>>>,
@@ -53,7 +57,12 @@ impl FakeCore {
             let reports = Arc::clone(&reports);
             move |report: TaskReport| reports.lock().expect("a lock").push(report.to_string())
         });
-        Self { view, sent: Vec::new(), shell: None, tasks, reports, _runtime: runtime }
+        Self { view, sent: Vec::new(), later: Arc::default(), shell: None, tasks, reports, _runtime: runtime }
+    }
+
+    /// Moves the clock of the views to `later` after `now`.
+    pub(crate) fn move_clock(&self, later: Duration) {
+        self.later.store(u64::try_from(later.as_millis()).expect("a short time"), Ordering::Relaxed);
     }
 }
 
@@ -90,7 +99,11 @@ pub(crate) fn window_with_no_gpu(view: CoreView, pixels_per_point: f32) -> Windo
 
 fn build(view: CoreView, theme: egui::Theme, pixels_per_point: f32, gpu: bool) -> Window {
     let frame = |ui: &mut egui::Ui, core: &mut FakeCore| {
-        let shell = core.shell.get_or_insert_with(|| Shell::new(ui.ctx(), Clock::fixed(now()), &core.tasks));
+        let shell = core.shell.get_or_insert_with(|| {
+            let later = Arc::clone(&core.later);
+            let clock = Clock::reading(move || now() + Duration::from_millis(later.load(Ordering::Relaxed)));
+            Shell::new(ui.ctx(), clock, &core.tasks)
+        });
         // The logic and then the frame, as eframe runs a window that shows.
         shell.logic(ui.ctx(), || core.view.clone());
         let commands = shell.show(ui, &core.view);

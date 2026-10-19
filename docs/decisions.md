@@ -2245,8 +2245,8 @@ launch runs the first shell that exists, so a container with only `/bin/sh` work
 
 ## The state of a warning comes from its live object, not from its time
 
-An Event tells the last report of a problem, and the cluster keeps it about an hour after it;
-the kubelet reports a problem that stays only now and then. So a warning with its age looked
-current after its end (user review). A rule of its kind and reason now reads the live object:
-ongoing, resolved after the last report, gone, or unknown with the reason. A healthy state
-from before the report proves no end.
+An Event tells the last report of a problem; the cluster keeps it about an hour, and the
+kubelet limits the repeats of a report. So an old warning looked current after its end (user
+review). A rule of its kind and reason reads the live object: ongoing, unknown with the
+reason, resolved, replaced or deleted. An end counts after the last report, for a restarted
+container after 10 minutes of run: a crash loop runs it between reports.

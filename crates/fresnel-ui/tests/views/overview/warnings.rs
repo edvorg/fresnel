@@ -2,6 +2,7 @@
 //! not tell if a warning of 31 minutes ago was still a problem, nor what shows at its end.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use egui::accesskit::Role;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
@@ -11,8 +12,8 @@ use k8s_openapi::api::core::v1::{Event, Pod};
 use serde_json::json;
 
 use super::{cluster, open, with};
-use crate::data::{changed, events, held, pod, pods, store};
-use crate::fake::{Window, shows, view, window};
+use crate::data::{changed, changed_object, events, held, pod, pods, store};
+use crate::fake::{Window, shows, until, view, window};
 use crate::workloads::scene::hover;
 
 /// The Event of the scene about this object with this reason.
@@ -28,10 +29,11 @@ fn top(window: &Window, label: &str) -> f32 {
     window.get_by_label(label).rect().top()
 }
 
-/// The pod `not-ready` after its probe works again: ready since 07:59:50, after the last
-/// report of its failed probe at 07:59:45.
+/// The pod `not-ready` after its probe works again: its container is ready, and the pod is
+/// ready since 07:59:50, after the last report of its failed probe at 07:59:45.
 fn ready_again() -> Arc<Pod> {
     changed(&pod("not-ready"), |pod| {
+        pod["status"]["containerStatuses"][0]["ready"] = true.into();
         pod["status"]["conditions"] = json!([{"type": "Ready", "status": "True",
             "lastTransitionTime": "2027-01-15T07:59:50Z"}]);
     })
@@ -67,20 +69,29 @@ fn each_warning_shows_the_state_of_its_problem_now_and_the_ongoing_ones_come_fir
     open(&mut window, "Cluster overview");
     let summary = ["4 warnings in the last hour", "1 ongoing", "1 unknown"];
     assert!(summary.iter().all(|text| shows(&window, text)), "the count, the ongoing ones and the unknown ones");
-    let chips = ["ongoing", "resolved 07:59", "unknown", "gone"];
+    let chips = ["ongoing", "unknown", "resolved 07:59", "deleted"];
     let tops: Vec<f32> = chips.iter().map(|chip| top(&window, chip)).collect();
-    assert!(tops.windows(2).all(|pair| pair[0] < pair[1]), "the ongoing one first, then the newest: {tops:?}");
-    assert!(top(&window, "Pod unschedulable") < top(&window, "Pod not-ready"), "a row of its chip");
+    assert!(
+        tops.windows(2).all(|pair| pair[0] < pair[1]),
+        "the ongoing one, the unknown one, the ended ones: {tops:?}"
+    );
+    assert!(top(&window, "Pod unschedulable") < top(&window, "CronJob tick"), "a row of its chip");
     // The repeat count of a report, after its reason: the failed probe came 24 times.
     assert!(shows(&window, "×24") && shows(&window, "×3"));
+    // The time has its name, so it does not read as the age of the problem or as its end.
+    assert!(shows(&window, "last report 50 s ago") && shows(&window, "last report 15 s ago"));
+    let middle = |label: &str| window.get_by_label(label).rect().center().y;
+    assert!((middle("last report 15 s ago") - middle("resolved 07:59")).abs() < 2.0, "the time of its row");
 
-    hover(&mut window, Role::Label, "resolved 07:59");
-    assert!(shows(&window, "Resolved at 2027-01-15 07:59:50: the pod is ready."), "the fact of the live object");
-    hover(&mut window, Role::Label, "gone");
-    assert!(shows(&window, "Gone: the Pod is not in its store."));
-    hover(&mut window, Role::Label, "WARNING EVENTS");
     let hint = "A time is the last report of an Event: the cluster keeps an Event for about 1 hour after its last \
                 report. The state comes from the live object now, not from the Event.";
+    hover(&mut window, Role::Label, "deleted");
+    assert!(shows(&window, "Deleted: the Pod is not in its store.") && !shows(&window, hint));
+    hover(&mut window, Role::Label, "resolved 07:59");
+    let resolved = "Resolved at 2027-01-15 07:59:50: the container main is ready.";
+    assert!(shows(&window, resolved) && !shows(&window, hint), "the fact of the live object");
+    // The mark after the heading tells that it has a hint.
+    hover(&mut window, Role::Label, "WARNING EVENTS ?");
     assert!(shows(&window, hint), "what the time and the state tell");
 }
 
@@ -97,7 +108,8 @@ fn the_count_of_the_ongoing_warnings_is_of_each_warning_and_not_only_of_the_show
 }
 
 /// "None ongoing" tells that no problem stays, so it shows only when the app knows the state
-/// of each warning: a store of the pods that is not live leaves a state unknown.
+/// of each warning: a store of the pods that is not live, or a warning with no rule, leaves
+/// a state unknown.
 #[test]
 fn none_ongoing_shows_only_when_the_state_of_each_warning_is_known() {
     let probe = [of("not-ready", "Unhealthy")];
@@ -108,4 +120,47 @@ fn none_ongoing_shows_only_when_the_state_of_each_warning_is_known() {
     let mut old = window(view(vec![with_warnings(&probe, StoreState::Stopped)]));
     open(&mut old, "Cluster overview");
     assert!(shows(&old, "1 unknown") && !shows(&old, "none ongoing"), "the pods are not live");
+
+    let two = [of("not-ready", "Unhealthy"), of("tick", "UnexpectedJob")];
+    let mut some = window(view(vec![with_warnings(&two, StoreState::Live)]));
+    open(&mut some, "Cluster overview");
+    assert!(shows(&some, "2 warnings in the last hour") && shows(&some, "1 unknown"));
+    assert!(!shows(&some, "none ongoing"), "one is resolved, and the state of the other is not known");
+}
+
+/// The cluster keeps an Event after the hour: the count of the last hour follows the clock
+/// with no new snapshot, so an old warning does not count as one of the last hour.
+#[test]
+fn a_warning_leaves_the_last_hour_with_the_time_alone() {
+    let early = changed_object(&*of("unschedulable", "FailedScheduling"), |event| {
+        event["lastTimestamp"] = "2027-01-15T07:00:05Z".into();
+        event["eventTime"] = serde_json::Value::Null;
+        event["series"] = serde_json::Value::Null;
+    });
+    let mut window = window(view(vec![with_warnings(&[early], StoreState::Live)]));
+    open(&mut window, "Cluster overview");
+    assert!(shows(&window, "1 warning in the last hour") && shows(&window, "1 ongoing"), "07:00:05 at 08:00:00");
+    // The hour starts at 07:00:10 one second later, at the next step of 10 s.
+    window.state().move_clock(Duration::from_secs(1));
+    until(&mut window, "a count of the new hour", |window| shows(window, ", 0 in the last hour"));
+    assert!(window.query_by_label("Pod unschedulable").is_none(), "no row of the old warning");
+    // The link has the count of the rows of its table, which keeps the old warning.
+    window.get_by_role_and_label(Role::Link, "1 warning").click();
+    until(&mut window, "the warnings", |window| shows(window, "1 Event"));
+}
+
+/// A custom resource can have the name of a kind of the app: a Service of Knative is not
+/// the Service of its name, so its row names it with no link, and its state is unknown.
+#[test]
+fn a_warning_of_a_custom_resource_with_the_name_of_a_kind_has_no_link() {
+    let knative = changed_object(&*of("unschedulable", "FailedScheduling"), |event| {
+        let object = &mut event["involvedObject"];
+        (object["kind"], object["apiVersion"], object["name"]) =
+            ("Service".into(), "serving.knative.dev/v1".into(), "web".into());
+        event["reason"] = "RevisionFailed".into();
+    });
+    let mut window = window(view(vec![with_warnings(&[knative], StoreState::Live)]));
+    open(&mut window, "Cluster overview");
+    assert!(shows(&window, "Service web") && shows(&window, "unknown"), "the row of the warning");
+    assert!(window.query_by_role_and_label(Role::Link, "Service web").is_none(), "no link to the Service web");
 }

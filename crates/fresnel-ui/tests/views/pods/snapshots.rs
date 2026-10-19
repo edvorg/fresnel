@@ -8,7 +8,7 @@ use crate::fake::{SECOND, Window, connected, live_status, now, open_tab, until, 
 use crate::pods::mouse::wide_window;
 use crate::pods::resize::drag;
 use crate::pods::scenes::{pods_of, session};
-use crate::snapshots::{SCALE, save};
+use crate::snapshots::{SCALE, panel_of, save, tall};
 
 /// Saves the frame with no pointer arrow: the harness draws one at the last click.
 fn save_clean(window: &mut Window, name: &str) {
@@ -58,6 +58,13 @@ fn the_detail_panel_of_a_pod_with_its_events() {
     window.get_by_label("crash").click();
     window.run();
     save_clean(&mut window, "pods-detail");
+}
+
+/// The Events section of a pod, each warning with the state of its problem now.
+#[test]
+fn the_events_of_a_pod_with_the_state_of_each_warning() {
+    let mut window = tall(panel_of(vec![live("ams-prod", &pods())], "Pods", "crash"), "EVENTS");
+    save_clean(&mut window, "pod-events");
 }
 
 #[test]

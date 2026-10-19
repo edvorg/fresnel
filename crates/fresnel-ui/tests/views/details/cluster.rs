@@ -4,6 +4,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use egui_kittest::kittest::Queryable as _;
 use fresnel_core::app::{ClusterRow, Command};
 use fresnel_core::kinds::Kind;
 use fresnel_core::search::Source;
@@ -116,6 +117,12 @@ fn an_event_shows_its_object_as_a_link_and_no_events_of_its_own() {
     // The state of its problem now, from the live pod, in the panel and in the Now column.
     let now = ["Now", "ongoing", "the container crash waits: CrashLoopBackOff"];
     assert_eq!(missing(&window, &now), Vec::<String>::new());
+    // A field has no space between its parts: the state has its own.
+    let why = window.get_by_label(now[2]).rect();
+    let in_line = |chip: &egui::Rect| (chip.top() - why.top()).abs() < 4.0 && chip.left() < why.left();
+    let chip = window.query_all_by_label("ongoing").map(|node| node.rect()).find(in_line);
+    let gap = chip.map(|chip| why.left() - chip.right());
+    assert!(gap.is_some_and(|gap| gap >= 4.0), "a space between the state and its fact: {gap:?}");
     let cell = "Ongoing now: the container crash waits: CrashLoopBackOff.";
     assert!(shows(&window, cell) && times_in_panel(&window, cell) == 0, "the cell of its row in the table");
     follow(&mut window, "Pod crash");

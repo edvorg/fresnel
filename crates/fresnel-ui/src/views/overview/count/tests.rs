@@ -27,12 +27,13 @@ fn metrics(bed: &TestTasks, requests: Amount) -> Held<Metrics> {
 /// The stores of the scene that tell the state of a warning now: its pods, its node, its
 /// Jobs and its CronJobs.
 fn witness(bed: &TestTasks, pods: &Held<Snapshot<Pod>>) -> Witness {
-    Witness::new([
+    let sources = [
         Source::full(pods.clone()),
         Source::full(bed.held(snapshot(&fixture::<Node>(), StoreState::Live))),
         Source::full(bed.held(snapshot(&fixture::<Job>(), StoreState::Live))),
         Source::full(bed.held(snapshot(&fixture::<CronJob>(), StoreState::Live))),
-    ])
+    ];
+    Witness::new(sources, SystemTime::now())
 }
 
 /// A cluster of the scene with these kinds besides the pods.

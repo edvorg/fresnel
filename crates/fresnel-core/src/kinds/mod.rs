@@ -147,6 +147,24 @@ impl Kind {
         Self::ALL.iter().copied().find(|kind| kind.info().name == name)
     }
 
+    /// The kind of a reference with this name and API version, as `apps/v1`. A custom
+    /// resource can have the name of a kind of the app in an other group, as a Service of
+    /// Knative: it is not that kind.
+    pub fn of_api(api_version: Option<&str>, name: &str) -> Option<Kind> {
+        Self::named(name).filter(|kind| kind.fits_api(api_version))
+    }
+
+    /// True when a reference with this API version can be of the kind: its group is the
+    /// group of the kind. A reference with no version fits, as the kubelet writes none for
+    /// its node.
+    pub fn fits_api(self, api_version: Option<&str>) -> bool {
+        let group = api_version.filter(|version| !version.is_empty()).map(|version| match version.split_once('/') {
+            Some((group, _)) => group,
+            None => "",
+        });
+        group.is_none_or(|group| group == self.info().group)
+    }
+
     /// Each action on an object of the kind: the actions of each kind, then its own ones.
     pub fn actions(self) -> impl Iterator<Item = Action> {
         Action::EACH_KIND.into_iter().chain(self.info().actions.iter().copied())
