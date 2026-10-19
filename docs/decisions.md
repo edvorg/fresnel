@@ -691,9 +691,9 @@ the cursor first.
 
 A new cluster can pass the checks of each store: its version past the cursor, its first object
 with no namesake in the store. So a task of each cluster reads the UID of the Namespace
-kube-system, which a cluster keeps for its life, at the connect and after each lost connection.
-An other UID gives the cluster a new number, and each store lists again. A user who cannot read
-that Namespace gets no such check.
+kube-system, which a cluster keeps for its life, after each new connection. An other UID, or
+none after one, gives the cluster a new number, and each store lists again. A user who cannot
+read that Namespace gets no such check.
 
 ## A second HTTP 410 gives a pause
 

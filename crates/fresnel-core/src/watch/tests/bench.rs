@@ -15,7 +15,7 @@ use crate::error::CoreError;
 use crate::kinds::{Kind, Meta};
 use crate::published::{Disposal, Held, Notice, Publisher, Reader};
 use crate::store::{Snapshot, StoreState, Wait};
-use crate::watch::lanes::{LaneStates, Lanes, Path};
+use crate::watch::lanes::{Identity, LaneStates, Lanes, Path};
 use crate::watch::source::{Events, Page, Source};
 use crate::watch::{ListGate, Parts, WatchSettings, run};
 
@@ -29,7 +29,8 @@ pub(super) const LIVE: LaneStates = LaneStates {
     watches: Path::Live,
     credential_failed: false,
     throttled_until: None,
-    cluster: 0,
+    connects: 0,
+    identity: Identity { number: 0, checked: 0 },
 };
 
 /// The settings of the tests: pauses of 100, 200, 400 ms and then 3 s with no random part,

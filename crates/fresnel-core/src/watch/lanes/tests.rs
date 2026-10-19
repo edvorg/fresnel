@@ -13,7 +13,8 @@ const LIVE: LaneStates = LaneStates {
     watches: Path::Live,
     credential_failed: false,
     throttled_until: None,
-    cluster: 0,
+    connects: 0,
+    identity: Identity { number: 0, checked: 0 },
 };
 
 fn group(states: &[ChannelState]) -> GroupStatus {
@@ -59,14 +60,16 @@ fn status(watches: &[ChannelState], requests: &[ChannelState], credential: Optio
 fn a_lane_is_live_with_one_live_channel_and_tells_a_missing_token_from_a_missing_connection() {
     let pause = ChannelState::Backoff { failures: 2, pause: SECOND };
     let two = [pause.clone(), ChannelState::Live];
-    let lanes = LaneStates::of(&status(&two, &[ChannelState::Verifying], None), 0);
+    let identity = Identity { number: 2, checked: 3 };
+    let lanes = LaneStates::of(&status(&two, &[ChannelState::Verifying], None), identity);
     assert_eq!((lanes.watches, lanes.requests), (Path::Live, Path::NoChannel), "an answer makes a channel live");
+    assert_eq!((lanes.connects, lanes.identity), (3, identity), "the connections of the cluster, and its identity");
     assert_eq!(lanes.readiness(Lane::Watches, EPOCH), Readiness::Ready);
     assert_eq!(lanes.readiness(Lane::Requests, EPOCH), Readiness::Wait(Wait::Channel));
 
     let waits = [ChannelState::WaitsForToken];
     let first_run = CredentialState::Running { reason: RunReason::Start, since: EPOCH, last_failure: None };
-    let lanes = LaneStates::of(&status(&waits, &[pause, ChannelState::Retired], Some(first_run)), 0);
+    let lanes = LaneStates::of(&status(&waits, &[pause, ChannelState::Retired], Some(first_run)), Identity::default());
     assert_eq!((lanes.watches, lanes.requests, lanes.credential_failed), (Path::NoToken, Path::NoChannel, false));
     assert_eq!(lanes.readiness(Lane::Watches, EPOCH), Readiness::Wait(Wait::Credential));
     assert_eq!(LaneStates::UNKNOWN.readiness(Lane::Requests, EPOCH), Readiness::Wait(Wait::Channel));
@@ -77,7 +80,7 @@ fn a_lane_is_live_with_one_live_channel_and_tells_a_missing_token_from_a_missing
 #[test]
 fn a_failed_credential_holds_each_request_and_a_refresh_of_a_valid_token_does_not() {
     let live = [ChannelState::Live];
-    let lanes = |state| LaneStates::of(&status(&live, &live, Some(state)), 0);
+    let lanes = |state| LaneStates::of(&status(&live, &live, Some(state)), Identity::default());
     let failed =
         CredentialState::Failed { failure: CredentialFailure::Refused, failures: 1, next_attempt: EPOCH + SECOND };
     let again = CredentialState::Running {
@@ -92,7 +95,7 @@ fn a_failed_credential_holds_each_request_and_a_refresh_of_a_valid_token_does_no
     }
     let refresh = CredentialState::Running { reason: RunReason::Expiry, since: EPOCH, last_failure: None };
     for state in [refresh, CredentialState::Valid { until: None }] {
-        assert_eq!(lanes(state), LIVE);
+        assert_eq!(lanes(state), LaneStates { connects: 3, ..LIVE });
     }
 }
 
@@ -100,7 +103,7 @@ fn a_failed_credential_holds_each_request_and_a_refresh_of_a_valid_token_does_no
 fn a_throttle_holds_a_live_lane_until_its_time() {
     let mut throttled = status(&[ChannelState::Live], &[ChannelState::Live], None);
     throttled.throttle = ThrottleStatus { until: Some(EPOCH + 5 * SECOND), answers: 1 };
-    let lanes = LaneStates::of(&throttled, 0);
+    let lanes = LaneStates::of(&throttled, Identity::default());
     assert_eq!(lanes.readiness(Lane::Requests, EPOCH), Readiness::Throttled(EPOCH + 5 * SECOND));
     // The connection layer tells no end of a throttle, so a time in the past is over.
     assert_eq!(lanes.readiness(Lane::Requests, EPOCH + 5 * SECOND), Readiness::Ready);

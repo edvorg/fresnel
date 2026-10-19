@@ -265,7 +265,7 @@ async fn an_other_cluster_ends_the_watch_and_the_next_one_with_a_new_list() {
     let (mut bench, _events) = Bench::live(settings()).await;
     bench.script.page(&[("x", "2")], Some("3"), None);
     let next = bench.script.watch_opens();
-    bench.lanes.send_modify(|lanes| lanes.cluster = 1);
+    bench.lanes.send_modify(|lanes| lanes.identity.number = 1);
     bench
         .until("the objects of the other cluster", |snapshot| snapshot.state.is_live() && snapshot.items.len() == 1)
         .await;
@@ -275,7 +275,7 @@ async fn an_other_cluster_ends_the_watch_and_the_next_one_with_a_new_list() {
     bench
         .until_state("the pause", |state| matches!(state, StoreState::Attempt { .. } | StoreState::Backoff { .. }))
         .await;
-    bench.lanes.send_modify(|lanes| lanes.cluster = 2);
+    bench.lanes.send_modify(|lanes| lanes.identity.number = 2);
     bench.script.page(&[("y", "1")], Some("2"), None);
     let _last = bench.script.watch_opens();
     bench.until_state("the watch of the third cluster", StoreState::is_live).await;

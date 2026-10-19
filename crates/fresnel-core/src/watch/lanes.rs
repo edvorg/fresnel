@@ -44,9 +44,22 @@ pub(crate) struct LaneStates {
     pub(crate) credential_failed: bool,
     /// The server takes no request until this time (HTTP 429). A time in the past is over.
     pub(crate) throttled_until: Option<SystemTime>,
-    /// The number of the cluster behind the connections: one more each time it is an other
-    /// cluster after a lost connection (`identity`). Each store lists again then.
-    pub(crate) cluster: u32,
+    /// The count of connections that the cluster opened. Each new one can reach an other
+    /// cluster at the same address.
+    pub(crate) connects: u64,
+    /// What the task of the identity read of the cluster behind the connections.
+    pub(crate) identity: Identity,
+}
+
+/// The cluster behind the connections, as the task of the identity publishes it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Identity {
+    /// The number of the cluster: one more each time it is an other cluster (`identity`).
+    /// Each store lists again then.
+    pub(crate) number: u32,
+    /// The count of connections before the start of the last read that told the identity.
+    /// Each connection up to that count reaches the cluster with this number.
+    pub(crate) checked: u64,
 }
 
 /// What a request of one lane can do now.
@@ -64,18 +77,25 @@ impl LaneStates {
         watches: Path::NoChannel,
         credential_failed: false,
         throttled_until: None,
-        cluster: 0,
+        connects: 0,
+        identity: Identity { number: 0, checked: 0 },
     };
 
-    /// The states of the connections of the cluster with this number.
-    pub(crate) fn of(status: &ClusterStatus, cluster: u32) -> Self {
+    /// The states of the connections of the cluster, with the identity that its task read.
+    pub(crate) fn of(status: &ClusterStatus, identity: Identity) -> Self {
         Self {
             requests: path(&status.requests),
             watches: path(&status.watches),
             credential_failed: credential_failed(status),
             throttled_until: status.throttle.until,
-            cluster,
+            connects: status.connect.connects,
+            identity,
         }
+    }
+
+    /// True when a request of the lane can go out: its channel is live and the credential works.
+    fn is_open(&self, lane: Lane) -> bool {
+        self.path(lane) == Path::Live && !self.credential_failed
     }
 
     fn path(&self, lane: Lane) -> Path {
@@ -119,13 +139,13 @@ fn credential_failed(status: &ClusterStatus) -> bool {
 }
 
 /// The body of the task of the cluster: publishes a copy after each change of a state. The
-/// number of the cluster is the one of the task of its identity.
+/// identity is the one of the task of the identity.
 pub(crate) async fn follow(net: fresnel_net::Cluster, states: watch::Sender<LaneStates>) -> Result<(), CoreError> {
     let mut changes = net.changes();
     loop {
         let status = net.status();
         states.send_if_modified(|states| {
-            let current = LaneStates::of(&status, states.cluster);
+            let current = LaneStates::of(&status, states.identity);
             std::mem::replace(states, current) != current
         });
         changes.next().await;
@@ -165,8 +185,7 @@ impl Lanes {
 
     /// Waits for a new copy. The error tells that the cluster is gone.
     pub(crate) async fn changed(&mut self) -> Result<(), CoreError> {
-        let changed = self.states.changed().await;
-        changed.map_err(|_| CoreError::invalid("the task that follows the connections of the cluster is gone"))
+        self.states.changed().await.map_err(|_| gone())
     }
 
     /// Waits until no channel of the lane is live. A watch on a connection that is gone
@@ -180,23 +199,32 @@ impl Lanes {
 
     /// The number of the cluster behind the connections now.
     pub(crate) fn cluster(&self) -> u32 {
-        self.states.borrow().cluster
+        self.states.borrow().identity.number
     }
 
     /// Waits until the cluster behind the connections is not the one with this number.
     pub(crate) async fn other_cluster(&mut self, number: u32) {
-        let other = self.states.wait_for(|states| states.cluster != number).await.map(drop);
+        let other = self.states.wait_for(|states| states.identity.number != number).await.map(drop);
         if other.is_err() {
             std::future::pending::<()>().await;
         }
     }
 
-    /// Waits until a request of the lane can go out: its channel is live and the credential
-    /// works. A throttle of the server holds the request in the connection layer.
-    pub(crate) async fn open(&mut self, lane: Lane) -> Result<(), CoreError> {
-        let open = |states: &LaneStates| states.path(lane) == Path::Live && !states.credential_failed;
-        let opened = self.states.wait_for(open).await.map(drop);
-        opened.map_err(|_| CoreError::invalid("the task that follows the connections of the cluster is gone"))
+    /// Waits until a request of the lane can go out and, unless `due`, until a connection
+    /// opened that the task of the identity did not read the cluster behind. Gives the count
+    /// of connections then.
+    pub(crate) async fn unread(&mut self, lane: Lane, due: bool) -> Result<u64, CoreError> {
+        let unread = |states: &LaneStates| due || states.connects > states.identity.checked;
+        let found = self.states.wait_for(|states| states.is_open(lane) && unread(states)).await;
+        found.map(|states| states.connects).map_err(|_| gone())
+    }
+
+    /// Waits until the count of connections is more than `connects`.
+    pub(crate) async fn connected_after(&mut self, connects: u64) {
+        let new = self.states.wait_for(|states| states.connects > connects).await.map(drop);
+        if new.is_err() {
+            std::future::pending::<()>().await;
+        }
     }
 
     /// Waits until the two lanes are live after one of them was not. This is the moment a
@@ -213,6 +241,10 @@ impl Lanes {
             std::future::pending::<()>().await;
         }
     }
+}
+
+fn gone() -> CoreError {
+    CoreError::invalid("the task that follows the connections of the cluster is gone")
 }
 
 #[cfg(test)]
