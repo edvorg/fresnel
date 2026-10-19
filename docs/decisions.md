@@ -2106,6 +2106,13 @@ Hack, and Hiragino Sans GB on macOS, Microsoft YaHei on Windows, read in a few m
 its start; the platform module of `fresnel-ui` names the files. With no bold face, as in a view
 test or on Windows, a bold run is painted two times one pixel apart.
 
+## The terminal carries JetBrains Mono for the symbols that Hack has not
+
+The fonts of egui have no `✓` and no `✗`, which test tools print, so they showed as boxes. The
+app carries JetBrains Mono 2.304 Regular, a monospace font under the SIL Open Font License 1.1,
+274 KB, after Hack in each family of the terminal: 335 more code points, such as the control
+pictures and the APL marks. A subset would need a tool for fonts that the build does not have.
+
 ## A terminal with the focus takes each key but those with Cmd
 
 Ctrl+K deletes to the end of a line in a shell, `?` is text, and F6 is a key of `mc`. While a
