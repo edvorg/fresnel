@@ -80,8 +80,8 @@ mod tests {
     fn get_and_edit_name_the_context_the_resource_with_its_group_the_namespace_and_the_name() {
         let pod = get(&ClusterId::new("ams-prod"), Kind::Pod, &key("shop", "web-1"));
         assert_eq!(pod, "kubectl --context ams-prod get pods --namespace shop web-1 --output yaml");
-        let node = get(&ClusterId::new("do-ams3-prod"), Kind::Node, &key("", "pool-a1"));
-        assert_eq!(node, "kubectl --context do-ams3-prod get nodes pool-a1 --output yaml");
+        let node = get(&ClusterId::new("prod-eu"), Kind::Node, &key("", "pool-a1"));
+        assert_eq!(node, "kubectl --context prod-eu get nodes pool-a1 --output yaml");
         let deployment = edit(&ClusterId::new("a"), Kind::Deployment, &key("shop", "web"));
         assert_eq!(deployment, "kubectl --context a edit deployments.apps --namespace shop web");
     }

@@ -165,15 +165,15 @@ fn each_form_of_a_group_has_its_problem_and_a_good_value_its_place() {
 
 #[test]
 fn the_options_of_each_cluster_and_the_groups_have_their_problems_at_their_places() {
-    let text = "version = 1\n[clusters.\"do-ams3-prod\"]\nalias = \"AMS\"\ncolor = \"#f85149\"\nread_only = true\n\
+    let text = "version = 1\n[clusters.\"ams-prod\"]\nalias = \"AMS\"\ncolor = \"#f85149\"\nread_only = true\n\
                 default_namespace = \"shop\"\nfavorite_namespaces = [\"shop\", \"Kube_System\"]\nconfirm = \"type-name\"\n\
-                [clusters.kind]\ncolor = \"red\"\nzoom = 2\nalias = \"\"\n[groups]\neurope = [\"do-ams3-prod\", \"fra\"]\n\
+                [clusters.kind]\ncolor = \"red\"\nzoom = 2\nalias = \"\"\n[groups]\neurope = [\"ams-prod\", \"fra\"]\n\
                 bad = \"fra\"\n";
     let loaded = parse(text);
     assert_eq!(
         texts(&loaded),
         [
-            "line 7, column 23: `clusters.\"do-ams3-prod\".favorite_namespaces`: `Kube_System` is no name of a namespace",
+            "line 7, column 23: `clusters.\"ams-prod\".favorite_namespaces`: `Kube_System` is no name of a namespace",
             "line 10, column 9: `clusters.\"kind\".color` is a color such as \"#3fb950\"",
             "line 11, column 1: unknown option `zoom` of a cluster; the options are alias, color, read_only, \
              default_namespace, favorite_namespaces, confirm",
@@ -181,7 +181,7 @@ fn the_options_of_each_cluster_and_the_groups_have_their_problems_at_their_place
             "line 15, column 7: `groups.\"bad\"` is a list of texts, for example [\"a\", \"b\"]",
         ]
     );
-    let prod = loaded.config.clusters.get("do-ams3-prod").expect("the options");
+    let prod = loaded.config.clusters.get("ams-prod").expect("the options");
     assert_eq!((prod.alias.as_deref(), prod.color.map(|rgb| rgb.0)), (Some("AMS"), Some([0xf8, 0x51, 0x49])));
     assert_eq!((prod.read_only, prod.confirm), (Some(true), Some(ConfirmRule::TypeName)));
     assert_eq!(
