@@ -74,7 +74,7 @@ fn a_failed_liveness_probe_ends_only_after_a_long_run_of_its_restarted_container
 /// The kubelet reports a crash loop during its waits, and starts the container between
 /// them: a run that began after the last report is no end before the back-off resets.
 #[test]
-fn a_container_problem_ends_with_a_long_run_or_a_good_end_after_the_last_report() {
+fn a_container_problem_ends_with_a_long_run_after_the_last_report() {
     let bed = Bed::new();
     let event = warning::<Pod>("crash", "BackOff", "2026-10-13T17:58:53Z", Some("spec.containers{crash}"));
     let in_state = |state: Value, restarts: i32| {
@@ -96,7 +96,8 @@ fn a_container_problem_ends_with_a_long_run_or_a_good_end_after_the_last_report(
     assert_eq!(judged(&runs(EARLY, 5), &event), before);
     let ended =
         |code: i32| in_state(json!({"terminated": {"exitCode": code, "startedAt": LATE, "finishedAt": LATE}}), 0);
-    assert_eq!(judged(&ended(0), &event), state(Resolved(at(LATE)), "the container crash ended well"));
+    let again = state(Unknown, "the container crash ended, and the kubelet starts it again");
+    assert_eq!(judged(&ended(0), &event), again, "a loop of a container that exits with 0");
     assert_eq!(judged(&ended(1), &event), state(Ongoing, "the container crash ended with exit code 1"));
     let waits = in_state(json!({"waiting": {}}), 2);
     assert_eq!(judged(&waits, &event), state(Ongoing, "the container crash waits"), "a wait with no reason");
@@ -112,6 +113,68 @@ fn a_container_problem_ends_with_a_long_run_or_a_good_end_after_the_last_report(
     });
     let pull = warning::<Pod>("crash", "Failed", "2026-10-13T17:58:53Z", Some("spec.ephemeralContainers{debug}"));
     assert_eq!(judged(&debug, &pull), state(Ongoing, "the container debug waits: ErrImagePull"), "a debug container");
+}
+
+/// A good end proves an end only for a container that the kubelet does not start again,
+/// and only for a pod that was not stopped.
+#[test]
+fn a_good_end_proves_an_end_only_for_a_container_that_does_not_start_again() {
+    let bed = Bed::new();
+    let ended = |pod: &str, name: &str| {
+        bed.with::<Pod>(pod, |pod| {
+            for list in ["containerStatuses", "initContainerStatuses"] {
+                let statuses = pod["status"][list].as_array_mut().into_iter().flatten();
+                for status in statuses.filter(|status| status["name"] == name) {
+                    status["state"] = json!({"terminated": {"exitCode": 0, "startedAt": LATE, "finishedAt": LATE}});
+                }
+            }
+        })
+    };
+    let back_off = |pod: &str, part: &str| warning::<Pod>(pod, "BackOff", "2026-10-13T17:58:53Z", Some(part));
+    let sidecar = state(Unknown, "the container helper ended, and the kubelet starts it again");
+    let helper = back_off("sidecar", "spec.initContainers{helper}");
+    assert_eq!(judged(&ended("sidecar", "helper"), &helper), sidecar, "an init container with the policy Always");
+    let setup = state(Resolved(at(LATE)), "the container setup ended well");
+    let init = back_off("init-crash", "spec.initContainers{setup}");
+    assert_eq!(judged(&ended("init-crash", "setup"), &init), setup, "an init container runs one time");
+    let worker = state(Resolved(at(LATE)), "the container worker ended well");
+    let never = back_off("half-done", "spec.containers{worker}");
+    assert_eq!(judged(&ended("half-done", "worker"), &never), worker, "a pod with the policy Never");
+    let debug = bed.with::<Pod>("crash", |pod| {
+        pod["spec"]["ephemeralContainers"] = json!([{"name": "debug", "image": "busybox"}]);
+        pod["status"]["ephemeralContainerStatuses"] = json!([{"name": "debug", "image": "busybox", "imageID": "",
+            "ready": false, "restartCount": 0,
+            "state": {"terminated": {"exitCode": 0, "startedAt": LATE, "finishedAt": LATE}}}]);
+    });
+    let pulled = back_off("crash", "spec.ephemeralContainers{debug}");
+    let once = state(Resolved(at(LATE)), "the container debug ended well");
+    assert_eq!(judged(&debug, &pulled), once, "an ephemeral container runs one time");
+
+    // A pod with the policy Always ends well only when it is stopped, as by a delete: its
+    // crash loop can go on in a new pod.
+    let stopped = bed.with::<Pod>("crash", |pod| pod["status"]["phase"] = "Succeeded".into());
+    let sandbox = warning::<Pod>("crash", "FailedCreatePodSandBox", LATE, None);
+    assert_eq!(judged(&stopped, &sandbox), state(Unknown, "the pod was stopped, so no container of it runs"));
+}
+
+/// client-go combines the reports of one object and reason with 10 messages in 10 minutes
+/// into one Event, which keeps the field path of its first report: it names no container.
+#[test]
+fn an_event_that_combines_similar_reports_proves_nothing_of_one_container() {
+    let bed = Bed::new();
+    let runs = bed.with::<Pod>("crash", |pod| {
+        let crash = &mut pod["status"]["containerStatuses"][0];
+        (crash["state"], crash["restartCount"]) = (json!({"running": {"startedAt": LATE}}), 0.into());
+    });
+    let pull = said("crash", "Failed", "spec.containers{crash}", "Failed to pull image \"crash\": not found");
+    assert_eq!(judged(&runs, &pull).0, Resolved(at(LATE)), "one report of one container");
+    let combined = state(Unknown, "the Event combines similar reports, which can be of an other container");
+    let message = "(combined from similar events): Failed to pull image \"other\": not found";
+    let mixed = said("crash", "Failed", "spec.containers{crash}", message);
+    assert_eq!(judged(&runs, &mixed), combined, "the newest report can be of the container other");
+    let message = "(combined from similar events): Readiness probe failed: ";
+    let probes = said("not-ready", "Unhealthy", "spec.containers{main}", message);
+    assert_eq!(judged(&bed.scene(&fixture::all(), &fixture::all()), &probes), combined);
 }
 
 #[test]

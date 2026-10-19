@@ -4,7 +4,8 @@
 //! A crash loop starts its container again after each wait of its back-off, and the kubelet
 //! reports the loop only during a wait. So a run that began after the last report proves no
 //! end of a container that restarted: the kubelet ends the back-off only after a run of 10
-//! minutes, twice its longest wait.
+//! minutes, twice its longest wait. For the same reason a good end proves one only for a
+//! container that the kubelet does not start again.
 
 use std::time::{Duration, SystemTime};
 
@@ -18,6 +19,10 @@ use crate::kinds::health::{Condition, condition};
 /// The run after which the kubelet forgets the back-off of a container: twice its longest
 /// wait of 5 minutes.
 const BACK_OFF_RESET: Duration = Duration::from_secs(600);
+/// The start of the message of an Event in which client-go combines the reports of one
+/// object and reason, after 10 messages in 10 minutes. The Event keeps the field path of the
+/// first report, so its newer ones can be of an other container.
+const COMBINED: &str = "(combined from similar events): ";
 
 /// The rule of a failed probe, by the probe that the message names: a readiness probe makes
 /// its container not ready, a liveness or a startup probe restarts it.
@@ -28,7 +33,7 @@ pub(super) fn probe(pod: &Pod, subject: &Subject<'_>, at: SystemTime) -> Problem
     } else if names(&["Liveness probe", "Startup probe"]) {
         container(pod, subject, at)
     } else {
-        ProblemNow::unknown("the message names no probe")
+        one_part(subject).err().unwrap_or_else(|| ProblemNow::unknown("the message names no probe"))
     }
 }
 
@@ -52,6 +57,9 @@ pub(super) fn container(pod: &Pod, subject: &Subject<'_>, at: SystemTime) -> Pro
             after(since, subject.last, format!("{the} {healthy}"))
         }),
         Some((None, None, Some(ended))) if ended.exit_code == 0 => {
+            if starts_again(pod, &found.name) {
+                return ProblemNow::unknown(format!("{the} ended, and the kubelet starts it again"));
+            }
             let started = ended.started_at.as_ref().or(ended.finished_at.as_ref()).map(|time| time.0);
             after(started, subject.last, format!("{the} ended well"))
         }
@@ -90,6 +98,7 @@ fn readiness(pod: &Pod, subject: &Subject<'_>, at: SystemTime) -> ProblemNow {
 /// The status of the container that the field path names, as `spec.containers{web}`. A
 /// pod has one name for each container, init container and ephemeral container.
 fn named<'a>(pod: &'a Pod, subject: &Subject<'_>) -> Result<&'a ContainerStatus, ProblemNow> {
+    one_part(subject)?;
     let name = subject.part.and_then(|part| part.split_once('{')).and_then(|(_, rest)| rest.strip_suffix('}'));
     let name = name.ok_or_else(|| ProblemNow::unknown("the Event names no container"))?;
     let status = pod.status.as_ref();
@@ -98,6 +107,31 @@ fn named<'a>(pod: &'a Pod, subject: &Subject<'_>) -> Result<&'a ContainerStatus,
     });
     let found = lists.flatten().flatten().find(|container| container.name == name);
     found.ok_or_else(|| ProblemNow::unknown(format!("the pod gives no state of the container {name}")))
+}
+
+/// "Unknown" for an Event that combines the reports of some parts of its object.
+fn one_part(subject: &Subject<'_>) -> Result<(), ProblemNow> {
+    if subject.message.starts_with(COMBINED) {
+        return Err(ProblemNow::unknown("the Event combines similar reports, which can be of an other container"));
+    }
+    Ok(())
+}
+
+/// True unless the spec proves that the kubelet does not start the container again after a
+/// good end: a restart policy `Never` or `OnFailure` of the pod or of the container, an init
+/// container that is not a sidecar (its own policy `Always`), or an ephemeral container.
+fn starts_again(pod: &Pod, name: &str) -> bool {
+    let Some(spec) = pod.spec.as_ref() else {
+        return true;
+    };
+    if let Some(container) = spec.containers.iter().find(|container| container.name == name) {
+        let policy = container.restart_policy.as_deref().or(spec.restart_policy.as_deref());
+        return !matches!(policy, Some("Never" | "OnFailure"));
+    }
+    if let Some(init) = spec.init_containers.iter().flatten().find(|container| container.name == name) {
+        return init.restart_policy.as_deref() == Some("Always");
+    }
+    !spec.ephemeral_containers.iter().flatten().any(|container| container.name == name)
 }
 
 /// The start of the run of a container that runs.

@@ -63,6 +63,11 @@ fn a_job_that_could_not_make_a_pod_ends_with_its_pods_and_a_short_count_tells_no
     let runs = running(json!({"active": 1, "ready": 1}));
     let event = failed_create::<Job>("once");
     assert_eq!(judged(&runs, &event), state(Resolved(None), "the Job runs 1 of 1 pods"));
+    let last = bed.with::<Job>("once", |job| {
+        (job["spec"]["completions"], job["spec"]["parallelism"]) = (3.into(), 2.into());
+        job["status"] = json!({"active": 1, "succeeded": 2});
+    });
+    assert_eq!(judged(&last, &event), state(Resolved(None), "the Job runs 1 of 1 pods"), "one completion is left");
     let waits = running(json!({"failed": 1}));
     let short = state(Unknown, "the Job runs 0 of 1 pods: a wait after a failed pod looks the same");
     assert_eq!(judged(&waits, &event), short);

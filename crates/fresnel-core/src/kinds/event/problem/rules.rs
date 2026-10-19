@@ -122,9 +122,13 @@ pub(super) fn no_rule(reason: &str, kind: &str) -> ProblemNow {
 
 /// The rule of a pod that runs or waits. A pod that ended runs no container: a pod that
 /// ended well left each problem behind, and the state of a failed one tells nothing of one.
+/// A pod that starts its containers again ends only when it is stopped, as by a delete.
 fn of_pod(pod: &Pod, rule: impl FnOnce(&Pod) -> ProblemNow) -> ProblemNow {
+    let policy = pod.spec.as_ref().and_then(|spec| spec.restart_policy.as_deref());
+    let ends = matches!(policy, Some("Never" | "OnFailure"));
     match pod.status.as_ref().and_then(|status| status.phase.as_deref()) {
-        Some("Succeeded") => ProblemNow::resolved(None, "the pod ended well"),
+        Some("Succeeded") if ends => ProblemNow::resolved(None, "the pod ended well"),
+        Some("Succeeded") => ProblemNow::unknown("the pod was stopped, so no container of it runs"),
         Some("Failed") => ProblemNow::unknown("the pod failed, so no container of it runs"),
         _ => rule(pod),
     }
