@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use jiff::{SignedDuration, Timestamp};
+use k8s_openapi::api::core::v1::Pod;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
@@ -332,6 +333,35 @@ pub(super) fn event(cluster: &str, (kind, object): (&str, &Value), note: &Note<'
         "reason": reason, "message": message, "type": level, "count": count,
         "firstTimestamp": ago(first), "lastTimestamp": ago(last), "source": {"component": source},
     })
+}
+
+/// The EndpointSlice of a Service: an endpoint for each of these pods that has an address,
+/// ready when the pod is ready, as the controller of the slices writes it.
+pub(super) fn endpoint_slice(cluster: &str, service: &Value, pods: &[&Pod], age: u64) -> Value {
+    let [namespace, name] = ["namespace", "name"].map(|field| service["metadata"][field].as_str().unwrap_or_default());
+    let slice = format!("{name}-{}", suffix(&[cluster, namespace, name, "slice"], 5));
+    let endpoint = |pod: &&Pod| {
+        let address = pod.status.as_ref()?.pod_ip.clone()?;
+        let ready = pod
+            .status
+            .as_ref()?
+            .conditions
+            .iter()
+            .flatten()
+            .any(|condition| condition.type_ == "Ready" && condition.status == "True");
+        let target = json!({"kind": "Pod", "namespace": namespace, "name": pod.metadata.name, "uid": pod.metadata.uid});
+        Some(json!({"addresses": [address], "conditions": {"ready": ready, "serving": ready, "terminating": false},
+            "nodeName": pod.spec.as_ref()?.node_name, "targetRef": target}))
+    };
+    let mut slice = json!({
+        "metadata": meta(cluster, "EndpointSlice", namespace, &slice, age),
+        "addressType": "IPv4",
+        "endpoints": pods.iter().filter_map(endpoint).collect::<Vec<_>>(),
+        "ports": [{"name": "", "port": service["spec"]["ports"][0]["targetPort"], "protocol": "TCP"}],
+    });
+    slice["metadata"]["labels"] = json!({"kubernetes.io/service-name": name,
+        "endpointslice.kubernetes.io/managed-by": "endpointslice-controller.k8s.io"});
+    slice
 }
 
 /// A Service of an app on one port, with an address of the service range of kubeadm.

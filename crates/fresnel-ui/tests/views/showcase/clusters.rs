@@ -17,7 +17,6 @@ use fresnel_core::ops::access::Rules;
 use fresnel_core::search::Source;
 use fresnel_core::store::{Snapshot, StoreState, Wait};
 use k8s_openapi::api::core::v1::Event;
-use k8s_openapi::api::discovery::v1::EndpointSlice;
 use serde_json::json;
 
 use super::stores::Stores;
@@ -93,7 +92,7 @@ fn metrics(site: &Site, stores: &Stores) -> Metrics {
 fn data(site: &Site, stores: &Stores) -> ClusterData {
     let pods = held(snapshot(site, &stores.pods.iter().map(|planned| Arc::clone(&planned.pod)).collect::<Vec<_>>()));
     let (replica_sets, jobs) = (snapshot(site, &stores.replica_sets), snapshot(site, &stores.jobs));
-    let slices = snapshot::<EndpointSlice>(site, &[]);
+    let slices = snapshot(site, &stores.endpoint_slices);
     let owners = Index::<Owners>::of_snapshots(&replica_sets, &jobs, &pods, &slices, IndexState::Following);
     let mut holder = Holder { sources: vec![Source::full(pods.clone())], ..Holder::default() };
     holder.hold(site, &stores.deployments);
@@ -104,6 +103,7 @@ fn data(site: &Site, stores: &Stores) -> ClusterData {
     holder.hold(site, &stores.jobs);
     holder.hold(site, &stores.cron_jobs);
     holder.hold(site, &stores.services);
+    holder.hold(site, &stores.endpoint_slices);
     holder.hold(site, &stores.nodes);
     holder.hold(site, &stores.namespaces);
     holder.hold(site, &stores.events);

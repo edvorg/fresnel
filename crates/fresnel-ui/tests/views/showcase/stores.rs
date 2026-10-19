@@ -1,17 +1,19 @@
 //! The objects of each kind of one cluster of the showcase: the apps with their pods,
-//! controllers and disruption budgets, the nodes, the Services, the ConfigMaps, the Secrets
-//! and the Events of the last hour.
+//! controllers and disruption budgets, the nodes, the Services with their EndpointSlices, the
+//! ConfigMaps, the Secrets and the Events of the last hour.
 
 use std::sync::Arc;
 
 use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet};
 use k8s_openapi::api::batch::v1::{CronJob, Job};
 use k8s_openapi::api::core::v1::{ConfigMap, Event, Namespace, Node, Pod, Secret, Service};
+use k8s_openapi::api::discovery::v1::EndpointSlice;
 use k8s_openapi::api::policy::v1::PodDisruptionBudget;
 use serde_json::{Value, json};
 
 use super::objects::{
-    App, DAY, HOUR, Note, Owner, State, conditions, cron_job, event, meta, node, object, replica_set, service, workload,
+    App, DAY, HOUR, Note, Owner, State, conditions, cron_job, endpoint_slice, event, meta, node, object, replica_set,
+    service, workload,
 };
 use super::world::{CORDONED, DRAINED, NAMESPACES, Planned, REPORT_JOB, Site, aged, earlier, pods_of, rollout};
 
@@ -54,6 +56,7 @@ pub(super) struct Stores {
     pub(super) jobs: Vec<Arc<Job>>,
     pub(super) cron_jobs: Vec<Arc<CronJob>>,
     pub(super) services: Vec<Arc<Service>>,
+    pub(super) endpoint_slices: Vec<Arc<EndpointSlice>>,
     pub(super) nodes: Vec<Arc<Node>>,
     pub(super) namespaces: Vec<Arc<Namespace>>,
     pub(super) events: Vec<Arc<Event>>,
@@ -90,7 +93,11 @@ impl Stores {
         let apps = site.apps.iter().map(|(app, _, _)| app.name).collect::<Vec<_>>();
         for (namespace, name, app, port) in SERVICES.into_iter().filter(|service| apps.contains(&service.2)) {
             let age = created("Service", namespace, name);
-            stores.services.push(object(service(cluster, (namespace, name, app), port, age)));
+            let service = service(cluster, (namespace, name, app), port, age);
+            let pods: Vec<&Pod> =
+                stores.pods.iter().filter(|planned| planned.app.name == app).map(|planned| &*planned.pod).collect();
+            stores.endpoint_slices.push(object(endpoint_slice(cluster, &service, &pods, age)));
+            stores.services.push(object(service));
         }
         for (namespace, name) in CONFIG_MAPS {
             let age = created("ConfigMap", namespace, name);
