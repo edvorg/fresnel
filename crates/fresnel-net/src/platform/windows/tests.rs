@@ -36,6 +36,22 @@ fn a_variable_has_one_value_for_each_case_of_its_name() {
     assert_eq!(env(&[("HOME", r"C:\msys")]).home(), None, "HOME is not the home folder on Windows");
 }
 
+/// kubectl looks for `.kube\config` in `%HOME%`, `%HOMEDRIVE%%HOMEPATH%` and `%USERPROFILE%`.
+#[test]
+fn the_folders_of_kubectl_come_in_its_sequence() {
+    let all = env(&[
+        ("UserProfile", r"C:\Users\tester"),
+        ("HOME", r"D:\home"),
+        ("HOMEDRIVE", "E:"),
+        ("HOMEPATH", r"\tester"),
+    ]);
+    let folders =
+        |vars: &ProcessEnv| vars.kube_homes().iter().map(|folder| folder.display().to_string()).collect::<Vec<_>>();
+    assert_eq!(folders(&all), [r"D:\home", r"E:\tester", r"C:\Users\tester"]);
+    let only_drive = env(&[("HOMEDRIVE", "E:"), ("HOME", "")]);
+    assert_eq!(folders(&only_drive), Vec::<String>::new(), "a drive with no path is no folder");
+}
+
 /// A first folder goes before each other one; a last folder that `PATH` has keeps its place.
 #[test]
 fn a_folder_of_path_with_a_quote_does_not_go_into_path() {

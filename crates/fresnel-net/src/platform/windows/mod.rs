@@ -34,6 +34,17 @@ pub(crate) async fn environment(base: &ProcessEnv, _settings: &EnvSettings) -> (
     (base.clone(), EnvSource::Process)
 }
 
+/// The folders in which kubectl looks for `.kube\config`, in its sequence (`homedir` of
+/// client-go): `%HOME%`, which Git Bash sets, `%HOMEDRIVE%%HOMEPATH%` and `%USERPROFILE%`.
+pub(crate) fn kube_homes(env: &ProcessEnv) -> Vec<PathBuf> {
+    let set = |name| env.get(name).filter(|value| !value.is_empty()).map(OsStr::to_owned);
+    let drive = set("HOMEDRIVE").zip(set("HOMEPATH")).map(|(mut drive, path)| {
+        drive.push(path);
+        drive
+    });
+    [set("HOME"), drive, set(HOME)].into_iter().flatten().map(PathBuf::from).collect()
+}
+
 /// The name of a variable as a key: Windows does not tell `Path` from `PATH`.
 pub(crate) fn variable_key(name: &OsStr) -> OsString {
     name.to_ascii_uppercase()

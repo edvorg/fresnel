@@ -8,7 +8,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use crate::platform::{HOME, is_bare, is_program, program_files, variable_key};
+use crate::platform::{HOME, is_bare, is_program, kube_homes, program_files, variable_key};
 
 const PATH: &str = "PATH";
 
@@ -44,6 +44,12 @@ impl ProcessEnv {
     /// the variable is absent or empty.
     pub fn home(&self) -> Option<&OsStr> {
         self.get(HOME).filter(|home| !home.is_empty())
+    }
+
+    /// The folders in which kubectl looks for `.kube/config`, in its sequence: the home
+    /// folder on unix; `%HOME%`, `%HOMEDRIVE%%HOMEPATH%` and `%USERPROFILE%` on Windows.
+    pub fn kube_homes(&self) -> Vec<PathBuf> {
+        kube_homes(self)
     }
 
     /// Sets the home folder of the user, as [`ProcessEnv::home`] reads it.

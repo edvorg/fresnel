@@ -10,6 +10,7 @@
 mod args;
 mod text;
 
+use std::path::Path;
 use std::process::ExitCode;
 
 use fresnel_core::cluster::{ClusterId, Link, Registry};
@@ -46,7 +47,7 @@ struct Watched {
 async fn follow(options: Options, runtime: Handle) -> ExitCode {
     let environment = env::resolve(&ProcessEnv::from_process(), &EnvSettings::default()).await;
     let sources = match options.kubeconfig.as_slice() {
-        [] => kubeconfig::default_sources(&environment.vars),
+        [] => kubeconfig::default_sources(&environment.vars, Path::is_file),
         given => given.to_vec(),
     };
     let loaded = kubeconfig::load(&sources);

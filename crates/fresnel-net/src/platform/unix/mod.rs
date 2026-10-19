@@ -31,6 +31,11 @@ pub const FIXED_FOLDERS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin"];
 /// A fixed folder below the home folder, after the others.
 pub(crate) const HOME_FOLDERS: &[&str] = &[".local/bin"];
 
+/// The folders in which kubectl looks for `.kube/config`: the home folder.
+pub(crate) fn kube_homes(env: &ProcessEnv) -> Vec<PathBuf> {
+    env.home().map(PathBuf::from).into_iter().collect()
+}
+
 /// The name of a variable as a key: unix tells `Path` from `PATH`.
 pub(crate) fn variable_key(name: &OsStr) -> OsString {
     name.to_owned()

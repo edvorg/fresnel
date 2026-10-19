@@ -14,6 +14,7 @@ mod report;
 mod session;
 mod text;
 
+use std::path::Path;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -47,7 +48,7 @@ async fn examine(options: &Options, runtime: &Handle) -> ExitCode {
     let base = ProcessEnv::from_process();
     let environment = env::resolve(&base, &EnvSettings::default()).await;
     let sources = match options.kubeconfig.as_slice() {
-        [] => kubeconfig::default_sources(&environment.vars),
+        [] => kubeconfig::default_sources(&environment.vars, Path::is_file),
         given => given.to_vec(),
     };
     let loaded = kubeconfig::load(&sources);

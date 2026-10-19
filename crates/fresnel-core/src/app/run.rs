@@ -117,7 +117,7 @@ impl Inner {
         registry: &Registry,
     ) -> Result<Option<String>, CoreError> {
         let sources = self.kubeconfig_sources(env);
-        let loaded = self.off_worker(move || kubeconfig::load(&sources)).await?;
+        let loaded = self.off_worker(move || kubeconfig::load(&sources.paths())).await?;
         let files = count(loaded.sources.len() - loaded.absent.len(), "kubeconfig file");
         let text = format!("read {} from {files}", count(loaded.contexts.len(), "context"));
         if loaded.contexts.is_empty() {
