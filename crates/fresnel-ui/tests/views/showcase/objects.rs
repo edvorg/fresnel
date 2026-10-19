@@ -17,6 +17,8 @@ pub(super) const DAY: u64 = 86_400;
 pub(super) const NODE_MEMORY_KI: u64 = 8_148_668;
 /// The seconds that the Job of the nightly report runs.
 const REPORT_RUN: u64 = 95;
+/// The seconds from the start of a container to its first good readiness probe.
+pub(super) const READY_AFTER: u64 = 15;
 
 /// The controller of the pods of an app. A Deployment names the hash of its pod template
 /// and its revision.
@@ -185,9 +187,12 @@ pub(super) fn pod(plan: &PodPlan<'_>) -> Value {
     let condition = |ready: bool| json!([{"type": "Ready", "status": if ready { "True" } else { "False" }}]);
     let status = match *state {
         State::Running(restarts, last) => {
+            // Ready since the start of the container, or since its last restart.
+            let since = if restarts == 0 { *age } else { last }.saturating_sub(READY_AFTER);
             let last = if restarts == 0 { json!({}) } else { ended(last, 137, "OOMKilled") };
             let running = json!({"running": {"startedAt": started}});
-            json!({"phase": "Running", "conditions": condition(true),
+            let ready = json!([{"type": "Ready", "status": "True", "lastTransitionTime": ago(since)}]);
+            json!({"phase": "Running", "conditions": ready,
                 "containerStatuses": container(true, restarts, running, last)})
         }
         State::CrashLoopBackOff(restarts, last) => {
@@ -324,12 +329,14 @@ pub(super) struct Note<'a> {
     pub(super) message: &'a str,
     pub(super) count: u32,
     pub(super) last: u64,
+    /// The container of a pod that the kubelet reports about, as its field path names it.
+    pub(super) container: Option<&'a str>,
 }
 
 /// The Event of a note about an object of a kind, with the metadata of the object. The
 /// component that sends a reason sends it each 30 s while the cause stays.
 pub(super) fn event(cluster: &str, (kind, object): (&str, &Value), note: &Note<'_>) -> Value {
-    let Note { kind: level, reason, message, count, last } = *note;
+    let Note { kind: level, reason, message, count, last, container } = *note;
     let [namespace, name] = ["namespace", "name"].map(|field| object[field].as_str().unwrap_or_default());
     let event = format!("{name}.{:x}", hash(&[cluster, name, reason, message]) % 0x1_0000_0000);
     let source = match reason {
@@ -338,9 +345,11 @@ pub(super) fn event(cluster: &str, (kind, object): (&str, &Value), note: &Note<'
         _ => "kubelet",
     };
     let first = last + u64::from(count.saturating_sub(1)) * 30;
+    let part = container.map(|container| format!("spec.containers{{{container}}}"));
     json!({
         "metadata": meta(cluster, "Event", namespace, &event, first),
-        "involvedObject": {"kind": kind, "namespace": namespace, "name": name, "uid": object["uid"]},
+        "involvedObject": {"kind": kind, "namespace": namespace, "name": name, "uid": object["uid"],
+            "fieldPath": part},
         "reason": reason, "message": message, "type": level, "count": count,
         "firstTimestamp": ago(first), "lastTimestamp": ago(last), "source": {"component": source},
     })

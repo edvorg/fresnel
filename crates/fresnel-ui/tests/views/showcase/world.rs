@@ -233,6 +233,10 @@ pub(super) const STAGING: Site = Site {
     live: true,
 };
 
+/// The seconds since the last restart of redis-0 on staging, after it ran out of memory: its
+/// readiness probe failed until it was ready again.
+pub(super) const REDIS_RESTART: u64 = 12 * MINUTE + 40;
+
 /// The node of prod-eu that the drain empties, and the seconds since the drain cordoned it:
 /// the new pods of its evicted ones are younger.
 pub(super) const DRAINED: &str = "general-bw9fd";
@@ -272,6 +276,7 @@ fn odd(site: &str, app: &str, index: u32) -> Option<Odd> {
         ("prod-eu", "search-indexer", 0) => odd(State::Running(1, 2 * HOUR + 14 * MINUTE + 33), None, None),
         ("prod-us", "payments-worker", 1) => odd(State::Running(3, 5 * HOUR + 23 * MINUTE + 8), None, None),
         ("staging", "checkout-api", 0) => odd(State::CrashLoopBackOff(14, 95), None, None),
+        ("staging", "redis", 0) => odd(State::Running(1, REDIS_RESTART), None, None),
         _ => None,
     }
 }

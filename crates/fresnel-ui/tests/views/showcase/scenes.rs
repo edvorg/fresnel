@@ -174,9 +174,9 @@ fn to_the_end(window: &mut Window) {
 }
 
 /// The cluster overview of the three clusters in the light theme, at its end with the
-/// release that crashes on staging, and the connections of prod-us in the dock: each
-/// channel tries again after a pause. The dock takes the room above the card of prod-us,
-/// so the page starts with that card and the dock shows each channel.
+/// release that crashes on staging, each warning with the state of its problem now, and the
+/// connections of prod-us in the dock: each channel tries again after a pause. The dock takes
+/// the room above the card of prod-us, so the page starts with that card.
 #[test]
 fn the_cluster_overview_in_the_light_theme() {
     let mut window = window(egui::Theme::Light);

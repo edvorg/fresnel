@@ -12,10 +12,14 @@ use k8s_openapi::api::policy::v1::PodDisruptionBudget;
 use serde_json::{Value, json};
 
 use super::objects::{
-    App, DAY, HOUR, Note, Owner, State, conditions, cron_job, event, meta, node, object, replica_set, workload,
+    App, DAY, HOUR, MINUTE, Note, Owner, State, conditions, cron_job, event, meta, node, object, replica_set, suffix,
+    workload,
 };
 use super::services::{api_service, endpoint_slice, service};
-use super::world::{CORDONED, DRAINED, NAMESPACES, Planned, REPORT_JOB, Site, aged, earlier, pods_of, rollout};
+use super::world::{
+    CANDIDATE, CANDIDATE_AGE, CHECKOUT_NEXT, CORDONED, DRAINED, NAMESPACES, Planned, RC_ROLLOUT, REDIS_RESTART,
+    REPORT_JOB, Site, aged, earlier, pods_of, rollout,
+};
 
 /// The Services of the apps: namespace, name, app and port.
 const SERVICES: [(&str, &str, &str, u16); 7] = [
@@ -116,6 +120,7 @@ impl Stores {
             stores.secrets.push(object(secret));
         }
         stores.warnings(cluster);
+        stores.stopped(site);
         stores
     }
 
@@ -126,8 +131,14 @@ impl Stores {
             let node = node(site.name, (name, site.network), site.version, age, *name == DRAINED);
             if *name == DRAINED {
                 let message = format!("Node {name} status is now: NodeNotSchedulable");
-                let note =
-                    Note { kind: "Normal", reason: "NodeNotSchedulable", message: &message, count: 1, last: CORDONED };
+                let note = Note {
+                    kind: "Normal",
+                    reason: "NodeNotSchedulable",
+                    message: &message,
+                    count: 1,
+                    last: CORDONED,
+                    container: None,
+                };
                 self.events.push(object(event(site.name, ("Node", &node["metadata"]), &note)));
             }
             self.nodes.push(object(node));
@@ -176,20 +187,60 @@ impl Stores {
         for (hash, from, to, last) in changes {
             let way = if to < from { "down" } else { "up" };
             let message = format!("Scaled {way} replica set {name}-{hash} from {from} to {to}");
-            let note = Note { kind: "Normal", reason: "ScalingReplicaSet", message: &message, count: 1, last };
+            let note = Note {
+                kind: "Normal",
+                reason: "ScalingReplicaSet",
+                message: &message,
+                count: 1,
+                last,
+                container: None,
+            };
             self.events.push(object(event(cluster, ("Deployment", &deployment["metadata"]), &note)));
         }
     }
 
-    /// The warnings of the pods that are not healthy: a pod with no node and a pod whose
-    /// container crashes.
+    /// The last failed probe of the pod of the candidate before the release candidate, which
+    /// the rollout on staging stopped: the cluster keeps its Event, and no store has its pod.
+    fn stopped(&mut self, site: &Site) {
+        if !site.apps.iter().any(|(app, ..)| app.image == CHECKOUT_NEXT.image) {
+            return;
+        }
+        let (app, (hash, _)) = (&CHECKOUT_NEXT, CANDIDATE);
+        let name = format!("{}-{hash}-{}", app.name, suffix(&[site.name, app.name, "stopped"], 5));
+        let pod = meta(site.name, "Pod", app.namespace, &name, CANDIDATE_AGE);
+        let (address, (port, path)) = ("10.244.5.31", app.readiness.expect("the readiness probe of the candidate"));
+        let message = &format!(
+            "Readiness probe failed: Get \"http://{address}:{port}{path}\": dial tcp {address}:{port}: connect: \
+             connection refused"
+        );
+        let last = rollout(site, app, RC_ROLLOUT).saturating_sub(20);
+        let note = Note { kind: "Warning", reason: "Unhealthy", message, count: 2, last, container: Some(app.name) };
+        self.events.push(object(event(site.name, ("Pod", &pod), &note)));
+    }
+
+    /// The warnings of the pods: a pod with no node, a pod whose container crashes, and the
+    /// failed probes of `PAST`.
     fn warnings(&mut self, cluster: &str) {
         for Planned { pod, app, state } in &self.pods {
             let meta = meta_of(pod);
-            let warning = |reason, message, count, last| Note { kind: "Warning", reason, message, count, last };
+            let warning = |reason, message, count, last, container| Note {
+                kind: "Warning",
+                reason,
+                message,
+                count,
+                last,
+                container,
+            };
+            let address = pod.status.as_ref().and_then(|status| status.pod_ip.as_deref()).unwrap_or_default();
+            for (_, _, rest, count, last) in PAST.iter().filter(|past| (past.0, past.1) == (cluster, app.name)) {
+                let message = &format!("Readiness probe failed: dial tcp {address}{rest}");
+                let (count, last, container) = (*count, *last, Some(app.name));
+                let note = Note { kind: "Warning", reason: "Unhealthy", message, count, last, container };
+                self.events.push(object(event(cluster, ("Pod", &meta), &note)));
+            }
             match state {
                 State::Pending(reason) => {
-                    let warning = warning("FailedScheduling", *reason, 4, 12);
+                    let warning = warning("FailedScheduling", *reason, 4, 12, None);
                     self.events.push(object(event(cluster, ("Pod", &meta), &warning)));
                 }
                 State::CrashLoopBackOff(..) => {
@@ -201,22 +252,24 @@ impl Stores {
                         app.namespace,
                         uid.unwrap_or_default()
                     );
-                    let address = pod.status.as_ref().and_then(|status| status.pod_ip.as_deref()).unwrap_or_default();
-                    let (port, path) = app.readiness.expect("the readiness probe of the app that crashes");
-                    let probe = format!(
-                        "Readiness probe failed: Get \"http://{address}:{port}{path}\": dial tcp {address}:{port}: \
-                         connect: connection refused"
-                    );
-                    let crash = warning("BackOff", &back_off, 212, 31);
-                    let probe = warning("Unhealthy", &probe, 41, 96);
+                    let crash = warning("BackOff", &back_off, 212, 31, Some(app.name));
                     self.events.push(object(event(cluster, ("Pod", &meta), &crash)));
-                    self.events.push(object(event(cluster, ("Pod", &meta), &probe)));
                 }
                 State::Running(..) | State::Completed => {}
             }
         }
     }
 }
+
+/// The failed readiness probes of the last hour whose problem the overview shows as over, or
+/// cannot judge: redis-0 of staging before it was ready again after its restart, and
+/// search-indexer of prod-us, whose stores lost their connection. The cluster, the app, the
+/// end of the message after the address of the pod, the count and the seconds since the last
+/// report.
+const PAST: [(&str, &str, &str, u32, u64); 2] = [
+    ("staging", "redis", ":6379: connect: connection refused", 3, REDIS_RESTART - 9),
+    ("prod-us", "search-indexer", ":8080: i/o timeout", 2, 5 * MINUTE + 10),
+];
 
 /// A PodDisruptionBudget of an app that keeps each of its pods, with the count of its pods
 /// and of the ready ones: it allows no eviction.
