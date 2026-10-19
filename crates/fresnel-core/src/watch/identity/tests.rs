@@ -105,9 +105,11 @@ async fn a_new_connection_ends_the_pause_after_a_read_that_failed() {
         until_checked(&states, 3).await;
         states.send_modify(|states| states.connects = 4);
         script.until_reads(2).await;
+        let failed_at = tokio::time::Instant::now();
         sleep(Duration::from_millis(100)).await;
         states.send_modify(|states| states.connects = 5);
         assert_eq!(until_checked(&states, 5).await, Identity { number: 0, checked: 5 });
+        assert_eq!(failed_at.elapsed(), Duration::from_millis(100), "the new connection ended the pause");
         assert_eq!(*script.reads.borrow(), 3, "one read for the connection after the failure");
     };
     tokio::select! {
