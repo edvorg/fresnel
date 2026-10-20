@@ -206,8 +206,9 @@ jobs:
       # Only the head of master publishes, so an older build never becomes "Latest" after a newer
       # one. The tag of an older commit whose workflow files differ from master needs the
       # permission workflows, which the token has not: run 38985614286 failed with HTTP 403. The
-      # newer commit makes the release after its ci. The repository is private, so a `git
-      # ls-remote` would need the token that may write in git; gh reads the head instead.
+      # newer commit makes the release after its ci. The repository is public, so a `git
+      # ls-remote` with no token would work too; gh reads the head with the token of the job,
+      # which works for a private repository as well and puts no token in git.
       - name: Head of master
         id: head
         env:

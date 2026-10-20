@@ -1869,9 +1869,9 @@ the 20 that stay. A release that is not "Latest" would still take one of the 20 
 
 Run 38985614286 failed at `gh release create` with HTTP 403: a push changed `.github/workflows`
 after its ci, and a tag on an older commit whose workflow files differ from master needs the
-permission workflows. An older build could also become "Latest" after a newer one. The job that
-publishes now reads the head of master with gh, as `git ls-remote` would need the token in git,
-and an older commit ends with a notice: the newer one makes the release.
+permission workflows. An older build could also become "Latest" after a newer one. The job
+`publish` reads the head of master with gh and its token, in a public or private repository, with
+no token in git; an older commit ends with a notice: the newer one releases.
 
 ## A push between the check of the head and the release is a known race
 
