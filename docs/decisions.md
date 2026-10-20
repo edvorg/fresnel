@@ -9,10 +9,12 @@ The user selected the language Rust, a native app and the GUI toolkit egui at th
 project. The app thus has no browser engine and no local web server between the user and the
 cluster.
 
-## A private repository with direct changes to master
+## A public repository with direct changes to master
 
-The repository is private. For now, each change goes directly to `master` with no pull
-request. The user decided this for the first phase. CI runs on each push.
+The repository was private in the first phase and is public now, at `github.com/edvorg/fresnel`.
+The maintainer still pushes each change directly to `master`, with no pull request. An outside
+contribution comes as a pull request to `master`, which CI checks as it checks a push; a pull
+request makes no release. The user decided this.
 
 ## Tests use local test clusters only
 
