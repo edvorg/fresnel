@@ -1946,9 +1946,17 @@ no minimum.
 
 Each job caches its build of the dependencies with `Swatinem/rust-cache`. A new `Cargo.lock`
 restores the newest entry of the job, and before a save the action removes the workspace crates
-and those that left the lock, so an entry stays small. Before, each new lock missed, and a job
-that its time limit ended saved nothing, so the next run missed too. A branch restores the
-entries of master and saves none: the repository has 10 GB of cache.
+and those that left the lock, so an entry stays small. Before, a new lock missed, and a job that
+timed out saved nothing for the next run. A branch or a pull request restores the entries of
+master and saves none: the repository has 10 GB of cache.
+
+## A pull request to master runs ci and makes no release
+
+An outside contribution comes from a fork, so `ci` also runs on each pull request to `master`,
+with a token that only reads. The event is in its concurrency group: a run of a pull request
+never cancels a run of a push to `master`. `release` builds only after a run of a push. A pull
+request from the branch master of a fork passes its filter `branches`, but the builds skip it,
+and their group differs.
 
 ## The manifest editor is a widget with its own rows
 

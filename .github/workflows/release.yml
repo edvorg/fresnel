@@ -30,7 +30,9 @@ jobs:
   # Only a run of ci that passed, of a push to this repository: a failed or cancelled run (a
   # newer push cancels it) makes no release. A newer run cancels the builds of an older one,
   # which then makes no release either. The job `publish` is in a group of its own, so a
-  # release that has begun always ends.
+  # release that has begun always ends. A run of ci of a pull request makes no release, also
+  # one from the branch master of a fork, which the filter `branches` lets through: its builds
+  # are skipped, so `publish` is too, and their group differs, so it cancels no build of master.
   macos:
     name: build (macOS arm64)
     if: >-
@@ -39,7 +41,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 30
     concurrency:
-      group: release-macos-${{ github.ref }}
+      group: release-macos-${{ github.ref }}${{ github.event.workflow_run.event == 'pull_request' && '-pull-request' || '' }}
       cancel-in-progress: true
     outputs:
       version: ${{ steps.check.outputs.version }}
@@ -109,7 +111,7 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 45
     concurrency:
-      group: release-windows-${{ github.ref }}
+      group: release-windows-${{ github.ref }}${{ github.event.workflow_run.event == 'pull_request' && '-pull-request' || '' }}
       cancel-in-progress: true
     outputs:
       version: ${{ steps.check.outputs.version }}
