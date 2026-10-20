@@ -5,7 +5,9 @@
 //! its version or a later one, and each other object of the store came after the list. A
 //! resource version of Kubernetes grows with each change of the cluster, so a later version
 //! is a larger number. An object of the list that the store does not have needs a second
-//! list: it is no fault when the object is gone there.
+//! list: it is no fault when the object is gone there. So does an object of the store with
+//! the name of a listed one and an other UID: a recreate of the cluster leaves the versions
+//! of the old objects past those of the new ones.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -56,14 +58,24 @@ pub(super) enum Verdict {
 /// limit) can lack an object. An object that only the store has is stale when `later` lacks
 /// it too: a list in pages of k3s once lacked an Event that the API had before and after it.
 pub(super) fn cover(first: &Listed, store: &Versions, later: Option<&Listed>, partial: bool) -> Verdict {
-    let mut absent = false;
+    let mut undecided = false;
     for (key, listed) in &first.objects {
         match store.get(key) {
-            Some(stored) if is_at_least(stored, listed) => {}
-            Some(_) => return Verdict::Behind(format!("{} has an older version", name(key))),
+            Some(stored) if !is_at_least(stored, listed) => {
+                return Verdict::Behind(format!("{} has an older version", name(key)));
+            }
+            Some(stored) if stored.uid == listed.uid => {}
+            // A new object of the name after the list, or one of the cluster before a recreate.
+            Some(stored) => match later {
+                None => undecided = true,
+                Some(later) if is_old(stored, listed, later, later.objects.get(key)) => {
+                    return Verdict::Behind(format!("{} has an other UID in the store", name(key)));
+                }
+                Some(_) => {}
+            },
             None if partial => {}
             None => match later.map(|later| later.objects.get(key)) {
-                None => absent = true,
+                None => undecided = true,
                 Some(Some(again)) if again.uid == listed.uid => {
                     return Verdict::Behind(format!("{} is not in the store", name(key)));
                 }
@@ -72,18 +84,30 @@ pub(super) fn cover(first: &Listed, store: &Versions, later: Option<&Listed>, pa
         }
     }
     let stale = store.iter().find(|(key, stored)| {
-        let after =
-            |list: &Listed| matches!((stored.number, list.version), (Some(stored), Some(list)) if stored > list);
-        let in_later =
-            later.map(|later| later.objects.get(*key).is_some_and(|again| again.uid == stored.uid) || after(later));
-        !first.objects.contains_key(*key) && !after(first) && in_later != Some(true)
+        let in_later = later.map(|later| {
+            later.objects.get(*key).is_some_and(|again| again.uid == stored.uid) || is_past(stored, later)
+        });
+        !first.objects.contains_key(*key) && !is_past(stored, first) && in_later != Some(true)
     });
     match (stale, later) {
         (Some(_), None) => Verdict::NeedsLater,
         (Some((key, _)), Some(_)) => Verdict::Behind(format!("{} is only in the store", name(key))),
-        (None, _) if absent => Verdict::NeedsLater,
+        (None, _) if undecided => Verdict::NeedsLater,
         (None, _) => Verdict::Covered,
     }
+}
+
+/// True when `stored`, an object of the name of `listed` with an other UID and a later
+/// version, is of no state of this cluster after the list. A new object of the name comes
+/// after the end of the listed one, so `again`, the object of the name in `later`, is not
+/// the listed one; and the store was read before `later`, so its versions are not past it.
+fn is_old(stored: &Version, listed: &Version, later: &Listed, again: Option<&Version>) -> bool {
+    again.is_some_and(|again| again.uid == listed.uid) || is_past(stored, later)
+}
+
+/// True when the version of the object is past the version of the list.
+fn is_past(version: &Version, list: &Listed) -> bool {
+    matches!((version.number, list.version), (Some(version), Some(list)) if version > list)
 }
 
 /// The same object in the same version, or a later one.
@@ -150,6 +174,32 @@ mod tests {
         let behind = Verdict::Behind("ns/b is not in the store".to_owned());
         assert_eq!(cover(&list, &store, Some(&still), false), behind);
         assert_eq!(cover(&list, &store, None, true), Verdict::Covered, "a store at its limit");
+    }
+
+    /// A store that kept the objects of the cluster before a recreate has their names with
+    /// other UIDs, and with versions past those of the new cluster. The versions alone call it
+    /// newer, and a fast soak passed with a store that could show the old cluster as "live".
+    #[test]
+    fn an_object_of_the_name_with_an_other_uid_is_behind_when_a_later_list_tells_that_it_is_old() {
+        let new_cluster = listed(&[("default", "u-new", 5)], 300);
+        let old_store = versions(&[("default", "u-old", 9000)]);
+        assert_eq!(cover(&new_cluster, &old_store, None, false), Verdict::NeedsLater);
+        let behind = Verdict::Behind("ns/default has an other UID in the store".to_owned());
+        let again = listed(&[("default", "u-new", 5)], 310);
+        assert_eq!(cover(&new_cluster, &old_store, Some(&again), false), behind, "the listed object stays");
+        let third = listed(&[("default", "u-third", 305)], 310);
+        assert_eq!(cover(&new_cluster, &old_store, Some(&third), false), behind, "a version past the API");
+        let (grown, again) = (listed(&[("default", "u-new", 8990)], 9100), listed(&[("default", "u-new", 8990)], 9200));
+        assert_eq!(cover(&grown, &old_store, Some(&again), false), behind, "new versions near the old ones");
+
+        // In one cluster, a new object of the name after the list is newer.
+        let list = listed(&[("a", "u-a", 10)], 20);
+        let newer = versions(&[("a", "u-a2", 25)]);
+        assert_eq!(cover(&list, &newer, None, false), Verdict::NeedsLater);
+        assert_eq!(cover(&list, &newer, Some(&listed(&[("a", "u-a2", 25)], 30)), false), Verdict::Covered);
+        assert_eq!(cover(&list, &newer, Some(&listed(&[], 30)), false), Verdict::Covered, "it came and went");
+        let older = versions(&[("a", "u-a0", 5)]);
+        assert_eq!(cover(&list, &older, None, false), Verdict::Behind("ns/a has an older version".to_owned()));
     }
 
     #[test]

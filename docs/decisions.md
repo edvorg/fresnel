@@ -1704,9 +1704,10 @@ is the identity of the cluster, and a dialog of a change must name the target as
 ## The soak compares each store with a list on a path of its own
 
 A store and a list are seldom equal while the cluster changes, so the soak tests "at least as
-new": each listed object is in the store in its version or a later one, each other object of the
-store came after the list, and a second list decides an object that one side lacks. The lists go
-on a connection with no fault proxy. A store that shows "live" and is behind for over 20 s fails.
+new": each listed object is in the store in its version or later, each other object came after
+the list, and a second list decides an object that one side lacks or has with an other UID, as
+after a recreate. The lists skip the fault proxy. A store that shows "live" and is behind for over
+20 s fails.
 
 ## A soak check ends at its limit, and a store or a log view must recover
 
