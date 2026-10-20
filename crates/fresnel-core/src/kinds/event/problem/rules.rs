@@ -153,13 +153,14 @@ fn by_condition<C: Condition>(
 }
 
 /// "Resolved" when the healthy state `healthy` began after the last report. One that began
-/// before it was there at the report too, so the problem did not end it.
+/// before it was there at the report too, so the problem did not end it: the object then
+/// proves neither an end nor that the problem goes on.
 pub(super) fn after(since: Option<Timestamp>, last: Option<Timestamp>, healthy: String) -> ProblemNow {
     match (since, last) {
         (Some(since), Some(last)) if since > last => ProblemNow::resolved(Some(since), healthy),
-        (Some(_), Some(_)) => ProblemNow::unknown(format!("{healthy} since before the last report")),
-        (None, _) => ProblemNow::unknown(format!("{healthy}, and its status gives no time of the change")),
-        (Some(_), None) => ProblemNow::unknown(format!("{healthy}, and the Event gives no time of its report")),
+        (Some(_), Some(_)) => ProblemNow::undecided(format!("{healthy} since before the last report")),
+        (None, _) => ProblemNow::undecided(format!("{healthy}, and its status gives no time of the change")),
+        (Some(_), None) => ProblemNow::undecided(format!("{healthy}, and the Event gives no time of its report")),
     }
 }
 

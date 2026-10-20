@@ -86,9 +86,15 @@ impl ClusterData {
     }
 
     /// The stores that tell the state of the problem of a warning Event at the moment `at`:
-    /// the pods and each other store of full objects that is always on.
+    /// the pods and each other store of full objects that is always on, and the Event index
+    /// for the pace of the reports.
     pub fn witness(&self, at: SystemTime) -> Witness {
-        Witness::new(std::iter::once(Source::full(self.pods.clone())).chain(self.sources.iter().cloned()), at)
+        let pods = std::iter::once(Source::full(self.pods.clone()));
+        let witness = Witness::new(pods.chain(self.sources.iter().cloned()), at);
+        match (&self.events, self.store(Kind::Event)) {
+            (Some(index), Some(store)) => witness.with_reports(index.clone(), store),
+            _ => witness,
+        }
     }
 
     /// The store of each kind that the quick search reads: the full objects of a kind that

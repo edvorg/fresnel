@@ -1,8 +1,8 @@
 //! The table of each kind (plan sections 11.2 and 11.4): the columns of the description of
 //! the kind in `fresnel-core`, with the Cluster column after the name and the namespace,
 //! and the CPU and memory columns after the age for a kind with metrics (`views/metrics`).
-//! The Events have the Now column after their type: the state of each warning now, from the
-//! live objects (`views/cluster/problem`). The Pods have a model of their own (`views/pods`),
+//! The Events have the Now column after their type: the state of each warning now and its
+//! reason, from the live objects (`views/cluster/problem`). The Pods have a model of their own (`views/pods`),
 //! with the status of each pod.
 //!
 //! The worker computes the value of each column of a row one time, so a sort compares
@@ -35,9 +35,10 @@ use crate::widgets::worker::{Cancel, Wake};
 const CANCEL_STEP: usize = 1024;
 /// The width of the Cluster column.
 const CLUSTER_WIDTH: f32 = 120.0;
-/// The Now column of the Events follows the column with this title, and has this width.
+/// The Now column of the Events follows the column with this title, and has this width: the
+/// state and the start of its reason.
 const NOW_AFTER: &str = "Type";
-const NOW_WIDTH: f32 = 110.0;
+const NOW_WIDTH: f32 = 260.0;
 
 /// The page of a kind: the Pods with their model, each other kind with the model of its
 /// columns. It starts the worker thread of the table.
@@ -213,8 +214,8 @@ impl<K: Describe> Model for KindModel<K> {
             }
             Some(Field::Now) => match &row.problem {
                 Some(now) => {
-                    let (word, tone) = problem::word(now, &scene.clock);
-                    Cell::new(word).tone(tone).hint(problem::hint(now, &scene.clock))
+                    let (line, tone) = problem::line(now, &scene.clock);
+                    Cell::new(line).tone(tone).hint(problem::hint(now, &scene.clock))
                 }
                 None => cells::value(&Value::None, false, &scene.clock),
             },

@@ -20,8 +20,8 @@ use k8s_openapi::api::core::v1::{Event, Node, Pod};
 use crate::views::metrics::gauge::Resource;
 use crate::widgets::worker::Cancel;
 
-/// The most warning Events that a block lists: the ongoing ones, the unknown ones, then the
-/// ended ones, the newest first in each part.
+/// The most warning Events that a block lists: the ongoing ones, the unknown ones, the quiet
+/// ones, then the ended ones, the newest first in each part.
 const NEWEST: usize = 8;
 /// The warnings whose last report is in this time before now count. The cluster keeps an
 /// Event for about one hour after its last report (`--event-ttl`); some keep it longer.
@@ -143,12 +143,14 @@ pub(super) struct Warnings {
     /// cluster can keep an Event longer than the hour.
     pub(super) all: u32,
     pub(super) count: u32,
-    /// Of them, the ones whose problem is ongoing now, and the ones whose state the app
-    /// cannot tell: "none ongoing" would be false while some are unknown.
+    /// Of them, the ones whose problem is ongoing now, the ones whose state the app cannot
+    /// tell, and the quiet ones, which most likely ended: "none ongoing" would be false while
+    /// some are unknown, and a guess while some are quiet.
     pub(super) ongoing: u32,
     pub(super) unknown: u32,
-    /// The ongoing ones first, then the unknown ones and the ended ones, the newest first in
-    /// each part: an unknown one can still be a problem.
+    pub(super) quiet: u32,
+    /// The ongoing ones first, then the unknown ones, the quiet ones and the ended ones, the
+    /// newest first in each part: an unknown one can still be a problem.
     pub(super) shown: Vec<Warning>,
 }
 
@@ -268,9 +270,11 @@ fn warnings(
         .filter(|(_, event)| recent(event))
         .filter_map(|(_, event)| Some(Warning { now: input.witness.judge(event)?, event: Arc::clone(event) }))
         .collect();
-    let count_of = |state: ProblemState| found.iter().filter(|warning| warning.now.state == state).count();
+    let count_of = |state: fn(ProblemState) -> bool| found.iter().filter(|warning| state(warning.now.state)).count();
     let number = |count: usize| u32::try_from(count).unwrap_or(u32::MAX);
-    let (ongoing, unknown) = (number(count_of(ProblemState::Ongoing)), number(count_of(ProblemState::Unknown)));
+    let ongoing = number(count_of(|state| state == ProblemState::Ongoing));
+    let unknown = number(count_of(|state| state == ProblemState::Unknown));
+    let quiet = number(count_of(|state| matches!(state, ProblemState::Quiet(_))));
     let count = number(found.len());
     // A partial sort, as a cluster can keep 20,000 Events.
     let first = |a: &Warning, b: &Warning| {
@@ -282,7 +286,7 @@ fn warnings(
         found.truncate(NEWEST);
     }
     found.sort_by(first);
-    Warnings { all: number(all), count, ongoing, unknown, shown: found }
+    Warnings { all: number(all), count, ongoing, unknown, quiet, shown: found }
 }
 
 #[cfg(test)]

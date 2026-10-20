@@ -64,7 +64,7 @@ pub use action::Action;
 pub use column::{Column, Value, columns};
 pub use describe::{Describe, Scope, Sidebar};
 pub(crate) use endpoint_slice::is_ready;
-pub use event::{ProblemNow, ProblemState, Witness};
+pub use event::{ProblemNow, ProblemState, QUIET_AFTER, REPORT_PACE, Witness};
 pub use health::ObjectHealth;
 pub use list::{Kind, Visit};
 pub use object::{Meta, Object};

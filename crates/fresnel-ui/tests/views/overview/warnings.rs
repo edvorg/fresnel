@@ -18,7 +18,7 @@ use crate::snapshots::ink;
 use crate::workloads::scene::hover;
 
 /// The Event of the scene about this object with this reason.
-fn of(name: &str, reason: &str) -> Arc<Event> {
+pub(super) fn of(name: &str, reason: &str) -> Arc<Event> {
     let fits = |event: &Arc<Event>| {
         event.involved_object.name.as_deref() == Some(name) && event.reason.as_deref() == Some(reason)
     };
@@ -32,7 +32,7 @@ fn top(window: &Window, label: &str) -> f32 {
 
 /// The pod `not-ready` after its probe works again: its container is ready, and the pod is
 /// ready since 07:59:50, after the last report of its failed probe at 07:59:45.
-fn ready_again() -> Arc<Pod> {
+pub(super) fn ready_again() -> Arc<Pod> {
     changed(&pod("not-ready"), |pod| {
         pod["status"]["containerStatuses"][0]["ready"] = true.into();
         pod["status"]["conditions"] = json!([{"type": "Ready", "status": "True",
@@ -84,8 +84,9 @@ fn each_warning_shows_the_state_of_its_problem_now_and_the_ongoing_ones_come_fir
     let middle = |label: &str| window.get_by_label(label).rect().center().y;
     assert!((middle("last report 15 s ago") - middle("resolved 07:59")).abs() < 2.0, "the time of its row");
 
-    let hint = "A time is the last report of an Event: the cluster keeps an Event for about 1 hour after its last \
-                report. The state comes from the live object now, not from the Event.";
+    let hint = "A time is the last report of an Event, which the cluster keeps about 1 hour. Ongoing or resolved is \
+                what the live object proves now, unknown that it proves neither. Quiet: it proves neither, but the \
+                kubelet repeats a problem that goes on at least each 8 min and sent no report for 16 min.";
     hover(&mut window, Role::Label, "deleted");
     assert!(shows(&window, "Deleted: the Pod is not in its store.") && !shows(&window, hint));
     hover(&mut window, Role::Label, "resolved 07:59");
@@ -93,7 +94,7 @@ fn each_warning_shows_the_state_of_its_problem_now_and_the_ongoing_ones_come_fir
     assert!(shows(&window, resolved) && !shows(&window, hint), "the fact of the live object");
     // The mark after the heading tells that it has a hint.
     hover(&mut window, Role::Label, "WARNING EVENTS ?");
-    assert!(shows(&window, hint), "what the time and the state tell");
+    assert!(shows(&window, hint), "what the time and each state tell");
 }
 
 /// A row of an ended problem must not look like an alarm with a grey word in front: only

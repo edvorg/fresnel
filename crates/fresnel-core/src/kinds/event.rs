@@ -9,7 +9,7 @@ use std::time::SystemTime;
 
 use k8s_openapi::api::core::v1::Event;
 
-pub use problem::{ProblemNow, ProblemState, Witness};
+pub use problem::{ProblemNow, ProblemState, QUIET_AFTER, REPORT_PACE, Witness};
 
 use super::health::ObjectHealth;
 use super::{Action, Column, Describe, Kind, Sidebar, Tier, Value};

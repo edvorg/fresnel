@@ -41,8 +41,18 @@ pub(super) struct App {
     pub(super) limits: [Option<&'static str>; 2],
     /// The usage of one pod at the last poll: millicores and MiB.
     pub(super) usage: [f64; 2],
-    /// The port of the HTTP server of the app and the path of its readiness probe.
+    pub(super) probes: Probes,
+}
+
+/// The HTTP probes of an app: the port and the path of each one.
+#[derive(Clone, Copy)]
+pub(super) struct Probes {
     pub(super) readiness: Option<(u16, &'static str)>,
+    pub(super) liveness: Option<(u16, &'static str)>,
+}
+
+impl Probes {
+    pub(super) const NONE: Self = Self { readiness: None, liveness: None };
 }
 
 impl App {
@@ -147,8 +157,8 @@ fn owner_reference(kind: &str, name: &str, uid: &str) -> Value {
     json!([{"apiVersion": api, "kind": kind, "name": name, "uid": uid, "controller": true}])
 }
 
-/// The template of the pods of an app, with its resources, and its port and readiness probe
-/// with the defaults of the server.
+/// The template of the pods of an app, with its resources, and its port and probes with the
+/// defaults of the server. A liveness probe has the settings of coredns.
 fn template(app: &App) -> Value {
     let [cpu, memory] = app.requests;
     let mut limits = serde_json::Map::new();
@@ -159,10 +169,14 @@ fn template(app: &App) -> Value {
     }
     let resources = json!({"requests": {"cpu": cpu, "memory": memory}, "limits": limits});
     let mut container = json!({"name": app.name, "image": app.image, "resources": resources});
-    if let Some((port, path)) = app.readiness {
+    if let Some((port, path)) = app.probes.readiness {
         container["ports"] = json!([{"name": "http", "containerPort": port, "protocol": "TCP"}]);
         container["readinessProbe"] = json!({"httpGet": {"path": path, "port": port, "scheme": "HTTP"},
             "timeoutSeconds": 1, "periodSeconds": 10, "successThreshold": 1, "failureThreshold": 3});
+    }
+    if let Some((port, path)) = app.probes.liveness {
+        container["livenessProbe"] = json!({"httpGet": {"path": path, "port": port, "scheme": "HTTP"},
+            "timeoutSeconds": 5, "periodSeconds": 10, "successThreshold": 1, "failureThreshold": 5});
     }
     json!({"metadata": {"labels": {"app": app.name}}, "spec": {"containers": [container]}})
 }

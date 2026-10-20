@@ -5,11 +5,13 @@ use std::sync::atomic::AtomicU64;
 use std::time::SystemTime;
 
 use fresnel_core::cluster::ClusterId;
+use fresnel_core::index::{Index, IndexState, ObjectEvents};
 use fresnel_core::kinds::Witness;
 use fresnel_core::search::Source;
 use fresnel_core::store::StoreState;
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Node};
+use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Node, Pod};
+use serde_json::json;
 
 use super::*;
 use crate::format::Clock;
@@ -126,8 +128,9 @@ fn the_cells_show_each_value_and_an_old_row_has_its_mark_and_no_state_color() {
     assert_eq!(model.cell(healthy, 0, &scene).lead, Lead::None, "a healthy object has no dot");
 }
 
-/// The user could not tell if a warning was still a problem: the table of the Events has the
-/// state of each warning now after its type, from the live pods of its cluster.
+/// The user could not tell if a warning was still a problem, nor what a state means: the
+/// table of the Events has the state of each warning now and its reason after its type, from
+/// the live pods of its cluster.
 #[test]
 fn the_events_have_the_state_of_each_warning_now_after_their_type() {
     let bed = TestTasks::new();
@@ -152,7 +155,8 @@ fn the_events_have_the_state_of_each_warning_now_after_their_type() {
     let scene =
         RowScene { palette: &DARK, clock: Clock::fixed(SystemTime::now()), marks: HashMap::from([(ams, mark)]) };
     let cell = model.cell(crash, now, &scene);
-    assert_eq!((&*cell.text, cell.tone), ("ongoing", Tone::Warn), "the BackOff of the pod crash");
+    let ongoing = "ongoing: the container crash waits: CrashLoopBackOff";
+    assert_eq!((&*cell.text, cell.tone), (ongoing, Tone::Warn), "the BackOff of the pod crash");
     assert_eq!(cell.hint.as_deref(), Some("Ongoing now: the container crash waits: CrashLoopBackOff."));
     let no_store = model.cell(row("fails.18de2891a64a7373"), now, &scene).hint.map(String::from);
     assert_eq!(no_store.as_deref(), Some("Unknown: the cluster has no store of the Jobs."));
@@ -166,4 +170,73 @@ fn the_events_have_the_state_of_each_warning_now_after_their_type() {
     let of_old_pod =
         found("deleted").into_iter().any(|row| &*row.id.key.name == "web-64cb9bd5d4-c8kcm.18de288e9b577fa6");
     assert!(of_old_pod, "a pod of the old ReplicaSet of web");
+}
+
+/// An object of the fixture after a change of its JSON.
+fn changed<T: serde::Serialize + serde::de::DeserializeOwned>(
+    object: &T,
+    change: impl FnOnce(&mut serde_json::Value),
+) -> Arc<T> {
+    let mut value = serde_json::to_value(object).expect("JSON");
+    change(&mut value);
+    Arc::new(serde_json::from_value(value).expect("an object"))
+}
+
+/// The user asked what "unknown" means: the Now cell of a quiet warning has its time with no
+/// report and its reason, and the quiet ones sort after the unknown ones, before the ended.
+#[test]
+fn a_quiet_warning_has_its_time_and_its_reason_in_the_now_cell() {
+    let bed = TestTasks::new();
+    const COREDNS: &str = "coredns-64fd4b4794-6lsjp";
+    let started = json!({"running": {"startedAt": "2026-10-13T17:00:00Z"}});
+    let pods: Vec<Arc<Pod>> = fixture_pods()
+        .iter()
+        .map(|pod| match pod.metadata.name.as_deref() {
+            Some(COREDNS) => changed(&**pod, |pod| pod["status"]["containerStatuses"][0]["state"] = started.clone()),
+            _ => Arc::clone(pod),
+        })
+        .collect();
+    // The probe takes the place of the failed sandbox: the kubelet reported nothing newer.
+    let events: Vec<Arc<Event>> = fixture::<Event>()
+        .iter()
+        .map(|event| match (event.involved_object.name.as_deref(), event.reason.as_deref()) {
+            (Some(COREDNS), Some("FailedCreatePodSandBox")) => changed(&**event, |event| {
+                (event["reason"], event["count"]) = ("Unhealthy".into(), 4.into());
+                event["message"] = "Liveness probe failed: HTTP probe failed with statuscode: 503".into();
+                event["involvedObject"]["fieldPath"] = "spec.containers{coredns}".into();
+                (event["firstTimestamp"], event["lastTimestamp"]) =
+                    ("2026-10-13T17:23:06Z".into(), "2026-10-13T17:24:36Z".into());
+            }),
+            _ => Arc::clone(event),
+        })
+        .collect();
+    let at: SystemTime = "2026-10-13T18:00:00Z".parse::<k8s_openapi::jiff::Timestamp>().expect("a time").into();
+    let events = snapshot(&events, StoreState::Live);
+    let index = bed.held(Index::<ObjectEvents>::of_snapshot(&events, IndexState::Following));
+    let witness = Witness::new([Source::full(bed.held(snapshot(&pods, StoreState::Live)))], at)
+        .with_reports(index, &events.status(Kind::Event));
+    let ams = ClusterId::new("ams");
+    let data = Stores {
+        clusters: vec![(ams.clone(), bed.held(events))],
+        metered: Vec::new(),
+        witnesses: vec![(ams.clone(), witness)],
+    };
+    let model = KindModel::<Event>::new();
+    let never = AtomicU64::new(0);
+    let rows = |filter: &ObjectFilter| model.rows(&data, filter, &Cancel::new(&never, 0)).expect("no cancel").rows;
+    let all = rows(&ObjectFilter::default());
+    let row = |name: &str| all.iter().find(|row| &*row.id.key.name == name).expect("a row");
+    let quiet = row("coredns-64fd4b4794-6lsjp.18de288e9d37f6d6");
+    let now = model.columns().iter().position(|column| column.title == "Now").expect("the column");
+    let mark = ClusterMark { color: DARK.clusters[0], old: None, problems: Problems::default() };
+    let scene = RowScene { palette: &DARK, clock: Clock::fixed(at), marks: HashMap::from([(ams, mark)]) };
+    let cell = model.cell(quiet, now, &scene);
+    let text = "quiet 35 min: the kubelet reports a problem that goes on again at least each 8 min, and the \
+                container coredns runs since before the last report";
+    assert_eq!((&*cell.text, cell.tone), (text, Tone::Muted));
+    let (unknown, resolved) = (row("fails.18de2891a64a7373"), row("crash.18de288e97918207"));
+    assert_eq!(model.compare(unknown, quiet, now), Ordering::Less, "an unknown one can still be a problem");
+    assert_eq!(model.compare(quiet, resolved, now), Ordering::Less, "a quiet one did not end with a proof");
+    let found = rows(&ObjectFilter { text: "quiet".to_owned(), ..ObjectFilter::default() });
+    assert_eq!(names(&found), ["ams/coredns-64fd4b4794-6lsjp.18de288e9d37f6d6"], "the text filter finds the state");
 }

@@ -4,12 +4,14 @@
 //!
 //! - `cluster`, `workloads`: the tests of each overview. `snapshots`: PNG files.
 //! - `warnings`: the warnings of the Cluster overview with the state of each problem now.
+//!   `quiet`: the reason of each state on its row, and a warning with no report for long.
 //! - `edges`: a stream of snapshots, and texts of a cluster with no limit of their length.
 //! - `frame_time`: four clusters with 10,000 pods each. Its limit holds in a release build.
 
 mod cluster;
 mod edges;
 mod frame_time;
+mod quiet;
 mod snapshots;
 mod warnings;
 mod workloads;

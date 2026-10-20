@@ -3,9 +3,11 @@
 //! with an other UID, and a store that is not live.
 //!
 //! - `pods`: the rules of a pod, its containers and its node. `workloads`: the rules of a
-//!   controller that could not make a pod, and of a Job that failed.
+//!   controller that could not make a pod, and of a Job that failed. `quiet`: the pace of
+//!   the reports of the kubelet.
 
 mod pods;
+mod quiet;
 mod workloads;
 
 use std::sync::Arc;
@@ -18,7 +20,7 @@ use k8s_openapi::api::discovery::v1::EndpointSlice;
 use serde_json::{Value, json};
 use tokio::runtime::{Builder, Runtime};
 
-use super::ProblemState::{Deleted, Ongoing, Replaced, Resolved, Unknown};
+use super::ProblemState::{Deleted, Ongoing, Quiet, Replaced, Resolved, Unknown};
 use super::*;
 use crate::fixture;
 use crate::kinds::Meta;
@@ -157,11 +159,11 @@ fn each_warning_of_the_scene_gets_the_state_of_its_object_and_other_events_get_n
     let deleted = state(Deleted, "the Pod is not in its store");
     assert_eq!(of("web-64cb9bd5d4-c8kcm", "FailedToRetrieveImagePullSecret"), deleted, "also with no rule");
 
-    let mut count = [0; 5];
+    let mut count = [0; 6];
     for now in events.iter().filter_map(|event| witness.judge(event)) {
         count[usize::from(now.state.rank())] += 1;
     }
-    assert_eq!(count, [9, 6, 12, 0, 4], "each of the 31 warnings, and no state of a Normal Event");
+    assert_eq!(count, [9, 6, 0, 12, 0, 4], "each of the 31 warnings, and no state of a Normal Event");
 }
 
 #[test]

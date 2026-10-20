@@ -2292,3 +2292,19 @@ kubelet limits the repeats of a report. So an old warning looked current after i
 review). A rule of its kind and reason reads the live object: ongoing, unknown with the
 reason, resolved, replaced or deleted. An end counts after the last report, for a restarted
 container after 10 minutes of run: a crash loop runs it between reports.
+
+## A warning of the kubelet with no report for 16 min is quiet
+
+On k3s the kubelet let 25 warnings of a pod through, then one each 300 s: a problem that went
+on came again within 310 s, a mount each 122 s. So a kubelet warning whose live object proves
+neither, with no report of its object for 16 min (twice 5 min and the longest retry), most
+likely ended. The scheduler left the Event of a waiting pod 10 min unchanged (a series each 30
+min): other sources stay unknown.
+
+## Quiet is evidence of an end, not a proof
+
+A quiet warning is no proof: the live object proves neither state. So "quiet" is a state of
+its own, muted, between "unknown" and "resolved", and "none ongoing" does not count it as an
+end. The warnings of a pod share the turns of the recorder, and on k3s one waited 15 min while
+its probe failed: a newer warning of the object, an index that is not current or a store that
+dropped Events keeps it unknown.

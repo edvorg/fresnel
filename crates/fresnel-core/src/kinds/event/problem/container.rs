@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime};
 use k8s_openapi::api::core::v1::{ContainerStatus, Pod};
 use k8s_openapi::jiff::Timestamp;
 
+use super::quiet::RETRY;
 use super::rules::{READY, after, conditions};
 use super::{ProblemNow, Subject};
 use crate::kinds::health::{Condition, condition};
@@ -28,13 +29,34 @@ const COMBINED: &str = "(combined from similar events): ";
 /// its container not ready, a liveness or a startup probe restarts it.
 pub(super) fn probe(pod: &Pod, subject: &Subject<'_>, at: SystemTime) -> ProblemNow {
     let names = |probes: &[&str]| probes.iter().any(|probe| subject.message.starts_with(probe));
-    if names(&["Readiness probe"]) {
+    let now = if names(&["Readiness probe"]) {
         readiness(pod, subject, at)
     } else if names(&["Liveness probe", "Startup probe"]) {
         container(pod, subject, at)
     } else {
         one_part(subject).err().unwrap_or_else(|| ProblemNow::unknown("the message names no probe"))
-    }
+    };
+    // The kubelet tries a report at each run of a failed probe: the pace of the reports
+    // tells nothing of a probe that runs seldom, or of one that the app cannot find.
+    if period(pod, subject).is_some_and(|period| period <= RETRY) { now } else { now.settled() }
+}
+
+/// The period of the probe that the message names, of the container of the field path.
+/// `None` when the spec of the pod does not give it.
+fn period(pod: &Pod, subject: &Subject<'_>) -> Option<Duration> {
+    let name = part_name(subject)?;
+    let spec = pod.spec.as_ref()?;
+    let mut containers = spec.containers.iter().chain(spec.init_containers.iter().flatten());
+    let container = containers.find(|container| container.name == name)?;
+    let probes = [
+        ("Liveness probe", &container.liveness_probe),
+        ("Readiness probe", &container.readiness_probe),
+        ("Startup probe", &container.startup_probe),
+    ];
+    let (_, probe) = probes.into_iter().find(|(text, _)| subject.message.starts_with(text))?;
+    // The API gives a probe with no period 10 s.
+    let seconds = probe.as_ref()?.period_seconds.unwrap_or(10);
+    Some(Duration::from_secs(u64::try_from(seconds).ok()?))
 }
 
 /// The rule of a container that cannot start, that crashed, or whose probe restarted it.
@@ -58,7 +80,7 @@ pub(super) fn container(pod: &Pod, subject: &Subject<'_>, at: SystemTime) -> Pro
         }),
         Some((None, None, Some(ended))) if ended.exit_code == 0 => {
             if starts_again(pod, &found.name) {
-                return ProblemNow::unknown(format!("{the} ended, and the kubelet starts it again"));
+                return ProblemNow::undecided(format!("{the} ended, and the kubelet starts it again"));
             }
             let started = ended.started_at.as_ref().or(ended.finished_at.as_ref()).map(|time| time.0);
             after(started, subject.last, format!("{the} ended well"))
@@ -66,7 +88,7 @@ pub(super) fn container(pod: &Pod, subject: &Subject<'_>, at: SystemTime) -> Pro
         Some((None, None, Some(ended))) => {
             ProblemNow::ongoing(format!("{the} ended with exit code {}", ended.exit_code))
         }
-        Some((None, None, None)) | None => ProblemNow::unknown(format!("the pod gives no state of {the}")),
+        Some((None, None, None)) | None => ProblemNow::undecided(format!("the pod gives no state of {the}")),
     }
 }
 
@@ -88,10 +110,10 @@ fn readiness(pod: &Pod, subject: &Subject<'_>, at: SystemTime) -> ProblemNow {
     match condition(conditions(pod), READY.name) {
         Some(ready) if ready.status() == "True" => after(ready.since(), subject.last, format!("{the} is ready")),
         Some(ready) => match ready.reason() {
-            "" => ProblemNow::unknown(format!("{the} is ready, and the pod is not")),
-            reason => ProblemNow::unknown(format!("{the} is ready, and the pod is not: {reason}")),
+            "" => ProblemNow::undecided(format!("{the} is ready, and the pod is not")),
+            reason => ProblemNow::undecided(format!("{the} is ready, and the pod is not: {reason}")),
         },
-        None => ProblemNow::unknown(format!("the pod has no condition {}", READY.name)),
+        None => ProblemNow::undecided(format!("the pod has no condition {}", READY.name)),
     }
 }
 
@@ -99,20 +121,24 @@ fn readiness(pod: &Pod, subject: &Subject<'_>, at: SystemTime) -> ProblemNow {
 /// pod has one name for each container, init container and ephemeral container.
 fn named<'a>(pod: &'a Pod, subject: &Subject<'_>) -> Result<&'a ContainerStatus, ProblemNow> {
     one_part(subject)?;
-    let name = subject.part.and_then(|part| part.split_once('{')).and_then(|(_, rest)| rest.strip_suffix('}'));
-    let name = name.ok_or_else(|| ProblemNow::unknown("the Event names no container"))?;
+    let name = part_name(subject).ok_or_else(|| ProblemNow::undecided("the Event names no container"))?;
     let status = pod.status.as_ref();
     let lists = status.into_iter().flat_map(|status| {
         [&status.container_statuses, &status.init_container_statuses, &status.ephemeral_container_statuses]
     });
     let found = lists.flatten().flatten().find(|container| container.name == name);
-    found.ok_or_else(|| ProblemNow::unknown(format!("the pod gives no state of the container {name}")))
+    found.ok_or_else(|| ProblemNow::undecided(format!("the pod gives no state of the container {name}")))
+}
+
+/// The name of the container in the field path of the Event, as `spec.containers{web}`.
+fn part_name<'a>(subject: &Subject<'a>) -> Option<&'a str> {
+    subject.part?.split_once('{')?.1.strip_suffix('}')
 }
 
 /// "Unknown" for an Event that combines the reports of some parts of its object.
 fn one_part(subject: &Subject<'_>) -> Result<(), ProblemNow> {
     if subject.message.starts_with(COMBINED) {
-        return Err(ProblemNow::unknown("the Event combines similar reports, which can be of an other container"));
+        return Err(ProblemNow::undecided("the Event combines similar reports, which can be of an other container"));
     }
     Ok(())
 }
@@ -150,7 +176,7 @@ fn runs(container: &ContainerStatus, last: Option<Timestamp>, at: SystemTime) ->
         count => format!("{count} restarts"),
     };
     (container.restart_count > 0 && !reset).then(|| {
-        ProblemNow::unknown(format!(
+        ProblemNow::undecided(format!(
             "the container {} runs again after {restarts}, for less than 10 min: a crash loop runs it between \
              its waits",
             container.name

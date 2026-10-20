@@ -208,7 +208,8 @@ impl Stores {
         let (app, (hash, _)) = (&CHECKOUT_NEXT, CANDIDATE);
         let name = format!("{}-{hash}-{}", app.name, suffix(&[site.name, app.name, "stopped"], 5));
         let pod = meta(site.name, "Pod", app.namespace, &name, CANDIDATE_AGE);
-        let (address, (port, path)) = ("10.244.5.31", app.readiness.expect("the readiness probe of the candidate"));
+        let (address, (port, path)) =
+            ("10.244.5.31", app.probes.readiness.expect("the readiness probe of the candidate"));
         let message = &format!(
             "Readiness probe failed: Get \"http://{address}:{port}{path}\": dial tcp {address}:{port}: connect: \
              connection refused"
@@ -219,7 +220,7 @@ impl Stores {
     }
 
     /// The warnings of the pods: a pod with no node, a pod whose container crashes, and the
-    /// failed probes of `PAST`.
+    /// failed probes of `PROBES`.
     fn warnings(&mut self, cluster: &str) {
         for Planned { pod, app, state } in &self.pods {
             let meta = meta_of(pod);
@@ -232,8 +233,9 @@ impl Stores {
                 container,
             };
             let address = pod.status.as_ref().and_then(|status| status.pod_ip.as_deref()).unwrap_or_default();
-            for (_, _, rest, count, last) in PAST.iter().filter(|past| (past.0, past.1) == (cluster, app.name)) {
-                let message = &format!("Readiness probe failed: dial tcp {address}{rest}");
+            for (_, _, start, rest, count, last) in PROBES.iter().filter(|past| (past.0, past.1) == (cluster, app.name))
+            {
+                let message = &format!("{start}{address}{rest}");
                 let (count, last, container) = (*count, *last, Some(app.name));
                 let note = Note { kind: "Warning", reason: "Unhealthy", message, count, last, container };
                 self.events.push(object(event(cluster, ("Pod", &meta), &note)));
@@ -261,15 +263,27 @@ impl Stores {
     }
 }
 
-/// The failed readiness probes of the last hour whose problem the overview shows as over, or
-/// cannot judge: redis-0 of staging before it was ready again after its restart, and
+/// The failed probes of the last hour whose problem the overview shows as over, quiet, or
+/// unknown: redis-0 of staging before it was ready again after its restart, coredns of
+/// staging, whose liveness probe failed fewer times in a row than its threshold, and
 /// search-indexer of prod-us, whose stores lost their connection. The cluster, the app, the
-/// end of the message after the address of the pod, the count and the seconds since the last
+/// message before and after the address of the pod, the count and the seconds since the last
 /// report.
-const PAST: [(&str, &str, &str, u32, u64); 2] = [
-    ("staging", "redis", ":6379: connect: connection refused", 3, REDIS_RESTART - 9),
-    ("prod-us", "search-indexer", ":8080: i/o timeout", 2, 5 * MINUTE + 10),
+const PROBES: [(&str, &str, &str, &str, u32, u64); 3] = [
+    (
+        "staging",
+        "redis",
+        "Readiness probe failed: dial tcp ",
+        ":6379: connect: connection refused",
+        3,
+        REDIS_RESTART - 9,
+    ),
+    ("staging", "coredns", "Liveness probe failed: Get \"http://", COREDNS_TIMEOUT, 4, 35 * MINUTE + 24),
+    ("prod-us", "search-indexer", "Readiness probe failed: dial tcp ", ":8080: i/o timeout", 2, 5 * MINUTE + 10),
 ];
+/// The end of the message of a liveness probe of coredns that got no answer in its time.
+const COREDNS_TIMEOUT: &str =
+    ":8080/health\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)";
 
 /// A PodDisruptionBudget of an app that keeps each of its pods, with the count of its pods
 /// and of the ready ones: it allows no eviction.

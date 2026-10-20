@@ -1,8 +1,9 @@
 //! The blocks of the Cluster overview: one for each selected cluster, in the sequence of the
 //! clusters (research 11 section 8.3). A block has the state of the cluster, the version of
 //! its server, its nodes, its pods by phase, its CPU and memory against the allocatable part
-//! of its nodes, and its warning Events of the last hour with the state of each problem now:
-//! the ongoing ones first, then the unknown ones, then the ended ones.
+//! of its nodes, and its warning Events of the last hour with the state of each problem now
+//! and its reason: the ongoing ones first, then the unknown ones, the quiet ones and the
+//! ended ones.
 //!
 //! A count of a store that is not live has the mark of that store, and the CPU and memory
 //! have the state of the sampler: each cluster shows its own state, and the other blocks
@@ -13,7 +14,7 @@ use egui::{Frame, Grid, Label, RichText, Ui};
 use fresnel_core::app::{ClusterData, ClusterRow};
 use fresnel_core::cluster::{LinkState, ServerVersion, VersionState};
 use fresnel_core::index::{last_seen, reports};
-use fresnel_core::kinds::Kind;
+use fresnel_core::kinds::{Kind, QUIET_AFTER, REPORT_PACE};
 use fresnel_core::store::{ObjectKey, StoreStatus};
 use k8s_openapi::api::core::v1::Event;
 
@@ -36,9 +37,16 @@ use crate::widgets::{self, dot};
 const OLD: &str = "old: the last answer of metrics-server had no sample of the nodes";
 /// The size of a bar of the CPU or the memory.
 const BAR: egui::Vec2 = egui::vec2(160.0, 8.0);
-/// What the time and the state of a warning tell: an old report with no state looked current.
-const WARNINGS_HINT: &str = "A time is the last report of an Event: the cluster keeps an Event for about 1 hour \
-                             after its last report. The state comes from the live object now, not from the Event.";
+/// What the time and the states of a warning tell: an old report with no state looked
+/// current, and the user asked what "unknown" means.
+fn warnings_hint() -> String {
+    let (pace, quiet) = (REPORT_PACE.as_secs() / 60, QUIET_AFTER.as_secs() / 60);
+    format!(
+        "A time is the last report of an Event, which the cluster keeps about 1 hour. Ongoing or resolved is \
+         what the live object proves now, unknown that it proves neither. Quiet: it proves neither, but the \
+         kubelet repeats a problem that goes on at least each {pace} min and sent no report for {quiet} min."
+    )
+}
 
 pub(super) fn show(ui: &mut Ui, scene: &Scene<'_>, counted: &[Counted]) -> Option<Jump> {
     let palette = theme::palette(ui);
@@ -240,7 +248,7 @@ fn meter(ui: &mut Ui, palette: &Palette, clock: &Clock, usage: &Usage, resource:
 /// muted: only an ongoing one has the tone of a warning.
 fn warnings(ui: &mut Ui, palette: &Palette, clock: &Clock, row: &ClusterRow, counts: &Counted) -> Option<Jump> {
     ui.add_space(4.0);
-    heading_with_hint(ui, palette, "WARNING EVENTS", WARNINGS_HINT);
+    heading_with_hint(ui, palette, "WARNING EVENTS", &warnings_hint());
     let status = row.data.as_ref().and_then(|data| data.objects.status(Kind::Event));
     let mut jump = None;
     parts(ui, |ui| {
@@ -275,17 +283,25 @@ fn warnings(ui: &mut Ui, palette: &Palette, clock: &Clock, row: &ClusterRow, cou
             });
             let message = event.message.as_deref().map(str::trim).unwrap_or_default();
             let tone = if problem::ended(state) { Tone::Faint } else { Tone::Normal };
-            ui.add(Label::new(RichText::new(format::short(message, LINE_LIMIT)).color(tone.color(palette))).truncate());
+            // The fact that gives the state, under the message: the user asked what a state
+            // means, and a hint shows only on a hover.
+            ui.vertical(|ui| {
+                ui.add(
+                    Label::new(RichText::new(format::short(message, LINE_LIMIT)).color(tone.color(palette))).truncate(),
+                );
+                let why = RichText::new(format::short(&warning.now.why, LINE_LIMIT)).color(palette.text_muted);
+                ui.add(Label::new(why).truncate()).on_hover_text(problem::hint(&warning.now, clock));
+            });
             ui.end_row();
         }
     });
     jump
 }
 
-/// "3 warnings in the last hour, 1 ongoing": the link to the warnings, the ongoing ones, and
-/// the ones whose state the app cannot tell. Gives the jump of a click. The link has the
-/// count of the rows of its table: "31 warnings, 3 in the last hour" when the cluster keeps
-/// older ones.
+/// "3 warnings in the last hour, 1 ongoing": the link to the warnings, the ongoing ones, the
+/// ones whose state the app cannot tell, and the quiet ones. Gives the jump of a click. The
+/// link has the count of the rows of its table: "31 warnings, 3 in the last hour" when the
+/// cluster keeps older ones.
 fn summary(ui: &mut Ui, palette: &Palette, warnings: &Warnings) -> Option<Jump> {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -297,17 +313,20 @@ fn summary(ui: &mut Ui, palette: &Palette, warnings: &Warnings) -> Option<Jump> 
             ui.label(format!(", {} in the last hour", warnings.count));
             jump
         };
-        // "None ongoing" would be false while the state of one is unknown.
+        // "None ongoing" would be false while the state of one is unknown, and a guess while
+        // one is quiet.
         if warnings.ongoing > 0 {
             ui.label(", ");
             ui.label(RichText::new(format!("{} ongoing", warnings.ongoing)).color(palette.warn));
-        } else if warnings.count > 0 && warnings.unknown == 0 {
+        } else if warnings.count > 0 && warnings.unknown == 0 && warnings.quiet == 0 {
             ui.label(", ");
             ui.label(RichText::new("none ongoing").color(palette.text_muted));
         }
-        if warnings.unknown > 0 {
-            ui.label(", ");
-            ui.label(RichText::new(format!("{} unknown", warnings.unknown)).color(palette.text_muted));
+        for (count, state) in [(warnings.unknown, "unknown"), (warnings.quiet, "quiet")] {
+            if count > 0 {
+                ui.label(", ");
+                ui.label(RichText::new(format!("{count} {state}")).color(palette.text_muted));
+            }
         }
         jump
     })

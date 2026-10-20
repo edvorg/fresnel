@@ -150,7 +150,7 @@ fn ready() -> Vec<String> {
 /// terminal echoes each command, and bash turns the bracketed paste off before it runs.
 fn session(pod: &Pod) -> Vec<u8> {
     let host = pod.metadata.name.as_deref().unwrap_or_default();
-    let (port, path) = CHECKOUT.readiness.expect("the readiness probe of checkout-api");
+    let (port, path) = CHECKOUT.probes.readiness.expect("the readiness probe of checkout-api");
     let commands = [
         ("ls -l --color".to_owned(), listing()),
         ("ps aux".to_owned(), processes(pod)),

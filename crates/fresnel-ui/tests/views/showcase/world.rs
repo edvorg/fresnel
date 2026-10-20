@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use k8s_openapi::api::core::v1::Pod;
 
-use super::objects::{App, DAY, HOUR, MINUTE, Owner, PodPlan, State, hash, object, pod, suffix, uid};
+use super::objects::{App, DAY, HOUR, MINUTE, Owner, PodPlan, Probes, State, hash, object, pod, suffix, uid};
 
 /// The hash of the template of the release of checkout-api that prod runs.
 const RELEASE: &str = "7d9c5b8f6";
@@ -22,7 +22,7 @@ pub(super) const CHECKOUT: App = App {
     requests: ["200m", "256Mi"],
     limits: [Some("500m"), Some("512Mi")],
     usage: [190.0, 300.0],
-    readiness: Some((8080, "/ready")),
+    probes: Probes { readiness: Some((8080, "/ready")), liveness: None },
 };
 /// The revision of the release candidate of checkout-api on staging, which crashes. Its
 /// revisions 6 and 7 are the release of prod and the candidate before.
@@ -44,7 +44,7 @@ pub(super) const CART: App = App {
     requests: ["100m", "128Mi"],
     limits: [Some("500m"), Some("256Mi")],
     usage: [70.0, 150.0],
-    readiness: None,
+    probes: Probes::NONE,
 };
 const REDIS: App = App {
     namespace: "shop",
@@ -54,7 +54,7 @@ const REDIS: App = App {
     requests: ["100m", "256Mi"],
     limits: [None, Some("512Mi")],
     usage: [24.0, 190.0],
-    readiness: None,
+    probes: Probes::NONE,
 };
 const PAYMENTS: App = App {
     namespace: "payments",
@@ -64,7 +64,7 @@ const PAYMENTS: App = App {
     requests: ["200m", "256Mi"],
     limits: [Some("1"), Some("512Mi")],
     usage: [120.0, 230.0],
-    readiness: None,
+    probes: Probes::NONE,
 };
 const POSTGRES: App = App {
     namespace: "payments",
@@ -74,7 +74,7 @@ const POSTGRES: App = App {
     requests: ["500m", "1Gi"],
     limits: [Some("2"), Some("2Gi")],
     usage: [340.0, 1330.0],
-    readiness: None,
+    probes: Probes::NONE,
 };
 const REPORT: App = App {
     namespace: "payments",
@@ -84,7 +84,7 @@ const REPORT: App = App {
     requests: ["200m", "256Mi"],
     limits: [None, Some("1Gi")],
     usage: [0.0, 0.0],
-    readiness: None,
+    probes: Probes::NONE,
 };
 const INDEXER: App = App {
     namespace: "search",
@@ -94,7 +94,7 @@ const INDEXER: App = App {
     requests: ["500m", "1Gi"],
     limits: [Some("2"), Some("3Gi")],
     usage: [780.0, 1900.0],
-    readiness: None,
+    probes: Probes::NONE,
 };
 const PROMETHEUS: App = App {
     namespace: "monitoring",
@@ -104,7 +104,7 @@ const PROMETHEUS: App = App {
     requests: ["300m", "1Gi"],
     limits: [None, Some("2Gi")],
     usage: [210.0, 1400.0],
-    readiness: None,
+    probes: Probes::NONE,
 };
 const GRAFANA: App = App {
     namespace: "monitoring",
@@ -114,7 +114,7 @@ const GRAFANA: App = App {
     requests: ["100m", "128Mi"],
     limits: [None, Some("256Mi")],
     usage: [15.0, 110.0],
-    readiness: None,
+    probes: Probes::NONE,
 };
 const NODE_EXPORTER: App = App {
     namespace: "monitoring",
@@ -124,7 +124,7 @@ const NODE_EXPORTER: App = App {
     requests: ["50m", "32Mi"],
     limits: [None, Some("64Mi")],
     usage: [8.0, 18.0],
-    readiness: None,
+    probes: Probes::NONE,
 };
 const COREDNS: App = App {
     namespace: "kube-system",
@@ -134,7 +134,7 @@ const COREDNS: App = App {
     requests: ["100m", "70Mi"],
     limits: [None, Some("170Mi")],
     usage: [6.0, 28.0],
-    readiness: None,
+    probes: Probes { liveness: Some((8080, "/health")), ..Probes::NONE },
 };
 const METRICS_SERVER: App = App {
     namespace: "kube-system",
@@ -144,7 +144,7 @@ const METRICS_SERVER: App = App {
     requests: ["100m", "200Mi"],
     limits: [None, None],
     usage: [9.0, 34.0],
-    readiness: None,
+    probes: Probes::NONE,
 };
 
 /// The namespaces of each cluster.

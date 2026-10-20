@@ -14,7 +14,7 @@ use fresnel_core::ops::{JobState, Operation, Outcome, StepState};
 use fresnel_core::store::ObjectKey;
 use k8s_openapi::api::core::v1::Pod;
 
-use super::world::{DRAINED, PROD_EU, PROD_US, evicted};
+use super::world::{DRAINED, PROD_EU, PROD_US, STAGING, evicted};
 use super::{MARGIN, TO_THE_END, save, target, window};
 use crate::fake::{JOB_WIDENING, Window, assert_dragged, grow_dock, move_edge, open_page, open_tab, until, widen_job};
 use crate::frame_time::wheel;
@@ -163,8 +163,14 @@ fn card_top(window: &Window, cluster: &str) -> f32 {
     window.get_by_label_contains(&format!("{cluster}.k8s.example")).rect().top()
 }
 
-/// The reason in the head of the card of prod-us of the overview.
-const PROD_US_REASON: &str = "watches: connect: no answer in 3s";
+/// The top of the head of the card of staging in the overview: the name of the cluster just
+/// above the version of its server, which no other card has.
+fn staging_top(window: &Window) -> f32 {
+    let version = window.get_by_label(STAGING.version).rect();
+    let mut names = window.query_all_by_label(STAGING.name).map(|node| node.rect());
+    let head = names.find(|name| name.bottom() <= version.top() && version.top() - name.bottom() < 30.0);
+    head.expect("the head of the card of staging").top()
+}
 
 /// Scrolls the page to its end: the middle of the window is on it.
 fn to_the_end(window: &mut Window) {
@@ -174,20 +180,21 @@ fn to_the_end(window: &mut Window) {
 }
 
 /// The cluster overview of the three clusters in the light theme, at its end with the
-/// release that crashes on staging, each warning with the state of its problem now, and the
-/// connections of prod-us in the dock: each channel tries again after a pause. The dock takes
-/// the room above the card of prod-us, so the page starts with that card.
+/// release that crashes on staging, each warning with the state of its problem now and its
+/// reason, and the connections of prod-us in the dock: each channel tries again after a
+/// pause. The dock takes the room above the card of staging, so the page starts with it.
 #[test]
 fn the_cluster_overview_in_the_light_theme() {
     let mut window = window(egui::Theme::Light);
     crate::overview::open(&mut window, "Cluster overview");
     let page_top = window.get_by_role_and_label(Role::Label, "Cluster overview").rect().top();
-    let card = |window: &Window| window.get_by_label(PROD_US_REASON).rect().top();
     to_the_end(&mut window);
-    let rise = card(&window) - page_top;
+    let rise = staging_top(&window) - page_top;
     grow_dock(&mut window, rise);
     to_the_end(&mut window);
-    assert!((card(&window) - page_top).abs() <= 1.0, "the card of prod-us is at the top of the page");
+    assert!((staging_top(&window) - page_top).abs() <= 1.0, "the card of staging is at the top of the page");
+    let states = ["ongoing", "quiet 35 min", "resolved 07:47", "deleted"];
+    assert!(states.iter().all(|state| window.query_all_by_label(state).next().is_some()), "each state of staging");
     open_tab(&mut window, "Connections");
     // The list moves up by the card of prod-eu, so the card of prod-us is at its top.
     let first = card_top(&window, PROD_EU.name);
