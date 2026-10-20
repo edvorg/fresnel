@@ -19,7 +19,7 @@ The pods of three clusters. prod-us has no connection: its rows are old, and a n
 <tr><td width="50%"><a href="docs/screenshots/terminal.png"><img src="docs/screenshots/terminal.png" alt="A shell in a terminal tab"></a><br>A shell in a pod, in a tab of the dock with the state of its session.</td>
 <td width="50%"><a href="docs/screenshots/yaml-editor.png"><img src="docs/screenshots/yaml-editor.png" alt="The manifest editor"></a><br>The manifest of a Deployment during an edit, with a search and a hint of the check.</td></tr>
 <tr><td width="50%"><a href="docs/screenshots/port-forwards.png"><img src="docs/screenshots/port-forwards.png" alt="The Forwards tab"></a><br>Forwards to a Service, a Pod and a Deployment: active, reconnecting and degraded.</td>
-<td width="50%"><a href="docs/screenshots/cluster-overview-light.png"><img src="docs/screenshots/cluster-overview-light.png" alt="The cluster overview"></a><br>The cluster overview: the state now of each warning, and the connections of prod-us, which try again.</td></tr>
+<td width="50%"><a href="docs/screenshots/cluster-overview-light.png"><img src="docs/screenshots/cluster-overview-light.png" alt="The cluster overview"></a><br>The cluster overview: the state now of each warning with its reason, and the connections of prod-us, which try again.</td></tr>
 </table>
 
 ## Status
