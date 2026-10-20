@@ -96,7 +96,7 @@ cargo run --package fresnel-cli -- watch --context <name>    # the stores of one
 domain), `fresnel-ui` (the views), the programs `fresnel` and `fresnel-cli`, and `fresnel-testkit`
 (fault proxy, k3s in Docker, fake API server, soak harness). `xtask` has the repository tasks.
 [Architecture](docs/architecture.md): the design rules and the crates. [Decisions](docs/decisions.md):
-each decision with its reason. [CONTRIBUTING.md](CONTRIBUTING.md): the rules for a change.
+each decision with its reason. [Contributing](CONTRIBUTING.md): the rules; CI checks pull requests.
 
 ## License
 

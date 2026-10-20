@@ -197,4 +197,4 @@ freezes, delays, resets or silences connections; `K3s` is k3s in Docker, with ag
 - **Cluster tests** (`#[ignore]`) use k3s in Docker, mostly behind the fault proxy: a store test
   asserts a recovery time and "store equal to the API" after a fault, the others match kubectl.
 - **Soak**: `fresnel-cli soak` checks the stores, a forward and `Core::memory`; `fresnel-soak`: k3s.
-- CI runs each check on macOS, Linux and Windows at each push, and the cluster tests on Linux.
+- CI runs each check on macOS, Linux and Windows for a push or pull request, cluster tests on Linux.
