@@ -9,7 +9,8 @@
 //! empty. A note that comes shows at once over the top of the table: the table paints nothing
 //! and takes no press above the rest of the place (`Place::shown`). A pointer over that note
 //! is not over the table, so the table then takes the rest of the place again, and the note
-//! gets its presses, as the drag of its scroll bar.
+//! gets its presses, as the drag of its scroll bar. A key that moves the cursor ends the hold
+//! too: the table scrolls to the row of the cursor, which a note could cover.
 //!
 //! `egui_table` reads the scroll offset of its rows from the clip of each of its parts, so a
 //! clip that cuts the top of the rows moves them. The clip of the table starts at its top, and
@@ -67,7 +68,8 @@ impl Steady {
         place
     }
 
-    /// Forgets the place: the view does not show the table in this frame.
+    /// Forgets the place: the view does not show the table in this frame, or a key moved the
+    /// cursor.
     pub(super) fn rest(&mut self) {
         self.last = None;
     }

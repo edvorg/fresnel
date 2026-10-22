@@ -331,8 +331,10 @@ impl<M: Model> Table<M> {
             forget_gone(model, rows, objects, &mut self.selection);
         }
         if by_key {
-            // The next frame scrolls to the row of the cursor.
+            // The next frame scrolls to the row of the cursor, in the place below the parts above
+            // the table: a key moves the cursor and not the pointer, and a note can cover the top.
             self.reveal = self.selection.cursor().filter(|_| acted == Some(Act::Cursor)).cloned();
+            self.steady.rest();
             ui.ctx().request_repaint();
         }
         if let Some(column) = header_clicked {

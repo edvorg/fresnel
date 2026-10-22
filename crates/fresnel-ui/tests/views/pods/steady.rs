@@ -237,3 +237,33 @@ fn a_note_that_comes_over_a_table_that_scrolled_shows_with_nothing_of_the_table_
     assert!(filled_over(&window, NOTE), "the scroll bar and the fades of the table do not show at the notes");
     assert_eq!(painted_over(&window, NOTE), 0, "no part of the table paints over the notes");
 }
+
+/// The notes come while the pointer rests over the table, and cover its top rows. A key that
+/// moves the cursor to the first row moves the table below the notes, where that row shows.
+#[test]
+fn a_key_shows_the_row_of_the_cursor_below_the_notes_that_came() {
+    let pods = many_pods(200);
+    let two = |state: StoreState| {
+        view(vec![cluster("ams-prod", store(state.clone(), &pods)), cluster("fra-prod", store(state, &pods))])
+    };
+    let mut window = window(two(StoreState::Live));
+    // The first name is in two rows, one of each cluster.
+    let first = name_in_row(&window, 0);
+    let column = row(&window, &first).left();
+    let place = row(&window, &name_in_row(&window, 6)).center();
+    for event in [Event::PointerMoved(place), button(place, true), button(place, false)] {
+        window.event(event);
+    }
+    window.run();
+    window.state_mut().view = two(StoreState::Waiting(Wait::Stream));
+    window.run();
+    let notes = window.query_all_by_label(NOTE).map(|node| node.rect().bottom()).fold(0.0, f32::max);
+    // The ring of an old row is before its name.
+    let in_rows = |rect: Rect| rect.left() >= column && rect.left() < column + 30.0 && rect.top() > notes;
+    let shown = |window: &Window| window.query_all_by_label(&first).filter(|node| in_rows(node.rect())).count();
+    assert_eq!(shown(&window), 1, "the notes cover the first row");
+
+    window.key_press(egui::Key::Home);
+    window.run();
+    assert_eq!(shown(&window), 2, "the first row, of the cursor, shows below the notes");
+}

@@ -1000,8 +1000,8 @@ frame has the node at the pointer, and presses one time: a press that opens noth
 
 egui gives a press to the widget that the frame before had at the pointer, and a person aims at
 an earlier frame. A note above a table comes or goes away with its store: the rows moved, and a
-click opened the row above or below the aimed one. So the table keeps its top while the pointer
-is over its rows that show, or a press on them lasts. A new note covers the top rows.
+click opened another row. So the table keeps its top while the pointer is over its rows that
+show, or a press on them lasts, until a key moves the cursor. A new note covers the top rows.
 
 ## The place of a note over a table is painted again after the table
 
