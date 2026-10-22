@@ -257,6 +257,15 @@ fn a_node_that_stopped_its_reports_or_had_a_shortage_is_judged_by_its_conditions
     assert_eq!(judged(&pressure("False", LATE), &shortage), state(Resolved(at(LATE)), "the node has no pressure"));
     let before = state(Unknown, "the node has no pressure since before the last report");
     assert_eq!(judged(&pressure("False", EARLY), &shortage), before);
+    // A node whose kubelet stopped its reports has each condition Unknown since then.
+    let silent = bed.with::<Node>(NODE, |node| {
+        for condition in node["status"]["conditions"].as_array_mut().expect("conditions") {
+            (condition["status"], condition["lastTransitionTime"]) = ("Unknown".into(), LATE.into());
+            condition["reason"] = "NodeStatusUnknown".into();
+        }
+    });
+    let unsure = state(Unknown, "the node has MemoryPressure Unknown: NodeStatusUnknown");
+    assert_eq!(judged(&silent, &shortage), unsure, "no proof of an end");
     let no_pressure = bed.with::<Node>(NODE, |node| {
         let conditions = node["status"]["conditions"].as_array_mut().expect("conditions");
         conditions.retain(|condition| condition["type"] == "Ready");

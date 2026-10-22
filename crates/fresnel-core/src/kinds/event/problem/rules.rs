@@ -191,6 +191,14 @@ fn pressure(node: &Node, last: Option<Timestamp>) -> ProblemNow {
     if known.is_empty() {
         return ProblemNow::unknown("the node has no condition of a pressure");
     }
+    // The node controller sets each condition Unknown when the kubelet stops its reports.
+    if let Some(unsure) = known.iter().find(|condition| condition.status() != "False") {
+        let (name, status) = (unsure.name(), unsure.status());
+        return match unsure.reason() {
+            "" => ProblemNow::unknown(format!("the node has {name} {status}")),
+            reason => ProblemNow::unknown(format!("the node has {name} {status}: {reason}")),
+        };
+    }
     // The last change of them, when each one has its time.
     let since = known.iter().map(|condition| condition.since()).collect::<Option<Vec<_>>>();
     after(since.and_then(|times| times.into_iter().max()), last, "the node has no pressure".to_owned())
