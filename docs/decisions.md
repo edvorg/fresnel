@@ -997,6 +997,14 @@ frame moves the rows, and the press misses: a test on Windows opened no panel. S
 presses only when the frame of its move has the node at the pointer, and clicks again until
 the window shows the result.
 
+## The rows of a table stay under the pointer
+
+egui gives a press to the widget that the frame before had at the pointer, and a person aims at
+an earlier frame. A note above a table goes away when its store becomes live: the rows moved
+up, and a click opened the row below the aimed one. So while the pointer is over the table, it
+keeps its top, and the place of the note stays empty. A new note moves the rows down: it tells
+a change.
+
 ## The dock is a panel until the user can move a tab
 
 Milestone M1 has two tabs below the center. A panel of egui with a tab bar draws them, and

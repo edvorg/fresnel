@@ -9,6 +9,7 @@
 //! - `handles`: the handle of each edge at its limits.
 //! - `bad_data`: objects that a healthy API server does not give.
 //! - `rest`: the view while the window shows some other page.
+//! - `steady`: the rows under the pointer when a note above the table goes away.
 
 mod bad_data;
 mod detail;
@@ -21,6 +22,7 @@ mod rest;
 pub(crate) mod scenes;
 mod snapshots;
 mod states;
+mod steady;
 mod table;
 mod weakness;
 

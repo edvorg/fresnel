@@ -11,6 +11,7 @@
 //! - `keys`: the keys. `widths`: the widths of the columns. `choice`: the columns that show.
 //! - `layout`: the widths and the columns that the state file keeps.
 //! - `edges`: the handle at the right of each column, for a drag and a double click.
+//! - `steady`: the place of the rows under the pointer when a part above the table goes away.
 //! - `selection`: the selected objects. `select`: what a click and a key do to them.
 
 pub(crate) mod cells;
@@ -23,6 +24,7 @@ pub(crate) mod model;
 mod rows;
 mod select;
 mod selection;
+mod steady;
 mod supply;
 mod widths;
 
@@ -40,6 +42,7 @@ use self::model::{Model, ObjectId};
 pub(crate) use self::rows::Rows;
 use self::select::{click, forget_gone, key, position};
 pub(crate) use self::selection::Selection;
+use self::steady::Steady;
 pub(crate) use self::supply::Progress;
 use self::supply::Supply;
 use self::widths::{FrameWidths, NARROWEST, WIDEST, Widths};
@@ -77,6 +80,8 @@ pub(crate) struct Table<M: Model> {
     row_height: f32,
     /// True when the table takes the focus of the keys in the next frame.
     focus: bool,
+    /// The place of the table in the last frame, which stays while the pointer is over it.
+    steady: Steady,
 }
 
 impl<M: Model> Table<M> {
@@ -85,9 +90,9 @@ impl<M: Model> Table<M> {
         let model = Arc::new(model);
         let supply = Supply::start(tasks, wake, name, Arc::clone(&model));
         let (widths, choice) = (Widths::new(model.columns()), Choice::new(model.columns()));
-        let (selection, edges) = (Selection::default(), Edges::default());
-        let (saved, hidden, row_height, focus) = (None, None, ROW_HEIGHT, false);
-        Self { name, model, supply, selection, reveal: None, widths, choice, edges, saved, hidden, row_height, focus }
+        let (selection, edges, steady) = (Selection::default(), Edges::default(), Steady::default());
+        let (saved, hidden, reveal, row_height, focus) = (None, None, None, ROW_HEIGHT, false);
+        Self { name, model, supply, selection, reveal, widths, choice, edges, saved, hidden, row_height, focus, steady }
     }
 
     /// Tells the table what its rows come from in this frame, and takes a result of the
@@ -151,6 +156,7 @@ impl<M: Model> Table<M> {
         self.selection.clear();
         self.reveal = None;
         self.edges.rest();
+        self.steady.rest();
     }
 
     /// The row of the cursor, if the rows on the screen have its object.
@@ -184,6 +190,7 @@ impl<M: Model> Table<M> {
         empty: impl FnOnce() -> String,
         menu: &mut dyn FnMut(&mut Ui, &ObjectId),
     ) -> Option<Act> {
+        self.steady.hold(ui);
         let palette = theme::palette(ui);
         if let Some(rest) = self.supply.time_to_slow() {
             // The frame after this time tells that the table waits for its rows.
