@@ -6,8 +6,12 @@
 //! Such a stall comes in one pass; a frame that the code makes slow comes in each pass. The
 //! longest frame stays the measure: a percentile would hide one long frame of the code, as
 //! the first frame of a panel. Each pass prints its times.
+//!
+//! The tests of the rule call `passes`, and one test calls `timed`, the function of each time
+//! test. Its name has `frame_time`, so the job `time` of CI runs it in a release build.
 
 use std::cell::Cell;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::Duration;
 
 /// One time of a step against its limit: its longest frame, or the wait for the hits of a
@@ -143,4 +147,35 @@ fn a_step_that_the_second_pass_does_not_have_fails() {
         }
     });
     assert_eq!(result, Err("panel: 60.00ms in the first pass, and the second has no such step".into()));
+}
+
+/// Runs `timed` on a scene of one step with these times, one for each pass. Gives the count of
+/// passes and the message of the panic of `timed`.
+fn run_timed(times: &[u64]) -> (usize, Option<String>) {
+    let count = Cell::new(0);
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        timed(|pass| {
+            pass.record("scroll", ms(times[count.get()]), LIMIT);
+            count.set(count.get() + 1);
+        });
+    }));
+    let message = |payload: Box<dyn std::any::Any + Send>| match payload.downcast::<String>() {
+        Ok(text) => *text,
+        Err(payload) => payload.downcast_ref::<&str>().map_or_else(String::new, |text| (*text).to_owned()),
+    };
+    (count.get(), result.err().map(message))
+}
+
+/// A release build fails a step that is slow in each pass and passes a step that is slow in
+/// one pass. A debug build runs each scene one time and checks no time.
+#[test]
+fn timed_checks_the_frame_time_of_a_step_in_a_second_pass_in_a_release_build() {
+    let (slow_in_each, slow_in_one) = (run_timed(&[53, 51]), run_timed(&[70, 6]));
+    if cfg!(debug_assertions) {
+        assert_eq!((slow_in_each, slow_in_one), ((1, None), (1, None)));
+    } else {
+        let failure = "scroll: 53.00ms in the first pass and 51.00ms in the second, the limit is 50ms";
+        assert_eq!(slow_in_each, (2, Some(failure.to_owned())), "a step slow in each pass fails");
+        assert_eq!(slow_in_one, (2, None), "a step slow in one pass passes");
+    }
 }
