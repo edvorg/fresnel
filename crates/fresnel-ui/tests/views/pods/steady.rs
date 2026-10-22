@@ -5,13 +5,17 @@
 //! hold, the rows moved by the height of the note, and the click opened the row below or above
 //! the row of the person.
 
+use std::sync::Arc;
+
 use egui::accesskit::Role;
 use egui::epaint::ClippedShape;
 use egui::{Event, Modifiers, PointerButton, Pos2, Rect, Shape};
 use egui_kittest::kittest::Queryable as _;
+use fresnel_core::app::CoreView;
 use fresnel_core::store::{StoreState, Wait};
+use k8s_openapi::api::core::v1::Pod;
 
-use crate::data::{cluster, live, pods, store};
+use crate::data::{cluster, live, many_pods, pods, store};
 use crate::fake::{Window, shows, view, window};
 
 const NOTE: &str = "Pods: waits for the start of its watch. Its rows are old since 07:59:12.";
@@ -125,4 +129,53 @@ fn the_rows_stay_until_the_release_of_a_press_on_the_table() {
     window.event(button(beside, false));
     window.run();
     assert!(row(&window, "db-0").center().y < place.y - 10.0, "the rows move up after the release");
+}
+
+/// Five clusters with these pods, whose stores are in this state. Five notes are more than
+/// the place of the notes shows, so they scroll in it with a bar of their own.
+fn five(state: &StoreState, pods: &[Arc<Pod>]) -> CoreView {
+    let names = ["ams-prod", "fra-prod", "lon-prod", "nyc-prod", "sfo-prod"];
+    view(names.iter().map(|name| cluster(name, store(state.clone(), pods))).collect())
+}
+
+/// The name in a row of the table that shows, from the top: a label of a pod in the leftmost
+/// column.
+fn name_in_row(window: &Window, number: usize) -> String {
+    let names = window.query_all_by_label_contains("-000");
+    let mut named: Vec<(Rect, String)> = names.map(|node| (node.rect(), node.value().unwrap_or_default())).collect();
+    named.sort_by(|(a, _), (b, _)| a.left().total_cmp(&b.left()).then(a.top().total_cmp(&b.top())));
+    named.into_iter().nth(number).expect("the row").1
+}
+
+/// The top of the first note, which a scroll of the notes moves.
+fn top_of_notes(window: &Window) -> f32 {
+    window.query_all_by_label(NOTE).map(|node| node.rect().top()).fold(f32::MAX, f32::min)
+}
+
+/// The notes come while the pointer is over the table, and the table keeps its top under them.
+/// A pointer over the notes is over them, not over the table: the drag of their scroll bar
+/// scrolls them, and the scroll bar of the table, which was below them, takes no press.
+#[test]
+fn a_press_on_the_notes_that_came_over_the_table_goes_to_the_notes() {
+    let pods = many_pods(60);
+    let mut window = window(five(&StoreState::Live, &pods));
+    let (first, aimed) = (name_in_row(&window, 0), name_in_row(&window, 8));
+    let place = row(&window, &aimed).center();
+    window.event(Event::PointerMoved(place));
+    window.run();
+    window.state_mut().view = five(&StoreState::Waiting(Wait::Stream), &pods);
+    window.run();
+    let top = top_of_notes(&window);
+    assert!((row(&window, &aimed).center().y - place.y).abs() < 0.5, "the table keeps its top");
+
+    // The scroll bar of the notes is at the right side of their place, below their top: the page
+    // ends 8 points before the right side of the window, and the bar is 8 points wide.
+    let bar = Pos2::new(window.ctx.content_rect().right() - 12.0, top + 12.0);
+    let below = Pos2::new(bar.x, bar.y + 40.0);
+    for event in [Event::PointerMoved(bar), button(bar, true), Event::PointerMoved(below), button(below, false)] {
+        window.event(event);
+        window.run();
+    }
+    assert!(top_of_notes(&window) < top - 10.0, "the notes scroll");
+    assert_eq!(name_in_row(&window, 0), first, "the table does not scroll");
 }
