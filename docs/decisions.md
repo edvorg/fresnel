@@ -2321,3 +2321,11 @@ that readiness.
 The kubelet runs a probe again only after its last run ended, so a time limit longer than the
 period sets the pace of its reports. The evidence of the pace takes the longer of the two, and a
 probe that runs less often than each 125 s stays unknown.
+
+## Only the recorder whose pace was measured gives evidence
+
+The kubelet writes its Events with the recorder of core/v1: a source, a count and a last time,
+which the measurement read. A recorder of events.k8s.io writes no source and a series, which
+client-go sends again only each 30 min: on k3s the scheduler left one 10 min unchanged. So a
+warning of the kubelet in that form stays unknown, and a newer one still takes the turn of the
+other warnings of its object.

@@ -95,25 +95,33 @@ fn an_undecided_warning_of_the_kubelet_is_quiet_after_twice_its_pace_with_no_rep
     let default_period = bed.probed(None, std::slice::from_ref(&event), since_last(QUIET_AFTER));
     assert_eq!(judged(&default_period, &event).0, Quiet(at(LAST).expect("a time")), "a period of 10 s");
 
-    // The newer recorder writes the reporting component too, and may write no source.
-    let mut reported = event.clone();
-    (reported.source, reported.reporting_component) = (None, Some("kubelet".to_owned()));
-    assert_eq!(judged(&quiet, &reported).0, Quiet(at(LAST).expect("a time")));
+    // The recorder of the kubelet writes its source and the reporting component.
+    let mut both = event.clone();
+    both.reporting_component = Some("kubelet".to_owned());
+    assert_eq!(judged(&quiet, &both).0, Quiet(at(LAST).expect("a time")));
 }
 
-/// The pace of the kubelet is measured; the scheduler writes a series each 30 min, and the
-/// pace of a controller is not known.
+/// The pace of the recorder of the kubelet is measured; the scheduler writes a series each
+/// 30 min, and the pace of a controller is not known.
 #[test]
-fn a_warning_of_an_other_source_stays_unknown() {
+fn a_warning_of_an_other_source_or_recorder_stays_unknown() {
     let bed = Bed::new();
     let late = since_last(Duration::from_secs(3600));
     let mut scheduler = liveness();
     scheduler.source = Some(serde_json::from_value(json!({"component": "default-scheduler"})).expect("a source"));
     let mut none = liveness();
     none.source = None;
-    for event in [scheduler, none] {
+    // The recorder of events.k8s.io writes the reporting component and no source, and it
+    // sends a series again only each 30 min.
+    let mut reporting = liveness();
+    (reporting.source, reporting.reporting_component) = (None, Some("kubelet".to_owned()));
+    let mut series = liveness();
+    let observed = json!({"count": 2, "lastObservedTime": "2026-10-13T17:58:50.000000Z"});
+    series.series = Some(serde_json::from_value(observed).expect("a series"));
+    for event in [scheduler, none, reporting, series] {
         let witness = bed.probed(Some(10), std::slice::from_ref(&event), late);
-        assert_eq!(judged(&witness, &event), state(Unknown, RUNS), "{:?}", event.source);
+        let recorder = (&event.source, &event.reporting_component, &event.series);
+        assert_eq!(judged(&witness, &event), state(Unknown, RUNS), "{recorder:?}");
     }
     let placed = bed.with::<Pod>("unschedulable", |pod| {
         let scheduled = condition(pod, "PodScheduled");
@@ -175,6 +183,11 @@ fn a_newer_report_of_the_object_or_events_that_the_app_can_miss_keep_it_unknown(
     scheduler.source = Some(serde_json::from_value(json!({"component": "default-scheduler"})).expect("a source"));
     let witness = bed.probed(Some(10), &[event.clone(), normal, scheduler], late);
     assert_eq!(judged(&witness, &event).0, Quiet(at(LAST).expect("a time")));
+    // A warning of the kubelet from the recorder of events.k8s.io takes a turn too.
+    let mut reporting = readiness.clone();
+    (reporting.source, reporting.reporting_component) = (None, Some("kubelet".to_owned()));
+    let witness = bed.probed(Some(10), &[event.clone(), reporting], late);
+    assert_eq!(judged(&witness, &event), state(Unknown, RUNS), "a newer report of an other recorder");
 
     // An index that does not follow a live store, a store that dropped Events, or no index.
     let probed = bed.probed(Some(10), &[], late);

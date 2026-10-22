@@ -52,7 +52,7 @@ const KUBELET: &str = "kubelet";
 /// "Quiet" for an undecided state of a warning of the kubelet with no report of its object
 /// since `QUIET_AFTER`, while its node was ready; else the state of the rule.
 pub(super) fn judge(now: ProblemNow, event: &Event, subject: &Subject<'_>, witness: &Witness) -> ProblemNow {
-    let Some(last) = subject.last.filter(|_| now.undecided && of_kubelet(event)) else {
+    let Some(last) = subject.last.filter(|_| now.undecided && paced(event)) else {
         return now;
     };
     let Some(ready) = ready_since(witness, subject) else {
@@ -86,8 +86,17 @@ fn ready_since(witness: &Witness, subject: &Subject<'_>) -> Option<Timestamp> {
     condition(conditions, READY.name).filter(|ready| ready.status() == "True")?.since()
 }
 
-/// True for an Event of the kubelet. The recorder of the kubelet writes the source, and a
-/// newer one the reporting component too.
+/// True for an Event of the recorder whose pace was measured: the recorder of the kubelet
+/// writes its source, a count and a last time. A recorder of `events.k8s.io` writes no
+/// source and a series, which client-go sends again only each 30 min: on k3s the scheduler
+/// left its series 10 min unchanged.
+fn paced(event: &Event) -> bool {
+    let source = event.source.as_ref().and_then(|source| source.component.as_deref());
+    source == Some(KUBELET) && event.series.is_none()
+}
+
+/// True for an Event of the kubelet from any recorder: each report of it takes a turn of
+/// the warnings of its object.
 fn of_kubelet(event: &Event) -> bool {
     let source = event.source.as_ref().and_then(|source| source.component.as_deref());
     source == Some(KUBELET) || event.reporting_component.as_deref() == Some(KUBELET)
