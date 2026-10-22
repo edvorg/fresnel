@@ -74,7 +74,10 @@ async fn tunnels_that_open_and_then_fail_degrade_the_forward_until_a_new_target_
     for client in 1..=3 {
         assert_eq!(end_seen(address).await, Ok("reset"), "client {client}");
     }
-    let row = bed.until(&closed, "three failed tunnels", |view| view.connections.reset == 3).await;
+    // The count of the resets and the state come in two views: a slow runner can show the
+    // third reset before the state of its failure.
+    let three = |view: &ForwardView| view.connections.reset == 3 && view.state.name() == "degraded";
+    let row = bed.until(&closed, "three failed tunnels", three).await;
     let text = "degraded: each of the last 3 tunnels failed: the node refused a tunnel: error forwarding port 1 to \
                 pod web: dial tcp4 127.0.0.1:1: connection refused";
     assert_eq!(row.view.state.to_string(), text);
