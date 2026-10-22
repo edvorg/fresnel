@@ -1003,6 +1003,13 @@ an earlier frame. A note above a table comes or goes away with its store: the ro
 click opened the row above or below the aimed one. So the table keeps its top while the pointer
 is over its rows that show, or a press on them lasts. A new note covers the top rows.
 
+## The place of a note over a table is painted again after the table
+
+A table that keeps its top under a new note cuts each title, row and cell to the place below the
+note. The scroll area of `egui_table` still paints its scroll bar and its fades from the top of
+the table, over the note. So after the table, the frame paints the background and each shape
+that it painted at the place of the note before the table again, cut to that place.
+
 ## A row takes a press with the identity of its object
 
 `egui_table` numbers the rows on the screen, and egui gives a press, its click and an open menu

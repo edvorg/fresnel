@@ -13,9 +13,13 @@
 //!
 //! `egui_table` reads the scroll offset of its rows from the clip of each of its parts, so a
 //! clip that cuts the top of the rows moves them. The clip of the table starts at its top, and
-//! each title, row and cell cuts itself to `shown` (`delegate.rs`).
+//! each title, row and cell cuts itself to `shown` (`delegate.rs`). The scroll area of
+//! `egui_table` paints its scroll bar and its fades from the top of the table too, so `cover`
+//! paints the parts above the table again over the place that they cover.
 
-use egui::{Rect, Ui, pos2};
+use egui::epaint::ClippedShape;
+use egui::layers::{PaintList, ShapeIdx};
+use egui::{Rect, Shape, Ui, pos2};
 
 /// The place of the table in the last frame that showed it.
 #[derive(Default)]
@@ -39,6 +43,12 @@ impl Place {
     fn visible(&self) -> Rect {
         self.table.intersect(self.shown)
     }
+
+    /// The part of the table that a note that came covers, if one does.
+    fn covered(&self) -> Option<Rect> {
+        let bottom = self.shown.top().min(self.table.bottom());
+        (bottom > self.table.top()).then(|| Rect::from_x_y_ranges(self.table.x_range(), self.table.top()..=bottom))
+    }
 }
 
 impl Steady {
@@ -61,4 +71,36 @@ impl Steady {
     pub(super) fn rest(&mut self) {
         self.last = None;
     }
+}
+
+/// The index of the next shape of the layer of `ui`: the first shape of a table drawn now.
+pub(super) fn next_shape(ui: &Ui) -> ShapeIdx {
+    ui.ctx().graphics(|layers| layers.get(ui.layer_id()).map_or(ShapeIdx(0), PaintList::next_idx))
+}
+
+/// Paints over the part of `place` that a note covers what the frame painted there before the
+/// table, whose first shape has the index `start`: the background of the page and then each
+/// shape in sequence, cut to that part. The parts above the table then show there as if the
+/// table were not under them.
+pub(super) fn cover(ui: &Ui, start: ShapeIdx, place: &Place) {
+    let Some(covered) = place.covered().filter(|_| ui.is_visible()) else {
+        return;
+    };
+    let background = Shape::rect_filled(covered, 0.0, ui.stack().bg_color());
+    ui.ctx().graphics_mut(|layers| {
+        let list = layers.entry(ui.layer_id());
+        let earlier: Vec<ClippedShape> = list
+            .all_entries()
+            .take(start.0)
+            .filter_map(|clipped| {
+                let clip_rect = clipped.clip_rect.intersect(covered);
+                let shown = clip_rect.intersect(clipped.shape.visual_bounding_rect()).is_positive();
+                shown.then(|| ClippedShape { clip_rect, shape: clipped.shape.clone() })
+            })
+            .collect();
+        list.add(covered, background);
+        for ClippedShape { clip_rect, shape } in earlier {
+            list.add(clip_rect, shape);
+        }
+    });
 }

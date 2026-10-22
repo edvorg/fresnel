@@ -193,12 +193,15 @@ impl<M: Model> Table<M> {
         menu: &mut dyn FnMut(&mut Ui, &ObjectId),
     ) -> Option<Act> {
         let place = self.steady.place(ui);
+        let start = steady::next_shape(ui);
         let builder = UiBuilder::new().max_rect(place.table);
         let draw = |ui: &mut Ui| {
             ui.set_clip_rect(place.clip);
             self.draw(ui, place.shown, scene, empty, menu)
         };
-        ui.scope_builder(builder, draw).inner
+        let acted = ui.scope_builder(builder, draw).inner;
+        steady::cover(ui, start, &place);
+        acted
     }
 
     /// Draws the table into `ui`. Its parts above `shown` do not show.

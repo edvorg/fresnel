@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use egui::accesskit::Role;
 use egui::epaint::ClippedShape;
-use egui::{Event, Modifiers, PointerButton, Pos2, Rect, Shape};
+use egui::{Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, Rect, Shape, TouchPhase};
 use egui_kittest::kittest::Queryable as _;
 use fresnel_core::app::CoreView;
 use fresnel_core::store::{StoreState, Wait};
@@ -47,17 +47,44 @@ fn beside_the_table(window: &Window, place: Pos2) -> Pos2 {
     Pos2::new(sidebar.center().x, place.y)
 }
 
-/// The count of shapes that the frame paints after this text where a label of it is.
+/// The count of shapes that the frame paints after the last shape of this text at the height of
+/// a label of it, from the left to the right side of the window. A table that keeps its top
+/// under a note that came paints its scroll bar and the fades of its scroll area there, and
+/// then paints the parts above it again over them.
 fn painted_over(window: &Window, text: &str) -> usize {
-    let labels: Vec<Rect> = window.query_all_by_label(text).map(|node| node.rect()).collect();
+    let width = window.ctx.content_rect().x_range();
+    let lines: Vec<Rect> =
+        window.query_all_by_label(text).map(|node| Rect::from_x_y_ranges(width, node.rect().y_range())).collect();
     let shapes = &window.output().shapes;
     let is_text = |clipped: &ClippedShape| matches!(&clipped.shape, Shape::Text(shape) if shape.galley.text() == text);
-    let painted = shapes.iter().position(is_text).expect("the frame paints the text");
+    let painted = shapes.iter().rposition(is_text).expect("the frame paints the text");
     let covers = |clipped: &&ClippedShape| {
         let shown = clipped.clip_rect.intersect(clipped.shape.visual_bounding_rect());
-        !is_text(clipped) && labels.iter().any(|label| shown.intersect(*label).is_positive())
+        lines.iter().any(|line| shown.intersect(line.shrink2(egui::vec2(0.0, 1.0))).is_positive())
     };
     shapes.get(painted + 1..).unwrap_or_default().iter().filter(covers).count()
+}
+
+/// True when the frame paints, after the first shape of this text, an opaque fill over each
+/// label of it to the scroll bar at the right side of the page: what the frame painted before
+/// that fill does not show there.
+fn filled_over(window: &Window, text: &str) -> bool {
+    // The page ends 8 points before the right side of the window, and a scroll bar is 8 points wide.
+    let bar = window.ctx.content_rect().right() - 12.0;
+    let places: Vec<Rect> = window
+        .query_all_by_label(text)
+        .map(|node| node.rect().union(Rect::from_x_y_ranges(bar..=bar, node.rect().y_range())))
+        .collect();
+    let shapes = &window.output().shapes;
+    let is_text = |clipped: &ClippedShape| matches!(&clipped.shape, Shape::Text(shape) if shape.galley.text() == text);
+    let first = shapes.iter().position(is_text).expect("the frame paints the text");
+    let fills = |clipped: &ClippedShape| match &clipped.shape {
+        Shape::Rect(rect) if rect.fill.is_opaque() => {
+            places.iter().all(|place| clipped.clip_rect.intersect(rect.rect).contains_rect(*place))
+        }
+        _ => false,
+    };
+    shapes.get(first + 1..).unwrap_or_default().iter().any(fills)
 }
 
 #[test]
@@ -178,4 +205,35 @@ fn a_press_on_the_notes_that_came_over_the_table_goes_to_the_notes() {
     }
     assert!(top_of_notes(&window) < top - 10.0, "the notes scroll");
     assert_eq!(name_in_row(&window, 0), first, "the table does not scroll");
+}
+
+/// A table that scrolled down fades the top of its rows, and many rows have a scroll bar. The
+/// notes that come while the pointer is over the table show over its top with neither of them.
+#[test]
+fn a_note_that_comes_over_a_table_that_scrolled_shows_with_nothing_of_the_table_over_it() {
+    let pods = many_pods(200);
+    let two = |state: StoreState| {
+        view(vec![cluster("ams-prod", store(state.clone(), &pods)), cluster("fra-prod", store(state, &pods))])
+    };
+    let mut window = window(two(StoreState::Live));
+    let place = row(&window, &name_in_row(&window, 5)).center();
+    let wheel = Event::MouseWheel {
+        unit: MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -300.0),
+        modifiers: Modifiers::NONE,
+        phase: TouchPhase::Move,
+    };
+    for event in [Event::PointerMoved(place), wheel] {
+        window.event(event);
+    }
+    window.run();
+    let aimed = name_in_row(&window, 5);
+    let at = row(&window, &aimed).center().y;
+
+    window.state_mut().view = two(StoreState::Waiting(Wait::Stream));
+    window.run();
+    assert_eq!(window.query_all_by_label(NOTE).count(), 2, "the notes show at once");
+    assert!((row(&window, &aimed).center().y - at).abs() < 0.5, "the table keeps its top");
+    assert!(filled_over(&window, NOTE), "the scroll bar and the fades of the table do not show at the notes");
+    assert_eq!(painted_over(&window, NOTE), 0, "no part of the table paints over the notes");
 }
