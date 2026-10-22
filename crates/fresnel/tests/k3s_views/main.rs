@@ -9,6 +9,8 @@
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
+#[path = "../common/click.rs"]
+mod click;
 #[path = "../common/window.rs"]
 mod window;
 
@@ -18,6 +20,7 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use fresnel_testkit::{Home, K3s};
 use tokio::runtime::{Builder, Runtime};
 
+use click::click_until;
 use window::{Window, core, shows, stop_with_no_ended_task, until, window};
 
 /// The namespace of the scene.
@@ -68,9 +71,7 @@ fn open(window: &mut Window, page: &str, name: &str) {
     window.get_by_role(Role::TextInput).click();
     window.run();
     window.get_by_role(Role::TextInput).type_text(name);
-    until(window, &format!("the row {name} of the {page}"), |window| shows(window, name));
-    window.query_all_by_label(name).next().expect("the row").click();
-    until(window, &format!("the panel of {name}"), |window| shows(window, "Overview"));
+    click_until(window, Role::Label, name, |window| shows(window, "Overview"));
 }
 
 /// Clicks the button with this label.

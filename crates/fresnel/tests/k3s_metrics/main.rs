@@ -9,6 +9,8 @@
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
+#[path = "../common/click.rs"]
+mod click;
 #[path = "../common/window.rs"]
 mod window;
 
@@ -21,6 +23,7 @@ use fresnel_core::metrics::PollStatus;
 use fresnel_testkit::{Home, K3s, K3sOptions};
 use tokio::runtime::{Builder, Runtime};
 
+use click::click_until;
 use window::{Window, core, shows, stop_with_no_ended_task, until, window};
 
 /// The namespace of the scene.
@@ -204,8 +207,7 @@ fn the_metrics_of_metrics_server_show_in_the_tables_the_charts_and_the_connectio
     // The charts of a pod, from the history of the sampler.
     page(window, "Pods", &pods[0]);
     until(window, "the row of the pod", |window| hints(window, REQUEST).len() == 1);
-    window.query_all_by_label(&pods[0]).next().expect("the row").click();
-    until(window, "the panel of the pod", |window| shows(window, "Metrics"));
+    click_until(window, Role::Label, &pods[0], |window| shows(window, "Metrics"));
     window.get_by_role_and_label(Role::Button, "Metrics").click();
     until(window, "the charts", |window| shows(window, "CPU chart") && shows(window, "Memory chart"));
     // The period is the window of metrics-server when it is longer than 15 s.

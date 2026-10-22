@@ -4,9 +4,12 @@
 //!
 //! The core reads a fake API server through a fault proxy, whose pod sends each byte of each
 //! port back. The test draws the frames with [`fresnel::frame::draw`] and uses real time.
+//! The click of a row comes from `common/click.rs`, whose test on a made-up window is here.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
+#[path = "../common/click.rs"]
+mod click;
 #[path = "../common/mod.rs"]
 mod common;
 #[path = "../common/window.rs"]
@@ -18,10 +21,12 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 use egui::accesskit::Role;
+use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use fresnel_testkit::{FakeApiServer, FaultProxy, Home, ProxyMode};
 use tokio::runtime::{Builder, Runtime};
 
+use click::{click_until, press_in_place};
 use window::{Window, core, shows, stop_with_no_ended_task, until, window};
 
 const PODS: &str = "/api/v1/pods";
@@ -59,9 +64,8 @@ fn bed() -> Bed {
 
 /// Opens the dialog of a forward with the Forward button of port 8080 of the pod `web`.
 fn open_dialog(window: &mut Window) {
-    window.get_by_role_and_label(Role::Label, "web").click();
     let button = "Forward port 8080 of app";
-    until(window, "the panel of web", |window| window.query_by_label(button).is_some());
+    click_until(window, Role::Label, "web", |window| window.query_by_label(button).is_some());
     window.get_by_label(button).scroll_to_me();
     window.run();
     window.get_by_label(button).click();
@@ -144,4 +148,51 @@ fn a_local_port_in_use_shows_the_state_failed_with_its_reason() {
     until(window, "the state failed", |window| shows(window, &text));
     assert!(shows(window, "1 forward: 1 failed"), "the status bar");
     stop_with_no_ended_task(window);
+}
+
+/// A made-up window: a note above a row while `note` is true, the count of the clicks of the
+/// row, and the count of the clicks that missed it.
+#[derive(Default)]
+struct Moving {
+    note: bool,
+    clicks: u32,
+    missed: u32,
+}
+
+fn moving() -> Harness<'static, Moving> {
+    let frame = |ui: &mut egui::Ui, state: &mut Moving| {
+        if state.note {
+            ui.label("Pods: waits for a stream. Its rows are old since 10:15:03.");
+        }
+        let row = ui.add(egui::Label::new("web").sense(egui::Sense::click()));
+        state.clicks += u32::from(row.clicked());
+        state.missed += u32::from(ui.input(|input| input.pointer.primary_clicked()) && !row.clicked());
+    };
+    let mut window = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(frame, Moving::default());
+    window.state_mut().note = true;
+    window.run();
+    window
+}
+
+/// The cause of a failure of `open_dialog` on Windows, and the click of `click_until`: the
+/// note above the row goes away in the frame after the one that the test read, as the note
+/// of a store whose watch opens. A press at the place of the frame before misses the row,
+/// and `press_in_place` presses only where the frame of its move has the row.
+#[test]
+fn a_click_presses_only_where_the_frame_of_its_move_has_the_row() {
+    let row = |window: &Harness<'_, Moving>| window.query_by_label("web").map(|node| node.rect());
+    let mut window = moving();
+    window.state_mut().note = false;
+    window.get_by_label("web").click();
+    window.run();
+    assert_eq!((window.state().clicks, window.state().missed), (0, 1), "the click at the old place");
+
+    let mut window = moving();
+    window.state_mut().note = false;
+    let old = row(&window).expect("the row").center();
+    assert!(!press_in_place(&mut window, old, row), "no press where the row was");
+    let new = row(&window).expect("the row").center();
+    assert!(new.y < old.y && press_in_place(&mut window, new, row), "a press where the row is now");
+    window.run();
+    assert_eq!((window.state().clicks, window.state().missed), (1, 0));
 }

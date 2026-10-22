@@ -989,6 +989,14 @@ master three times, in steps whose median frame took 2 to 6 ms. So a step over i
 its scene again, and fails only when it is over its limit in that pass too. Slow code is slow in
 each pass. A percentile would hide a single long frame of the code.
 
+## A window test presses where the frame of the move has the node
+
+kittest gives each event of a click a frame of its own, and egui gives the press to the widget
+that the frame of the move had under the pointer. A note above a table that goes away in that
+frame moves the rows, and the press misses: a test on Windows opened no panel. So `click_until`
+presses only when the frame of its move has the node at the pointer, and clicks again until
+the window shows the result.
+
 ## The dock is a panel until the user can move a tab
 
 Milestone M1 has two tabs below the center. A panel of egui with a tab bar draws them, and

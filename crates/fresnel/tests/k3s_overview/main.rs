@@ -11,6 +11,8 @@
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
+#[path = "../common/click.rs"]
+mod click;
 #[path = "../common/window.rs"]
 mod window;
 
@@ -22,6 +24,7 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use fresnel_testkit::{Home, K3s, K3sOptions};
 use tokio::runtime::{Builder, Runtime};
 
+use click::click_until;
 use window::{Window, core, shows, stop_with_no_ended_task, until, until_within, window};
 
 /// The namespace of the scene.
@@ -137,10 +140,9 @@ fn the_overviews_show_the_version_counts_usage_and_warnings_of_each_cluster_from
         .query_all_by_label_contains("Pod broken-")
         .find(|node| node.accesskit_node().role() == Role::Link)
         .expect("the link of a warning");
-    let pod = warned.accesskit_node().label().expect("a text").trim_start_matches("Pod ").to_owned();
-    warned.click();
-    window.run();
-    until(window, "the panel of the pod of the warning", |window| shows(window, "CONTAINERS") && shows(window, &pod));
+    let text = warned.accesskit_node().label().expect("a text");
+    let pod = text.trim_start_matches("Pod ").to_owned();
+    click_until(window, Role::Link, &text, |window| shows(window, "CONTAINERS") && shows(window, &pod));
 
     // The Workloads overview: the Deployments of each cluster by health, from the stores
     // that the page holds, and a store of the full ReplicationControllers on demand.

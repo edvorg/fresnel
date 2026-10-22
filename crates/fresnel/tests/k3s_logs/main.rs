@@ -8,11 +8,13 @@
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
+#[path = "../common/click.rs"]
+mod click;
 #[path = "../common/window.rs"]
 mod window;
 
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use eframe::egui;
 use egui::accesskit::Role;
@@ -20,6 +22,7 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use fresnel_testkit::{Home, K3s};
 use tokio::runtime::{Builder, Runtime};
 
+use click::click_until;
 use window::{Window, core, shows, stop_with_no_ended_task, until, until_within, window};
 
 /// The namespace of the scene.
@@ -102,15 +105,7 @@ fn open(window: &mut Window, page: &str, filter: &str, name: &str) {
     window.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
     window.get_by_label(filter).type_text(name);
     // The row and the heading of the panel have the name.
-    let started = Instant::now();
-    while window.query_all_by_label(name).count() < 2 {
-        assert!(started.elapsed() < window::LIMIT, "in time: the panel of {name}");
-        if let Some(row) = window.query_all_by_role_and_label(Role::Label, name).next() {
-            row.click();
-        }
-        window.run();
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    click_until(window, Role::Label, name, |window| window.query_all_by_label(name).count() >= 2);
 }
 
 /// The texts of the rows of the pane on the screen.
