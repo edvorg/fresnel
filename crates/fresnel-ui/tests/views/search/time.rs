@@ -6,7 +6,8 @@
 //! the frame that shows the hits, so it has the frames, the request, the worker thread and
 //! its wake of the window. The limit holds in a release build on the Mac of the 16 ms frame:
 //! `cargo test --release --package fresnel-ui --test views search::time -- --nocapture`.
-//! A debug build runs the same steps and checks no time. CI gives the limit of its runner.
+//! A debug build runs the same steps and checks no time. CI gives the limit of its runner, and
+//! a time over it fails only when a second pass is over it too (`crate::timing`).
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -22,6 +23,7 @@ use super::{metadata, secrets, with_sources};
 use crate::data::{changed_object, held, live, many_pods, store};
 use crate::fake::{Window, view, window_with_no_gpu};
 use crate::frame_time::limit;
+use crate::timing::timed;
 
 const LIMIT: Duration = Duration::from_millis(50);
 /// The variable with the limit of a slower machine, in milliseconds.
@@ -66,29 +68,31 @@ fn time_to(window: &mut Window, last: char, shown: impl Fn(&Window) -> bool) -> 
 
 #[test]
 fn the_hits_of_4_clusters_with_60000_objects_show_in_the_search_limit() {
-    let mut window = window_with_no_gpu(view(clusters()), 1.0);
-    window.key_press_modifiers(Modifiers::COMMAND, Key::K);
-    window.run();
-    // One name, and a word that most names have: its hits need the choice of the best ones.
-    let pod = many_pods(PODS).pop().expect("a pod");
-    let (name, namespace) = (pod.metadata.name.clone().expect("a name"), pod.metadata.namespace.clone().expect("one"));
-    let (start, last) = name.split_at(name.len() - 1);
-    window.get_by_label("Search text").type_text(start);
-    window.run();
-    let hit = format!("Pod {namespace}/{name} of cluster-1");
-    let one = time_to(&mut window, last.chars().next().expect("a last letter"), |window| {
-        window.query_by_label(&hit).is_some()
-    });
+    timed(|pass| {
+        let mut window = window_with_no_gpu(view(clusters()), 1.0);
+        window.key_press_modifiers(Modifiers::COMMAND, Key::K);
+        window.run();
+        // One name, and a word that most names have: its hits need the choice of the best ones.
+        let pod = many_pods(PODS).pop().expect("a pod");
+        let (name, namespace) =
+            (pod.metadata.name.clone().expect("a name"), pod.metadata.namespace.clone().expect("one"));
+        let (start, last) = name.split_at(name.len() - 1);
+        window.get_by_label("Search text").type_text(start);
+        window.run();
+        let hit = format!("Pod {namespace}/{name} of cluster-1");
+        let one = time_to(&mut window, last.chars().next().expect("a last letter"), |window| {
+            window.query_by_label(&hit).is_some()
+        });
 
-    window.key_press_modifiers(Modifiers::COMMAND, Key::A);
-    window.key_press(Key::Backspace);
-    window.get_by_label("Search text").type_text("c");
-    window.run();
-    let broad = time_to(&mut window, 'r', |window| window.query_by_label_contains("200 of ").is_some());
-    println!("quick search with {} objects: one name {one:?}, a broad word {broad:?}", CLUSTERS * (PODS + SECRETS));
-    if cfg!(debug_assertions) {
-        return;
-    }
-    let limit = limit(LIMIT_VARIABLE, LIMIT);
-    assert!(one <= limit && broad <= limit, "{one:?} and {broad:?}, the limit is {limit:?}");
+        window.key_press_modifiers(Modifiers::COMMAND, Key::A);
+        window.key_press(Key::Backspace);
+        window.get_by_label("Search text").type_text("c");
+        window.run();
+        let broad = time_to(&mut window, 'r', |window| window.query_by_label_contains("200 of ").is_some());
+        let (objects, label) = (CLUSTERS * (PODS + SECRETS), pass.label());
+        println!("quick search with {objects} objects{label}: one name {one:?}, a broad word {broad:?}");
+        let limit = limit(LIMIT_VARIABLE, LIMIT);
+        pass.record("the hits of one name", one, limit);
+        pass.record("the hits of a broad word", broad, limit);
+    });
 }

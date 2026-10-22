@@ -18,6 +18,7 @@
 //! - `editor`: the manifest editor of the dock (M11).
 //! - `terminal`: the terminals of the dock: the tab, the keys, the pointer and the screen (M10).
 //! - `frame_time`: the time of a frame with 10,000 pods. Its limit holds in a release build.
+//!   `timing`: the rule of the time limits, with a second pass after a step over its limit.
 //! - `snapshots`: PNG files of the views, for a look by a person.
 //! - `showcase`: the pictures of the README on a made-up world of three clusters
 //!   (`cargo xtask screenshots`).
@@ -46,4 +47,5 @@ mod shell;
 mod showcase;
 mod snapshots;
 mod terminal;
+mod timing;
 mod workloads;

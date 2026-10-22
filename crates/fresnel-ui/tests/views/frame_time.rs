@@ -11,6 +11,8 @@
 //! A debug build runs the same steps and checks no time, so each run of the tests proves
 //! that 10,000 pods scroll, sort and filter. CI runs them in a release build with the limits
 //! of each runner in `FRESNEL_FRAME_LIMIT_MS` and `FRESNEL_SEARCH_LIMIT_MS` (see `limit`).
+//! A step over its limit fails only when a second pass of its scene is over it too
+//! (`crate::timing`).
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -22,6 +24,7 @@ use k8s_openapi::api::core::v1::Pod;
 use crate::data::{changed, live, many_pods, pod};
 use crate::fake::{Window, shows, view, window_with_no_gpu};
 use crate::pods::column;
+use crate::timing::{Pass, timed};
 
 /// The frame time of a display with 60 pictures in one second.
 const LIMIT: Duration = Duration::from_millis(16);
@@ -79,17 +82,15 @@ impl Step {
         }
     }
 
-    /// Prints the times of the step and checks the limit.
-    pub(crate) fn check(&self) {
+    /// Prints the times of the step, and gives its longest frame with the limit to the pass,
+    /// whose rule checks it (`crate::timing`).
+    pub(crate) fn check(&self, pass: &mut Pass) {
         let mut sorted = self.frames.clone();
         sorted.sort_unstable();
         let (median, longest) = (sorted[sorted.len() / 2], sorted[sorted.len() - 1]);
-        eprintln!("frame time, {}: {} frames, median {median:.2?}, longest {longest:.2?}", self.name, sorted.len());
-        if cfg!(debug_assertions) {
-            return;
-        }
-        let limit = limit(LIMIT_VARIABLE, LIMIT);
-        assert!(longest <= limit, "{}: a frame took {longest:.2?}, the limit is {limit:?}", self.name);
+        let (name, frames, label) = (self.name, sorted.len(), pass.label());
+        eprintln!("frame time{label}, {name}: {frames} frames, median {median:.2?}, longest {longest:.2?}");
+        pass.record(&format!("{name}, the longest frame"), longest, limit(LIMIT_VARIABLE, LIMIT));
     }
 }
 
@@ -124,74 +125,76 @@ pub(crate) fn first(window: &Window, title: &str) -> Option<String> {
 
 #[test]
 fn a_frame_with_10_000_pods_stays_in_the_frame_limit_during_scroll_sort_and_filter() {
-    let all = many_pods(PODS);
-    let mut window = window_with_no_gpu(view(vec![live("ams-prod", &all)]), 2.0);
-    assert!(shows(&window, "10,000 pods"));
-    let mut warm = Step::new("the first frames");
-    (0..20).for_each(|_| warm.frame(&mut window));
+    timed(|pass| {
+        let all = many_pods(PODS);
+        let mut window = window_with_no_gpu(view(vec![live("ams-prod", &all)]), 2.0);
+        assert!(shows(&window, "10,000 pods"));
+        let mut warm = Step::new("the first frames");
+        (0..20).for_each(|_| warm.frame(&mut window));
 
-    // Scroll: each frame moves the rows by more than two rows.
-    let mut scroll = Step::new("scroll");
-    let rows = title(&window, "Namespace") + egui::vec2(0.0, 200.0);
-    scroll.events(&mut window, [Event::PointerMoved(rows)]);
-    let top = first(&window, "Name");
-    scroll.events(&mut window, (0..300).map(|_| wheel(-60.0)));
-    assert_ne!(first(&window, "Name"), top, "the table did scroll");
-    // egui spreads each move of the wheel over some frames, so the way back ends later.
-    scroll.events(&mut window, (0..300).map(|_| wheel(60.0)));
-    scroll.until(&mut window, "the first row again", |window| first(window, "Name") == top);
-    scroll.check();
+        // Scroll: each frame moves the rows by more than two rows.
+        let mut scroll = Step::new("scroll");
+        let rows = title(&window, "Namespace") + egui::vec2(0.0, 200.0);
+        scroll.events(&mut window, [Event::PointerMoved(rows)]);
+        let top = first(&window, "Name");
+        scroll.events(&mut window, (0..300).map(|_| wheel(-60.0)));
+        assert_ne!(first(&window, "Name"), top, "the table did scroll");
+        // egui spreads each move of the wheel over some frames, so the way back ends later.
+        scroll.events(&mut window, (0..300).map(|_| wheel(60.0)));
+        scroll.until(&mut window, "the first row again", |window| first(window, "Name") == top);
+        scroll.check(pass);
 
-    // Sort: the worker computes the new sequence of 10,000 rows, and the frames go on.
-    let mut sort = Step::new("sort");
-    for (column_title, clicks, expected) in
-        [("Restarts", 2, "2"), ("Age", 1, "35 s"), ("Status", 2, "Terminating"), ("Name", 1, "agent-8djvd-00002")]
-    {
-        for click in 1..=clicks {
-            let pos = title(&window, column_title);
-            sort.click(&mut window, pos);
-            if click < clicks {
-                (0..30).for_each(|_| sort.frame(&mut window));
+        // Sort: the worker computes the new sequence of 10,000 rows, and the frames go on.
+        let mut sort = Step::new("sort");
+        for (column_title, clicks, expected) in
+            [("Restarts", 2, "2"), ("Age", 1, "35 s"), ("Status", 2, "Terminating"), ("Name", 1, "agent-8djvd-00002")]
+        {
+            for click in 1..=clicks {
+                let pos = title(&window, column_title);
+                sort.click(&mut window, pos);
+                if click < clicks {
+                    (0..30).for_each(|_| sort.frame(&mut window));
+                }
             }
+            let asked = Instant::now();
+            sort.until(&mut window, &format!("the rows by {column_title}"), |window| {
+                first(window, column_title).as_deref() == Some(expected)
+            });
+            eprintln!("frame time, sort: the rows by {column_title} show after {:.1?}", asked.elapsed());
         }
-        let asked = Instant::now();
-        sort.until(&mut window, &format!("the rows by {column_title}"), |window| {
-            first(window, column_title).as_deref() == Some(expected)
+        sort.check(pass);
+
+        // Filter: one frame for each character, and frames while the worker selects the rows.
+        let mut filter = Step::new("filter");
+        let field = window.get_by_label("Filter pods").rect().center();
+        filter.click(&mut window, field);
+        for character in "crash".chars() {
+            filter.events(&mut window, [Event::Text(character.to_string())]);
+            (0..10).for_each(|_| filter.frame(&mut window));
+        }
+        // Two of the 25 pods of the scene have "crash" in their name and their status.
+        filter.until(&mut window, "the rows of the filter", |window| shows(window, "800 of 10,000 pods"));
+        filter.check(pass);
+
+        // A stream of snapshots during a scroll: 20 pods change before each frame.
+        let mut stream = Step::new("scroll in a stream of snapshots");
+        stream.events(&mut window, [Event::PointerMoved(rows)]);
+        let mut now = all;
+        for frame in 0..120_usize {
+            for change in 0..20 {
+                let index = (frame * 20 + change) * 7 % now.len();
+                let mut pod = Pod::clone(&now[index]);
+                pod.metadata.resource_version = Some(format!("{frame}"));
+                now[index] = Arc::new(pod);
+            }
+            window.state_mut().view = view(vec![live("ams-prod", &now)]);
+            stream.events(&mut window, [wheel(-24.0)]);
+        }
+        stream.until(&mut window, "the rows of the last snapshot", |window| {
+            window.query_all_by_label_contains("of 10,000 pods").next().is_some()
         });
-        eprintln!("frame time, sort: the rows by {column_title} show after {:.1?}", asked.elapsed());
-    }
-    sort.check();
-
-    // Filter: one frame for each character, and frames while the worker selects the rows.
-    let mut filter = Step::new("filter");
-    let field = window.get_by_label("Filter pods").rect().center();
-    filter.click(&mut window, field);
-    for character in "crash".chars() {
-        filter.events(&mut window, [Event::Text(character.to_string())]);
-        (0..10).for_each(|_| filter.frame(&mut window));
-    }
-    // Two of the 25 pods of the scene have "crash" in their name and their status.
-    filter.until(&mut window, "the rows of the filter", |window| shows(window, "800 of 10,000 pods"));
-    filter.check();
-
-    // A stream of snapshots during a scroll: 20 pods change before each frame.
-    let mut stream = Step::new("scroll in a stream of snapshots");
-    stream.events(&mut window, [Event::PointerMoved(rows)]);
-    let mut now = all;
-    for frame in 0..120_usize {
-        for change in 0..20 {
-            let index = (frame * 20 + change) * 7 % now.len();
-            let mut pod = Pod::clone(&now[index]);
-            pod.metadata.resource_version = Some(format!("{frame}"));
-            now[index] = Arc::new(pod);
-        }
-        window.state_mut().view = view(vec![live("ams-prod", &now)]);
-        stream.events(&mut window, [wheel(-24.0)]);
-    }
-    stream.until(&mut window, "the rows of the last snapshot", |window| {
-        window.query_all_by_label_contains("of 10,000 pods").next().is_some()
+        stream.check(pass);
     });
-    stream.check();
 }
 
 /// The API gives most texts of an object no limit of their length. A status reason of
@@ -199,34 +202,36 @@ fn a_frame_with_10_000_pods_stays_in_the_frame_limit_during_scroll_sort_and_filt
 /// with 2,000 annotations two frames of 20 ms. Each view cuts such a text before its layout.
 #[test]
 fn a_frame_with_a_pod_of_extreme_values_stays_in_the_frame_limit() {
-    let extreme = changed(&pod("db-0"), |value| {
-        value["metadata"]["name"] = "extreme".into();
-        value["metadata"]["uid"] = "the-uid-of-the-extreme-pod".into();
-        value["status"]["reason"] = "R".repeat(1_000_000).into();
-        let annotations: serde_json::Map<String, serde_json::Value> =
-            (0..2000).map(|number| (format!("example.com/note-{number:04}"), "v".repeat(100).into())).collect();
-        value["metadata"]["annotations"] = annotations.into();
-        value["metadata"]["labels"]["long"] = "L".repeat(100_000).into();
+    timed(|pass| {
+        let extreme = changed(&pod("db-0"), |value| {
+            value["metadata"]["name"] = "extreme".into();
+            value["metadata"]["uid"] = "the-uid-of-the-extreme-pod".into();
+            value["status"]["reason"] = "R".repeat(1_000_000).into();
+            let annotations: serde_json::Map<String, serde_json::Value> =
+                (0..2000).map(|number| (format!("example.com/note-{number:04}"), "v".repeat(100).into())).collect();
+            value["metadata"]["annotations"] = annotations.into();
+            value["metadata"]["labels"]["long"] = "L".repeat(100_000).into();
+        });
+        let mut all = many_pods(1000);
+        all.push(extreme);
+        let mut window = window_with_no_gpu(view(vec![live("ams-prod", &all)]), 2.0);
+
+        // The filter brings the row of the pod into the view.
+        let mut table = Step::new("extreme values, the row");
+        let field = window.get_by_label("Filter pods").rect().center();
+        table.click(&mut window, field);
+        table.events(&mut window, [Event::Text("extreme".to_owned())]);
+        table.until(&mut window, "the row of the pod", |window| shows(window, "1 of 1,001 pods"));
+        (0..20).for_each(|_| table.frame(&mut window));
+        let status = column(&window, "Status").into_iter().next().expect("the status of the pod");
+        assert!(status.starts_with("RRRR") && status.ends_with('…') && status.chars().count() < 500, "a cut text");
+        table.check(pass);
+
+        let mut panel = Step::new("extreme values, the panel");
+        let row = window.get_by_label("extreme").rect().center();
+        panel.click(&mut window, row);
+        (0..20).for_each(|_| panel.frame(&mut window));
+        assert!(shows(&window, "and 1,900 more"), "the panel shows the first annotations and the count of the rest");
+        panel.check(pass);
     });
-    let mut all = many_pods(1000);
-    all.push(extreme);
-    let mut window = window_with_no_gpu(view(vec![live("ams-prod", &all)]), 2.0);
-
-    // The filter brings the row of the pod into the view.
-    let mut table = Step::new("extreme values, the row");
-    let field = window.get_by_label("Filter pods").rect().center();
-    table.click(&mut window, field);
-    table.events(&mut window, [Event::Text("extreme".to_owned())]);
-    table.until(&mut window, "the row of the pod", |window| shows(window, "1 of 1,001 pods"));
-    (0..20).for_each(|_| table.frame(&mut window));
-    let status = column(&window, "Status").into_iter().next().expect("the status of the pod");
-    assert!(status.starts_with("RRRR") && status.ends_with('…') && status.chars().count() < 500, "a cut text");
-    table.check();
-
-    let mut panel = Step::new("extreme values, the panel");
-    let row = window.get_by_label("extreme").rect().center();
-    panel.click(&mut window, row);
-    (0..20).for_each(|_| panel.frame(&mut window));
-    assert!(shows(&window, "and 1,900 more"), "the panel shows the first annotations and the count of the rest");
-    panel.check();
 }

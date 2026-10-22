@@ -13,6 +13,7 @@ use super::{at, log_view, open_logs, rows, show, source};
 use crate::data::{live, pods};
 use crate::fake::{shows, view, window_with_no_gpu};
 use crate::frame_time::{Step, wheel};
+use crate::timing::timed;
 
 const LINES: usize = 200_000;
 const WEB: &str = "web-6888b778b6-75md7";
@@ -52,61 +53,63 @@ fn key(key: Key, modifiers: Modifiers) -> Event {
 
 #[test]
 fn a_frame_with_200_000_lines_stays_in_the_frame_limit_during_scroll_search_filter_wrap_and_copy() {
-    let mut window = window_with_no_gpu(view(vec![live("ams-prod", &pods())]), 2.0);
-    let request = open_logs(&mut window, WEB);
-    let sources = ["web-a", "web-b", "web-c"].map(|pod| source(pod, "web", SourceState::Streaming)).to_vec();
-    show(&mut window, vec![log_view(&request, sources, lines())]);
-    let mut warm = Step::new("logs, the first frames");
-    warm.until(&mut window, "the last line", |window| rows(window).iter().any(|row| row.contains("199999 GET")));
-    (0..20).for_each(|_| warm.frame(&mut window));
+    timed(|pass| {
+        let mut window = window_with_no_gpu(view(vec![live("ams-prod", &pods())]), 2.0);
+        let request = open_logs(&mut window, WEB);
+        let sources = ["web-a", "web-b", "web-c"].map(|pod| source(pod, "web", SourceState::Streaming)).to_vec();
+        show(&mut window, vec![log_view(&request, sources, lines())]);
+        let mut warm = Step::new("logs, the first frames");
+        warm.until(&mut window, "the last line", |window| rows(window).iter().any(|row| row.contains("199999 GET")));
+        (0..20).for_each(|_| warm.frame(&mut window));
 
-    let mut scroll = Step::new("logs, scroll");
-    let pane = super::pane(&window).center();
-    scroll.events(&mut window, [Event::PointerMoved(pane)]);
-    scroll.events(&mut window, (0..300).map(|_| wheel(90.0)));
-    (0..30).for_each(|_| scroll.frame(&mut window));
-    assert!(!rows(&window).iter().any(|row| row.contains("199999 GET")), "the pane did scroll");
-    scroll.check();
+        let mut scroll = Step::new("logs, scroll");
+        let pane = super::pane(&window).center();
+        scroll.events(&mut window, [Event::PointerMoved(pane)]);
+        scroll.events(&mut window, (0..300).map(|_| wheel(90.0)));
+        (0..30).for_each(|_| scroll.frame(&mut window));
+        assert!(!rows(&window).iter().any(|row| row.contains("199999 GET")), "the pane did scroll");
+        scroll.check(pass);
 
-    // The search reads 200,000 lines on its worker thread, one part after the other.
-    let mut search = Step::new("logs, search");
-    let field = window.get_by_label("Search the log").rect().center();
-    search.click(&mut window, field);
-    for character in "error".chars() {
-        search.events(&mut window, [Event::Text(character.to_string())]);
-    }
-    search.until(&mut window, "each hit", |window| shows(window, "160 hits"));
-    let next = window.get_by_label("The next hit").rect().center();
-    search.click(&mut window, next);
-    (0..10).for_each(|_| search.frame(&mut window));
-    search.check();
+        // The search reads 200,000 lines on its worker thread, one part after the other.
+        let mut search = Step::new("logs, search");
+        let field = window.get_by_label("Search the log").rect().center();
+        search.click(&mut window, field);
+        for character in "error".chars() {
+            search.events(&mut window, [Event::Text(character.to_string())]);
+        }
+        search.until(&mut window, "each hit", |window| shows(window, "160 hits"));
+        let next = window.get_by_label("The next hit").rect().center();
+        search.click(&mut window, next);
+        (0..10).for_each(|_| search.frame(&mut window));
+        search.check(pass);
 
-    let mut filter = Step::new("logs, filter");
-    let field = window.get_by_label("Filter the log").rect().center();
-    filter.click(&mut window, field);
-    filter.events(&mut window, [Event::Text("503".to_owned())]);
-    filter.until(&mut window, "the kept lines", |window| {
-        rows(window).iter().all(|row| row.contains("503") || row.contains("started again"))
+        let mut filter = Step::new("logs, filter");
+        let field = window.get_by_label("Filter the log").rect().center();
+        filter.click(&mut window, field);
+        filter.events(&mut window, [Event::Text("503".to_owned())]);
+        filter.until(&mut window, "the kept lines", |window| {
+            rows(window).iter().all(|row| row.contains("503") || row.contains("started again"))
+        });
+        filter.check(pass);
+
+        let mut wrap = Step::new("logs, wrap");
+        let checkbox = window.get_by_label("Wrap").rect().center();
+        wrap.click(&mut window, checkbox);
+        let field = window.get_by_label("Filter the log").rect().center();
+        wrap.click(&mut window, field);
+        wrap.events(&mut window, (0..3).map(|_| key(Key::Backspace, Modifiers::NONE)));
+        wrap.events(&mut window, [Event::PointerMoved(pane)]);
+        wrap.events(&mut window, (0..200).map(|_| wheel(-120.0)));
+        wrap.check(pass);
+
+        // A click on the time of the first row gives the pane the focus; the middle of the pane
+        // can be the button of a long line.
+        let mut copy = Step::new("logs, select all and copy");
+        let time = super::first_row(&window).rect().left_center() + egui::vec2(4.0, 0.0);
+        copy.click(&mut window, time);
+        copy.events(&mut window, [key(Key::A, Modifiers::COMMAND)]);
+        copy.events(&mut window, [Event::Copy]);
+        copy.until(&mut window, "the copy", |window| window.query_by_label_contains("Copied 200,000 lines").is_some());
+        copy.check(pass);
     });
-    filter.check();
-
-    let mut wrap = Step::new("logs, wrap");
-    let checkbox = window.get_by_label("Wrap").rect().center();
-    wrap.click(&mut window, checkbox);
-    let field = window.get_by_label("Filter the log").rect().center();
-    wrap.click(&mut window, field);
-    wrap.events(&mut window, (0..3).map(|_| key(Key::Backspace, Modifiers::NONE)));
-    wrap.events(&mut window, [Event::PointerMoved(pane)]);
-    wrap.events(&mut window, (0..200).map(|_| wheel(-120.0)));
-    wrap.check();
-
-    // A click on the time of the first row gives the pane the focus; the middle of the pane
-    // can be the button of a long line.
-    let mut copy = Step::new("logs, select all and copy");
-    let time = super::first_row(&window).rect().left_center() + egui::vec2(4.0, 0.0);
-    copy.click(&mut window, time);
-    copy.events(&mut window, [key(Key::A, Modifiers::COMMAND)]);
-    copy.events(&mut window, [Event::Copy]);
-    copy.until(&mut window, "the copy", |window| window.query_by_label_contains("Copied 200,000 lines").is_some());
-    copy.check();
 }

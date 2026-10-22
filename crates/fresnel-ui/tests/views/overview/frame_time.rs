@@ -15,6 +15,7 @@ use super::cluster;
 use crate::data::{held, many_pods, store};
 use crate::fake::{Window, view, window_with_no_gpu};
 use crate::frame_time::Step;
+use crate::timing::timed;
 
 const CLUSTERS: [&str; 4] = ["ams-prod", "fra-prod", "nyc-prod", "sgp-prod"];
 
@@ -36,33 +37,35 @@ fn counted(window: &Window, pods: &str) -> bool {
 
 #[test]
 fn a_frame_of_an_overview_of_four_clusters_with_10_000_pods_each_stays_in_the_frame_limit() {
-    let mut all = many_pods(10_000);
-    let mut window = window_with_no_gpu(view(clusters(&all)), 2.0);
-    let mut first = Step::new("overview, the first counts");
-    let entry = window.get_by_role_and_label(Role::RadioButton, "Cluster overview").rect().center();
-    first.click(&mut window, entry);
-    first.until(&mut window, "the counts of each cluster", |window| counted(window, "10,000 pods"));
-    first.check();
+    timed(|pass| {
+        let mut all = many_pods(10_000);
+        let mut window = window_with_no_gpu(view(clusters(&all)), 2.0);
+        let mut first = Step::new("overview, the first counts");
+        let entry = window.get_by_role_and_label(Role::RadioButton, "Cluster overview").rect().center();
+        first.click(&mut window, entry);
+        first.until(&mut window, "the counts of each cluster", |window| counted(window, "10,000 pods"));
+        first.check(pass);
 
-    // A stream of snapshots: 20 pods of each cluster change before each frame.
-    let mut stream = Step::new("overview in a stream of snapshots");
-    for frame in 0..120_usize {
-        for change in 0..20 {
-            let index = (frame * 20 + change) * 7 % all.len();
-            let mut pod = Pod::clone(&all[index]);
-            pod.metadata.resource_version = Some(format!("{frame}"));
-            all[index] = Arc::new(pod);
+        // A stream of snapshots: 20 pods of each cluster change before each frame.
+        let mut stream = Step::new("overview in a stream of snapshots");
+        for frame in 0..120_usize {
+            for change in 0..20 {
+                let index = (frame * 20 + change) * 7 % all.len();
+                let mut pod = Pod::clone(&all[index]);
+                pod.metadata.resource_version = Some(format!("{frame}"));
+                all[index] = Arc::new(pod);
+            }
+            window.state_mut().view = view(clusters(&all));
+            stream.frame(&mut window);
         }
-        window.state_mut().view = view(clusters(&all));
-        stream.frame(&mut window);
-    }
-    stream.until(&mut window, "the counts of the last snapshot", |window| counted(window, "10,000 pods"));
-    stream.check();
+        stream.until(&mut window, "the counts of the last snapshot", |window| counted(window, "10,000 pods"));
+        stream.check(pass);
 
-    let mut workloads = Step::new("overview of the workloads");
-    let entry = window.get_by_role_and_label(Role::RadioButton, "Workloads overview").rect().center();
-    workloads.click(&mut window, entry);
-    let total = |window: &Window| window.query_all_by_label_contains(": 10,000 objects").count() == CLUSTERS.len();
-    workloads.until(&mut window, "the pods of each cluster", total);
-    workloads.check();
+        let mut workloads = Step::new("overview of the workloads");
+        let entry = window.get_by_role_and_label(Role::RadioButton, "Workloads overview").rect().center();
+        workloads.click(&mut window, entry);
+        let total = |window: &Window| window.query_all_by_label_contains(": 10,000 objects").count() == CLUSTERS.len();
+        workloads.until(&mut window, "the pods of each cluster", total);
+        workloads.check(pass);
+    });
 }

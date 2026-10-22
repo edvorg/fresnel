@@ -10,6 +10,7 @@ use super::{rows, terminal, title, with_terminals};
 use crate::data::{live, pods};
 use crate::fake::{grow_dock, open_tab, view, window_with_no_gpu};
 use crate::frame_time::Step;
+use crate::timing::timed;
 
 /// The output of a busy log: a time, a level in its color and a request. Ends with `last`.
 fn log_output(bytes: usize, last: &str) -> Vec<u8> {
@@ -49,44 +50,46 @@ fn full_screen(frame: usize, size: GridSize) -> Vec<u8> {
 
 #[test]
 fn a_frame_of_a_terminal_stays_in_the_frame_limit_with_10_mb_of_output_and_with_a_full_redraw() {
-    let web = terminal(1, "web-1");
-    let view = with_terminals(view(vec![live("ams-prod", &pods())]), std::slice::from_ref(&web));
-    let mut window = window_with_no_gpu(view, 2.0);
-    window.set_size(egui::vec2(1900.0, 1400.0));
-    window.run();
-    open_tab(&mut window, &title(&web));
-    grow_dock(&mut window, 700.0);
-    let size = web.terminal.size();
-    assert!(size.columns >= 200 && size.rows >= 60, "{size:?}");
-    let mut warm = Step::new("the first frames of a terminal");
-    (0..20).for_each(|_| warm.frame(&mut window));
+    timed(|pass| {
+        let web = terminal(1, "web-1");
+        let view = with_terminals(view(vec![live("ams-prod", &pods())]), std::slice::from_ref(&web));
+        let mut window = window_with_no_gpu(view, 2.0);
+        window.set_size(egui::vec2(1900.0, 1400.0));
+        window.run();
+        open_tab(&mut window, &title(&web));
+        grow_dock(&mut window, 700.0);
+        let size = web.terminal.size();
+        assert!(size.columns >= 200 && size.rows >= 60, "{size:?}");
+        let mut warm = Step::new("the first frames of a terminal");
+        (0..20).for_each(|_| warm.frame(&mut window));
 
-    // A second thread feeds the output in pieces, as a session does; the frames go on.
-    let output = log_output(10 * 1024 * 1024, "the last line of the flood\r\n");
-    let fed = AtomicBool::new(false);
-    let mut flood = Step::new("a terminal with 10 MB of output");
-    std::thread::scope(|scope| {
-        scope.spawn(|| {
-            for piece in output.chunks(16 * 1024) {
-                web.terminal.feed(piece);
+        // A second thread feeds the output in pieces, as a session does; the frames go on.
+        let output = log_output(10 * 1024 * 1024, "the last line of the flood\r\n");
+        let fed = AtomicBool::new(false);
+        let mut flood = Step::new("a terminal with 10 MB of output");
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                for piece in output.chunks(16 * 1024) {
+                    web.terminal.feed(piece);
+                }
+                fed.store(true, Ordering::Release);
+            });
+            while !fed.load(Ordering::Acquire) {
+                flood.frame(&mut window);
             }
-            fed.store(true, Ordering::Release);
         });
-        while !fed.load(Ordering::Acquire) {
-            flood.frame(&mut window);
-        }
-    });
-    flood.frame(&mut window);
-    flood.check();
-    let shown = rows(&window);
-    assert!(shown.iter().any(|row| row == "the last line of the flood"), "{:?}", shown.last());
+        flood.frame(&mut window);
+        flood.check(pass);
+        let shown = rows(&window);
+        assert!(shown.iter().any(|row| row == "the last line of the flood"), "{:?}", shown.last());
 
-    let mut redraw = Step::new("a full redraw of a terminal");
-    for frame in 0..120 {
-        web.terminal.feed(&full_screen(frame, size));
-        redraw.frame(&mut window);
-    }
-    redraw.check();
-    let first = char::from(b'!' + (119 % 90) as u8);
-    assert!(rows(&window).first().is_some_and(|row| row.starts_with(first)), "the last screen");
+        let mut redraw = Step::new("a full redraw of a terminal");
+        for frame in 0..120 {
+            web.terminal.feed(&full_screen(frame, size));
+            redraw.frame(&mut window);
+        }
+        redraw.check(pass);
+        let first = char::from(b'!' + (119 % 90) as u8);
+        assert!(rows(&window).first().is_some_and(|row| row.starts_with(first)), "the last screen");
+    });
 }

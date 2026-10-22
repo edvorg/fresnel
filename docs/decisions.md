@@ -982,6 +982,13 @@ build, one at a time. The limits 16 ms and 50 ms hold on the Mac on which they w
 shared runner is slower and less steady, so each runner has limits of about twice its longest
 time. A frame time that grows with the size of an object is a defect, not a slow runner.
 
+## A time test runs its scene again before it fails
+
+A shared runner stops a test now and then. Single frames of 53 to 82 ms failed the macOS job of
+master three times, in steps whose median frame took 2 to 6 ms. So a step over its limit runs
+its scene again, and fails only when it is over its limit in that pass too. Slow code is slow in
+each pass. A percentile would hide a single long frame of the code.
+
 ## The dock is a panel until the user can move a tab
 
 Milestone M1 has two tabs below the center. A panel of egui with a tab bar draws them, and
