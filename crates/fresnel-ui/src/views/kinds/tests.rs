@@ -213,7 +213,21 @@ fn a_quiet_warning_has_its_time_and_its_reason_in_the_now_cell() {
     let at: SystemTime = "2026-10-13T18:00:00Z".parse::<k8s_openapi::jiff::Timestamp>().expect("a time").into();
     let events = snapshot(&events, StoreState::Live);
     let index = bed.held(Index::<ObjectEvents>::of_snapshot(&events, IndexState::Following));
-    let witness = Witness::new([Source::full(bed.held(snapshot(&pods, StoreState::Live)))], at)
+    // The kubelet reports only while its node is ready: the node is ready since before the
+    // report.
+    let nodes: Vec<Arc<Node>> = fixture::<Node>()
+        .iter()
+        .map(|node| {
+            changed(&**node, |node| {
+                let conditions = node["status"]["conditions"].as_array_mut().expect("conditions");
+                for condition in conditions.iter_mut().filter(|condition| condition["type"] == "Ready") {
+                    condition["lastTransitionTime"] = "2026-10-13T17:00:00Z".into();
+                }
+            })
+        })
+        .collect();
+    let nodes = Source::full(bed.held(snapshot(&nodes, StoreState::Live)));
+    let witness = Witness::new([Source::full(bed.held(snapshot(&pods, StoreState::Live))), nodes], at)
         .with_reports(index, &events.status(Kind::Event));
     let ams = ClusterId::new("ams");
     let data = Stores {

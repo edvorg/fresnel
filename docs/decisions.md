@@ -2308,3 +2308,10 @@ its own, muted, between "unknown" and "resolved", and "none ongoing" does not co
 end. The warnings of a pod share the turns of the recorder, and on k3s one waited 15 min while
 its probe failed: a newer warning of the object, an index that is not current or a store that
 dropped Events keeps it unknown.
+
+## The silence of a kubelet counts only while its node is ready
+
+A kubelet that is down, or that cannot reach the API server, sends no report while its problem
+goes on, and its node turns not ready. So a warning about a pod or a node is quiet only while
+that node is ready, and its 16 min count from the later of the last report and the start of
+that readiness.

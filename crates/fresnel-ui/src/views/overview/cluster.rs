@@ -44,7 +44,8 @@ fn warnings_hint() -> String {
     format!(
         "A time is the last report of an Event, which the cluster keeps about 1 hour. Ongoing or resolved is \
          what the live object proves now, unknown that it proves neither. Quiet: it proves neither, but the \
-         kubelet repeats a problem that goes on at least each {pace} min and sent no report for {quiet} min."
+         kubelet repeats a problem that goes on at least each {pace} min and sent no report for {quiet} min \
+         while its node was ready."
     )
 }
 

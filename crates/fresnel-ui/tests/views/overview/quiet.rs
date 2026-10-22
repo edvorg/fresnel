@@ -9,13 +9,14 @@ use egui::accesskit::Role;
 use egui_kittest::kittest::Queryable as _;
 use fresnel_core::app::ClusterRow;
 use fresnel_core::index::IndexState;
+use fresnel_core::kinds::Kind;
 use fresnel_core::store::StoreState;
-use k8s_openapi::api::core::v1::Event;
+use k8s_openapi::api::core::v1::{Event, Node};
 use serde_json::json;
 
 use super::warnings::{of, ready_again};
-use super::{cluster, open, with};
-use crate::data::{changed, changed_object, event_index, held, pod, pods, store};
+use super::{always, cluster, open, with};
+use crate::data::{changed, changed_object, event_index, held, pod, pods, scene, store};
 use crate::fake::{Window, shows, until, view, window};
 use crate::kinds::in_panel;
 use crate::snapshots::ink;
@@ -40,10 +41,27 @@ fn liveness(first: &str, last: &str) -> Arc<Event> {
 }
 
 /// A cluster with these warnings in its store of the Events and in its Event index, whose
-/// pod not-ready is ready again and whose coredns runs since 07:00:00.
+/// pod not-ready is ready again and whose coredns runs since 07:00:00. Its node is ready
+/// since 06:00:00: its kubelet could report the whole time.
 fn with_warnings(warnings: &[Arc<Event>]) -> ClusterRow {
     let row = cluster("ams-prod", 1, "v1.33.5+k3s1");
     let mut data = row.data.clone().expect("data");
+    let nodes: Vec<Arc<Node>> = scene::<Node>()
+        .iter()
+        .map(|node| {
+            changed_object(&**node, |node| {
+                let conditions = node["status"]["conditions"].as_array_mut().expect("conditions");
+                for condition in conditions.iter_mut().filter(|condition| condition["type"] == "Ready") {
+                    condition["lastTransitionTime"] = "2027-01-15T06:00:00Z".into();
+                }
+            })
+        })
+        .collect();
+    let sources = data.sources.iter().map(|source| match source.status.kind {
+        Kind::Node => always(&nodes),
+        _ => source.clone(),
+    });
+    data.sources = sources.collect();
     let coredns = changed(&pod(COREDNS), |pod| {
         pod["status"]["containerStatuses"][0]["state"] = json!({"running": {"startedAt": "2027-01-15T07:00:00Z"}});
     });

@@ -14,15 +14,23 @@
 //! report of an other warning of the object keeps the state unknown. A report that the app
 //! did not see proves nothing either: the evidence needs a current Event index and a store
 //! of the Events that dropped none.
+//!
+//! A kubelet that is down, or that cannot reach the API server, sends no report while the
+//! problem goes on, and its node turns not ready. So the silence counts only while the node
+//! of the object is ready.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use k8s_openapi::api::core::v1::Event;
+use k8s_openapi::api::core::v1::{Event, Node, Pod};
 use k8s_openapi::jiff::Timestamp;
 
+use super::rules::READY;
 use super::{ProblemNow, ProblemState, Subject, Witness};
 use crate::index::{Basis, last_seen};
+use crate::kinds::Kind;
+use crate::kinds::health::{Condition, condition};
+use crate::store::ObjectKey;
 
 /// The time in which the recorder of the kubelet lets one more warning of an object through
 /// after its first 25: 300 s on k3s, from the first report on.
@@ -41,12 +49,16 @@ pub const QUIET_AFTER: Duration = Duration::from_secs(2 * REPORT_PACE.as_secs())
 const KUBELET: &str = "kubelet";
 
 /// "Quiet" for an undecided state of a warning of the kubelet with no report of its object
-/// since `QUIET_AFTER`; else the state of the rule.
+/// since `QUIET_AFTER`, while its node was ready; else the state of the rule.
 pub(super) fn judge(now: ProblemNow, event: &Event, subject: &Subject<'_>, witness: &Witness) -> ProblemNow {
     let Some(last) = subject.last.filter(|_| now.undecided && of_kubelet(event)) else {
         return now;
     };
-    let silent = witness.at.duration_since(SystemTime::from(last)).is_ok_and(|silent| silent >= QUIET_AFTER);
+    let Some(ready) = ready_since(witness, subject) else {
+        return now;
+    };
+    let from = SystemTime::from(last.max(ready));
+    let silent = witness.at.duration_since(from).is_ok_and(|silent| silent >= QUIET_AFTER);
     if !silent || !alone(witness, subject, last) {
         return now;
     }
@@ -54,6 +66,23 @@ pub(super) fn judge(now: ProblemNow, event: &Event, subject: &Subject<'_>, witne
     let pace = REPORT_PACE.as_secs() / 60;
     let why = format!("{}; the kubelet repeats a problem that goes on at least each {pace} min", now.why);
     ProblemNow::of(ProblemState::Quiet(last), why)
+}
+
+/// The time since which the node whose kubelet reports about the object is ready: the node
+/// of a pod, or the node itself. `None` when that node is not ready, is not in its live
+/// store or gives no time: its kubelet may report nothing.
+fn ready_since(witness: &Witness, subject: &Subject<'_>) -> Option<Timestamp> {
+    let node = match subject.kind {
+        Kind::Pod => {
+            let pod = witness.find::<Pod>(&subject.key, subject.uid).ok()?;
+            let name = pod.spec.as_ref()?.node_name.as_deref()?;
+            witness.find::<Node>(&ObjectKey::new("", name), None).ok()?
+        }
+        Kind::Node => witness.find::<Node>(&subject.key, subject.uid).ok()?,
+        _ => return None,
+    };
+    let conditions = node.status.as_ref()?.conditions.as_ref();
+    condition(conditions, READY.name).filter(|ready| ready.status() == "True")?.since()
 }
 
 /// True for an Event of the kubelet. The recorder of the kubelet writes the source, and a

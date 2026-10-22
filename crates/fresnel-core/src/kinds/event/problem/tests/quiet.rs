@@ -52,6 +52,24 @@ impl Bed {
         let (index, store) = self.reports(events, StoreState::Live, 0);
         Witness { at: time, ..witness }.with_reports(index, &store)
     }
+
+    /// The witness with the node of the scene in this state of its condition Ready since this
+    /// time, or with no node.
+    fn on_node(&self, witness: &Witness, ready: Option<(&str, &str)>) -> Witness {
+        let nodes: Vec<Node> = ready
+            .into_iter()
+            .map(|(status, since)| {
+                fixture::changed::<Node>(NODE, |node| {
+                    let ready = condition(node, "Ready");
+                    (ready["status"], ready["lastTransitionTime"]) = (status.into(), since.into());
+                })
+            })
+            .collect();
+        let mut witness = witness.clone();
+        let place = witness.sources.iter().position(|source| source.status.kind == Kind::Node).expect("a store");
+        witness.sources[place] = self.live(&nodes);
+        witness
+    }
 }
 
 /// The user saw "unknown" 35 minutes after the last report of a liveness probe that failed
@@ -205,4 +223,33 @@ fn a_sandbox_a_mount_and_a_shortage_of_the_node_are_quiet_too() {
     let (index, store) = bed.reports(std::slice::from_ref(&shortage), StoreState::Live, 0);
     let calm = Witness { at: late, ..calm }.with_reports(index, &store);
     assert_eq!(judged(&calm, &shortage).0, Quiet(at(LAST).expect("a time")), "the kubelet names its node");
+}
+
+/// A kubelet that is down, or that cannot reach the API server, reports nothing while the
+/// problem goes on, and its node turns not ready: its silence is no evidence, and it counts
+/// again only from the time the node is ready again.
+#[test]
+fn the_silence_counts_only_while_the_node_of_the_kubelet_is_ready() {
+    let bed = Bed::new();
+    let late = since_last(Duration::from_secs(3600));
+    let event = liveness();
+    let probed = bed.probed(Some(10), std::slice::from_ref(&event), late);
+    assert_eq!(judged(&probed, &event).0, Quiet(at(LAST).expect("a time")), "a node ready since 17:58:08");
+    for status in ["Unknown", "False"] {
+        let down = bed.on_node(&probed, Some((status, EARLY)));
+        assert_eq!(judged(&down, &event), state(Unknown, RUNS), "a node with Ready {status}");
+    }
+    assert_eq!(judged(&bed.on_node(&probed, None), &event), state(Unknown, RUNS), "a node that is not in its store");
+    // Ready again 16 min before the moment, and 1 s later.
+    let again = bed.on_node(&probed, Some(("True", "2026-10-13T18:42:50Z")));
+    assert_eq!(judged(&again, &event).0, Quiet(at(LAST).expect("a time")));
+    let late_again = bed.on_node(&probed, Some(("True", "2026-10-13T18:42:51Z")));
+    assert_eq!(judged(&late_again, &event), state(Unknown, RUNS), "the kubelet can wait for its turn");
+
+    // The kubelet names its node in a warning about the node.
+    let shortage = of_kubelet::<Node>(NODE, "EvictionThresholdMet", LAST, None, "Attempting to reclaim memory");
+    let (index, store) = bed.reports(std::slice::from_ref(&shortage), StoreState::Live, 0);
+    let scene = Witness { at: late, ..bed.scene(&fixture::all(), &fixture::all()) }.with_reports(index, &store);
+    let down = bed.on_node(&scene, Some(("Unknown", EARLY)));
+    assert_eq!(judged(&down, &shortage).0, Unknown, "the node of the kubelet is not ready");
 }

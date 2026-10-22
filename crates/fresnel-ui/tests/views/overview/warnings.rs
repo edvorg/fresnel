@@ -86,7 +86,8 @@ fn each_warning_shows_the_state_of_its_problem_now_and_the_ongoing_ones_come_fir
 
     let hint = "A time is the last report of an Event, which the cluster keeps about 1 hour. Ongoing or resolved is \
                 what the live object proves now, unknown that it proves neither. Quiet: it proves neither, but the \
-                kubelet repeats a problem that goes on at least each 8 min and sent no report for 16 min.";
+                kubelet repeats a problem that goes on at least each 8 min and sent no report for 16 min while its \
+                node was ready.";
     hover(&mut window, Role::Label, "deleted");
     assert!(shows(&window, "Deleted: the Pod is not in its store.") && !shows(&window, hint));
     hover(&mut window, Role::Label, "resolved 07:59");
