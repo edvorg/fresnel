@@ -3,7 +3,9 @@
 //! module turns it into the position of the column in the model. Only `table.rs` names
 //! that crate: it gives each call of it to the functions of this module.
 
-use egui::{Modifiers, Rect, Ui};
+use std::collections::HashMap;
+
+use egui::{Id, Modifiers, Rect, Ui};
 
 use super::cells;
 use super::edges::Seen;
@@ -14,6 +16,11 @@ use crate::theme::Palette;
 pub(super) struct Delegate<'a, M: Model> {
     pub(super) model: &'a M,
     pub(super) rows: &'a [M::Row],
+    /// The identity of the table in egui.
+    pub(super) table_id: Id,
+    /// The widgets of each object in this frame. `egui_table` draws a row in the part that
+    /// scrolls to the side and then in the fixed first column, in that sequence in each frame.
+    pub(super) drawn: HashMap<&'a ObjectId, u8>,
     /// The part of the place of the table that shows: no part above it paints or takes a press.
     pub(super) shown: Rect,
     pub(super) scene: &'a M::Scene,
@@ -42,10 +49,10 @@ pub(super) struct Delegate<'a, M: Model> {
     pub(super) row_height: f32,
 }
 
-impl<M: Model> Delegate<'_, M> {
+impl<'a, M: Model> Delegate<'a, M> {
     /// The row with this number. New data can arrive between two frames, so no number
     /// of `egui_table` is an index with no check.
-    fn row(&self, number: u64) -> Option<(usize, &M::Row)> {
+    fn row(&self, number: u64) -> Option<(usize, &'a M::Row)> {
         let index = usize::try_from(number).ok()?;
         Some((index, self.rows.get(index)?))
     }
@@ -94,19 +101,27 @@ impl<M: Model> Delegate<'_, M> {
     }
 
     /// The background of a row, its click and its menu.
+    ///
+    /// The widget of a row has the identity of its object, not the number of its row: egui
+    /// gives a press, its click and an open menu to that identity. With the number, rows that
+    /// the worker sorted or changed between a press and its release gave the click, or the
+    /// action of an open menu, to the object that came to that row.
     pub(super) fn row_background(&mut self, ui: &mut Ui, row_nr: u64) {
         let Some((index, row)) = self.row(row_nr) else {
             return;
         };
         ui.shrink_clip_rect(self.shown);
-        let id = self.model.id(row).clone();
-        let (selected, is_cursor) = (self.selection.contains(&id), self.selection.cursor() == Some(&id));
+        let id = self.model.id(row);
+        let part = self.drawn.entry(id).or_default();
+        let widget = self.table_id.with(("row", id, *part));
+        *part = part.saturating_add(1);
+        let (selected, is_cursor) = (self.selection.contains(id), self.selection.cursor() == Some(id));
         self.seen.row(ui);
-        let response = cells::row(ui, self.palette, selected, is_cursor);
+        let response = cells::row(ui, widget, self.palette, selected, is_cursor);
         if response.clicked() {
             self.row_clicked = Some((index, ui.input(|input| input.modifiers)));
         }
-        response.context_menu(|ui| (self.menu)(ui, &id));
+        response.context_menu(|ui| (self.menu)(ui, id));
     }
 
     /// The cell of a row at this position of the screen.

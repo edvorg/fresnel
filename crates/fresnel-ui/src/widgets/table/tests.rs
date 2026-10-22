@@ -4,7 +4,9 @@
 //!
 //! - `races`: a slow worker and a worker that fails (plan section 13).
 //! - `input`: the sort, the clicks and the keys.
+//! - `identity`: a press and a menu keep their object when the rows change before the release.
 
+mod identity;
 mod input;
 mod races;
 
@@ -39,6 +41,9 @@ struct Control {
 struct Numbers(Arc<Control>);
 
 const COLUMNS: [Column; 2] = [Column::new("Object", 200.0), Column::new("Value", 80.0).numeric()];
+
+/// The one entry of the menu of a row.
+const ENTRY: &str = "Act on the object";
 
 impl Model for Numbers {
     type Data = Data;
@@ -97,6 +102,8 @@ struct View {
     /// What the user did to the cursor after the test set this to `None`. An input of
     /// the test is some events, and each event has a frame of its own.
     acted: Option<Act>,
+    /// The object of the last click on the entry of the menu of a row.
+    chosen: Option<ObjectId>,
 }
 
 struct Bed {
@@ -122,11 +129,19 @@ impl Bed {
             if wake.send(()).is_err() {}
         });
         let table = Table::new(&tasks.tasks, wake, "Numbers", Numbers(Arc::clone(&control)));
-        let view = View { table, data: Arc::new(objects.to_vec()), serial: 1, filter: i64::MIN, acted: None };
+        let data = Arc::new(objects.to_vec());
+        let view = View { table, data, serial: 1, filter: i64::MIN, acted: None, chosen: None };
         let frame = |ui: &mut egui::Ui, view: &mut View| {
             view.table.request(&view.filter, view.serial, || Arc::clone(&view.data));
-            let acted = view.table.show(ui, &(), || "no row passes the filter".to_owned(), &mut |_, _| {});
+            let mut chosen = None;
+            let mut menu = |ui: &mut egui::Ui, id: &ObjectId| {
+                if ui.button(ENTRY).clicked() {
+                    chosen = Some(id.clone());
+                }
+            };
+            let acted = view.table.show(ui, &(), || "no row passes the filter".to_owned(), &mut menu);
             view.acted = acted.or(view.acted);
+            view.chosen = chosen.or(view.chosen.take());
         };
         let mut window = Harness::builder().with_size([600.0, 400.0]).build_ui_state(frame, view);
         window.step();

@@ -77,10 +77,10 @@ pub(super) fn note(ui: &mut Ui, palette: &Palette, text: &str) {
     ui.centered_and_justified(|ui| ui.label(RichText::new(text).color(palette.text_muted)));
 }
 
-/// Paints the background of a row and gives its click.
-pub(super) fn row(ui: &mut Ui, palette: &Palette, selected: bool, is_cursor: bool) -> Response {
+/// Paints the background of a row and gives its click. `id` is the identity of its widget.
+pub(super) fn row(ui: &mut Ui, id: egui::Id, palette: &Palette, selected: bool, is_cursor: bool) -> Response {
     let rect = ui.max_rect();
-    let response = ui.interact(rect, ui.id().with("row"), Sense::click());
+    let response = ui.interact(rect, id, Sense::click());
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, 0.0, palette.accent_bg);

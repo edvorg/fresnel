@@ -1003,6 +1003,13 @@ an earlier frame. A note above a table comes or goes away with its store: the ro
 click opened the row above or below the aimed one. So while the pointer is over the table or a
 press on it lasts, the table keeps its top. A new note covers the top of the table.
 
+## A row takes a press with the identity of its object
+
+`egui_table` numbers the rows on the screen, and egui gives a press, its click and an open menu
+to the identity of a widget. With the row number as that identity, rows that the worker sorted
+between a press and its release gave the click, or the action of an open menu, to the object
+that came to the row. The widget of a row now has the identity of its object.
+
 ## The dock is a panel until the user can move a tab
 
 Milestone M1 has two tabs below the center. A panel of egui with a tab bar draws them, and

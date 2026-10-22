@@ -28,6 +28,7 @@ mod steady;
 mod supply;
 mod widths;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -268,6 +269,8 @@ impl<M: Model> Table<M> {
         let mut delegate = Delegate {
             model,
             rows,
+            table_id,
+            drawn: HashMap::new(),
             shown,
             scene,
             palette,
