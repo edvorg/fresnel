@@ -63,7 +63,8 @@ fn an_undecided_warning_of_the_kubelet_is_quiet_after_twice_its_pace_with_no_rep
     let before = bed.probed(Some(10), std::slice::from_ref(&event), since_last(QUIET_AFTER - Duration::from_secs(1)));
     assert_eq!(judged(&before, &event), state(Unknown, RUNS), "the first minutes");
     let quiet = bed.probed(Some(10), std::slice::from_ref(&event), since_last(QUIET_AFTER));
-    let why = format!("the kubelet reports a problem that goes on again at least each 8 min, and {RUNS}");
+    // The fact of the object first: a row cuts the end of a long reason.
+    let why = format!("{RUNS}; the kubelet repeats a problem that goes on at least each 8 min");
     assert_eq!(judged(&quiet, &event), (Quiet(at(LAST).expect("a time")), why));
     assert_eq!((REPORT_PACE, QUIET_AFTER), (Duration::from_secs(480), Duration::from_secs(960)));
     let default_period = bed.probed(None, std::slice::from_ref(&event), since_last(QUIET_AFTER));
@@ -193,7 +194,8 @@ fn a_sandbox_a_mount_and_a_shortage_of_the_node_are_quiet_too() {
         let (index, store) = bed.reports(std::slice::from_ref(&event), StoreState::Live, 0);
         let (state, why) = judged(&scene().with_reports(index, &store), &event);
         assert_eq!(state, Quiet(at(LAST).expect("a time")), "{reason}");
-        assert!(why.ends_with("since before the last report"), "{why}");
+        let fact = why.split_once("; ").map(|(fact, _)| fact).unwrap_or_default();
+        assert!(fact.ends_with("since before the last report"), "{why}");
     }
     let shortage = of_kubelet::<Node>(NODE, "EvictionThresholdMet", LAST, None, "Attempting to reclaim memory");
     let calm = bed.with::<Node>(NODE, |node| {

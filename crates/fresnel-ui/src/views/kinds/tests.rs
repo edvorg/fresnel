@@ -231,8 +231,8 @@ fn a_quiet_warning_has_its_time_and_its_reason_in_the_now_cell() {
     let mark = ClusterMark { color: DARK.clusters[0], old: None, problems: Problems::default() };
     let scene = RowScene { palette: &DARK, clock: Clock::fixed(at), marks: HashMap::from([(ams, mark)]) };
     let cell = model.cell(quiet, now, &scene);
-    let text = "quiet 35 min: the kubelet reports a problem that goes on again at least each 8 min, and the \
-                container coredns runs since before the last report";
+    let text = "quiet 35 min: the container coredns runs since before the last report; the kubelet repeats a \
+                problem that goes on at least each 8 min";
     assert_eq!((&*cell.text, cell.tone), (text, Tone::Muted));
     let (unknown, resolved) = (row("fails.18de2891a64a7373"), row("crash.18de288e97918207"));
     assert_eq!(model.compare(unknown, quiet, now), Ordering::Less, "an unknown one can still be a problem");

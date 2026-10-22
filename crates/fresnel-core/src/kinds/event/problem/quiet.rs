@@ -50,8 +50,9 @@ pub(super) fn judge(now: ProblemNow, event: &Event, subject: &Subject<'_>, witne
     if !silent || !alone(witness, subject, last) {
         return now;
     }
+    // The fact of the object first: a row cuts the end of a long reason.
     let pace = REPORT_PACE.as_secs() / 60;
-    let why = format!("the kubelet reports a problem that goes on again at least each {pace} min, and {}", now.why);
+    let why = format!("{}; the kubelet repeats a problem that goes on at least each {pace} min", now.why);
     ProblemNow::of(ProblemState::Quiet(last), why)
 }
 

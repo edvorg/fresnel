@@ -24,8 +24,8 @@ use crate::workloads::scene::hover;
 /// The pod of coredns of the scene. Its container runs since 07:00:00 in these tests.
 const COREDNS: &str = "coredns-64fd4b4794-6lsjp";
 /// The reason of the quiet state of its failed liveness probe.
-const QUIET: &str = "the kubelet reports a problem that goes on again at least each 8 min, and the container \
-                     coredns runs since before the last report";
+const QUIET: &str = "the container coredns runs since before the last report; the kubelet repeats a problem that goes on at least \
+     each 8 min";
 
 /// A failed liveness probe of coredns, 4 times in a row up to `last`: fewer than its
 /// threshold of 5, so the kubelet did not restart the container.
