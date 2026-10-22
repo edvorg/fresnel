@@ -4,7 +4,7 @@
 //!
 //! The core reads a fake API server through a fault proxy, whose pod sends each byte of each
 //! port back. The test draws the frames with [`fresnel::frame::draw`] and uses real time.
-//! The click of a row comes from `common/click.rs`, whose test on a made-up window is here.
+//! The click of a row comes from `common/click.rs`, whose tests on a made-up window are here.
 
 #![allow(clippy::expect_used, reason = "a test stops with a panic")]
 
@@ -26,7 +26,7 @@ use egui_kittest::kittest::Queryable as _;
 use fresnel_testkit::{FakeApiServer, FaultProxy, Home, ProxyMode};
 use tokio::runtime::{Builder, Runtime};
 
-use click::{click_until, press_in_place};
+use click::{click_until, click_within, press_in_place};
 use window::{Window, core, shows, stop_with_no_ended_task, until, window};
 
 const PODS: &str = "/api/v1/pods";
@@ -150,49 +150,72 @@ fn a_local_port_in_use_shows_the_state_failed_with_its_reason() {
     stop_with_no_ended_task(window);
 }
 
-/// A made-up window: a note above a row while `note` is true, the count of the clicks of the
-/// row, and the count of the clicks that missed it.
+/// A made-up window: a row below a note that goes away in the first frame with the pointer,
+/// as the note of a store whose watch opens in the frame of the move of a click. The row
+/// opens its panel at its click with the number `opens_at`. It counts its clicks and the
+/// clicks that missed it.
 #[derive(Default)]
 struct Moving {
-    note: bool,
+    opens_at: u32,
+    pointer: bool,
     clicks: u32,
     missed: u32,
 }
 
-fn moving() -> Harness<'static, Moving> {
+fn moving(opens_at: u32) -> Harness<'static, Moving> {
     let frame = |ui: &mut egui::Ui, state: &mut Moving| {
-        if state.note {
-            ui.label("Pods: waits for a stream. Its rows are old since 10:15:03.");
+        state.pointer |= ui.input(|input| input.pointer.hover_pos().is_some());
+        if !state.pointer {
+            ui.label("Pods: waits for the start of its watch. Its rows are old since 10:15:03.");
         }
         let row = ui.add(egui::Label::new("web").sense(egui::Sense::click()));
         state.clicks += u32::from(row.clicked());
         state.missed += u32::from(ui.input(|input| input.pointer.primary_clicked()) && !row.clicked());
+        if state.clicks >= state.opens_at {
+            ui.label("the panel of web");
+        }
     };
-    let mut window = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(frame, Moving::default());
-    window.state_mut().note = true;
+    let state = Moving { opens_at, ..Moving::default() };
+    let mut window = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(frame, state);
     window.run();
     window
 }
 
+fn panel(window: &Harness<'_, Moving>) -> bool {
+    window.query_by_label("the panel of web").is_some()
+}
+
+fn counts(window: &Harness<'_, Moving>) -> String {
+    format!("{} clicks, {} missed", window.state().clicks, window.state().missed)
+}
+
 /// The cause of a failure of `open_dialog` on Windows, and the click of `click_until`: the
-/// note above the row goes away in the frame after the one that the test read, as the note
-/// of a store whose watch opens. A press at the place of the frame before misses the row,
-/// and `press_in_place` presses only where the frame of its move has the row.
+/// note above the row goes away in the frame of the move, after the frame that the test read.
+/// A press at the place of the frame before misses the row. `click_within` presses only
+/// where the frame of its move has the row, and moves again to the new place.
 #[test]
 fn a_click_presses_only_where_the_frame_of_its_move_has_the_row() {
-    let row = |window: &Harness<'_, Moving>| window.query_by_label("web").map(|node| node.rect());
-    let mut window = moving();
-    window.state_mut().note = false;
+    let mut window = moving(1);
     window.get_by_label("web").click();
     window.run();
-    assert_eq!((window.state().clicks, window.state().missed), (0, 1), "the click at the old place");
+    assert_eq!(counts(&window), "0 clicks, 1 missed", "the click at the place of the frame before");
 
-    let mut window = moving();
-    window.state_mut().note = false;
+    let row = |window: &Harness<'_, Moving>| window.query_by_label("web").map(|node| node.rect());
+    let mut window = moving(1);
     let old = row(&window).expect("the row").center();
     assert!(!press_in_place(&mut window, old, row), "no press where the row was");
-    let new = row(&window).expect("the row").center();
-    assert!(new.y < old.y && press_in_place(&mut window, new, row), "a press where the row is now");
-    window.run();
-    assert_eq!((window.state().clicks, window.state().missed), (1, 0));
+    assert!(row(&window).expect("the row").center().y < old.y, "the row moved up");
+
+    let mut window = moving(1);
+    click_within(&mut window, (Role::Label, "web"), Duration::from_secs(10), panel, counts);
+    assert_eq!(counts(&window), "1 clicks, 0 missed", "one press, at the new place");
+}
+
+/// A row that opens nothing at a press on it loses a click, for a person too. The click
+/// fails and does not press again: a second press would hide the lost click.
+#[test]
+#[should_panic(expected = "in time: what a click of web opens, after a press on it: 1 clicks, 0 missed")]
+fn a_press_on_a_row_that_opens_nothing_fails_the_click_with_no_second_press() {
+    let mut window = moving(2);
+    click_within(&mut window, (Role::Label, "web"), Duration::from_secs(1), panel, counts);
 }

@@ -157,7 +157,6 @@ fn the_overviews_show_the_version_counts_usage_and_warnings_of_each_cluster_from
     let failed = format!("Deployments of {BARE}: 1 failed");
     let link_of = |window: &Window| link(window, &failed);
     until(window, "the failed rollout of broken", link_of);
-    click(window, Role::Link, &failed);
     // The broken Deployment of each cluster, of all Deployments of the two clusters.
     let rows = |window: &Window| {
         window
@@ -165,6 +164,6 @@ fn the_overviews_show_the_version_counts_usage_and_warnings_of_each_cluster_from
             .filter_map(|node| node.accesskit_node().value())
             .any(|text| text.starts_with("2 of ") && text.ends_with(" Deployments"))
     };
-    until(window, "the Deployments with problems", |window| rows(window) && shows(window, "broken"));
+    click_until(window, Role::Link, &failed, |window| rows(window) && shows(window, "broken"));
     stop_with_no_ended_task(window);
 }

@@ -989,13 +989,12 @@ master three times, in steps whose median frame took 2 to 6 ms. So a step over i
 its scene again, and fails only when it is over its limit in that pass too. Slow code is slow in
 each pass. A percentile would hide a single long frame of the code.
 
-## A window test presses where the frame of the move has the node
+## A window test presses one time where the frame of the move has the node
 
 kittest gives each event of a click a frame of its own, and egui gives the press to the widget
-that the frame of the move had under the pointer. A note above a table that goes away in that
-frame moves the rows, and the press misses: a test on Windows opened no panel. So `click_until`
-presses only when the frame of its move has the node at the pointer, and clicks again until
-the window shows the result.
+that the frame of the move had under the pointer. A note above a table that went away in that
+frame moved the rows, and a press of a test on Windows missed. So `click_until` moves until that
+frame has the node at the pointer, and presses one time: a press that opens nothing fails.
 
 ## The rows of a table stay under the pointer
 
