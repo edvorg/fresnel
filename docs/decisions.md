@@ -2315,3 +2315,9 @@ A kubelet that is down, or that cannot reach the API server, sends no report whi
 goes on, and its node turns not ready. So a warning about a pod or a node is quiet only while
 that node is ready, and its 16 min count from the later of the last report and the start of
 that readiness.
+
+## The time limit of a probe can set its pace
+
+The kubelet runs a probe again only after its last run ended, so a time limit longer than the
+period sets the pace of its reports. The evidence of the pace takes the longer of the two, and a
+probe that runs less often than each 125 s stays unknown.

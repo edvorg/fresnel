@@ -37,7 +37,8 @@ use crate::store::ObjectKey;
 const REFILL: Duration = Duration::from_secs(300);
 /// The longest wait of the kubelet between two tries of the report of a problem that goes
 /// on, measured on k3s: a mount tries again after 122 s, a sync of a pod in a back-off after
-/// 10 to 15 s, and a probe after its period. A probe with a longer period gets no evidence.
+/// 10 to 15 s, and a probe after its period or its time limit, the longer one. A probe that
+/// runs less often gets no evidence.
 pub(super) const RETRY: Duration = Duration::from_secs(125);
 /// The longest time between two reports of a problem that goes on: one turn of the recorder
 /// and one retry, in whole minutes.

@@ -41,8 +41,8 @@ pub(super) fn probe(pod: &Pod, subject: &Subject<'_>, at: SystemTime) -> Problem
     if period(pod, subject).is_some_and(|period| period <= RETRY) { now } else { now.settled() }
 }
 
-/// The period of the probe that the message names, of the container of the field path.
-/// `None` when the spec of the pod does not give it.
+/// The time between two runs of the probe that the message names, of the container of the
+/// field path. `None` when the spec of the pod does not give it.
 fn period(pod: &Pod, subject: &Subject<'_>) -> Option<Duration> {
     let name = part_name(subject)?;
     let spec = pod.spec.as_ref()?;
@@ -54,8 +54,10 @@ fn period(pod: &Pod, subject: &Subject<'_>) -> Option<Duration> {
         ("Startup probe", &container.startup_probe),
     ];
     let (_, probe) = probes.into_iter().find(|(text, _)| subject.message.starts_with(text))?;
-    // The API gives a probe with no period 10 s.
-    let seconds = probe.as_ref()?.period_seconds.unwrap_or(10);
+    let probe = probe.as_ref()?;
+    // The API gives a probe with no period 10 s and with no time limit 1 s. A run starts after
+    // the end of the one before it, so a longer time limit sets the pace.
+    let seconds = probe.period_seconds.unwrap_or(10).max(probe.timeout_seconds.unwrap_or(1));
     Some(Duration::from_secs(u64::try_from(seconds).ok()?))
 }
 

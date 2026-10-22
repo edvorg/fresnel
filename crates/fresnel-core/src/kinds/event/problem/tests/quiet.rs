@@ -45,10 +45,17 @@ impl Bed {
     /// The scene with a liveness probe of this period on the container of `not-ready`, the
     /// index of these Events in a live store, at `time`.
     fn probed(&self, period: Option<i64>, events: &[Event], time: SystemTime) -> Witness {
-        let witness = self.with::<Pod>("not-ready", |pod| {
-            let probe = json!({"exec": {"command": ["false"]}, "failureThreshold": 1000, "periodSeconds": period});
-            pod["spec"]["containers"][0]["livenessProbe"] = probe;
-        });
+        self.with_probe(
+            json!({"exec": {"command": ["false"]}, "failureThreshold": 1000, "periodSeconds": period}),
+            events,
+            time,
+        )
+    }
+
+    /// The scene with this liveness probe on the container of `not-ready`, the index of these
+    /// Events in a live store, at `time`.
+    fn with_probe(&self, probe: Value, events: &[Event], time: SystemTime) -> Witness {
+        let witness = self.with::<Pod>("not-ready", |pod| pod["spec"]["containers"][0]["livenessProbe"] = probe);
         let (index, store) = self.reports(events, StoreState::Live, 0);
         Witness { at: time, ..witness }.with_reports(index, &store)
     }
@@ -190,6 +197,10 @@ fn a_probe_that_runs_seldom_or_that_the_spec_does_not_give_stays_unknown() {
     assert_eq!(judged(&slow, &event), state(Unknown, RUNS), "a period of 5 min");
     let edge = bed.probed(Some(125), std::slice::from_ref(&event), late);
     assert_eq!(judged(&edge, &event).0, Quiet(at(LAST).expect("a time")), "a period of the longest retry");
+    // A run starts after the end of the one before it: a long time limit sets the pace.
+    let waits = json!({"exec": {"command": ["sleep", "600"]}, "periodSeconds": 10, "timeoutSeconds": 300});
+    let waits = bed.with_probe(waits, std::slice::from_ref(&event), late);
+    assert_eq!(judged(&waits, &event), state(Unknown, RUNS), "a time limit of 5 min");
     let (index, store) = bed.reports(std::slice::from_ref(&event), StoreState::Live, 0);
     let no_probe = Witness { at: late, ..bed.scene(&fixture::all(), &fixture::all()) }.with_reports(index, &store);
     assert_eq!(judged(&no_probe, &event), state(Unknown, RUNS), "the spec has no liveness probe");
