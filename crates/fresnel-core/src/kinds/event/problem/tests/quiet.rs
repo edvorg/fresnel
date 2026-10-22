@@ -9,6 +9,8 @@ use crate::fixture::condition;
 use crate::index::{Index, IndexState, ObjectEvents};
 use crate::published::{Notice, Publisher};
 
+mod neither;
+
 /// The last report of each warning of these tests.
 const LAST: &str = "2026-10-13T17:58:50Z";
 /// The reason of a failed liveness probe of a container that runs since 17:58:27.
@@ -55,7 +57,13 @@ impl Bed {
     /// The scene with this liveness probe on the container of `not-ready`, the index of these
     /// Events in a live store, at `time`.
     fn with_probe(&self, probe: Value, events: &[Event], time: SystemTime) -> Witness {
-        let witness = self.with::<Pod>("not-ready", |pod| pod["spec"]["containers"][0]["livenessProbe"] = probe);
+        self.with_pod("not-ready", |pod| pod["spec"]["containers"][0]["livenessProbe"] = probe, events, time)
+    }
+
+    /// The scene with a change of the pod `name`, the index of these Events in a live store,
+    /// at `time`.
+    fn with_pod(&self, name: &str, change: impl FnOnce(&mut Value), events: &[Event], time: SystemTime) -> Witness {
+        let witness = self.with::<Pod>(name, change);
         let (index, store) = self.reports(events, StoreState::Live, 0);
         Witness { at: time, ..witness }.with_reports(index, &store)
     }
@@ -276,4 +284,20 @@ fn the_silence_counts_only_while_the_node_of_the_kubelet_is_ready() {
     let scene = Witness { at: late, ..bed.scene(&fixture::all(), &fixture::all()) }.with_reports(index, &store);
     let down = bed.on_node(&scene, Some(("Unknown", EARLY)));
     assert_eq!(judged(&down, &shortage).0, Unknown, "the node of the kubelet is not ready");
+}
+
+/// A new Event index or a new count of dropped Events can change a state: a view that holds
+/// the witness judges again.
+#[test]
+fn a_new_event_index_or_a_new_count_of_dropped_events_is_an_other_witness() {
+    let bed = Bed::new();
+    let event = liveness();
+    let witness = bed.probed(Some(10), std::slice::from_ref(&event), since_last(QUIET_AFTER));
+    assert!(witness.is_same(&witness.clone()));
+    let (index, store) = bed.reports(std::slice::from_ref(&event), StoreState::Live, 0);
+    let indexed = witness.clone().with_reports(index.clone(), &store);
+    assert!(!witness.is_same(&indexed), "a new index");
+    let (_, dropped) = bed.reports(&[], StoreState::Live, 1);
+    assert!(!indexed.is_same(&indexed.clone().with_reports(index, &dropped)), "a store that dropped Events");
+    assert!(!witness.is_same(&Witness { reports: None, ..witness.clone() }), "no index");
 }
