@@ -11,7 +11,7 @@
 //! - `keys`: the keys. `widths`: the widths of the columns. `choice`: the columns that show.
 //! - `layout`: the widths and the columns that the state file keeps.
 //! - `edges`: the handle at the right of each column, for a drag and a double click.
-//! - `steady`: the place of the rows under the pointer when a part above the table goes away.
+//! - `steady`: the place of the rows under the pointer when a part above the table changes.
 //! - `selection`: the selected objects. `select`: what a click and a key do to them.
 
 pub(crate) mod cells;
@@ -31,7 +31,7 @@ mod widths;
 use std::sync::Arc;
 use std::time::Duration;
 
-use egui::{EventFilter, Sense, Ui};
+use egui::{EventFilter, Rect, Sense, Ui, UiBuilder};
 use fresnel_core::net::task::Tasks;
 use fresnel_core::state_file::TableLayout;
 
@@ -181,8 +181,9 @@ impl<M: Model> Table<M> {
         }
     }
 
-    /// Draws the table into the rest of `ui`. `empty` tells why the table has no row, and
-    /// `menu` draws the menu of the row of an object. Gives what the user did to the cursor.
+    /// Draws the table into the rest of `ui`, at the place of `steady`. `empty` tells why the
+    /// table has no row, and `menu` draws the menu of the row of an object. Gives what the
+    /// user did to the cursor.
     pub(crate) fn show(
         &mut self,
         ui: &mut Ui,
@@ -190,22 +191,41 @@ impl<M: Model> Table<M> {
         empty: impl FnOnce() -> String,
         menu: &mut dyn FnMut(&mut Ui, &ObjectId),
     ) -> Option<Act> {
-        self.steady.hold(ui);
+        let place = self.steady.place(ui);
+        let builder = UiBuilder::new().max_rect(place.table);
+        let draw = |ui: &mut Ui| {
+            ui.set_clip_rect(place.clip);
+            self.draw(ui, place.shown, scene, empty, menu)
+        };
+        ui.scope_builder(builder, draw).inner
+    }
+
+    /// Draws the table into `ui`. Its parts above `shown` do not show.
+    fn draw(
+        &mut self,
+        ui: &mut Ui,
+        shown: Rect,
+        scene: &M::Scene,
+        empty: impl FnOnce() -> String,
+        menu: &mut dyn FnMut(&mut Ui, &ObjectId),
+    ) -> Option<Act> {
         let palette = theme::palette(ui);
         if let Some(rest) = self.supply.time_to_slow() {
             // The frame after this time tells that the table waits for its rows.
             ui.ctx().request_repaint_after(rest);
         }
-        let Some(shown) = self.supply.rows() else {
+        let Some(computed) = self.supply.rows() else {
             let text = match self.supply.failure() {
                 Some(failure) => format!("The rows are not computed: the worker thread {failure}"),
                 None => "The rows are computed…".to_owned(),
             };
+            ui.shrink_clip_rect(shown);
             cells::note(ui, palette, &text);
             return None;
         };
-        let rows = shown.rows.as_slice();
+        let rows = computed.rows.as_slice();
         if rows.is_empty() {
+            ui.shrink_clip_rect(shown);
             cells::note(ui, palette, &empty());
             return None;
         }
@@ -248,6 +268,7 @@ impl<M: Model> Table<M> {
         let mut delegate = Delegate {
             model,
             rows,
+            shown,
             scene,
             palette,
             columns,

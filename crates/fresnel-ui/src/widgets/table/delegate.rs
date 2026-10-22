@@ -3,7 +3,7 @@
 //! module turns it into the position of the column in the model. Only `table.rs` names
 //! that crate: it gives each call of it to the functions of this module.
 
-use egui::{Modifiers, Ui};
+use egui::{Modifiers, Rect, Ui};
 
 use super::cells;
 use super::edges::Seen;
@@ -14,6 +14,8 @@ use crate::theme::Palette;
 pub(super) struct Delegate<'a, M: Model> {
     pub(super) model: &'a M,
     pub(super) rows: &'a [M::Row],
+    /// The part of the place of the table that shows: no part above it paints or takes a press.
+    pub(super) shown: Rect,
     pub(super) scene: &'a M::Scene,
     pub(super) palette: &'static Palette,
     pub(super) columns: &'a [Column],
@@ -66,6 +68,7 @@ impl<M: Model> Delegate<'_, M> {
 impl<M: Model> Delegate<'_, M> {
     /// The title of the column at this position of the screen.
     pub(super) fn header(&mut self, ui: &mut Ui, position: usize) {
+        ui.shrink_clip_rect(self.shown);
         let column = self.column(position);
         if let Some((index, _)) = column {
             self.seen.title(ui, index, self.widths.get(position).copied());
@@ -95,6 +98,7 @@ impl<M: Model> Delegate<'_, M> {
         let Some((index, row)) = self.row(row_nr) else {
             return;
         };
+        ui.shrink_clip_rect(self.shown);
         let id = self.model.id(row).clone();
         let (selected, is_cursor) = (self.selection.contains(&id), self.selection.cursor() == Some(&id));
         self.seen.row(ui);
@@ -107,6 +111,7 @@ impl<M: Model> Delegate<'_, M> {
 
     /// The cell of a row at this position of the screen.
     pub(super) fn cell(&mut self, ui: &mut Ui, row_nr: u64, position: usize) {
+        ui.shrink_clip_rect(self.shown);
         if cells::is_clipped(ui) {
             return;
         }

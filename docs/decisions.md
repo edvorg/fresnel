@@ -999,10 +999,9 @@ frame has the node at the pointer, and presses one time: a press that opens noth
 ## The rows of a table stay under the pointer
 
 egui gives a press to the widget that the frame before had at the pointer, and a person aims at
-an earlier frame. A note above a table goes away when its store becomes live: the rows moved
-up, and a click opened the row below the aimed one. So while the pointer is over the table, it
-keeps its top, and the place of the note stays empty. A new note moves the rows down: it tells
-a change.
+an earlier frame. A note above a table comes or goes away with its store: the rows moved, and a
+click opened the row above or below the aimed one. So while the pointer is over the table or a
+press on it lasts, the table keeps its top. A new note covers the top of the table.
 
 ## The dock is a panel until the user can move a tab
 

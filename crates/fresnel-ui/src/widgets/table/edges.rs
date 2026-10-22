@@ -73,7 +73,8 @@ impl Seen {
     /// Takes a title of the frame, and its edge if it shows. `width` is the width of its
     /// column in this frame: a pass that measures lays a title out narrower.
     pub(super) fn title(&mut self, ui: &Ui, column: usize, width: Option<f32>) {
-        self.top = Some(ui.max_rect().top());
+        // A note above a table that keeps its place can cover the top of the titles.
+        self.top = Some(ui.max_rect().top().max(ui.clip_rect().top()));
         if let Some(edge) = width.and_then(|width| of_title(ui, column, width)) {
             self.edges.push(edge);
         }
